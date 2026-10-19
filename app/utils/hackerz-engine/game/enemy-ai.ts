@@ -194,7 +194,7 @@ export class EnemyAi {
             // Behind a shield wall the ground's bite does not reach.
             // A unit still carrying its shield (a Warden) shrugs the ground off.
             // A demo unit does too, unless its scene is about the ground itself.
-            if (this.game.running && !this.game.purging && !enemy.turned && (!enemy.demoPath || this.game.demoScript?.ground) && this.game.territory.inHeldGround(enemy) && !this.game.squads.isSheltered(enemy) && enemy.guard <= 0) {
+            if (this.game.running && !this.game.purging && !enemy.turned && (!enemy.demoPath || this.game.demoDirector.demoScript?.ground) && this.game.territory.inHeldGround(enemy) && !this.game.squads.isSheltered(enemy) && enemy.guard <= 0) {
                 enemy.zoneTick += dtMs
                 // Sappers are built to run the gauntlet: they only feel every second tick.
                 if (enemy.zoneTick >= ZONE_TICK_MS && enemy.def.kind === 'bomber' && ++enemy.zoneTicks % 2 === 1) {

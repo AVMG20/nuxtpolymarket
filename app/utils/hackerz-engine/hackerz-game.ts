@@ -1,16 +1,14 @@
 import * as THREE from 'three'
-import { randomFloat, seededRng, withSeed } from './rng'
 import type { DemoScript } from '../hackerz-demo-scripts'
 import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
-    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_DEPLOYABLE_MAX, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID,
-    HACKERZ_MAX_WAVE, HACKERZ_PURGE_BOUNTY, HACKERZ_WAVE_MS, hackerzClearBonus, hackerzDeployable, hackerzEnemy,
-    hackerzIsAirborne, hackerzIsBossWave, hackerzNetworkEvent, type HackerzDeployableId, type HackerzEnemyId,
-    type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
+    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_WAVE,
+    HACKERZ_PURGE_BOUNTY, HACKERZ_WAVE_MS, hackerzClearBonus, hackerzDeployable, hackerzEnemy, hackerzIsAirborne,
+    hackerzIsBossWave, hackerzNetworkEvent, type HackerzDeployableId, type HackerzEnemyId, type HackerzEventId,
+    type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
-    FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, GUN_Z,
-    WALL_HEIGHT
+    FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, GUN_Z, WALL_HEIGHT
 } from './constants'
 import { clamp, randRange } from './math'
 import { PathChips } from './path-chips'
@@ -57,15 +55,9 @@ import { Squads } from './game/squads'
 import { Spawner } from './game/spawner'
 import { EnemyAi } from './game/enemy-ai'
 import { Input } from './game/input'
+import { DemoDirector } from './game/demo'
 
 const FINAL_PUSH_SPEED = 1.35
-
-/** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
-const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
-
-/** A demo board's fixed step, and the seed every loop of it starts from. */
-const DEMO_STEP_MS = 1000 / 60
-const DEMO_SEED = 0x5eed
 
 /** Auto-play offers Laya this many hostiles to choose between, and counts this close to the wall as near. */
 const AUTOPILOT_CONTACTS = 5
@@ -137,22 +129,10 @@ export class HackerzGame {
     private shake = 0
     elapsedTotal = 0
     /** The picture's clock: drives every shader animation, and stands still during a packet-loss spike. */
-    private visualTime = 0
+    visualTime = 0
 
     /** A Database demo board (see `mountDemo`), the spot its camera is held on, and whether it cuts there. */
     demo = false
-    private demoFocus: { u: number, d: number } | null = null
-    private demoSnap = true
-    /** The demo's script, its seeded rolls, its clock, the next step due, and where its lines go. */
-    demoScript: DemoScript | null = null
-    private demoRng: (() => number) | null = null
-    private demoTime = 0
-    private demoNext = 0
-    private demoAccumMs = 0
-    private demoSay: ((line: string) => void) | null = null
-    /** How far the demo camera is pulled back, and what the script has the rail firing at. */
-    private demoZoom = 1
-    private demoFiring: 'lead' | 'node' | null = null
 
     // ── Systems: each owns its part of the game (see ./game) ──
     readonly healers = new Healers(this)
@@ -179,6 +159,7 @@ export class HackerzGame {
     readonly spawner = new Spawner(this)
     readonly enemyAi = new EnemyAi(this)
     readonly input = new Input(this)
+    readonly demoDirector = new DemoDirector(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -445,269 +426,53 @@ export class HackerzGame {
         await this.mount(host)
         if (!this.mounted) return false
         this.startRun({ loadout })
-        this.demoReset()
+        this.demoDirector.demoReset()
         return true
     }
 
-    /**
-     * Plays a script on the demo board, from the top and on a loop. `say`
-     * hears each line it prints. Every loop is identical: the board, the
-     * rolls and the clock all start over from the same seed.
-     */
+    /** See `DemoDirector.demoPlay`. */
     demoPlay(script: DemoScript, loadout: HackerzLoadout, say: (line: string) => void) {
-        if (!this.demo) return
-        this.demoScript = script
-        this.demoSay = say
-        this.loadout = loadout
-        this.demoReset()
+        return this.demoDirector.demoPlay(script, loadout, say)
     }
 
-    /**
-     * Fires the rail for the script: locked on the hostile nearest the fence
-     * (and the next one when it falls), at the hacked node furthest out, or —
-     * with null — not at all.
-     */
+    /** See `DemoDirector.demoFire`. */
     demoFire(at: 'lead' | 'node' | null) {
-        if (!this.demo) return
-        this.demoFiring = at
-        this.rail.holding = at !== null
-        if (!at) this.rail.target = null
+        return this.demoDirector.demoFire(at)
     }
 
-    /** Sets off one of the rail's abilities for the script, charged or not. */
+    /** See `DemoDirector.demoAbility`. */
     demoAbility(id: 'pulse' | 'overclock' | 'ping') {
-        const loadout = this.loadout
-        if (!this.demo || !loadout) return
-        if (id === 'pulse') {
-            this.abilities.pulseCharge = loadout.pulseCooldownMs
-            this.abilities.firePulse()
-        } else if (id === 'overclock') {
-            this.abilities.overclockLeft = 0
-            this.abilities.overclockCharge = loadout.overclockCooldownMs
-            this.abilities.fireOverclock()
-        } else {
-            this.abilities.firePing(true)
-        }
+        return this.demoDirector.demoAbility(id)
     }
 
-    /**
-     * Puts a hostile on the demo board that thinks for itself, as in a wave —
-     * a hacker that goes for the nodes, a daemon that takes up a node's
-     * guard. The board's seeded rolls keep what it decides the same every loop.
-     */
+    /** See `DemoDirector.demoSpawnFree`. */
     demoSpawnFree(id: HackerzEnemyId, u: number, d: number) {
-        if (!this.demo) return
-        this.debugSpawn(id, u, d)
-        const enemy = this.enemies[this.enemies.length - 1]
-        if (enemy) this.demoSettle(enemy)
+        return this.demoDirector.demoSpawnFree(id, u, d)
     }
 
-    /** Keeps the rail's lock for the script: on the next hostile when its mark falls, or on the outermost hacked node. */
-    private demoAim() {
-        if (this.demoFiring === 'lead') {
-            if (this.rail.target && this.rail.target.hp > 0 && this.enemies.includes(this.rail.target)) return
-            this.rail.target = this.enemies
-                .filter(e => e.hp > 0 && !e.turned && !this.combat.untargetable(e))
-                .sort((a, b) => a.d - b.d)[0] ?? null
-        } else if (this.demoFiring === 'node') {
-            const chip = this.pathChips?.ordered.find(c => c.state === 'hacked')
-            this.rail.target = null
-            if (chip) {
-                this.rail.aimU = chip.u
-                this.rail.aimD = chip.d
-            }
-        }
-    }
-
-    /** Puts the demo board back to a fresh, empty wave over the same seeded board: the script's loop point. */
+    /** See `DemoDirector.demoReset`. */
     demoReset() {
-        const loadout = this.loadout
-        if (!this.demo || !loadout) return
-        this.demoRng = seededRng(DEMO_SEED)
-        withSeed(this.demoRng, () => {
-            this.clearField()
-            this.pathChips?.reset()
-            this.movement.network = buildNetwork(this.pathChips?.ordered ?? [])
-            this.view?.setNetwork(this.movement.network)
-            this.territory.islands = []
-            this.elapsedTotal = 0
-            this.visualTime = 0
-            this.startWave(1, loadout)
-            this.spawner.schedule = []
-            this.waveMs = Infinity
-            // A wave carries the wall's damage over; a demo loop starts whole,
-            // and so do the guns on it: no reload or aim left from the last loop.
-            this.bastion.wallHp = this.bastion.wallMaxHp
-            this.bastion.shield = this.bastion.shieldMax
-            // The rail, the barrier's regen clock and the kill chain start fresh too.
-            this.rail.railHeading = Math.PI
-            this.rail.railU = RAIL_U
-            this.rail.railKick = 0
-            this.bastion.msSinceWallHit = 99_999
-            this.bastion.shieldHit = 0
-            this.scoring.chain = 0
-            this.scoring.totalKills = 0
-            this.abilities.pingCharge = PING_COOLDOWN_MS
-            // Dark zones fade in and out: one lit in the last scene must not still be fading here.
-            for (const zone of this.territory.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
-            this.territory.darkness = 0
-            // Their ground pours rather than jumps, so it is poured back out to the portal: no red left over.
-            this.view?.redLine.fill(FIELD_DEPTH)
-            this.view?.orangeLine.fill(FIELD_DEPTH)
-            // Reused or freshly built, every mount starts as a new one stands: facing home, ready to fire.
-            for (const mount of this.battery.turrets) {
-                mount.cooldown = 0
-                mount.kick = 0
-                mount.heading = Math.PI
-                mount.frozenMs = 0
-            }
-        })
-        this.overlay.clear()
-        this.demoTime = 0
-        this.demoNext = 0
-        this.demoAccumMs = 0
-        this.demoFocus = null
-        this.demoZoom = 1
-        this.demoSnap = true
-        this.demoFire(null)
-        this.demoSay?.('')
+        return this.demoDirector.demoReset()
     }
 
-    /**
-     * A demo board steps at a fixed rate, whatever the display does, and its
-     * script fires on that clock — so a slow frame never changes what happens.
-     */
-    private demoFrame(rawMs: number) {
-        // The models' clock is shared with the game that may be running
-        // underneath: the demo drives it on its own time while it steps (its
-        // poses are part of what it replays), then hands the game's back.
-        const gameClock = modelClock.value
-        try {
-            this.demoSteps(rawMs)
-        } finally {
-            modelClock.value = gameClock
-        }
-    }
-
-    private demoSteps(rawMs: number) {
-        this.demoAccumMs = Math.min(this.demoAccumMs + rawMs, DEMO_STEP_MS * 4)
-        while (this.demoAccumMs >= DEMO_STEP_MS) {
-            this.demoAccumMs -= DEMO_STEP_MS
-            const script = this.demoScript
-            if (script && this.demoTime >= script.length) this.demoReset()
-            const rng = this.demoRng
-            if (!rng) return
-            withSeed(rng, () => {
-                this.demoTime += DEMO_STEP_MS
-                const steps = this.demoScript?.steps ?? []
-                while (this.demoNext < steps.length && steps[this.demoNext]!.at <= this.demoTime) {
-                    const step = steps[this.demoNext++]!
-                    if (step.say !== undefined) this.demoSay?.(step.say)
-                    step.run?.(this)
-                }
-                this.demoAim()
-                this.tick(DEMO_STEP_MS)
-            })
-        }
-    }
-
-    /**
-     * Points the demo camera at a spot on the board, or back to following the
-     * hostiles with null. `zoom` above 1 pulls it back to take in more: the
-     * fence and the guns on it, or a run of nodes.
-     */
+    /** See `DemoDirector.demoLook`. */
     demoLook(at: { u: number, d: number } | null, zoom = 1) {
-        this.demoFocus = at
-        this.demoZoom = zoom
+        return this.demoDirector.demoLook(at, zoom)
     }
 
-    /**
-     * The demo's camera: in close behind whatever the script is showing — a
-     * spot it named, or else the middle of the hostiles on the board — and
-     * easing after it as they move.
-     */
-    private demoCamera(dt: number) {
-        const view = this.view
-        if (!view) return
-        let u = 0
-        let d = FIELD_DEPTH * 0.5
-        const live = this.enemies.filter(e => e.hp > 0)
-        if (this.demoFocus) {
-            u = this.demoFocus.u
-            d = this.demoFocus.d
-        } else if (live.length) {
-            u = live.reduce((sum, e) => sum + e.u, 0) / live.length
-            d = live.reduce((sum, e) => sum + e.d, 0) / live.length
-        }
-        const aim = fieldToWorld(u, d, 0, _v)
-        view.cameraTarget.lerp(aim, this.demoSnap ? 1 : 1 - Math.exp(-dt * 2.2))
-        view.cameraHome.copy(view.cameraTarget).addScaledVector(DEMO_CAMERA_OFFSET, this.demoZoom)
-        this.demoSnap = false
-    }
-
-    /**
-     * Puts a hostile on the demo board at the first waypoint of `path`; it
-     * walks the rest in order, off the network and out of its own judgement.
-     */
+    /** See `DemoDirector.demoSpawn`. */
     demoSpawn(id: HackerzEnemyId, path: { u: number, d: number }[]) {
-        const start = path[0]
-        if (!this.demo || !start) return
-        // Set down where it stands, as a hatching spiderling is: it resolves out
-        // of the dark on the spot, and the portal shows nothing of it.
-        this.spawner.spawn(hackerzEnemy(id), false, 1, start)
-        const enemy = this.enemies[this.enemies.length - 1]
-        if (!enemy) return
-        enemy.route = null
-        enemy.demoPath = path.slice(1).map(point => ({ ...point }))
-        this.demoSettle(enemy)
-        placeEnemy(enemy)
+        return this.demoDirector.demoSpawn(id, path)
     }
 
-    /**
-     * A spawn starts its walk cycle and a flyer its bob at a cosmetic random
-     * phase; on a demo board those come from the seeded roll too — a flyer's
-     * bob is where shots aim — so the replay matches.
-     */
-    private demoSettle(enemy: EnemyEntity) {
-        enemy.stride = randomFloat() * Math.PI * 2
-        enemy.hover = randomFloat() * Math.PI * 2
-    }
-
-    /** Hands the `count` outermost nodes to the intrusion. */
+    /** See `DemoDirector.demoHack`. */
     demoHack(count: number) {
-        const chips = this.pathChips
-        if (!this.demo || !chips) return
-        const taken = chips.ordered.slice(0, count)
-        for (const chip of taken) chips.landPulse(chip, 1)
-        if (taken.length) {
-            this.demoLook({
-                u: taken.reduce((sum, chip) => sum + chip.u, 0) / taken.length,
-                d: taken.reduce((sum, chip) => sum + chip.d, 0) / taken.length
-            })
-        }
+        return this.demoDirector.demoHack(count)
     }
 
-    /**
-     * Uses a deployable on the demo board as a player would: placed at (u, d),
-     * fired on the spot when it has nothing to aim, or — a White Hat — put on
-     * the hostile nearest (u, d). The demo's stock never runs out.
-     */
+    /** See `DemoDirector.demoDeploy`. */
     demoDeploy(id: HackerzDeployableId, u: number, d: number) {
-        if (!this.demo) return
-        this.deployer.stock[id] = HACKERZ_DEPLOYABLE_MAX
-        if (hackerzDeployable(id).instant) {
-            this.deployer.useInstant(id)
-            return
-        }
-        if (id === 'whitehat') {
-            const pick = this.enemies
-                .filter(e => this.whiteHats.turnable(e))
-                .sort((a, b) => Math.hypot(a.u - u, a.d - d) - Math.hypot(b.u - u, b.d - d))[0]
-            this.deployer.useWhiteHat(pick ?? null)
-            return
-        }
-        // Exactly where the script says: no snapping to a line or a node.
-        this.deployer.drop(id, u, d, null)
+        return this.demoDirector.demoDeploy(id, u, d)
     }
 
     private loop = (now: number) => {
@@ -715,7 +480,7 @@ export class HackerzGame {
         this.raf = requestAnimationFrame(this.loop)
         const rawMs = now - this.lastTime
         this.lastTime = now
-        if (this.demo) this.demoFrame(rawMs)
+        if (this.demo) this.demoDirector.demoFrame(rawMs)
         else this.tick(rawMs)
     }
 
@@ -909,7 +674,7 @@ export class HackerzGame {
 
     // ─── Main loop ───────────────────────────────────────────────────────────
 
-    private tick(rawMs: number) {
+    tick(rawMs: number) {
         const view = this.view
         if (this.destroyed || !view) return
         // A backgrounded tab hands back one enormous frame on return; stepping
@@ -1001,7 +766,7 @@ export class HackerzGame {
             fog.far = 120 - 58 * this.territory.darkness
         }
 
-        if (this.demo) this.demoCamera(dt)
+        if (this.demo) this.demoDirector.demoCamera(dt)
         view.render(frozen ? 0 : dt, this.shake)
         this.drawOverlay(frozen ? 0 : dt)
 
@@ -1221,7 +986,7 @@ export class HackerzGame {
 
     // ─── Housekeeping ────────────────────────────────────────────────────────
 
-    private clearField() {
+    clearField() {
         while (this.enemies.length) this.combat.removeEnemy(this.enemies.length - 1)
         for (const bullet of this.projectiles.bullets) bullet.mesh.removeFromParent()
         this.projectiles.bullets = []
