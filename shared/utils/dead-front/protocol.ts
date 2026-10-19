@@ -15,6 +15,8 @@ export interface DfLobbyMember {
     name: string
     ready: boolean
     host: boolean
+    /** Their connection dropped: they keep their place for a while (a server restart, a blip). */
+    away?: boolean
 }
 
 export interface DfLobbySummary {
@@ -298,8 +300,13 @@ export type DfClientMsg =
     | { t: 'ready', ready: boolean }
     | { t: 'start' } // host only; everyone needs to be ready
     | { t: 'chat', text: string }
+    /**
+     * After a reconnect that found no lobby (the server restarted): put the squad
+     * back together under the old lobby id. `host` is who led it, so they lead again.
+     */
+    | { t: 'rejoin', id: string, host?: string }
     /** 20 Hz movement report. The server clamps speed and collides against the map. */
-    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number }
+    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, /** The client's round trip (ms), for lag-fair zombie swings. */ rtt?: number }
     /**
      * One trigger pull. `dir` is per pellet for shotguns. Hits are claimed by
      * the client (shared hit test) and validated by the server against its own

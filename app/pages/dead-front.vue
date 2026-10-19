@@ -186,6 +186,11 @@ const end = shallowRef<DfMatchEnd | null>(null)
 const profile = ref<DfProfileView | null>(null)
 const profileError = ref(false)
 const pendingSolo = ref(false)
+/** The lobby we were last in, so a server restart that lost it can be put back together. */
+let lastLobby: { id: string, host?: string } | null = null
+/** The socket came back after a drop: the next lobby message says what survived. */
+let resync = false
+let everOpen = false
 
 // Settings live in this browser; the match reads them again when it mounts.
 const settings = ref<DfSettings>(dfLoadSettings())
@@ -286,6 +291,10 @@ onMounted(() => {
         n.onStatus((s) => {
             status.value = s
             attempts.value = n.attempts
+            if (s === 'open') {
+                resync = everOpen
+                everOpen = true
+            }
         }),
         n.on('hello', (m) => {
             me.value = m.userId
@@ -294,6 +303,21 @@ onMounted(() => {
             lobbies.value = m.lobbies
         }),
         n.on('lobby', (m) => {
+            if (resync) {
+                resync = false
+                if (start.value && m.lobby?.state !== 'playing') {
+                    // the match didn't survive the drop
+                    start.value = null
+                    toast.add({ title: m.lobby ? 'The match ended while you were reconnecting' : 'The server restarted and the match was lost', color: 'warning' })
+                }
+                if (!m.lobby && lastLobby) {
+                    // the server restarted and lost the lobby: rebuild it and keep showing it meanwhile
+                    send({ t: 'rejoin', ...lastLobby })
+                    if (lobby.value) lobby.value = { ...lobby.value, state: 'lobby' }
+                    return
+                }
+            }
+            lastLobby = m.lobby ? { id: m.lobby.id, host: m.lobby.members.find(x => x.host)?.userId } : null
             const prev = lobby.value?.id
             lobby.value = m.lobby
             if (!m.lobby || m.lobby.id !== prev) chat.value = []

@@ -60,7 +60,7 @@ export const DF_PERKS: Record<DfPerkId, DfPerkDef> = {
             { id: 'quickhand-scavenger', level: 3, name: 'Scavenger', description: 'Kills have a 25% chance to slip a round back into the magazine.', effects: { ammoOnKillChance: 0.25 } },
             { id: 'quickhand-bandolier', level: 4, name: 'Bandolier', description: 'Carry 30% more reserve ammunition.', effects: { reserveAmmoMult: 1.3 } },
             { id: 'quickhand-speedloader', level: 5, name: 'Speedloader', description: 'Reload a further 25% faster.', effects: { reloadMult: 1.25 } },
-            { id: 'quickhand-tinker', level: 6, name: 'Field Tinker', description: 'Raise your sights 20% faster after every reload and swap.', effects: { adsMult: 1.2, swapMult: 1.15 } }
+            { id: 'quickhand-tinker', level: 6, name: 'Field Tinker', description: 'Raise your sights 20% faster and swap weapons 15% faster.', effects: { adsMult: 1.2, swapMult: 1.15 } }
         ]
     },
     twinfire: {
@@ -72,11 +72,11 @@ export const DF_PERKS: Record<DfPerkId, DfPerkDef> = {
         description: 'Fire 33% faster and hit 10% harder.',
         effects: { fireRateMult: 1.33, damageMult: 1.1 },
         modifiers: [
-            { id: 'twinfire-doubletap', level: 1, name: 'Double Tap', description: 'Each shot fires an extra bullet at 30% damage.', effects: { doubleTapBullets: 1 } },
+            { id: 'twinfire-doubletap', level: 1, name: 'Double Tap', description: 'Bullets hit 30% harder, as if a second round followed each one.', effects: { doubleTapBullets: 1 } },
             { id: 'twinfire-hotload', level: 2, name: 'Hot Load', description: 'Weapon damage +12%.', effects: { damageMult: 1.12 } },
             { id: 'twinfire-hairtrigger', level: 3, name: 'Hair Trigger', description: 'Fire another 15% faster, with 10% more recoil.', effects: { fireRateMult: 1.15, recoilMult: 1.1 } },
             { id: 'twinfire-deepmags', level: 4, name: 'Deep Crates', description: 'Carry 20% more reserve ammunition.', effects: { reserveAmmoMult: 1.2 } },
-            { id: 'twinfire-tripletap', level: 5, name: 'Triple Tap', description: 'Two extra bullets per shot, but 5% slower fire.', effects: { doubleTapBullets: 2, fireRateMult: 0.95 } },
+            { id: 'twinfire-tripletap', level: 5, name: 'Triple Tap', description: 'Bullets hit 60% harder, but fire 5% slower.', effects: { doubleTapBullets: 2, fireRateMult: 0.95 } },
             { id: 'twinfire-bounty', level: 6, name: 'Bounty', description: 'Earn 15% more points.', effects: { pointsMult: 1.15 } }
         ]
     },
@@ -108,7 +108,7 @@ export const DF_PERKS: Record<DfPerkId, DfPerkDef> = {
         modifiers: [
             { id: 'fleetfoot-lunge', level: 1, name: 'Bayonet Lunge', description: 'Your knife lunges 1.5 metres further.', effects: { meleeLunge: 1.5 } },
             { id: 'fleetfoot-marathon', level: 2, name: 'Marathon', description: 'Sprint 6 seconds longer.', effects: { sprintDuration: 6 } },
-            { id: 'fleetfoot-runner', level: 3, name: 'Trench Runner', description: 'Aim 20% faster after a dash.', effects: { adsMult: 1.2 } },
+            { id: 'fleetfoot-runner', level: 3, name: 'Trench Runner', description: 'Raise your sights 20% faster.', effects: { adsMult: 1.2 } },
             { id: 'fleetfoot-light', level: 4, name: 'Travel Light', description: 'Move another 6% faster.', effects: { moveMult: 1.06 } },
             { id: 'fleetfoot-cutthroat', level: 5, name: 'Cutthroat', description: 'Knife damage +50%.', effects: { meleeMult: 1.5 } },
             { id: 'fleetfoot-courier', level: 6, name: 'Courier', description: 'Swap weapons 25% faster and sprint 5% faster.', effects: { swapMult: 1.25, sprintMult: 1.05 } }

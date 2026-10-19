@@ -6,7 +6,7 @@ import type { DfProfileView, DfProgressReport, DfWeaponId } from '#shared/utils/
 import { dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { DfHub } from '#server/utils/dead-front/hub'
 import type { DfSocket } from '#server/utils/dead-front/hub'
-import { DfMatchSim } from '#server/utils/dead-front/sim'
+import { DF_STALE_INPUT, DfMatchSim } from '#server/utils/dead-front/sim'
 
 // The co-op loop: last stand, revives, bleed-out and respawn, dropped
 // players, solo Second Wind, and the host leaving mid-match.
@@ -38,6 +38,26 @@ function makeSim(start: DfWeaponId[] = ['m1911', 'm1911']) {
 const knockDown = (sim: DfMatchSim, pid: number) => sim['hurtPlayer'](sim.player(pid)!, 10_000, 1, false)
 
 describe('last stand', () => {
+    it('keeps the Second Wind Last Stand mod for the down that took the perk', () => {
+        const { sim, tick } = makeSim()
+        const a = sim.player(0)!
+        a.setup.perkMods = { secondwind: ['secondwind-laststand'] }
+        a.perks = ['secondwind']
+        sim['setEffects'](a)
+        knockDown(sim, 0)
+        expect(a.perks).toEqual([])
+        expect(a.effects.lastStandDamageMult).toBe(1.75)
+        const b = sim.player(1)!
+        b.pos = { x: 0.8, y: 0, z: 0 }
+        sim.revive(1, 0)
+        tick(DF_PLAYER.reviveTime + DF_REVIVE_GRACE + 0.2)
+        expect(a.life).toBe('alive')
+        // no Second Wind bought back: the next down is a plain one
+        knockDown(sim, 0)
+        expect(a.life).toBe('down')
+        expect(a.effects.lastStandDamageMult).toBe(1)
+    })
+
     it('hands a downed player their own pistol and gives back the gun they held on revive', () => {
         const { sim, tick } = makeSim()
         const a = sim.player(0)!
@@ -237,5 +257,59 @@ describe('host leaving mid-match', () => {
         await flush()
         expect(b.last('end')).toBeDefined()
         expect(hub.summaries()).toEqual([])
+    })
+})
+
+describe('lag', () => {
+    function lagSim(players: number) {
+        let clock = 100
+        const sim = new DfMatchSim(Array.from({ length: players }, (_, i) => ({ userId: `u${i}`, name: `u${i}`, startWeapon: 'm1911' as DfWeaponId, attachments: {}, perkMods: {} })), { map: MAP, now: () => clock, startDelay: 1000 })
+        const report = (pid: number) => sim.input(pid, { seq: Math.round(clock * 20), pos: { ...sim.player(pid)!.pos }, yaw: 0, pitch: 0, flags: 0, rtt: 80 })
+        return { sim, report, wait: (s: number) => { clock += s } }
+    }
+
+    it('holds a solo match still while the player\'s reports stall', () => {
+        const { sim, report, wait } = lagSim(1)
+        report(0)
+        expect(sim.soloStalled).toBe(false)
+        wait(DF_STALE_INPUT + 0.1)
+        expect(sim.soloStalled).toBe(true)
+        report(0)
+        expect(sim.soloStalled).toBe(false)
+    })
+
+    it('waits for a reconnected solo player\'s first report before calling it a stall', () => {
+        const { sim, report, wait } = lagSim(1)
+        report(0)
+        sim.setConnected(0, false)
+        sim.setConnected(0, true)
+        wait(2)
+        expect(sim.soloStalled).toBe(false)
+        report(0)
+        wait(DF_STALE_INPUT + 0.1)
+        expect(sim.soloStalled).toBe(true)
+    })
+
+    it('gives no lag shield to stalls back to back', () => {
+        const { sim, report, wait } = lagSim(2)
+        const a = sim.player(0)!
+        report(0)
+        wait(1)
+        report(0)
+        wait(1)
+        sim['hurtPlayer'](a, 30, 1, false)
+        expect(a.health).toBe(a.effects.maxHealth - 30)
+    })
+
+    it('lets no zombie land on a player whose reports stalled, unless they are long gone', () => {
+        const { sim, report, wait } = lagSim(2)
+        const a = sim.player(0)!
+        report(0)
+        wait(DF_STALE_INPUT + 0.1)
+        sim['hurtPlayer'](a, 30, 1, false)
+        expect(a.health).toBe(a.effects.maxHealth)
+        wait(5)
+        sim['hurtPlayer'](a, 30, 1, false)
+        expect(a.health).toBe(a.effects.maxHealth - 30)
     })
 })

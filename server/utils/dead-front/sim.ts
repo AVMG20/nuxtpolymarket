@@ -80,6 +80,19 @@ const MAX_FIRE_TOKENS = 2.5
 const FIRE_BURST_SECONDS = 0.35
 /** Zombie swipes connect within this much of attack range + the player's radius (a step back makes them miss). */
 const SWIPE_SLACK = 0.15
+/**
+ * A swing waits out its target's lag before it lands: their round trip plus the
+ * client's zombie interpolation, so a step back made on their screen as the arm
+ * came down has reached the server by then. Capped so a bad line can't dodge forever.
+ */
+const SWING_LAG_EXTRA = 0.05
+const SWING_LAG_MAX = 0.3
+/** Seconds without movement reports after which the server no longer knows where a player is. */
+export const DF_STALE_INPUT = 0.35
+/** Past this the player isn't lagging but gone (a tabbed-out co-op player): zombies land again. */
+const STALE_INPUT_MAX = 3
+/** A stall within this long of the previous one gets no lag shield (a line that keeps stalling, or a client that stalls on purpose). */
+const STALL_SHIELD_COOLDOWN = 10
 /** Players further than this, or out of sight, don't see a stuck zombie being recycled. */
 const UNSEEN_RANGE = 32
 /** Chance each mystery box roll ends with the box moving to another spot (roll refunded). */
@@ -223,6 +236,7 @@ export class DfMatchSim {
             plankPoints: 0,
             secondwindBuys: 0,
             lastInputAt: this.now(),
+            rtt: 0,
             moveBudget: 2,
             fireTokens: MAX_FIRE_TOKENS,
             fireTokensAt: this.now(),
@@ -315,6 +329,7 @@ export class DfMatchSim {
         p.connected = connected
         if (connected) {
             p.lastInputAt = this.now()
+            p.awaitingInput = true
             p.moveBudget = 2
             p.tp++
             // a fresh client (remounted game view) needs snapshots to resume: it re-pauses if it wants
@@ -322,6 +337,22 @@ export class DfMatchSim {
         } else {
             p.reviving = -1
         }
+    }
+
+    /**
+     * Solo and the player's movement reports have stopped arriving (a network stall,
+     * a frozen tab) while the socket is still up: the match layer holds the world
+     * still until they resume, so a hitch never walks the horde into a player who
+     * can't react.
+     */
+    get soloStalled(): boolean {
+        const p = this.players[0]
+        return this.solo && !!p && p.connected && p.life !== 'dead' && this.inputAge(p) > DF_STALE_INPUT
+    }
+
+    /** Seconds since the player's last movement report (0 before their client has sent any since joining or reconnecting). */
+    private inputAge(p: SimPlayer): number {
+        return p.seq > 0 && !p.awaitingInput ? this.now() - p.lastInputAt : 0
     }
 
     get connectedCount(): number {
@@ -395,14 +426,18 @@ export class DfMatchSim {
         }
     }
 
-    input(pid: number, msg: { seq: number, pos: Vec3, yaw: number, pitch: number, flags: number }): void {
+    input(pid: number, msg: { seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, rtt?: number }): void {
         const p = this.player(pid)
         if (!p) return
+        const hadInput = p.seq > 0 && !p.awaitingInput
         if (Number.isFinite(msg.seq) && msg.seq > p.seq) p.seq = Math.floor(msg.seq)
         if (Number.isFinite(msg.yaw)) p.yaw = msg.yaw
         if (Number.isFinite(msg.pitch)) p.pitch = clamp(msg.pitch, -1.6, 1.6)
         if (Number.isFinite(msg.flags)) p.flags = msg.flags & 0xff
+        if (Number.isFinite(msg.rtt)) p.rtt = clamp(msg.rtt! / 1000, 0, 1)
         const now = this.now()
+        if (hadInput && now - p.lastInputAt > DF_STALE_INPUT) p.lastStallEnd = now
+        p.awaitingInput = false
         const dt = clamp(now - p.lastInputAt, 0, 0.5)
         p.lastInputAt = now
         if (p.life === 'dead') return
@@ -1605,13 +1640,14 @@ export class DfMatchSim {
         z.anim = 'attack'
         z.timer = z.def.windup
         z.attackTarget = p.pid
+        z.swingPending = false
         z.yaw = Math.atan2(p.pos.x - z.pos.x, p.pos.z - z.pos.z)
     }
 
     private stepAttack(z: SimZombie, dt: number): void {
         const p = this.player(z.attackTarget)
         z.anim = 'attack'
-        if (p && p.life === 'alive') {
+        if (p && p.life === 'alive' && !z.swingPending) {
             // The swing commits: it tracks you only slowly, so a step aside or back makes it whiff.
             z.yaw = turnToward(z.yaw, Math.atan2(p.pos.x - z.pos.x, p.pos.z - z.pos.z), 2.5 * dt)
             z.heading = z.yaw
@@ -1623,6 +1659,13 @@ export class DfMatchSim {
             }
         }
         if (z.timer > 0) return
+        if (!z.swingPending && p && p.life === 'alive') {
+            // the arm is down: let the target's latest moves arrive before it lands
+            z.swingPending = true
+            z.timer = Math.min(SWING_LAG_MAX, p.rtt + SWING_LAG_EXTRA)
+            return
+        }
+        z.swingPending = false
         z.attackReadyAt = this.time + z.def.attackCooldown
         z.state = z.resume
         z.anim = z.state === 'tear' ? 'tear' : z.gait
@@ -2575,6 +2618,12 @@ export class DfMatchSim {
     private hurtPlayer(p: SimPlayer, raw: number, zombieId: number, explosive: boolean): void {
         if (p.life !== 'alive' || this.devGod.has(p.pid)) return
         if (zombieId >= 0 && this.time < p.invulnUntil) return
+        // No movement from them lately (a lag spike): we don't know where they really are, so a zombie can't land on them.
+        if (zombieId >= 0 && p.connected) {
+            const age = this.inputAge(p)
+            const shielded = this.now() - (p.lastStallEnd ?? -Infinity) > STALL_SHIELD_COOLDOWN
+            if (shielded && age > DF_STALE_INPUT && age < STALE_INPUT_MAX) return
+        }
         const dmg = explosive ? raw * p.effects.explosiveResistMult : raw
         if (!(dmg > 0)) return
         p.lastDamageAt = this.time
@@ -2601,6 +2650,8 @@ export class DfMatchSim {
         p.reload = null
         p.swapUntil = 0
         p.flags &= ~DF_FLAG.sprint
+        // The Last Stand mod comes with the Second Wind this down takes away: it still powers this last stand.
+        const lastStand = p.perks.includes('secondwind') ? p.effects.lastStandDamageMult : 1
         // Second Wind's self-revive: use one charge and keep the perk if charges remain.
         let keep: DfPerkId[] = []
         if (p.selfRevivesLeft > 0) {
@@ -2613,6 +2664,7 @@ export class DfMatchSim {
         }
         p.perks = keep
         this.setEffects(p)
+        p.effects.lastStandDamageMult = Math.max(p.effects.lastStandDamageMult, lastStand)
         if (!keep.length) p.selfRevivesLeft = 0
         // Last stand with a pistol: theirs if they carry one, otherwise their start pistol.
         // The weapon in hand comes back on revive.

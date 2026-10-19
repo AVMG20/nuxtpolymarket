@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DfHub } from '#server/utils/dead-front/hub'
+import { DF_LOBBY_GRACE_MS, DfHub } from '#server/utils/dead-front/hub'
 import type { DfSocket } from '#server/utils/dead-front/hub'
 import type { DfServerMsg } from '#shared/utils/dead-front/protocol'
 import type { DfProfileView, DfProgressReport } from '#shared/utils/dead-front/types'
@@ -102,6 +102,58 @@ describe('DfHub', () => {
         await flush()
         expect(applied.sort()).toEqual(['ua', 'ub'])
         expect(hub.summaries()).toEqual([])
+    })
+
+    it('holds a dropped member\'s place in the lobby for a while', () => {
+        const a = socket()
+        const b = socket()
+        hub.open(a, { id: 'ua', name: 'Alice' })
+        hub.open(b, { id: 'ub', name: 'Bob' })
+        send(a, { t: 'create' })
+        const id = a.last('lobby')!.lobby!.id
+        send(b, { t: 'join', id })
+        send(b, { t: 'ready', ready: true })
+        hub.close(b.id)
+        expect(a.last('lobby')!.lobby!.members[1]).toMatchObject({ userId: 'ub', away: true, ready: false })
+        const b2 = socket()
+        hub.open(b2, { id: 'ub', name: 'Bob' })
+        expect(b2.last('lobby')!.lobby!.id).toBe(id)
+        expect(a.last('lobby')!.lobby!.members[1]!.away).toBeUndefined()
+        // gone for good: the place expires
+        hub.close(b2.id)
+        vi.advanceTimersByTime(DF_LOBBY_GRACE_MS + 10)
+        expect(a.last('lobby')!.lobby!.members).toHaveLength(1)
+    })
+
+    it('lets the next member lead while the host is reconnecting', async () => {
+        const a = socket()
+        const b = socket()
+        hub.open(a, { id: 'ua', name: 'Alice' })
+        hub.open(b, { id: 'ub', name: 'Bob' })
+        send(a, { t: 'create' })
+        send(b, { t: 'join', id: a.last('lobby')!.lobby!.id })
+        hub.close(a.id)
+        expect(b.last('lobby')!.lobby!.members.find(m => m.host)!.userId).toBe('ub')
+        send(b, { t: 'start' })
+        await flush()
+        expect(b.last('start')).toBeDefined()
+    })
+
+    it('rebuilds a lobby a restart lost, with its old host in the lead', () => {
+        const b = socket()
+        hub.open(b, { id: 'ub', name: 'Bob' })
+        expect(b.last('lobby')?.lobby).toBeNull()
+        send(b, { t: 'rejoin', id: 'abc123', host: 'ua' })
+        expect(b.last('lobby')!.lobby).toMatchObject({ id: 'abc123', state: 'lobby' })
+        const a = socket()
+        hub.open(a, { id: 'ua', name: 'Alice' })
+        send(a, { t: 'rejoin', id: 'abc123', host: 'ua' })
+        expect(b.last('lobby')!.lobby!.members.map(m => [m.userId, m.host])).toEqual([['ua', true], ['ub', false]])
+        // ids are checked
+        const c = socket()
+        hub.open(c, { id: 'uc', name: 'Cara' })
+        send(c, { t: 'rejoin', id: '../nope' })
+        expect(c.last('lobby')?.lobby).toBeNull()
     })
 
     it('hands the host to the next member', () => {

@@ -84,6 +84,7 @@
                     <span class="min-w-0 flex-1 truncate" :class="{ 'font-bold': m.userId === me }">
                         {{ m.name }}<span v-if="m.userId === me" class="df-you"> (you)</span>
                     </span>
+                    <span v-if="m.away" class="df-awaiting">reconnecting</span>
                     <span v-if="m.host" class="df-co df-brass"><DfIcon name="crown" :size="12" /> C.O.</span>
                     <span
                         v-if="m.ready"
@@ -98,7 +99,7 @@
                         </svg>
                         <span class="sr-only">Ready</span>
                     </span>
-                    <span v-else class="df-awaiting">awaiting</span>
+                    <span v-else-if="!m.away" class="df-awaiting">awaiting</span>
                 </li>
                 <li v-for="n in 4 - lobby.members.length" :key="`empty-${n}`" class="df-line vacant">
                     <span class="df-line-no">{{ lobby.members.length + n }}.</span>

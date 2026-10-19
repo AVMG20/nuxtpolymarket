@@ -10,7 +10,8 @@ type Handler<T extends DfServerMsg['t']> = (msg: Extract<DfServerMsg, { t: T }>)
 export type DfNetStatus = 'connecting' | 'open' | 'closed'
 
 const PING_MS = 2000
-const MAX_BACKOFF_MS = 8000
+/** Kept short: a deploy restart takes ~10 s and players wait on the line coming back. */
+const MAX_BACKOFF_MS = 3000
 
 export class DfNet {
     /** 'connecting' | 'open' | 'closed' */

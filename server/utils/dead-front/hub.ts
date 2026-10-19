@@ -27,6 +27,8 @@ interface LobbyMember {
     userId: string
     name: string
     ready: boolean
+    /** Socket gone: they keep their place for `LOBBY_GRACE_MS`. */
+    away?: boolean
 }
 
 interface Lobby {
@@ -35,6 +37,8 @@ interface Lobby {
     state: 'lobby' | 'playing'
     match: DfMatch | null
     starting: boolean
+    /** Rebuilt after a restart by a member who wasn't its host: the host takes the lead back when they return. */
+    restoredHost?: string
 }
 
 export interface DfHubDeps {
@@ -46,12 +50,15 @@ export const DF_MAX_PEERS = 200
 const MSG_RATE = 90 // per second
 const MSG_BURST = 180
 const MAX_FRAME = 16 * 1024
+/** How long a dropped member keeps their place in a lobby (a deploy restart takes ~10 s). */
+export const DF_LOBBY_GRACE_MS = 45_000
 
 export class DfHub {
     private conns = new Map<string, Conn>() // socket id -> conn
     private users = new Map<string, Conn>() // user id -> current conn
     private lobbies = new Map<string, Lobby>()
     private userLobby = new Map<string, string>() // user id -> lobby id
+    private awayTimers = new Map<string, ReturnType<typeof setTimeout>>() // user id -> lobby place expiry
     private lobbySeq = 0
 
     constructor(private readonly deps: DfHubDeps) {}
@@ -82,11 +89,15 @@ export class DfHub {
         this.sendTo(conn, { t: 'hello', userId: conn.userId, name: conn.name })
         const lobby = this.lobbyOf(user.id)
         if (lobby) {
+            this.comeBack(lobby, user.id)
             this.sendTo(conn, { t: 'lobby', lobby: this.lobbyState(lobby) })
             if (lobby.match?.has(user.id)) {
                 lobby.match.reconnect(user.id)
                 return
             }
+        } else {
+            // say so outright: a client that was in a lobby before a restart rebuilds it
+            this.sendTo(conn, { t: 'lobby', lobby: null })
         }
         this.sendTo(conn, { t: 'lobbies', lobbies: this.summaries() })
     }
@@ -103,7 +114,36 @@ export class DfHub {
             lobby.match.disconnect(conn.userId)
             return
         }
-        this.removeMember(lobby, conn.userId)
+        this.goAway(lobby, conn.userId)
+    }
+
+    /** A member's socket dropped outside a match: hold their place a while instead of dropping them. */
+    private goAway(lobby: Lobby, userId: string): void {
+        const m = lobby.members.find(x => x.userId === userId)
+        if (!m) return
+        m.away = true
+        m.ready = false
+        this.clearAway(userId)
+        this.awayTimers.set(userId, setTimeout(() => {
+            this.awayTimers.delete(userId)
+            const l = this.lobbyOf(userId)
+            if (l && l.members.find(x => x.userId === userId)?.away) this.removeMember(l, userId)
+        }, DF_LOBBY_GRACE_MS))
+        this.pushLobby(lobby)
+    }
+
+    private comeBack(lobby: Lobby, userId: string): void {
+        this.clearAway(userId)
+        const m = lobby.members.find(x => x.userId === userId)
+        if (!m?.away) return
+        m.away = false
+        this.pushLobby(lobby)
+    }
+
+    private clearAway(userId: string): void {
+        const t = this.awayTimers.get(userId)
+        if (t) clearTimeout(t)
+        this.awayTimers.delete(userId)
     }
 
     message(socketId: string, raw: string): void {
@@ -142,6 +182,9 @@ export class DfHub {
             case 'join':
                 this.join(conn, String(msg.id))
                 return
+            case 'rejoin':
+                this.rejoin(conn, String(msg.id), typeof msg.host === 'string' ? msg.host : null)
+                return
             case 'leave':
                 void this.leave(conn)
                 return
@@ -170,7 +213,9 @@ export class DfHub {
         const current = this.lobbyOf(conn.userId)
         if (current?.state === 'playing') return
         if (current) this.removeMember(current, conn.userId)
-        const id = `${(++this.lobbySeq).toString(36)}${Date.now().toString(36).slice(-4)}`
+        let id = ''
+        do id = `${(++this.lobbySeq).toString(36)}${Date.now().toString(36).slice(-4)}`
+        while (this.lobbies.has(id))
         const lobby: Lobby = { id, members: [{ userId: conn.userId, name: conn.name, ready: false }], state: 'lobby', match: null, starting: false }
         this.lobbies.set(id, lobby)
         this.userLobby.set(conn.userId, id)
@@ -193,6 +238,40 @@ export class DfHub {
         this.pushLobbies()
     }
 
+    /**
+     * Back after a reconnect that found no lobby (the server restarted and lost it):
+     * the first member back rebuilds it under its old id, the rest join it, and the
+     * old host takes the lead again when they arrive.
+     */
+    private rejoin(conn: Conn, id: string, host: string | null): void {
+        if (this.lobbyOf(conn.userId)) return
+        if (!/^[a-z0-9]{1,24}$/.test(id)) return
+        const lobby = this.lobbies.get(id)
+        if (!lobby) {
+            const restored: Lobby = { id, members: [{ userId: conn.userId, name: conn.name, ready: false }], state: 'lobby', match: null, starting: false }
+            if (host && host !== conn.userId) restored.restoredHost = host
+            this.lobbies.set(id, restored)
+            this.userLobby.set(conn.userId, id)
+            this.pushLobby(restored)
+            this.pushLobbies()
+            return
+        }
+        if (lobby.state !== 'lobby' || lobby.starting || lobby.members.length >= DF_MAX_PLAYERS) {
+            this.sendTo(conn, { t: 'lobby', lobby: null })
+            return
+        }
+        const member: LobbyMember = { userId: conn.userId, name: conn.name, ready: false }
+        if (lobby.restoredHost === conn.userId) {
+            lobby.restoredHost = undefined
+            lobby.members.unshift(member)
+        } else {
+            lobby.members.push(member)
+        }
+        this.userLobby.set(conn.userId, lobby.id)
+        this.pushLobby(lobby)
+        this.pushLobbies()
+    }
+
     private async leave(conn: Conn): Promise<void> {
         const lobby = this.lobbyOf(conn.userId)
         if (!lobby) return
@@ -205,6 +284,7 @@ export class DfHub {
     }
 
     private removeMember(lobby: Lobby, userId: string): void {
+        this.clearAway(userId)
         const before = lobby.members.length
         lobby.members = lobby.members.filter(m => m.userId !== userId)
         if (this.userLobby.get(userId) === lobby.id) this.userLobby.delete(userId)
@@ -231,8 +311,11 @@ export class DfHub {
     private async start(conn: Conn): Promise<void> {
         const lobby = this.lobbyOf(conn.userId)
         if (!lobby || lobby.state !== 'lobby' || lobby.starting) return
-        if (lobby.members[0]?.userId !== conn.userId) return this.error(conn, 'Only the host can start')
-        if (lobby.members.slice(1).some(m => !m.ready)) return this.error(conn, 'Everyone needs to be ready')
+        const leader = this.leaderOf(lobby)
+        if (leader?.userId !== conn.userId) return this.error(conn, 'Only the host can start')
+        if (lobby.members.some(m => m !== leader && !m.ready && !m.away)) return this.error(conn, 'Everyone needs to be ready')
+        // the host goes without anyone still reconnecting
+        for (const m of lobby.members.filter(x => x.away)) this.removeMember(lobby, m.userId)
         lobby.starting = true
         const members = lobby.members.map(m => ({ userId: m.userId, name: m.name }))
         let match: DfMatch
@@ -299,10 +382,16 @@ export class DfHub {
 
     // ---------------------------------------------------------------- output
 
+    /** Who leads: the host, or while the host is reconnecting the first member still here. */
+    private leaderOf(lobby: Lobby): LobbyMember | undefined {
+        return lobby.members.find(m => !m.away) ?? lobby.members[0]
+    }
+
     private lobbyState(lobby: Lobby): DfLobbyState {
+        const leader = this.leaderOf(lobby)
         return {
             id: lobby.id,
-            members: lobby.members.map((m, i) => ({ userId: m.userId, name: m.name, ready: i === 0 || m.ready, host: i === 0 })),
+            members: lobby.members.map(m => ({ userId: m.userId, name: m.name, ready: m === leader || m.ready, host: m === leader, ...(m.away ? { away: true } : {}) })),
             state: lobby.state
         }
     }
@@ -310,7 +399,7 @@ export class DfHub {
     summaries(): DfLobbySummary[] {
         return [...this.lobbies.values()].filter(l => l.members.length).map(l => ({
             id: l.id,
-            hostName: l.members[0]!.name,
+            hostName: this.leaderOf(l)!.name,
             players: l.members.length,
             maxPlayers: DF_MAX_PLAYERS,
             state: l.state,

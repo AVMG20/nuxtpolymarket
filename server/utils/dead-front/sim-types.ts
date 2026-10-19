@@ -87,6 +87,12 @@ export interface SimPlayer {
     secondwindBuys: number
     // anti-cheat (wall clock seconds)
     lastInputAt: number
+    /** The client's reported round trip, seconds (0 until it reports one). */
+    rtt: number
+    /** Reconnected and no movement report yet (the game view is still loading): not a stall. */
+    awaitingInput?: boolean
+    /** When their last stall ended (wall clock): the lag shield doesn't cover stalls back to back. */
+    lastStallEnd?: number
     moveBudget: number
     fireTokens: number
     fireTokensAt: number
@@ -136,6 +142,8 @@ export interface SimZombie {
     repathAt: number
     attackReadyAt: number
     attackTarget: number
+    /** The swing's windup is over and it waits out the target's lag before it lands. */
+    swingPending?: boolean
     spitReadyAt: number
     stuckCheckAt: number
     stuckRef: Vec3

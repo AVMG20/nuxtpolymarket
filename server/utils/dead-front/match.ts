@@ -212,8 +212,8 @@ export class DfMatch {
     private tickOnce(): void {
         if (this.finished) return
         const sim = this.sim
-        // Nobody connected, or the solo player paused: hold the world still.
-        if (sim.connectedCount === 0 || sim.paused) {
+        // Nobody connected, the solo player paused, or their line stalled: hold the world still.
+        if (sim.connectedCount === 0 || sim.paused || sim.soloStalled) {
             this.lastTickAt = 0
             return
         }
