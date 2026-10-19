@@ -37,7 +37,7 @@ export class Projectiles {
     spits: SpitEntity[] = []
 
     /**
-     * Whether a round's step this.game frame touched a unit. The unit's footprint is
+     * Whether a round's step this frame touched a unit. The unit's footprint is
      * its model's: a capsule as long and as wide as the model, never smaller
      * than the body radius the rules give it.
      */

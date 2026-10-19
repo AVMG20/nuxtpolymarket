@@ -181,7 +181,7 @@ export class Movement {
         const wanted = enemy.d
         const clearAt = (u: number, from: number) => {
             let d = from
-            // Step back past whatever stands on this.game column, until it is clear.
+            // Step back past whatever stands on this column, until it is clear.
             for (let guard = 0; guard < 40; guard++) {
                 enemy.u = u
                 enemy.d = d
@@ -234,7 +234,7 @@ export class Movement {
     /**
      * At the end of a line: pick the next trace out of the node. A live
      * honeypot on one of them wins; otherwise the one that gets nearest the
-     * node this.game unit is after without passing it, and any of them when it is
+     * node this unit is after without passing it, and any of them when it is
      * after nothing. The route runs across the node's face from the pin it
      * came in on to the pin the new trace leaves from.
      */

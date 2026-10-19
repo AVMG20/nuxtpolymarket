@@ -86,7 +86,7 @@ export class Healers {
 
     /**
      * The worst-hurt hostile, weighted toward one other healers already work
-     * on (so they converge) and toward the one this.game healer has, and against
+     * on (so they converge) and toward the one this healer has, and against
      * distance.
      */
     private pickPatient(enemy: EnemyEntity) {

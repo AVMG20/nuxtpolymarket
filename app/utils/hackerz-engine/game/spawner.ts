@@ -77,12 +77,12 @@ export class Spawner {
 
     private distractTimer = 0
 
-    /** The hacker pack size last seen this.game wave, to announce a second contingent. */
+    /** The hacker pack size last seen this wave, to announce a second contingent. */
     hackerField = 0
 
     decoysLogged = false
 
-    /** Hostile types and bonus rounds already reported this.game session (see `sight`). */
+    /** Hostile types and bonus rounds already reported this session (see `sight`). */
     private sighted = new Set<string>()
 
     /** Reports a hostile type or bonus round the first time it turns up; a demo board never does. */

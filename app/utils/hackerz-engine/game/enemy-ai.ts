@@ -52,7 +52,7 @@ export class EnemyAi {
                 enemy.rig.root.visible = true
             }
             enemy.age += dt
-            // Where it stood before this.game tick's move, for the collision check below.
+            // Where it stood before this tick's move, for the collision check below.
             const fromU = enemy.u
             const fromD = enemy.d
             const fromSeg = enemy.routeSeg
@@ -61,7 +61,7 @@ export class EnemyAi {
             // A shield bearer whose node was taken back disintegrates on the spot.
             if (enemy.bearer && this.game.running && !this.game.purging && this.game.squads.keepBearerPost(enemy, i)) continue
             const riding = this.game.movement.ridesNetwork(enemy)
-            // A honeypot or proxy wall in the way is where this.game unit stops instead.
+            // A honeypot or proxy wall in the way is where this unit stops instead.
             let hold: Hold | null = enemy.burrowMs > 0 || enemy.def.boss
                 ? null
                 : this.game.deployables?.holdFor(enemy.u, enemy.d, enemy.standoff, hackerzIsAirborne(enemy.def)) ?? null
@@ -172,7 +172,7 @@ export class EnemyAi {
                 }
             }
 
-            // Bodies are solid: a move that would carry this.game one into another
+            // Bodies are solid: a move that would carry this one into another
             // stops at the point of contact.
             this.game.crowd.collide(enemy, fromU, fromD, fromSeg, fromYaw, dtMs)
 

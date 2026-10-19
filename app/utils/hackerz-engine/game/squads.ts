@@ -408,7 +408,7 @@ export class Squads {
     }
 
     /**
-     * What a rider does this.game frame. A skirmisher under half health falls back
+     * What a rider does this frame. A skirmisher under half health falls back
      * toward red ground and, once there, holds and heals until it is nearly
      * whole. A healthy unit asked to cover holds where it is for a moment.
      * The final push overrides it all.

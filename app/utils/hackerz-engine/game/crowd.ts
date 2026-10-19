@@ -236,14 +236,14 @@ export class Crowd {
             || this.shove([[other, edge(other.u + mu / length * pace), other.d + md / length * pace]])
     }
 
-    /** Whether any other body on the ground stands where this.game one is. */
+    /** Whether any other body on the ground stands where this one is. */
     crowdedAt(enemy: EnemyEntity) {
         return this.game.enemies.some(o => o !== enemy && !o.gateHold && o.hp > 0 && !hackerzIsAirborne(o.def)
             && sinkInto(enemy, enemy.u, enemy.d, o) > 1)
     }
 
     /**
-     * Collision: bodies on the ground are solid. If this.game tick's move (a walk, a
+     * Collision: bodies on the ground are solid. If this tick's move (a walk, a
      * ride, a shove) would carry `enemy` deeper into another body than it
      * stood before, the move is cut back to the furthest point short of that —
      * it stops at contact and waits, rather than walking through or being
@@ -257,7 +257,7 @@ export class Crowd {
         // One hacking or guarding a chip walks through everyone, and everyone through it.
         if (this.permeable(enemy)) return
         const rides = this.game.movement.ridesNetwork(enemy)
-        // Only bodies it could touch this.game tick: every spot tried below (the
+        // Only bodies it could touch this tick: every spot tried below (the
         // move, a sidestep, a back-off) lies within twice the move of where
         // it started, and no footprint, however turned, reaches past x + z.
         const self = halfExtents(enemy.rig.box)
@@ -267,7 +267,7 @@ export class Crowd {
             const near = range + half.x + half.z
             return Math.abs(o.u - fromU) <= near && Math.abs(o.d - fromD) <= near && this.solidPair(enemy, o)
         })
-        // How deep it sank into any other body before this.game tick, at its old spot and heading.
+        // How deep it sank into any other body before this tick, at its old spot and heading.
         const toYaw = enemy.yaw
         enemy.yaw = fromYaw
         const before = others.map(o => sinkInto(enemy, fromU, fromD, o))
@@ -347,7 +347,7 @@ export class Crowd {
         enemy.pushVd = 0
         enemy.blockedMs = (enemy.blockedMs ?? 0) + dtMs
         // Only a true deadlock — two bodies each waiting on the other — is
-        // broken, by this.game one backing off. A queue just waits its turn.
+        // broken, by this one backing off. A queue just waits its turn.
         if (enemy.blockedMs > JAM_MS && wall.blockedBy === enemy) {
             enemy.blockedMs = 0
             enemy.yieldMs = YIELD_MS

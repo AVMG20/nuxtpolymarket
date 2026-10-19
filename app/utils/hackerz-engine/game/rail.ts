@@ -93,7 +93,7 @@ export class Rail {
     }
 
     /**
-     * Where the rail is pointing this.game frame: the locked target, else the spot a
+     * Where the rail is pointing this frame: the locked target, else the spot a
      * lag spike left it firing at (while the button stays down), else the cursor.
      */
     private railAim() {
