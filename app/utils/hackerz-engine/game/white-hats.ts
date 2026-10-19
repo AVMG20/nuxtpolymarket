@@ -28,7 +28,7 @@ export class WhiteHats {
         enemy.bearer = false
         enemy.parked = null
         enemy.healing = null
-        if (this.game.rail.target === enemy) this.game.rail.target = null
+        this.game.rail.drop(enemy)
         const halo = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2),
             new THREE.MeshBasicMaterial({ color: hdr(0xffffff, 2), toneMapped: false, transparent: true, opacity: 0.8, depthWrite: false }))
         halo.scale.setScalar(Math.max(0.6, enemy.rig.height * 0.4))

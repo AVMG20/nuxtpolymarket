@@ -502,7 +502,7 @@ export class HackerzGame {
         this.running = true
         this.purging = false
         this.paused = false
-        this.rail.target = null
+        this.rail.lock(null)
         // A bonus round is a sandbox: whatever it does to the wall is undone.
         this.bastion.bonusStartHp = this.bastion.wallHp
         this.bastion.bonusStartShield = this.bastion.shield
@@ -558,7 +558,7 @@ export class HackerzGame {
 
     pause() {
         this.paused = true
-        this.rail.holding = false
+        this.rail.setTrigger(false)
     }
 
     resume() {
@@ -763,8 +763,7 @@ export class HackerzGame {
         // And the black ice melts.
         for (const wall of this.blackIce.iceWalls) wall.wall.thaw()
         this.purging = true
-        this.rail.holding = false
-        this.rail.target = null
+        this.rail.ceaseFire()
         this.callbacks.onWaveTime(0, this.enemies.length)
 
         this.view?.flash(0xffffff, 0.25)
@@ -875,8 +874,7 @@ export class HackerzGame {
         this.gameOver = true
         this.running = false
         this.purging = false
-        this.rail.holding = false
-        this.rail.target = null
+        this.rail.ceaseFire()
         this.callbacks.onSound?.('game-over')
         // Coins in the air when the wall fell were still earned.
         this.scoring.flushCoins()
@@ -929,8 +927,7 @@ export class HackerzGame {
         this.bonus = null
         this.bonusChips = null
         if (this.pathChips) this.pathChips.locked = false
-        this.rail.target = null
-        this.rail.holding = false
+        this.rail.ceaseFire()
         this.shake = 0
         this.bastion.wallFlash = 0
     }

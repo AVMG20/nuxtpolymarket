@@ -56,7 +56,7 @@ export class Deployer {
         }
         if (this.armed === id) return
         this.armed = id
-        if (id) this.game.rail.target = null
+        if (id) this.game.rail.lock(null)
         this.showGhost(id)
         this.game.callbacks.onArm?.(id)
     }

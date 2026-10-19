@@ -91,9 +91,7 @@ export class AutopilotBridge {
     /** Auto-play locks the rail on `target` and holds the trigger, or lets go with none. */
     aim(target: EnemyEntity | null) {
         const live = !!target && target.hp > 0 && this.game.enemies.includes(target)
-        this.game.rail.target = live ? target : null
-        this.game.rail.lockSpot = null
-        this.game.rail.holding = live
+        this.game.rail.hold(live ? target : null)
     }
 
     /**
@@ -139,8 +137,7 @@ export class AutopilotBridge {
             if (pack.convert) this.game.deployer.useWhiteHat(pack.convert)
             return this.game.deployer.stock[id] < before
         }
-        this.game.rail.aimU = pack.u
-        this.game.rail.aimD = pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0)
+        this.game.rail.aimAt(pack.u, pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0))
         const spot = this.game.deployer.deploySpot(id)
         this.game.deployer.drop(id, spot.u, spot.d, spot.chip)
         return true
@@ -155,13 +152,10 @@ export class AutopilotBridge {
     blindFire() {
         const pack = densestGroup(this.game.enemies.filter(e => e.hp > 0 && !e.turned && !this.game.combat.untouchable(e) && this.game.combat.inTheDark(e)))
         if (!pack.length) return false
-        const n = pack.length
-        this.game.rail.target = null
-        this.game.rail.lockSpot = {
+        this.game.rail.holdOn({
             ...centroid(pack),
-            y: pack.reduce((sum, e) => sum + enemyCentreY(e), 0) / n
-        }
-        this.game.rail.holding = true
+            y: pack.reduce((sum, e) => sum + enemyCentreY(e), 0) / pack.length
+        })
         return true
     }
 
