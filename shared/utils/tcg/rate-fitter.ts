@@ -24,6 +24,24 @@ export interface RateTemplateTier {
     poolSize: number | null
 }
 
+/**
+ * One physical pack slot and the tiers that can land in it. Published tables
+ * give per-pack averages only, which many slot layouts fit; where the real
+ * one is known the sidecar serves it (pokemonplaatjes `slot-layouts.json`).
+ */
+export interface RateSlotLayout {
+    name: string
+    /** Positions per pack; 1 when absent. */
+    count?: number
+    /** Tiers drawn here at their published rate. */
+    tiers: string[]
+    /**
+     * The tier taking whatever share the others leave — the Common a hit
+     * replaces. Its published rate beyond that share becomes plain slots.
+     */
+    fill?: string | null
+}
+
 export interface RateTemplate {
     code: string
     slug: string
@@ -33,6 +51,8 @@ export interface RateTemplate {
     cardsPerPack: number | null
     packsPerBox: number | null
     tiers: RateTemplateTier[]
+    slots?: RateSlotLayout[]
+    slotsSource?: string | null
 }
 
 export interface FitPrinting {
@@ -120,7 +140,11 @@ export const RARITY_CODE_BY_LABEL: Record<string, string[]> = {
     'Rare Holo V': ['V'],
     'Rare Holo VMAX': ['VM'],
     'Rainbow Rare': ['RR'],
-    'Secret Rare': ['SR', 'TCGLSRBE']
+    'Secret Rare': ['SR', 'TCGLSRBE'],
+    'Pikachu Rare': ['PKR'],
+    'Classic Collection': ['CC'],
+    'Futuristic Rare': ['FUR'],
+    'RGB Secret Rare': ['RGB']
 }
 
 /** Prismatic-style sidecar rarity code prefixes for pattern rows. */
@@ -395,6 +419,18 @@ function fitSheetMults(rows: SheetFitPlanRow[], k: number, maxM: number): SheetF
 }
 
 /**
+ * Largest sheet the fitter will grow to for a rare tier. Layouts are stored
+ * as jsonb arrays of printing ids, so a sheet costs about 40 bytes a position.
+ */
+const MAX_SHEET_POSITIONS = 25_000
+
+interface SheetPlan {
+    name: string
+    rows: MatchedTier[]
+    packSlots: number
+}
+
+/**
  * Fit a whole set: bucket tiers into the slot-true structure (design §4) —
  * one sheet per guaranteed tier, ONE reverse sheet carrying every reverse
  * pattern (press-run finding: one sheet, never a weighted sheet choice), ONE
@@ -402,7 +438,12 @@ function fitSheetMults(rows: SheetFitPlanRow[], k: number, maxM: number): SheetF
  * and matching printings exist — then fit integer multiplicities per sheet.
  */
 export function fitSet(template: RateTemplate, printings: FitPrinting[], maxM = 4000): FitResult {
-    const { matched, warnings } = resolveTierPrintings(template, printings)
+    const resolved = resolveTierPrintings(template, printings)
+    const warnings = resolved.warnings
+    // Declared slots claim their tiers outright; the heuristic below only
+    // sees what is left.
+    const declared = planDeclaredSlots(template, resolved.matched, warnings)
+    const matched = resolved.matched.filter(m => !declared.labels.has(m.tier.label))
     const reverse = matched.filter(m => m.tier.group === 'reverse')
     const energy = matched.filter(m => m.tier.group === 'energy')
 
@@ -412,73 +453,40 @@ export function fitSet(template: RateTemplate, printings: FitPrinting[], maxM = 
     // any hit row at >= 1.5 per pack is really a guaranteed tier. Reverse /
     // energy / pattern groups are left untouched.
     const guaranteed = matched.filter(m => m.tier.group === 'guaranteed')
+    const promoted: MatchedTier[] = []
     const hit: MatchedTier[] = []
     for (const row of matched.filter(m => m.tier.group === 'hit')) {
-        if (row.tier.perPack >= 1.5) guaranteed.push(row)
+        if (row.tier.perPack >= 1.5) promoted.push(row)
         else hit.push(row)
     }
 
-    // Energy folding: fractional-energy eras (bw1 0.33/pack, xy12 0.37) have
-    // no dedicated energy slot — the table itself shows energy sharing the
-    // hit slot (bw1: Rare 0.667 + Energy 0.333 = 1.000). When the energy sum
-    // rounds to 0, fold the energy rows into the chase pool; the chase slot
-    // count still comes from the NON-energy hit sum.
-    const energySlots = energy.length > 0
-        ? Math.round(energy.reduce((a, r) => a + r.tier.perPack, 0))
-        : 0
-    const chaseRows = [...hit]
-    if (energy.length > 0 && energySlots === 0) chaseRows.push(...energy)
-
-    const plans: { name: string, rows: MatchedTier[], packSlots: number }[] = []
-    // Physical pack order, front to back: the energy leads (flipping past it
-    // is the opening ritual), then the biggest guaranteed tiers (commons,
-    // then uncommons, …), the reverses, and the hit buried at the back.
-    if (energy.length > 0 && energySlots > 0) {
-        plans.push({ name: 'energy', rows: energy, packSlots: energySlots })
-    }
-    const guaranteedPlans: typeof plans = []
-    for (const row of guaranteed) {
-        guaranteedPlans.push({ name: slugify(row.tier.label), rows: [row], packSlots: Math.round(row.tier.perPack) })
-    }
-    // Stable sort so equal counts keep table order.
-    guaranteedPlans.sort((a, b) => b.packSlots - a.packSlots)
-    plans.push(...guaranteedPlans)
-    if (reverse.length > 0) {
-        const sum = reverse.reduce((a, r) => a + r.tier.perPack, 0)
-        plans.push({ name: 'reverse', rows: reverse, packSlots: Math.max(1, Math.round(sum)) })
-    }
-    if (chaseRows.length > 0) {
-        const sum = hit.reduce((a, r) => a + r.tier.perPack, 0)
-        plans.push({ name: 'chase', rows: chaseRows, packSlots: Math.max(1, Math.round(sum)) })
+    // A promoted tier's fraction can either round into its own slots, or stay
+    // in the chase pool as a tier that sometimes takes the hit slot. 30th
+    // Celebration needs the second: Common 2.7 rounded to 3 slots leaves the
+    // hits (1.28 per pack) one slot and every hit 22% short, where 2 common
+    // slots plus 2 chase slots (0.7 Common + 1.28 hits) are exact. Both are
+    // fitted and the one misplacing fewer cards per pack wins; rounding wins
+    // ties, so tables it already fits keep their layout.
+    guaranteed.push(...declared.fixed)
+    const rounded = fitPlans(planSheets(energy, guaranteed, promoted, reverse, hit, declared.plans, false), maxM)
+    let best = rounded
+    if (promoted.some(row => row.tier.perPack % 1 !== 0)) {
+        const split = fitPlans(planSheets(energy, guaranteed, promoted, reverse, hit, declared.plans, true), maxM)
+        if (split.dropped < rounded.dropped
+            || (split.dropped === rounded.dropped && misplaced(split.diagnostics) < misplaced(rounded.diagnostics) - 1e-9)) {
+            best = split
+        }
     }
 
-    const sheets: FitSheetSpec[] = []
-    const slots: FitSlotSpec[] = []
-    const diagnostics: FitDiagnostic[] = []
-    for (const plan of plans) {
-        let k = plan.packSlots
-        const poolTotal = plan.rows.reduce((a, r) => a + r.printings.length, 0)
-        if (poolTotal < k) {
-            warnings.push(`Sheet '${plan.name}': pool of ${poolTotal} cannot serve ${k} slots per pack — lowering to ${poolTotal}`)
-            k = poolTotal
-        }
-        const fit = fitSheetMults(plan.rows, k, maxM)
-        if (fit == null) {
-            warnings.push(`Sheet '${plan.name}': no window-feasible layout within ${maxM} positions — sheet dropped`)
-            continue
-        }
-        sheets.push({ name: plan.name, role: 'base', packSlots: k, mults: fit.mults, layout: fit.layout })
-        slots.push({ sheetName: plan.name, count: k })
-        for (const row of plan.rows) {
-            const authored = k * fit.tierTotals.get(row.tier.label)! / fit.M
-            diagnostics.push({
-                label: row.tier.label,
-                publishedPerPack: row.tier.perPack,
-                authoredPerPack: authored,
-                deltaPct: (authored / row.tier.perPack - 1) * 100
-            })
-        }
-    }
+    const { sheets, slots } = best
+    warnings.push(...best.warnings)
+    // A fill tier's parts are a rounded remainder plus a share, so they need
+    // not sum to the table: report against the published rate itself.
+    const published = new Map(template.tiers.map(t => [t.label, t.perPack]))
+    const diagnostics = best.diagnostics.map((d) => {
+        const p = published.get(d.label) ?? d.publishedPerPack
+        return { ...d, publishedPerPack: p, deltaPct: (d.authoredPerPack / p - 1) * 100 }
+    })
     if (template.cardsPerPack != null) {
         const slotTotal = slots.reduce((a, s) => a + s.count, 0)
         if (slotTotal !== template.cardsPerPack) {
@@ -489,10 +497,169 @@ export function fitSet(template: RateTemplate, printings: FitPrinting[], maxM = 
 }
 
 /**
+ * Sheets for the template's declared slots, in pack order. A fill tier gets
+ * the slot's leftover share there, and its remaining rate as plain slots in
+ * `fixed`: 30th Celebration's Common 2.7 is two Common slots plus 0.70 of the
+ * slot an Illustration Rare or Classic Collection card can take.
+ */
+function planDeclaredSlots(template: RateTemplate, matched: MatchedTier[], warnings: string[]): {
+    plans: SheetPlan[]
+    fixed: MatchedTier[]
+    labels: Set<string>
+} {
+    const plans: SheetPlan[] = []
+    const fixed: MatchedTier[] = []
+    const labels = new Set<string>()
+    const byLabel = new Map(matched.map(m => [m.tier.label, m]))
+    for (const slot of template.slots ?? []) {
+        const count = slot.count ?? 1
+        const rows: MatchedTier[] = []
+        for (const label of slot.tiers) {
+            const row = byLabel.get(label)
+            if (row == null) {
+                warnings.push(`Slot '${slot.name}': tier '${label}' has no printings — left out of the slot`)
+                continue
+            }
+            rows.push(row)
+            labels.add(label)
+        }
+        const fill = slot.fill != null ? byLabel.get(slot.fill) : undefined
+        if (slot.fill != null && fill == null) {
+            warnings.push(`Slot '${slot.name}': fill tier '${slot.fill}' has no printings`)
+        }
+        if (fill != null) {
+            labels.add(fill.tier.label)
+            const share = count - rows.reduce((a, r) => a + r.tier.perPack, 0)
+            if (share > 0) rows.push({ tier: { ...fill.tier, perPack: share }, printings: fill.printings })
+            const rest = Math.round(fill.tier.perPack - Math.max(share, 0))
+            if (rest > 0) fixed.push({ tier: { ...fill.tier, perPack: rest }, printings: fill.printings })
+        }
+        if (rows.length > 0) plans.push({ name: slot.name, rows, packSlots: count })
+    }
+    return { plans, fixed, labels }
+}
+
+/** Expected cards per pack landing in the wrong tier, summed over tiers. */
+function misplaced(diagnostics: FitDiagnostic[]): number {
+    return diagnostics.reduce((a, d) => a + Math.abs(d.authoredPerPack - d.publishedPerPack), 0)
+}
+
+/**
+ * Bucket tiers into sheets. With `split`, a promoted tier gets floor(perPack)
+ * slots of its own and its fraction joins the chase pool.
+ */
+function planSheets(
+    energy: MatchedTier[],
+    guaranteed: MatchedTier[],
+    promoted: MatchedTier[],
+    reverse: MatchedTier[],
+    hit: MatchedTier[],
+    declared: SheetPlan[],
+    split: boolean
+): SheetPlan[] {
+    const fixed = [...guaranteed]
+    const chaseRows = [...hit]
+    for (const row of promoted) {
+        const whole = Math.floor(row.tier.perPack)
+        const fraction = row.tier.perPack - whole
+        if (split && fraction > 0) {
+            fixed.push({ tier: { ...row.tier, perPack: whole }, printings: row.printings })
+            chaseRows.push({ tier: { ...row.tier, perPack: fraction }, printings: row.printings })
+        } else {
+            fixed.push(row)
+        }
+    }
+
+    // Energy folding: fractional-energy eras (bw1 0.33/pack, xy12 0.37) have
+    // no dedicated energy slot — the table itself shows energy sharing the
+    // hit slot (bw1: Rare 0.667 + Energy 0.333 = 1.000). When the energy sum
+    // rounds to 0, fold the energy rows into the chase pool; the chase slot
+    // count still comes from the NON-energy hit sum.
+    const energySlots = energy.length > 0
+        ? Math.round(energy.reduce((a, r) => a + r.tier.perPack, 0))
+        : 0
+    const chaseSum = chaseRows.reduce((a, r) => a + r.tier.perPack, 0)
+    if (energy.length > 0 && energySlots === 0) chaseRows.push(...energy)
+
+    const plans: SheetPlan[] = []
+    // Physical pack order, front to back: the energy leads (flipping past it
+    // is the opening ritual), then the biggest guaranteed tiers (commons,
+    // then uncommons, …), the reverses, any declared slots in their own
+    // order, and the hit buried at the back.
+    if (energy.length > 0 && energySlots > 0) {
+        plans.push({ name: 'energy', rows: energy, packSlots: energySlots })
+    }
+    const guaranteedPlans: SheetPlan[] = []
+    for (const row of fixed) {
+        guaranteedPlans.push({ name: slugify(row.tier.label), rows: [row], packSlots: Math.round(row.tier.perPack) })
+    }
+    // Stable sort so equal counts keep table order.
+    guaranteedPlans.sort((a, b) => b.packSlots - a.packSlots)
+    plans.push(...guaranteedPlans)
+    if (reverse.length > 0) {
+        const sum = reverse.reduce((a, r) => a + r.tier.perPack, 0)
+        plans.push({ name: 'reverse', rows: reverse, packSlots: Math.max(1, Math.round(sum)) })
+    }
+    plans.push(...declared)
+    if (chaseRows.length > 0) {
+        plans.push({ name: 'chase', rows: chaseRows, packSlots: Math.max(1, Math.round(chaseSum)) })
+    }
+    return plans
+}
+
+/** Fit each planned sheet; `dropped` counts sheets no layout was found for. */
+function fitPlans(plans: SheetPlan[], maxM: number): Omit<FitResult, 'warnings'> & { warnings: string[], dropped: number } {
+    const sheets: FitSheetSpec[] = []
+    const slots: FitSlotSpec[] = []
+    const warnings: string[] = []
+    // A tier split across sheets reports once, against its published rate.
+    const diagnosticByLabel = new Map<string, FitDiagnostic>()
+    let dropped = 0
+    for (const plan of plans) {
+        let k = plan.packSlots
+        const poolTotal = plan.rows.reduce((a, r) => a + r.printings.length, 0)
+        if (poolTotal < k) {
+            warnings.push(`Sheet '${plan.name}': pool of ${poolTotal} cannot serve ${k} slots per pack — lowering to ${poolTotal}`)
+            k = poolTotal
+        }
+        // Every card needs one position, so a tier rarer than pool/M per slot
+        // cannot be authored on a sheet of M positions: 30th Celebration's
+        // three RGB Mews at 1 in ~4,065 packs need ~12,200 per slot. Grow the
+        // sheet to fit its rarest tier, within MAX_SHEET_POSITIONS.
+        const needed = Math.max(...plan.rows
+            .filter(r => r.tier.perPack > 0)
+            .map(r => Math.ceil(k * r.printings.length / r.tier.perPack)))
+        const sheetMaxM = Math.max(maxM, Math.min(needed, MAX_SHEET_POSITIONS))
+        const fit = fitSheetMults(plan.rows, k, sheetMaxM)
+        if (fit == null) {
+            warnings.push(`Sheet '${plan.name}': no window-feasible layout within ${sheetMaxM} positions — sheet dropped`)
+            dropped += 1
+            continue
+        }
+        sheets.push({ name: plan.name, role: 'base', packSlots: k, mults: fit.mults, layout: fit.layout })
+        slots.push({ sheetName: plan.name, count: k })
+        for (const row of plan.rows) {
+            const authored = k * fit.tierTotals.get(row.tier.label)! / fit.M
+            const prior = diagnosticByLabel.get(row.tier.label)
+            const published = (prior?.publishedPerPack ?? 0) + row.tier.perPack
+            const total = (prior?.authoredPerPack ?? 0) + authored
+            diagnosticByLabel.set(row.tier.label, {
+                label: row.tier.label,
+                publishedPerPack: published,
+                authoredPerPack: total,
+                deltaPct: (total / published - 1) * 100
+            })
+        }
+    }
+    return { sheets, slots, diagnostics: [...diagnosticByLabel.values()], warnings, dropped }
+}
+
+/**
  * God pack configuration (design §3.8, press-run HANDOFF §6). G is fixed at
  * commit; god packs are a second template with their own sheets, and their
- * tier supply is netted OUT of the chase sheet so total supply is invariant
- * to the god rate.
+ * tier supply is netted OUT of the base sheet holding each recipe tier — the
+ * chase sheet, or a declared slot's sheet — so total supply is invariant to
+ * the god rate.
  *
  * Recipe heuristic: prefer the documented Black Bolt / White Flare shape —
  * (recipeSize - 1) Illustration Rares plus one Special Illustration Rare —
@@ -522,8 +689,7 @@ export function applyGodConfig(
     const { matched, warnings: resolveWarnings } = resolveTierPrintings(template, printings)
     warnings.push(...resolveWarnings)
     const hit = matched.filter(m => m.tier.group === 'hit')
-    const chase = fit.sheets.find(s => s.name === 'chase')
-    if (chase == null || hit.length === 0) return infeasible('No chase sheet to net god packs against', G)
+    if (hit.length === 0) return infeasible('No chase sheet to net god packs against', G)
 
     const energyCount = fit.slots.find(s => s.sheetName === 'energy')?.count ?? 0
     const packSize = template.cardsPerPack ?? fit.slots.reduce((a, s) => a + s.count, 0)
@@ -562,10 +728,62 @@ export function applyGodConfig(
     if (energyCount > 0) godSlots.unshift({ sheetName: 'energy', count: energyCount })
 
     // Netting (HANDOFF §6): total supply of each recipe tier must not change.
-    // r0 is the AUTHORED chase rate (the actual supply), not the published one.
-    const k = chase.packSlots
-    const M = chase.mults.reduce((a, [, m]) => a + m, 0)
-    const multById = new Map(chase.mults)
+    // Each recipe tier is netted on the base sheet that holds it: the chase
+    // sheet, or with a declared slot layout the slot it lives in (30th
+    // Celebration's IRs in the Common-or-hit slot, SIRs in the rare slot).
+    const onSheet = (sheet: FitSheetSpec, row: MatchedTier) => {
+        const multById = new Map(sheet.mults)
+        return row.printings.reduce((a, p) => a + (multById.get(p.id) ?? 0), 0)
+    }
+    const baseSheets = fit.sheets.filter(s => s.role === 'base')
+    const recipeLabels = new Set(recipe.map(r => r.row.tier.label))
+    // A recipe tier on several sheets (a split Common: its own slots plus a
+    // share of the chase) is netted where it is drawn among other tiers.
+    const homeOf = new Map<string, string>()
+    for (const { row } of recipe) {
+        const holding = baseSheets.filter(s => onSheet(s, row) > 0)
+        const mixed = holding.filter(s => matched.filter(m => onSheet(s, m) > 0).length > 1)
+        const home = holding.length === 1 ? holding[0] : mixed.length === 1 ? mixed[0] : null
+        if (home == null) {
+            return infeasible(`God recipe tier '${row.tier.label}' is spread over several sheets — cannot net it`, G)
+        }
+        homeOf.set(row.tier.label, home.name)
+    }
+    const adjusted = new Map<string, FitSheetSpec>()
+    let anyNetted = false
+    for (const sheet of baseSheets) {
+        const here = recipe.filter(r => homeOf.get(r.row.tier.label) === sheet.name)
+        if (here.length === 0) continue
+        anyNetted = true
+        const result = netSheet(sheet, here, matched.filter(m => onSheet(sheet, m) > 0), recipeLabels, N, G, godOneIn)
+        if (typeof result === 'string') return infeasible(result, G)
+        adjusted.set(sheet.name, result)
+    }
+    if (!anyNetted) return infeasible('No chase sheet to net god packs against', G)
+    const adjustedSheets = fit.sheets.map(s => adjusted.get(s.name) ?? s)
+
+    return { feasible: true, G, godSheets, godSlots, adjustedSheets, warnings }
+}
+
+/**
+ * Net the god recipe's supply out of one base sheet. `rows` are every tier
+ * with positions on the sheet; `recipe` the recipe tiers among them. Returns
+ * the rewritten sheet, or why it cannot be done.
+ */
+function netSheet(
+    sheet: FitSheetSpec,
+    recipe: { row: MatchedTier, count: number }[],
+    rows: MatchedTier[],
+    recipeLabels: Set<string>,
+    N: number,
+    G: number,
+    godOneIn: number
+): FitSheetSpec | string {
+    // r0 is the AUTHORED rate on this sheet (the actual supply), not the
+    // published one.
+    const k = sheet.packSlots
+    const M = sheet.mults.reduce((a, [, m]) => a + m, 0)
+    const multById = new Map(sheet.mults)
     const tierTotal = (row: MatchedTier) => row.printings.reduce((a, p) => a + (multById.get(p.id) ?? 0), 0)
     const netted = recipe.map(({ row, count }) => {
         const t = tierTotal(row)
@@ -575,7 +793,7 @@ export function applyGodConfig(
     })
     for (const nt of netted) {
         if (nt.rNet < 0) {
-            return infeasible(`God rate 1 in ${godOneIn} needs ${G * nt.count} '${nt.row.tier.label}' but the whole run only supplies ${Math.round(N * k * nt.t / M)} — netted chase rate goes negative`, G)
+            return `God rate 1 in ${godOneIn} needs ${G * nt.count} '${nt.row.tier.label}' but the whole run only supplies ${Math.round(N * k * nt.t / M)} — netted chase rate goes negative`
         }
     }
 
@@ -597,7 +815,7 @@ export function applyGodConfig(
     for (; f <= maxScale; f++) {
         if (netted.every(nt => nt.rNet === 0 || nettedTotal(f, nt.rNet) >= nt.row.printings.length)) break
     }
-    if (f > maxScale) return infeasible('Netted chase rate too small to give every card a position at any reasonable sheet scale', G)
+    if (f > maxScale) return 'Netted chase rate too small to give every card a position at any reasonable sheet scale'
 
     const newTotals = new Map<string, number>()
     let freed = 0
@@ -607,19 +825,18 @@ export function applyGodConfig(
         freed += f * nt.t - t2
     }
 
-    // Freed multiplicity goes to the filler tier: the least rare hit tier
-    // OUTSIDE the recipe (Rare in practice). Folding it back into a recipe
-    // tier would inflate that tier's total supply (§3.8), so when every hit
-    // tier is in the recipe we leave the chase sheet smaller instead — that
-    // nudges the remaining tiers' rates up slightly but keeps the recipe
-    // tiers' supply invariant, which is the invariant that matters.
-    const recipeLabels = new Set(recipe.map(r => r.row.tier.label))
-    const fillers = hit.filter(m => !recipeLabels.has(m.tier.label))
+    // Freed multiplicity goes to the filler tier: the least rare tier on the
+    // sheet OUTSIDE the recipe (Rare or Common in practice). Folding it back
+    // into a recipe tier would inflate that tier's total supply (§3.8), so
+    // when every tier on the sheet is in the recipe we leave the sheet smaller
+    // instead — that nudges the remaining tiers' rates up slightly but keeps
+    // the recipe tiers' supply invariant, which is the invariant that matters.
+    const fillers = rows.filter(m => !recipeLabels.has(m.tier.label))
         .sort((a, b) => b.tier.perPack - a.tier.perPack || (a.tier.label < b.tier.label ? -1 : 1))
     const filler = fillers[0] ?? null
 
     const newMults: [string, number][] = []
-    for (const row of hit) {
+    for (const row of rows) {
         let total = newTotals.has(row.tier.label)
             ? newTotals.get(row.tier.label)!
             : f * tierTotal(row)
@@ -628,12 +845,6 @@ export function applyGodConfig(
     }
     const newM = newMults.reduce((a, [, m]) => a + m, 0)
     const newLayout = buildLayout(newMults, newM, k)
-    if (newLayout == null) {
-        return infeasible('No window-clean layout for the netted chase sheet', G)
-    }
-    const adjustedSheets = fit.sheets.map(s => s.name === 'chase'
-        ? { ...s, mults: newMults, layout: newLayout }
-        : s)
-
-    return { feasible: true, G, godSheets, godSlots, adjustedSheets, warnings }
+    if (newLayout == null) return `No window-clean layout for the netted '${sheet.name}' sheet`
+    return { ...sheet, mults: newMults, layout: newLayout }
 }

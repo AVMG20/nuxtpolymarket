@@ -29,9 +29,16 @@ function legacyRecord(num: string, overrides: Partial<PlaatjesCard> = {}): Plaat
     }
 }
 
-function stubCards(items: PlaatjesCard[]) {
-    const page = { total: items.length, page: 1, limit: 500, returned: items.length, items }
-    Object.assign(globalThis, { $fetch: async () => page })
+function stubCards(items: PlaatjesCard[], subsets: Record<string, string[]> = {}) {
+    const index = { sets: Object.entries(subsets).map(([setCode, subsetCodes]) => ({ setCode, subsetCodes })) }
+    Object.assign(globalThis, {
+        $fetch: async (url: string, opts?: { query?: { set?: string } }) => {
+            if (url.endsWith('/pull-rates')) return index
+            const set = opts?.query?.set ?? ''
+            const hits = items.filter(item => String(item.setCode ?? 'BASE1').toUpperCase() === set.toUpperCase())
+            return { total: hits.length, page: 1, limit: 500, returned: hits.length, items: hits }
+        }
+    })
 }
 
 const realFetch = (globalThis as { $fetch?: unknown }).$fetch
@@ -73,6 +80,19 @@ describe('legacy checklist import', () => {
         const { printingRows } = await fetchPlaatjesChecklist('BASE1', 'http://stub.invalid', 'set-1')
         expect(printingRows.find(p => p.plaatjesCardId === 'base1-2')!.finish).toBe('holo')
         expect(printingRows.find(p => p.plaatjesCardId === 'base1-3')!.finish).toBe('nonholo')
+    })
+})
+
+describe('subset import', () => {
+    it("pulls in the subsets that come in a set's packs, after the set's own cards", async () => {
+        stubCards([
+            { cardId: 'me5-5_1', name: 'Exeggcute', number: '1', setCode: 'ME5-5', bundle: 'me5-5_en_001' },
+            { cardId: 'me5-5c_1', name: 'Pikachu', number: '1', setCode: 'ME5-5C', bundle: 'me5-5c_en_001' },
+            { cardId: 'me5-5m_1', name: 'Mew', number: '1', setCode: 'ME5-5M', bundle: 'me5-5m_en_001' },
+            { cardId: 'me5-5_2', name: 'Alolan Exeggutor', number: '2', setCode: 'ME5-5', bundle: 'me5-5_en_002' }
+        ], { 'ME5-5': ['ME5-5C', 'ME5-5M'] })
+        const { cardRows } = await fetchPlaatjesChecklist('ME5-5', 'http://stub.invalid', 'set-1')
+        expect(cardRows.map(card => card.plaatjesBaseId)).toEqual(['me5-5_1', 'me5-5_2', 'me5-5c_1', 'me5-5m_1'])
     })
 })
 

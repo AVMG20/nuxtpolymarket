@@ -6,6 +6,8 @@ interface PullRatesIndexEntry {
     name: string
     slug?: string | null
     setCode: string | null
+    /** Subsets pulled from this set's packs, e.g. ME5-5C for ME5-5. */
+    subsetCodes?: string[] | null
     cardsPerPack: number | null
     packsPerBox: number | null
     tiers: number
@@ -48,8 +50,11 @@ export default defineEventHandler(async (event) => {
         packsPerBox: entry.packsPerBox,
         tierCount: entry.tiers,
         plaatjesSetCode: entry.setCode,
+        // Subset cards come in the same packs and are imported with the set.
         cards: entry.setCode != null
-            ? cardsBySetCode.get(entry.setCode.toLowerCase()) ?? null
+            ? [entry.setCode, ...(entry.subsetCodes ?? [])]
+                .map(code => cardsBySetCode.get(code.toLowerCase()))
+                .reduce<number | null>((sum, n) => n == null ? sum : (sum ?? 0) + n, null)
             : null
     }))
 
