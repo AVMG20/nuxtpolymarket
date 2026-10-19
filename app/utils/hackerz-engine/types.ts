@@ -273,7 +273,6 @@ export interface HackerzWaveSummary {
     credits: number
     /** Site coins banked from drops during the wave. */
     coins: number
-    leaked: number
     wallHp: number
     wallMaxHp: number
     /** The last wave was just cleared — the run is a win rather than a shop trip. */

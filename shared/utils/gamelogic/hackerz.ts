@@ -229,11 +229,6 @@ export const HACKERZ_TYPE_HEX: Record<HackerzDamageType, number> = {
     energy: 0x67e8f9
 }
 
-export const HACKERZ_TYPE_LABEL: Record<HackerzDamageType, string> = {
-    kinetic: 'kinetic',
-    energy: 'energy'
-}
-
 // ─── Enemies ────────────────────────────────────────────────────────────────
 
 export type HackerzEnemyId =

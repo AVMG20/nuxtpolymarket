@@ -17,8 +17,6 @@ export const CYAN = 0x22d3ee
 export const AMBER = 0xfbbf24
 export const RED = 0xf87171
 export const LIME = 0x4ade80
-/** Disputed ground's orange, matching the territory shader's CONTESTED. */
-export const CONTESTED_HEX = 0xff7314
 
 /** Field (u, d) to world space. The wall face is z = 0 and the field runs to -z. */
 export function fieldToWorld(u: number, d: number, y = 0, out = new THREE.Vector3()) {

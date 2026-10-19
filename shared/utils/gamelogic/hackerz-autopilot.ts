@@ -3,8 +3,10 @@
  * `laya_server.py`, at `runtimeConfig.public.layaUrl`) is asked, and how its
  * answers are read. Laya makes
  * the calls a player makes — which hostile to shoot, when to fire an ability,
- * what to buy at the uplink — and the game carries them out. Nothing here
- * decides anything itself.
+ * what to buy at the uplink — and the game carries them out. Two calls are
+ * not Laya's, because probing showed it cannot make them: which gun suits the
+ * target (`hackerzGunForMatchup`), and when a deployable is worth a question
+ * at all (the deploy gates).
  *
  * Questions are short and each carries its own state: Laya answers short
  * states faster and better than one long shared one.
@@ -41,12 +43,10 @@ export interface HackerzAutopilotContact {
     plated: boolean
 }
 
-/** A gun the run owns, as Laya is told it when choosing what to fire. */
+/** A gun the run owns, as the matchup rule (`hackerzGunForMatchup`) weighs it. */
 export interface HackerzAutopilotGun {
     id: string
     name: string
-    /** The shop's two or three words: "crowds", "chains", "pierce"… */
-    tag: string
     damageType: 'kinetic' | 'energy'
     dps: number
     /** Hits several hostiles at once: arcs that chain, splash, or a spread of pellets. */

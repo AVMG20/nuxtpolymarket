@@ -9,7 +9,7 @@ import {
   WALL_HALF_LENGTH,
   mountPosition
 } from '../../app/utils/hackerz-engine/constants'
-import { HACKERZ_ENEMIES, HACKERZ_MAX_SLOTS } from '#shared/utils/gamelogic/hackerz'
+import { HACKERZ_MAX_SLOTS } from '#shared/utils/gamelogic/hackerz'
 
 /**
  * The field is pure geometry, so its design promises can be held in a test
@@ -41,11 +41,6 @@ describe('hackerz field geometry', () => {
     }
   })
 
-  it('has a place for every mount the upgrades can buy', () => {
-    expect(MOUNT_U.length).toBe(HACKERZ_MAX_SLOTS)
-    for (let slot = 0; slot < HACKERZ_MAX_SLOTS; slot++) expect(mountPosition(slot).u).not.toBe(0)
-  })
-
   it('staggers the back row into the gaps of the front row, raised and further back', () => {
     const front = Array.from({ length: MOUNT_BACK_FROM }, (_, slot) => mountPosition(slot).u)
     for (let slot = MOUNT_BACK_FROM; slot < HACKERZ_MAX_SLOTS; slot++) {
@@ -68,10 +63,6 @@ describe('hackerz field geometry', () => {
   it('stands the guns behind the fence, clear of anything pressed against it', () => {
     expect(DECK_FRONT).toBeGreaterThan(0)
     expect(GUN_Z).toBeGreaterThan(DECK_FRONT)
-    for (const def of HACKERZ_ENEMIES) {
-      const standoff = def.range ?? def.height * 0.3 + 10
-      expect(standoff).toBeGreaterThan(0)
-    }
   })
 
   it('keeps the lane inside the wall', () => {

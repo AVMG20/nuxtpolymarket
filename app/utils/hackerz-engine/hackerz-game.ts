@@ -62,7 +62,11 @@ interface ScheduledSpawn {
     hpScale?: number
 }
 
-/** What a rider is doing: pressing on, healing in red, falling back to it, or holding to cover one that is. */
+/**
+ * What a rider is doing: pressing on, healing in red, falling back to it,
+ * holding to cover one that is, guarding a held node, or sheltering beside a
+ * shield bearer.
+ */
 type Tactic = 'advance' | 'recover' | 'retreat' | 'cover' | 'guard' | 'shelter'
 
 /** Where a unit is headed this frame. */
@@ -345,7 +349,6 @@ const LAG_GAP_MS = 1800
 /** PACKET LOSS: when a spike clears, hostiles surge this many times faster for this long. */
 const LAG_CATCH_UP_SPEED = 4
 const LAG_CATCH_UP_MS = 500
-/** Deployables may only go down on this stretch of the lane. */
 /** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
 const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
 /** A demo board's fixed step, and the seed every loop of it starts from. */
@@ -407,6 +410,7 @@ const PHASE_CLOUD_CHANCE = 0.08
 const HP_TRAIL_DRAIN = 0.9
 /** How close to its stop line a demo unit counts as there: `walkTo` settles within 3. */
 const PUPPET_SETTLE = 4
+/** Deployables may only go down on this stretch of the lane. */
 const DEPLOY_MIN_D = 60
 const DEPLOY_MAX_D = FIELD_DEPTH * 0.85
 const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACKERZ_DEPLOYABLES.map(def => [def.key.toLowerCase(), def.id]))
@@ -462,7 +466,6 @@ export class HackerzGame {
     private waveKills = 0
     private waveCredits = 0
     private waveCoins = 0
-    private waveLeaks = 0
     private totalKills = 0
     /**
      * Exploit chain: kills since the last leak. It multiplies run credits only —
@@ -707,7 +710,7 @@ export class HackerzGame {
         this.view = null
     }
 
-    /** Drops one enemy of a type onto the field. For a test harness only. */
+    /** Drops one enemy of a type onto the field: for tests, the demo boards and the debug menu. */
     debugSpawn(id: HackerzEnemyId, u?: number, d?: number) {
         this.spawn(hackerzEnemy(id))
         const enemy = this.enemies[this.enemies.length - 1]
@@ -1452,7 +1455,6 @@ export class HackerzGame {
         this.waveKills = 0
         this.waveCredits = 0
         this.waveCoins = 0
-        this.waveLeaks = 0
         this.scheduleIndex = 0
         this.schedule = this.buildSchedule(wave)
         this.running = true
@@ -1937,7 +1939,7 @@ export class HackerzGame {
                     z,
                     muzzleD: -z * PER_WORLD,
                     muzzleLift: anchor.rise * PER_WORLD,
-                    cooldown: randRange(0, 400),
+                    cooldown: randomBetween(0, 400),
                     kick: 0,
                     heading: Math.PI,
                     frozenMs: 0,
@@ -1982,7 +1984,10 @@ export class HackerzGame {
             let chosen = affordable[affordable.length - 1] as HackerzEnemyDefinition
             for (const def of affordable) {
                 roll -= hackerzSpawnWeight(def, wave)
-                if (roll <= 0) { chosen = def; break }
+                if (roll <= 0) {
+                    chosen = def
+                    break
+                }
             }
             picks.push(chosen)
             budget -= chosen.cost
@@ -2159,7 +2164,7 @@ export class HackerzGame {
             this.pathChips?.update(seen)
             this.linePulses?.update(seen, (u, d) => this.pulseFade(u, d))
             this.shrapnel?.update(seen)
-        this.glitchClouds?.update(seen)
+            this.glitchClouds?.update(seen)
             this.particles.update(seen)
             this.transient?.update(seen)
         }
@@ -2357,9 +2362,9 @@ export class HackerzGame {
     /**
      * Packet loss: every so often the whole board's picture stops updating for
      * a fraction of a second, then catches up in one glitchy jump. Purely what
-     * is seen: nothing on the field ever stops.
+     * is seen: nothing on the field ever stops. While a spike lasts, no
+     * sparks, flashes or floating numbers show until it catches up.
      */
-    /** A lag spike shows nothing new: no sparks, flashes or floating numbers until it catches up. */
     private muteFx(on: boolean) {
         this.particles.muted = on
         if (this.transient) this.transient.muted = on
@@ -3010,7 +3015,6 @@ export class HackerzGame {
         }
     }
 
-    /** `reinforcement` is a top-up hacker: half the credits, and no coins. */
     /**
      * While any path node can still be taken, the portal keeps a pack of
      * hackers on the field (`hackerzHackerField`): each one that falls is
@@ -3057,7 +3061,8 @@ export class HackerzGame {
     /**
      * Brings a unit onto the field. `at` sets it down mid-field instead (a
      * spiderling hatching): it takes the nearest line from there, and the
-     * portal shows nothing of it.
+     * portal shows nothing of it. `reinforcement` is a top-up hacker: half
+     * the credits, and no coins.
      */
     private spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1, at: { u: number, d: number } | null = null) {
         const loadout = this.loadout
@@ -3289,14 +3294,12 @@ export class HackerzGame {
                     ? { stopD: hold!.stopD, near: (u, d) => Math.hypot(u - pot.u, d - pot.d) <= 80 }
                     : { stopD: hold ? hold.stopD : enemy.standoff }
 
-
             // Tactics: a wounded weakling falls back toward red or holds there to
             // heal, and healthier units in front of a retreating one hold the
             // line to cover it. Everyone else gets on with the attack.
             const tactic = riding || enemy.bearer || enemy.defending || enemy.escorting ? this.tactics(enemy, dtMs) : 'advance'
             if (enemy.parked && (tactic !== 'advance' || node || hold)) enemy.parked = null
             const parked = enemy.parked
-            // A healer flies its own rounds: to whoever is hurt worst, to mend them.
             const live = this.running && !this.purging
             // A turned unit hunts hostiles; a hostile with one in its face fights
             // it; a healer flies its own rounds; everyone else gets on with it.
@@ -3527,9 +3530,15 @@ export class HackerzGame {
     private updateBoss(enemy: EnemyEntity, dt: number, dtMs: number) {
         if (enemy.decoy) return
         switch (enemy.def.id) {
-            case 'titan': this.updateRootkit(enemy, dt, dtMs); break
-            case 'leviathan': this.updateBlackIce(enemy, dtMs); break
-            case 'zeroday': this.updateZeroDay(enemy, dt); break
+            case 'titan':
+                this.updateRootkit(enemy, dt, dtMs)
+                break
+            case 'leviathan':
+                this.updateBlackIce(enemy, dtMs)
+                break
+            case 'zeroday':
+                this.updateZeroDay(enemy, dt)
+                break
         }
     }
 
@@ -5406,8 +5415,8 @@ export class HackerzGame {
     /**
      * Right click: a radar ring sweeps out from the rail and lights every contact
      * as the wavefront reaches it; the highlight fades as the wave moves on.
+     * `free`: a Portscan's own sweep, which neither needs nor spends the radar's charge.
      */
-    /** `free`: a Portscan's own sweep, which neither needs nor spends the radar's charge. */
     private firePing(free = false) {
         if (!this.running || this.purging || this.paused || (!free && this.pingCharge < PING_COOLDOWN_MS)) return
         if (!free) {
@@ -5508,8 +5517,6 @@ export class HackerzGame {
         this.overlay.banner('OVERCLOCK', AMBER)
         this.callbacks.onNotice('Overclock engaged.', 'good')
     }
-
-    // ─── Bastion ─────────────────────────────────────────────────────────────
 
     // ─── Path nodes ──────────────────────────────────────────────────────────
 
@@ -6141,7 +6148,6 @@ export class HackerzGame {
             if (terminal?.visible) this.fireHackPulse(node, terminal.position)
             else this.landPulse(node)
         }
-        return 0
     }
 
     private stopHacking(enemy: EnemyEntity) {
@@ -6325,7 +6331,6 @@ export class HackerzGame {
         if (this.gameOver) return
         if (!quiet) {
             this.msSinceWallHit = 0
-            this.waveLeaks++
             this.breakChain()
         }
 
@@ -6513,7 +6518,6 @@ export class HackerzGame {
             kills: this.waveKills,
             credits: this.waveCredits,
             coins: this.waveCoins,
-            leaked: this.waveLeaks,
             wallHp: Math.round(this.wallHp),
             wallMaxHp: this.wallMaxHp,
             victory,

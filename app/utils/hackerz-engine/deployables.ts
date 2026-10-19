@@ -65,8 +65,6 @@ export interface Blast {
 export interface Hold {
     target: Deployed
     stopD: number
-    /** A honeypot pulls its victims sideways toward it; null once they are close enough. */
-    steerU: number | null
 }
 
 export interface DeployEvents {
@@ -75,8 +73,6 @@ export interface DeployEvents {
 }
 
 const RING_SEGMENTS = 64
-/** Lured units gather within this far either side of a honeypot, in field units. */
-const LURE_BAND = 70
 /** World height of a path node's package top, where a wired bomb sits. */
 const CHIP_TOP = 0.34
 
@@ -210,18 +206,13 @@ export class Deployables {
                 const stopD = item.d + 30
                 if (d < item.d - 10 || standoff >= stopD) continue
                 if (Math.hypot(u - item.u, d - item.d) > item.lureRadius) continue
-                // Pulled into a band either side of it, not onto one point: the
-                // crowd spreads into a ring around the pot instead of stacking
-                // inside its model.
-                const offset = u - item.u
-                const steerU = Math.abs(offset) > LURE_BAND ? item.u + Math.sign(offset) * LURE_BAND : null
-                if (!best || stopD > best.stopD) best = { target: item, stopD, steerU }
+                if (!best || stopD > best.stopD) best = { target: item, stopD }
             } else if (item.kind === 'proxy') {
                 if (airborne) continue
                 const stopD = item.d + 20
                 if (d < item.d - 4 || standoff >= stopD) continue
                 if (Math.abs(u - item.u) > item.halfWidth) continue
-                if (!best || stopD > best.stopD) best = { target: item, stopD, steerU: null }
+                if (!best || stopD > best.stopD) best = { target: item, stopD }
             }
         }
         return best

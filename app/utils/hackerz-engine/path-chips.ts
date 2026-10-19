@@ -7,21 +7,20 @@ import { hdr } from './models'
 /**
  * Hackable nodes on the lane itself, and what the territory is fought over.
  *
- * The intrusion takes them in order, outermost first: hostiles converge on the
- * next node in their path, ring it, and hack it with pulses from their
- * terminals — the more of them, the faster it falls. A node only raises the
+ * The intrusion takes them in order, outermost first: hackers converge on the
+ * next node in their path, park in a row behind it, and hack it with pulses
+ * from their terminals — the more of them, the faster it falls. A node only raises the
  * alarm when the first pulse lands. A hacked node turns into a red skull,
  * buffs every hostile near it, and pushes their ground up to it. Shooting a
  * hacked node reclaims it in a few hits, which pays credits and turns it into
  * the firewall's own — each one the player holds speeds up the rail.
  *
- * Positions decide gameplay, so they roll through `#shared/utils/random`.
+ * Positions decide gameplay, so they roll through `./rng` (the secure RNG, or
+ * the seeded one on a Database demo board).
  */
 
 export type ChipState = 'neutral' | 'hacked' | 'ours'
 
-/** Hostiles ring a node at about this distance (field units) to hack it. */
-export const CHIP_HACK_RADIUS = 70
 /** Hostiles this close to a hacked node are buffed by it. */
 export const CHIP_AURA_RADIUS = 170
 /** A player round passing this close to a hacked node counts as a hit on it. */
@@ -161,19 +160,6 @@ export class PathChips {
 
     private hex(chip: PathChip) {
         return chip.state !== 'hacked' && chip.alert ? ALERT_HEX : STATE_HEX[chip.state]
-    }
-
-    /**
-     * The node a hostile at depth `d` should go for: the outermost one not yet
-     * taken that is still ahead of it and that `reachable` says it has a road
-     * to. Null once there is nothing left to take.
-     */
-    targetFor(d: number, reachable: (chip: PathChip) => boolean = () => true) {
-        for (const chip of this.ordered) {
-            if (chip.state === 'hacked') continue
-            if (chip.d <= d + 30 && reachable(chip)) return chip
-        }
-        return null
     }
 
     /** How many nodes the intrusion holds in an unbroken run from the far end. */

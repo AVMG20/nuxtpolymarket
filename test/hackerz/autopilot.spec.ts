@@ -19,8 +19,8 @@ function board(patch: Partial<HackerzAutopilotView> = {}): HackerzAutopilotView 
     held: 2,
     nodes: 8,
     contacts: [
-      { key: 'e0', name: 'Crawler', boss: false, hacking: true, hacker: true, d: 420, health: 0.4 },
-      { key: 'e1', name: 'Daemon', boss: false, hacking: false, hacker: false, d: 180, health: 1 }
+      { key: 'e0', name: 'Crawler', boss: false, hacking: true, hacker: true, d: 420, health: 0.4, plated: false },
+      { key: 'e1', name: 'Daemon', boss: false, hacking: false, hacker: false, d: 180, health: 1, plated: false }
     ],
     near: 1,
     hidden: 0,
@@ -56,9 +56,9 @@ describe('hackerz auto-play questions', () => {
 
   it('swaps guns by matchup: chains for a crowd, the right damage type for a lone target', () => {
     const guns = [
-      { id: 'rail', name: 'Packet Rail', tag: 'all-rounder', damageType: 'energy' as const, dps: 60, multi: false },
-      { id: 'arc', name: 'Tesla Coil', tag: 'chains', damageType: 'energy' as const, dps: 56, multi: true },
-      { id: 'sniper', name: 'Longbore', tag: 'pierce', damageType: 'kinetic' as const, dps: 70, multi: false }
+      { id: 'rail', name: 'Packet Rail', damageType: 'energy' as const, dps: 60, multi: false },
+      { id: 'arc', name: 'Tesla Coil', damageType: 'energy' as const, dps: 56, multi: true },
+      { id: 'sniper', name: 'Longbore', damageType: 'kinetic' as const, dps: 70, multi: false }
     ]
     const tank = { key: 'e0', name: 'Siege Tank', boss: false, hacking: false, hacker: false, d: 300, health: 1, plated: true }
     const crawler = { ...tank, name: 'Crawler', plated: false }

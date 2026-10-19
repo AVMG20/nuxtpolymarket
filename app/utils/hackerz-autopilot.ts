@@ -23,8 +23,10 @@ import type { EnemyEntity } from './hackerz-engine/types'
 // same local Laya API Shapezz and Pirate Raid auto-play use (`runtimeConfig.public.layaUrl`). A few times a second mid-wave the board is described to
 // Laya and it names the hostile to shoot and any ability to fire; this class
 // carries that out through the engine. Between waves it asks Laya what to buy,
-// one purchase at a time. It makes no decisions of its own: while Laya is down
-// the rail holds fire and the uplink waits.
+// one purchase at a time. Laya makes the calls, except the two it was shown
+// not to manage (the gun for the target, and when a deployable is worth
+// asking about), and the plain cases: a lone target is shot, nothing lockable
+// is fired at blind. While Laya is down the rail holds fire and the uplink waits.
 
 export interface HackerzAutopilotStatus {
     /** The last question reached Laya. */
@@ -166,9 +168,12 @@ export class HackerzAutopilot {
                 if (deployId && this.game.autopilotDeploy(deployId)) {
                     fired.push(HACKERZ_DEPLOYABLES.find(def => def.id === deployId)?.name ?? deployId)
                 }
-                if (decision.pulse) { this.game.autopilotAbility('pulse'); fired.push('ICE pulse') }
-                if (decision.ping) { this.game.autopilotAbility('ping'); fired.push('ping') }
-                if (decision.overclock) { this.game.autopilotAbility('overclock'); fired.push('overclock') }
+                const abilities = [['pulse', 'ICE pulse'], ['ping', 'ping'], ['overclock', 'overclock']] as const
+                for (const [id, name] of abilities) {
+                    if (!decision[id]) continue
+                    this.game.autopilotAbility(id)
+                    fired.push(name)
+                }
                 const shot = decision.target ? view.contacts.find(c => c.key === decision.target) : null
                 this.setStatus({
                     online: true,

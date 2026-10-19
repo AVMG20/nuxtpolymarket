@@ -22,7 +22,6 @@ type Phase = 'loading' | 'lobby' | 'wave' | 'shop' | 'over' | 'won'
 const { user, fetchSession } = useAuth()
 const toast = useToast()
 
-
 const host = ref<HTMLDivElement | null>(null)
 const shell = ref<HTMLDivElement | null>(null)
 
@@ -88,7 +87,6 @@ async function rushCooldown() {
     rushingCooldown.value = false
   }
 }
-
 
 // ─── Run state ──────────────────────────────────────────────────────────────
 // Credits and the armoury live here rather than in the engine: the engine runs
@@ -243,10 +241,9 @@ function pushNotice(text: string, kind: 'good' | 'bad' | 'info') {
 }
 
 // ── Syslog terminal: the defence's running commentary beside the board ──
-// Only the tail is shown in the HUD; older lines fade off the top of the panel.
+// Only the last `LOG_KEEP` lines are kept; older ones fade off the top of the panel.
 const LOG_KEEP = 14
 const logLines = ref<SysLogLine[]>([])
-const visibleLog = computed(() => logLines.value)
 const logClass: Record<SysLogKind, string> = {
   bad: 'text-red-400',
   warn: 'text-amber-300',
@@ -403,6 +400,12 @@ function selectWeapon(id: HackerzWeaponId) {
   if (!armoury.value.owned.includes(id) || armoury.value.active === id) return
   armoury.value = { ...armoury.value, active: id }
   game?.swapWeapon(hackerzWeaponRuntime(id, levels.value, effects.value))
+}
+
+/** Mutes or unmutes; unmuting is a click, which is what lets the browser start the audio. */
+function toggleSound() {
+  soundEnabled.value = !soundEnabled.value
+  if (soundEnabled.value) hackerzSound.unlock()
 }
 
 function togglePause() {
@@ -607,7 +610,6 @@ function toggleAutopilot(on: boolean) {
     guns: () => weaponRows.value.filter(row => row.owned).map(row => ({
       id: row.def.id,
       name: row.def.name,
-      tag: row.def.tag,
       damageType: row.def.damageType,
       dps: row.dps,
       multi: (row.runtime.chain ?? 0) > 0 || (row.runtime.splashRadius ?? 0) > 0 || (row.runtime.pellets ?? 1) > 1
@@ -667,7 +669,7 @@ async function autopilotShop() {
   for (let n = 0; n < 40 && live(); n++) {
     const offers = autopilotOffers()
     if (!offers.length) break
-    const held = game?.autopilotView().view.held ?? 0
+    const board = game?.autopilotView().view
     const { online, pick } = await autopilot!.pickPurchase({
       nextWave: nextWave.value,
       wall: integrity.value,
@@ -675,8 +677,8 @@ async function autopilotShop() {
       gun: hackerzWeapon(armoury.value.active).name,
       mounts: armoury.value.turrets.length,
       filled: armoury.value.turrets.filter(Boolean).length,
-      held,
-      nodes: 8
+      held: board?.held ?? 0,
+      nodes: board?.nodes ?? 0
     }, offers)
     if (!live()) return
     // Laya down: the uplink waits and asks again (the player can still buy and deploy).
@@ -1000,7 +1002,7 @@ async function toggleFullscreen() {
             variant="ghost"
             size="xs"
             :title="soundEnabled ? 'Mute audio' : 'Unmute audio'"
-            @click="soundEnabled = !soundEnabled; if (soundEnabled) hackerzSound.unlock()"
+            @click="toggleSound"
           />
           <USlider
             v-model="soundVolume"
@@ -1077,7 +1079,7 @@ async function toggleFullscreen() {
               </div>
               <div class="flex h-[calc(100%-1.45rem)] flex-col justify-end overflow-hidden px-2 py-1 [mask-image:linear-gradient(to_bottom,transparent,black_30%)]">
                 <p
-                  v-for="line in visibleLog"
+                  v-for="line in logLines"
                   :key="line.id"
                   class="break-words"
                   :class="[logClass[line.kind], line.big ? bigLogClass[line.kind] : '']"

@@ -248,7 +248,7 @@ export const HACKERZ_DEMO_SCRIPTS: Record<string, DemoScript> = {
                 game => game.demoSpawnFree('crawler', -60, 1000),
                 game => game.demoSpawnFree('crawler', 60, 1010)
             ) },
-            { at: 2500, say: '> they ring the node and hack it from their terminals' },
+            { at: 2500, say: '> they park beside the node and hack it from their terminals' },
             { at: 9000, say: '> taken: three hits on a hacked node take it back', run: fire('node') },
             { at: 12_500, say: '> reclaimed: the ground around it turns blue again' }
         ]
