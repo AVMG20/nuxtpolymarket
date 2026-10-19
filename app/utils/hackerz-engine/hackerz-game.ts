@@ -3,24 +3,23 @@ import { randomBetween, randomChance, randomFloat, randomInt, seededRng, withSee
 import type { DemoScript } from '../hackerz-demo-scripts'
 import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
-    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField,
-    HACKERZ_HEAL_TICK_MS, HACKERZ_LEAK_MERGE, HACKERZ_MAX_WAVE,
-    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
-    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY,
-    HACKERZ_PURGE_BOUNTY, HACKERZ_SHIELD_DELAY_MS, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS,
-    hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue,
-    HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp,
-    hackerzIsAirborne, hackerzIsBossWave, hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget,
-    hackerzSpawnWeight, hackerzWavePool,
+    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
+    HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_LEAK_MERGE,
+    HACKERZ_MAX_WAVE, HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS,
+    HACKERZ_SPIDER_INJECT_MS, HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY,
+    HACKERZ_SHIELD_DELAY_MS, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor,
+    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
+    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
+    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
+    hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool,
     type HackerzDamageType, type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition,
     type HackerzEnemyId, type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
-    BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, DESPAWN_DEPTH, FIELD_DEPTH,
-    FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK,
-    PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY,
-    SPIT_SPEED, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
+    BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
+    MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY,
+    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, SPIT_SPEED, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT,
+    mountPosition
 } from './constants'
 import { clamp, randRange, segPointDist, segSegDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -38,21 +37,27 @@ import { BLOCK_STORM_IDS, BlockStorm } from './block-storm'
 import { DrainWound } from './drain-wound'
 import { IceWall, disposeIceGlob, makeIceGlob } from './ice-wall'
 import {
-    buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget,
-    type DataNetwork, type LinePoint, type Trace
+    buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget, type DataNetwork, type LinePoint,
+    type Trace
 } from './data-lines'
 import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
 import {
     ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
-    burrowFrame, drainGrowth, gatherLegs, easeHeave, easeInject, easeStrike, fangTips, injectLands, heaveCarry, heaveReleases, hoverBob, muzzleOf, railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward, weaponTip
+    burrowFrame, drainGrowth, gatherLegs, easeHeave, easeInject, easeStrike, fangTips, injectLands, heaveCarry,
+    heaveReleases, hoverBob, muzzleOf, railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward,
+    weaponTip
 } from './rig-motion'
 import { AMBER, CYAN, DARK_ZONES, FRONT_COLUMNS, HackerzScene, ISLANDS, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
 import { LaneProps, zoneAt } from './lane-props'
-import { Overlay, ParticleSystem, TransientFx, hexCss, makeCoin, makeProjectile, makeSpit, turretProjectile, type HealthTag } from './fx'
+import {
+    Overlay, ParticleSystem, TransientFx, hexCss, makeCoin, makeProjectile, makeSpit, turretProjectile, type HealthTag
+} from './fx'
 import type {
     BulletEntity, CoinEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount
 } from './types'
+import { PER_WORLD } from './game/tuning'
+import { Healers } from './game/healers'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -94,19 +99,20 @@ interface ShotSpec {
     fromTurret: boolean
 }
 
-/** Field units per world unit, for heights that only exist for rendering. */
-const PER_WORLD = 1 / FIELD_SCALE
 /** Turret and rail muzzles sit this high above the field, in field units. */
 const MUZZLE_Y = (WALL_HEIGHT + 1.1) * PER_WORLD
+
 /** Where the fence is struck, and where dropped coins bank. */
 const WALL_HIT_Y = FENCE_HEIGHT * 0.55 * PER_WORLD
 const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
+
 /**
  * Rounds start on the deck, well behind the fence. Walkers stop a body-width
  * out from the fence to hit it, so the guns have to stand back far enough that
  * a unit at the fence is in front of every barrel rather than under it.
  */
 const MUZZLE_D = -GUN_Z * PER_WORLD
+
 /**
  * Where leaked memory piles up: between the fence and the Daemons hitting it;
  * and how big, so a full pile stands about fence-high, the size it is beside a
@@ -114,6 +120,7 @@ const MUZZLE_D = -GUN_Z * PER_WORLD
  */
 const LEAK_D = 14
 const LEAK_SCALE = 2
+
 /** A shot aimed this close to a pile (field units) is fired at it, and how often a pile drains the fence. */
 const LEAK_AIM_U = 36
 const LEAK_AIM_D = 45
@@ -145,6 +152,7 @@ const BLACK_ICE_DEPOSIT = 0.3
 const BLACK_ICE_WALL_MIN_D = 140
 const BLACK_ICE_WALL_LIFE_MS = 14_000
 const BLACK_ICE_SLOW = 0.45
+
 /**
  * The slab BLACK ICE throws at the rail: a third of the field wide, aimed at
  * where the gun stood. A gun clear of it by more than its own half width
@@ -156,19 +164,6 @@ const RAIL_GUN_HALF = 24
 /** How long ROOTKIT stays gone when it burrows, its dive into the floor included; and how many spiderlings scatter where it goes under. */
 const ROOTKIT_BURROW_MS = 2600
 const ROOTKIT_BURROW_CLUTCH = 3
-
-/**
- * Healers: the beam's colour; how close (field units) a healer must be to mend;
- * where it hovers, behind its patient; how far to the side it shadows the front
- * when nobody is hurt; and how strongly a unit others already mend draws it in.
- */
-const HEAL_HEX = 0x4ade80
-const HEAL_REACH = 70
-const HEAL_HOVER_D = 30
-const HEAL_ESCORT_U = 40
-const HEAL_CONVERGE = 0.35
-/** How often a healer with a patient looks again for one hurt worse. */
-const HEAL_RETARGET_MS = 500
 
 /** A pile of leaked allocations at the foot of the fence, and what each of its blocks drains a second. */
 interface LeakPile {
@@ -182,23 +177,29 @@ interface LeakPile {
 
 /** Chain lengths that earn a banner. */
 const CHAIN_MILESTONES = [10, 25, 50, 100]
+
 /** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
 const PING_COOLDOWN_MS = 3500
 const PING_SPEED = 1500
 const PING_REVEAL_MS = 2600
+
 /**
  * How hard spawns bunch toward the end of the window: 1 is even, higher packs
  * more of the wave into its closing seconds.
  */
 const SPAWN_RAMP = 1.8
+
 /** The last stretch of a wave: everything drops what it is doing and charges the fence. */
 const FINAL_PUSH_MS = 12_000
 const FINAL_PUSH_SPEED = 1.35
+
 /** How many open nodes the hackers split across at once. */
 const HACK_FRONTS = 2
+
 /** The most hackers that work one node at once; the rest wait this much further out for a free terminal. */
 const HACK_TEAM = 4
 const HACK_QUEUE_GAP = 70
+
 /**
  * While the intrusion is still fighting for its first few nodes, sappers pour
  * in to pull the player's fire off the hackers: one this often, up to this many
@@ -207,18 +208,23 @@ const HACK_QUEUE_GAP = 70
 const DISTRACT_NODES = 3
 const DISTRACT_MS = 1400
 const DISTRACT_MAX = 8
+
 /** The decoys hold off until the first boss is down: a fresh run cannot shoot both them and the hackers. */
 const DISTRACT_FROM_WAVE = HACKERZ_BOSS_EVERY + 1
+
 /** Hacker zap-dodge: how far ahead a round is seen, the odds of dodging it, the jump range, and the recharge. */
 const ZAP_SIGHT = 150
 const ZAP_CHANCE = 0.55
 const ZAP_MIN = 45
 const ZAP_MAX = 170
 const ZAP_COOLDOWN_MS = 2600
+
 /** Half the width of a turret's own lane, in field units: mounts sit about twice this apart. */
 const TURRET_LANE = 75
+
 /** How often a turret holding a target looks again for one it would rather shoot. */
 const TURRET_RETARGET_MS = 400
+
 /**
  * DDoS surge: the final push adds enough cheap units to outlast the player's
  * firepower — this many seconds of their damage per second, times this much
@@ -226,15 +232,20 @@ const TURRET_RETARGET_MS = 400
  */
 const DDOS_SURGE_OVERKILL = 1.4
 const DDOS_SURGE_CAP = 140
+
 /** Gap between top-up hackers leaving the portal. */
 const HACKER_RESPAWN_MS = 600
+
 /** With more than this many hackers short, they come out this quickly one after another. */
 const HACKER_BURST_FROM = 3
 const HACKER_BURST_GAP_MS = 150
+
 /** A honeypot pulls in riders whose next trace passes this close to it. */
 const LURE_TRACE_RADIUS = 120
+
 /** Hackers get to work within this far of a node — a column over still counts. */
 const HACK_REACH = 125
+
 /**
  * Hackers park side by side in a row behind a node (portal side), facing
  * the fence: the row this far behind it, this many slots either side of the
@@ -243,24 +254,30 @@ const HACK_REACH = 125
 const HACK_ROW_BACK = 70
 const HACK_SLOT_SIDE = 2
 const HACK_PARK_FROM = 280
+
 /** Facing for a rider: down the column toward the fence, or along a rung. */
 const YAW_DOWN = 0
 const YAW_RIGHT = Math.PI / 2
 const YAW_LEFT = -Math.PI / 2
+
 /** Held ground bites: a tick this often, of this share of max health plus a flat bite. */
 const ZONE_TICK_MS = 500
 const ZONE_TICK_SHARE = 0.025
 const ZONE_TICK_BOSS_SHARE = 0.006
+
 /** Their ground always covers the portal: the red line never pulls back past this. */
 const PORTAL_GROUND = FIELD_DEPTH - 30
+
 /**
  * Dark zones: this many hacked nodes, each within `DARK_LINK` of another, put
  * the lights out over themselves and this much ground around them.
  */
 const DARK_CLUSTER = 3
+
 /** Nodes are scattered at least ~250 apart, so "close" has to reach a little past that. */
 const DARK_LINK = 400
 const DARK_MARGIN = 140
+
 /**
  * Shield bearers: the Bulwark is the shield unit. A dark zone sends this many,
  * up to this many on the field, to stand this far in front of the frontier
@@ -272,58 +289,78 @@ const BEARERS_PER_ZONE = 3
 const BEARERS_MAX = 6
 const BEARER_FRONT = 2
 const BEARER_AHEAD = 80
+
 /** A hacked node draws its defender from units within this far of it. */
 const DEFEND_RADIUS = 300
+
 /** How far in front of its node (toward the fence) a defender stands. */
 const DEFEND_AHEAD = 50
+
 /** From this wave each hacker brings a bodyguard, and from the second wave listed, two. */
 const ESCORT_FROM_WAVE = 10
 const ESCORT_DOUBLE_WAVE = 20
+
 /** A free unit this close to an unguarded hacker is drafted; failing that, the portal sends one. */
 const ESCORT_REACH = 600
 const ESCORT_ID: HackerzEnemyId = 'grunt'
 const ESCORT_RESPAWN_MS = 900
+
 /** A bodyguard outpaces its charge by this much, so it can get back in front. */
 const ESCORT_CATCH_UP = 1.3
+
 /** A ranged unit will not set up closer than this to a node, so it never reads as the node's guard. */
 const RANGED_CHIP_CLEAR = 130
 const BEARER_SPACING = 55
 const SHELTER_BEHIND = 70
+
 /** The wounded only make for a shield wall this close; sheltering this close behind a bearer heals. */
 const SHELTER_REACH = 350
 const SHELTER_RADIUS = 110
+
 /** Bearers plod: their rules speed, without the field pace or their ground's boost. */
 const BEARER_PACE = 1
 const BEARER_RESPAWN_MS = 1500
+
 /** Island radii, field units: a node taken out of turn, and one being hacked away from the front. */
 const RED_ISLAND = 150
 const ORANGE_ISLAND = 170
+
 /** How fast an island swells, in field units of radius a second. */
 const ISLAND_FLOW = 160
+
 /** Red ground's gifts to anything standing in it: a one-hit shield, recharging, and a heal per tick. */
 const RED_SHIELD_RECHARGE_MS = 3000
+
 /** A weakling below this share of health holds in red to heal, until it is back above `RECOVERED`. */
 const RETREAT_BELOW = 0.5
 const RECOVERED = 0.9
+
 /** Units this close to a node they hold heal twice as fast, and stand guard over it. */
 const GUARD_RADIUS = 140
+
 /** A unit falls back at this share of its pace; healthier units this close in front of it hold to cover it. */
 const RETREAT_SPEED = 0.8
 const COVER_RADIUS = 170
 const COVER_HOLD_MS = 900
 const YAW_UP = Math.PI
+
 /** How soon a shield re-forms on a unit stepping back into red. */
 const RED_SHIELD_REFORM_MS = 500
 const RED_HEAL_SHARE = 0.02
 const RED_HEAL_BOSS_SHARE = 0.005
+
 /** How fast their red ground pours toward a node they have taken, in field units a second. */
 const RED_FLOW_SPEED = 150
+
 /** How fast disputed ground swarms out from their line, in field units a second. */
 const SWARM_SPEED = 260
+
 /** The colour of an electric prod's discharge. */
 const PROD_HEX = 0xbfe9ff
+
 /** How much of a node a hack pulse takes (how often they fly is `MOTION.hackPulseMs`). */
 const HACK_PULSE_AMOUNT = 0.09
+
 /**
  * Nodes out by the portal are poorly defended and fall fast; the closer to the
  * fence, the longer one holds out. A pulse's take is scaled from the first
@@ -332,10 +369,13 @@ const HACK_PULSE_AMOUNT = 0.09
  */
 const HACK_EASE_FAR = 1.5
 const HACK_EASE_NEAR = 0.5
+
 /** BLACKOUT: hostiles further out than this are dark until a ping lights them. */
 const BLACKOUT_LIGHT_D = 260
+
 /** PACKET LOSS: the share of player rounds that never arrive. */
 const PACKET_LOSS = 0.25
+
 /**
  * The blue pulse a round knocks out of a hacked node: strength it loses per
  * field unit on each kind of ground (it starts at 1), how many nodes on it can
@@ -344,20 +384,26 @@ const PACKET_LOSS = 0.25
 const LINE_PULSE_FADE = { held: 1 / 1400, contested: 1 / 550, theirs: 1 / 170 }
 const LINE_PULSE_HOPS = 1
 const LINE_PULSE_MAX = 24
+
 /** PACKET LOSS: the round's health against what the player's battery can clear in it, and the most extra units it adds. */
 const PACKET_LOSS_OVERKILL = 2
 const PACKET_LOSS_SWARM_CAP = 120
+
 /** PACKET LOSS: how long the board's picture freezes, and the gap between freezes, give or take. */
 const LAG_FREEZE_MS = 1400
 const LAG_GAP_MS = 1800
+
 /** PACKET LOSS: when a spike clears, hostiles surge this many times faster for this long. */
 const LAG_CATCH_UP_SPEED = 4
 const LAG_CATCH_UP_MS = 500
+
 /** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
 const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
+
 /** A demo board's fixed step, and the seed every loop of it starts from. */
 const DEMO_STEP_MS = 1000 / 60
 const DEMO_SEED = 0x5eed
+
 /**
  * The Longbore's track: how far either side of the middle it can glide (field
  * units, just inside the lane), and how fast — quick enough to keep up with a
@@ -365,6 +411,7 @@ const DEMO_SEED = 0x5eed
  */
 const RAIL_TRACK = FIELD_HALF_WIDTH - 20
 const RAIL_GLIDE = 2400
+
 /**
  * The Longbore punching through a body: the flame it throws up, how long the
  * round hangs in the body before carrying on, and how hard it drives it back.
@@ -372,11 +419,14 @@ const RAIL_GLIDE = 2400
 const LONGBORE_FLARE = 0xc084fc
 const PUNCH_HOLD_MS = 70
 const PUNCH_PUSH = 480
+
 /** The clearance kept between two bodies on the ground, in field units. */
 const CROWD_GAP = 4
+
 /** How long a body may stand blocked before a jam is broken, and how long it then backs off to break it. */
 const JAM_MS = 2500
 const YIELD_MS = 700
+
 /**
  * A rider's line is guidance, not a rail: it may stand off it by up to this
  * much (field units) to step round a body or stand beside one, which is
@@ -385,24 +435,33 @@ const YIELD_MS = 700
  */
 const LANE_SLACK = 70
 const LANE_RETURN = 0.5
+
 /** Rounds the Tarpit Grid burns from the gun's magazine each second it is biting. */
 const TARPIT_ROUNDS_PER_S = 1
+
 /** How much bigger (footprint area) a body must be to barge another out of its way. */
 const BARGE_RATIO = 1.6
+
 /** Auto-play offers Laya this many hostiles to choose between, and counts this close to the wall as near. */
 const AUTOPILOT_CONTACTS = 5
 const AUTOPILOT_NEAR = 250
+
 /** Hostiles this close together count as one pack, for where auto-play puts a deployable. */
 const AUTOPILOT_PACK_RADIUS = 140
+
 /** How far ahead of a pack (toward the wall) auto-play puts each deployable that waits for it. */
 const AUTOPILOT_DEPLOY_AHEAD: Partial<Record<HackerzDeployableId, number>> = { honeypot: 120, proxy: 90, bomb: 60, surge: 0 }
+
 /** How long a round fired blind into the dark lights up what it hits. */
 const HIT_LIGHT_MS = 450
+
 /** The most two overlapping bodies are pushed apart in one tick (field units). */
 const SEPARATE_STEP = 4
+
 /** How long a blast leaves a unit glitching, and over how much of the end it eases out. */
 const GLITCH_MS = 650
 const GLITCH_FADE_MS = 400
+
 /**
  * A hacker passing through another body tears at full strength (kept topped
  * up past the fade while they overlap), with a puff of corrupted blocks this
@@ -410,14 +469,18 @@ const GLITCH_FADE_MS = 400
  */
 const PHASE_GLITCH_MS = GLITCH_FADE_MS + 100
 const PHASE_CLOUD_CHANCE = 0.08
+
 /** How fast a health bar's trail drains after a hit, in bar-lengths a second. */
 const HP_TRAIL_DRAIN = 0.9
+
 /** How close to its stop line a demo unit counts as there: `walkTo` settles within 3. */
 const PUPPET_SETTLE = 4
+
 /** Deployables may only go down on this stretch of the lane. */
 const DEPLOY_MIN_D = 60
 const DEPLOY_MAX_D = FIELD_DEPTH * 0.85
 const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACKERZ_DEPLOYABLES.map(def => [def.key.toLowerCase(), def.id]))
+
 /** A logic bomb dropped this close to a node that is not theirs is wired onto it. */
 const BOMB_CHIP_SNAP = 110
 
@@ -427,8 +490,8 @@ const _w = new THREE.Vector3()
 export class HackerzGame {
     private view: HackerzScene | null = null
     private callbacks: HackerzCallbacks
-    private particles = new ParticleSystem(5000)
-    private transient: TransientFx | null = null
+    particles = new ParticleSystem(5000)
+    transient: TransientFx | null = null
     private overlay = new Overlay()
     private fieldRoot = new THREE.Group()
     private railRig: ModelRig | null = null
@@ -553,7 +616,7 @@ export class HackerzGame {
     private pingCharge = PING_COOLDOWN_MS
 
     // ── Entities ──
-    private enemies: EnemyEntity[] = []
+    enemies: EnemyEntity[] = []
     private bullets: BulletEntity[] = []
     private spits: SpitEntity[] = []
     private leaks: LeakPile[] = []
@@ -607,6 +670,9 @@ export class HackerzGame {
     /** How far the demo camera is pulled back, and what the script has the rail firing at. */
     private demoZoom = 1
     private demoFiring: 'lead' | 'node' | null = null
+
+    // ── Systems: each owns its part of the game (see ./game) ──
+    readonly healers = new Healers(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -2987,12 +3053,12 @@ export class HackerzGame {
     // ─── Positions ───────────────────────────────────────────────────────────
 
     /** World position of an enemy, `lift` field units above where it stands. */
-    private enemyWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3) {
+    enemyWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3) {
         return fieldToWorld(enemy.u, enemy.d, (enemy.altitude + lift) * FIELD_SCALE, out)
     }
 
     /** Field height of an enemy's centre of mass, for aiming and splash. */
-    private enemyCentreY(enemy: EnemyEntity) {
+    enemyCentreY(enemy: EnemyEntity) {
         return enemy.altitude + enemy.rig.height * PER_WORLD * 0.5
     }
 
@@ -3176,7 +3242,7 @@ export class HackerzGame {
         }
     }
 
-    private placeEnemy(enemy: EnemyEntity) {
+    placeEnemy(enemy: EnemyEntity) {
         const bob = hackerzIsAirborne(enemy.def) ? hoverBob(enemy.hover) : 0
         fieldToWorld(enemy.u, enemy.d, (enemy.altitude + bob) * FIELD_SCALE + this.burrowing(enemy).lift * enemy.rig.height, enemy.rig.root.position)
         // Corrupted by a blast, the whole unit skips: it snaps to a random spot
@@ -3299,7 +3365,7 @@ export class HackerzGame {
             const mending = enemy.turned
                 ? (live ? this.turnedStep(enemy, dt, dtMs) : { moved: 0, arrived: false })
                 : (live ? this.brawlStep(enemy, dtMs) : null)
-                    ?? (enemy.def.heal && !enemy.kamikaze && live ? this.healerStep(enemy, dt, dtMs) : null)
+                    ?? (enemy.def.heal && !enemy.kamikaze && live ? this.healers.healerStep(enemy, dt, dtMs) : null)
             const step = mending ?? (enemy.demoPath
                 ? this.puppetStep(enemy, goal, hold, dt)
                 : parked
@@ -4468,98 +4534,6 @@ export class HackerzGame {
             }
             this.infected.set(id, left)
         }
-    }
-
-    // ─── Healers ─────────────────────────────────────────────────────────────
-
-    /**
-     * A healer's move: to the worst-hurt hostile, preferring one other healers
-     * already work on (so they converge, and heal it faster together), and a
-     * heal every tick once in reach. With nobody hurt it shadows the front of
-     * the push. Null once only healers are left: then it goes kamikaze, diving
-     * the fence like any flyer, to go off there.
-     *
-     * A healer sticks with its patient until it is mended or gone, and only
-     * now and then looks for one hurt worse, so the field is not searched
-     * every frame.
-     */
-    private healerStep(enemy: EnemyEntity, dt: number, dtMs: number) {
-        enemy.healRetargetMs -= dtMs
-        let patient = enemy.healing && this.needsHealing(enemy.healing) ? enemy.healing : null
-        if (enemy.healRetargetMs <= 0 || (enemy.healing && !patient)) {
-            enemy.healRetargetMs = HEAL_RETARGET_MS
-            patient = this.pickPatient(enemy)
-        }
-        let lead = patient
-        if (!lead) {
-            for (const e of this.enemies) {
-                if (e.def.heal || e.turned) continue
-                if (!lead || e.d < lead.d) lead = e
-            }
-        }
-        if (!lead) {
-            enemy.kamikaze = true
-            enemy.healing = null
-            return null
-        }
-        enemy.healing = patient
-        const goalU = lead.u + (patient ? 0 : HEAL_ESCORT_U * Math.sign(enemy.u - lead.u || 1))
-        const goalD = lead.d + HEAL_HOVER_D
-        const du = goalU - enemy.u
-        const dd = goalD - enemy.d
-        const dist = Math.hypot(du, dd)
-        const moved = Math.min(dist, enemy.speed * this.pushSpeed * dt)
-        if (dist > 0.001) {
-            enemy.u += du / dist * moved
-            enemy.d += dd / dist * moved
-        }
-        if (patient && Math.hypot(patient.u - enemy.u, patient.d - enemy.d) < HEAL_REACH) {
-            enemy.attackTimer -= dtMs
-            if (enemy.attackTimer <= 0) {
-                enemy.attackTimer = HACKERZ_HEAL_TICK_MS
-                // 1 a tick at the unit's own strength: a heavy mends as fast, proportionally, as a light.
-                patient.hp = Math.min(patient.maxHp, patient.hp + enemy.def.heal! * patient.maxHp / patient.def.hp)
-                this.healBeam(enemy, patient)
-            }
-        }
-        return { moved, arrived: false }
-    }
-
-    /** Whether a hostile is one a healer can work on: hurt, above ground, and still on its side. */
-    private needsHealing(e: EnemyEntity) {
-        return !e.def.heal && !e.turned && e.hp < e.maxHp && e.burrowMs <= 0
-    }
-
-    /**
-     * The worst-hurt hostile, weighted toward one other healers already work
-     * on (so they converge) and toward the one this healer has, and against
-     * distance.
-     */
-    private pickPatient(enemy: EnemyEntity) {
-        const crews = new Map<EnemyEntity, number>()
-        for (const h of this.enemies) {
-            if (h !== enemy && h.healing) crews.set(h.healing, (crews.get(h.healing) ?? 0) + 1)
-        }
-        let patient: EnemyEntity | null = null
-        let best = -Infinity
-        for (const e of this.enemies) {
-            if (!this.needsHealing(e)) continue
-            const score = (1 - e.hp / e.maxHp) + (crews.get(e) ?? 0) * HEAL_CONVERGE + (e === enemy.healing ? 0.15 : 0)
-                - Math.hypot(e.u - enemy.u, e.d - enemy.d) / 3000
-            if (score > best) {
-                best = score
-                patient = e
-            }
-        }
-        return patient
-    }
-
-    private healBeam(healer: EnemyEntity, patient: EnemyEntity) {
-        this.placeEnemy(healer)
-        const from = this.enemyWorld(healer, healer.rig.height * PER_WORLD * 0.3, new THREE.Vector3())
-        const to = this.enemyWorld(patient, this.enemyCentreY(patient) - patient.altitude, new THREE.Vector3())
-        this.transient?.beam(from, to, HEAL_HEX, 0.18)
-        this.particles.burst(to, HEAL_HEX, 3, 3, { size: 0.18, life: 0.35, gravity: -6 })
     }
 
     // ─── Memory leaks ────────────────────────────────────────────────────────
@@ -6513,7 +6487,7 @@ export class HackerzGame {
     }
 
     /** The field's pace: everything moves at `ENEMY_PACE`, and faster again in the final push. */
-    private get pushSpeed() {
+    get pushSpeed() {
         return ENEMY_PACE * (this.finalPush ? FINAL_PUSH_SPEED : 1)
     }
 
