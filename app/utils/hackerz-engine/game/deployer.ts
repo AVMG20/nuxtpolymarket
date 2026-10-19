@@ -82,7 +82,7 @@ export class Deployer {
         let d = this.deployD
         // A honeypot sits on a data line, or nothing could ride to it.
         if (id === 'honeypot') {
-            const on = nearestOnNetwork(this.game.network, u, d)
+            const on = nearestOnNetwork(this.game.movement.network, u, d)
             if (on) {
                 u = on.u
                 d = clamp(on.d, DEPLOY_MIN_D, DEPLOY_MAX_D)

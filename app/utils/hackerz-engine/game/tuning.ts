@@ -110,3 +110,11 @@ export const HACK_TEAM = 4
 
 /** Facing for a rider: down the column toward the fence, or along a rung. */
 export const YAW_DOWN = 0
+
+/** Where a unit is headed this frame. */
+export interface RouteGoal {
+    /** Depth to stop at: the fence's standoff, or a proxy wall. */
+    stopD: number
+    /** Arrived early: true once the unit is close enough to do its job from where it stands. */
+    near?: (u: number, d: number) => boolean
+}

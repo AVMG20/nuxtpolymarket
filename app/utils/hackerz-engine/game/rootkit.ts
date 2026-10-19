@@ -58,7 +58,7 @@ export class Rootkit {
             }
             if (enemy.burrowMs === 0) {
                 // It erupts onto the nearest data line and rides on from there.
-                this.game.attachToNetwork(enemy)
+                this.game.movement.attachToNetwork(enemy)
                 enemy.age = 0
                 // And climbs back out of the floor where it surfaced.
                 enemy.riseMs = MOTION.burrowRiseMs

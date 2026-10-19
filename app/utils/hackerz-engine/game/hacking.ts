@@ -9,7 +9,7 @@ import { hdr } from '../models'
 import { MOTION, turnToward } from '../rig-motion'
 import { CYAN, RED, fieldToWorld } from '../scene'
 import type { BulletEntity, EnemyEntity } from '../types'
-import { HACK_TEAM, YAW_DOWN, PER_WORLD, _w, halfExtents, CROWD_GAP } from './tuning'
+import { PER_WORLD, _w, halfExtents, CROWD_GAP, HACK_TEAM, YAW_DOWN } from './tuning'
 import { enemyWorld, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -134,7 +134,7 @@ export class Hacking {
                 enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 8)
                 return { moved: 0, arrived: true }
             }
-            return { moved: this.game.walkTo(enemy, spot.u, spot.d, dt), arrived: false }
+            return { moved: this.game.movement.walkTo(enemy, spot.u, spot.d, dt), arrived: false }
         }
         if (slot.stage === 'turn') {
             enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 6)
@@ -152,13 +152,13 @@ export class Hacking {
         if (enemy.d < spot.d + row.lane / 2) {
             const side = Math.sign(enemy.u - node.u) || 1
             if (Math.abs(enemy.u - node.u) < rowEnd - 3) {
-                return { moved: this.game.walkTo(enemy, node.u + side * rowEnd, enemy.d, dt), arrived: false }
+                return { moved: this.game.movement.walkTo(enemy, node.u + side * rowEnd, enemy.d, dt), arrived: false }
             }
-            return { moved: this.game.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
+            return { moved: this.game.movement.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
         }
         // Behind it: down onto the lane, then along it to the slot.
-        if (enemy.d > laneD + 3) return { moved: this.game.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
-        return { moved: this.game.walkTo(enemy, spot.u, laneD, dt), arrived: false }
+        if (enemy.d > laneD + 3) return { moved: this.game.movement.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
+        return { moved: this.game.movement.walkTo(enemy, spot.u, laneD, dt), arrived: false }
     }
 
     /** ×1.25 on speed and damage for a hostile inside a hacked node's aura. */
@@ -191,20 +191,20 @@ export class Hacking {
         // instead — taking a hostage along as a shield (see `maintainEscorts`) —
         // and sticks with it.
         const gate = chips.ordered[0]
-        if (gate && gate.state !== 'hacked' && this.game.chipAhead(enemy, gate)) {
+        if (gate && gate.state !== 'hacked' && this.game.movement.chipAhead(enemy, gate)) {
             const pick = enemy.targetChip
-            if (pick && pick !== gate && pick.state !== 'hacked' && this.game.chipAhead(enemy, pick)) return pick
+            if (pick && pick !== gate && pick.state !== 'hacked' && this.game.movement.chipAhead(enemy, pick)) return pick
             const team = this.game.enemies.filter(e => e !== enemy && e.hacking && e.targetChip === gate).length
             if (enemy.hacking || team < HACK_TEAM) {
                 enemy.targetChip = gate
                 return gate
             }
-            const forward = chips.ordered.find(chip => chip !== gate && chip.state !== 'hacked' && this.game.chipAhead(enemy, chip))
+            const forward = chips.ordered.find(chip => chip !== gate && chip.state !== 'hacked' && this.game.movement.chipAhead(enemy, chip))
             enemy.targetChip = forward ?? gate
             return enemy.targetChip
         }
         const open = chips.ordered
-            .filter(chip => chip.state !== 'hacked' && this.game.chipAhead(enemy, chip))
+            .filter(chip => chip.state !== 'hacked' && this.game.movement.chipAhead(enemy, chip))
             .slice(0, HACK_FRONTS)
         if (!open.length) {
             enemy.targetChip = null
@@ -241,7 +241,7 @@ export class Hacking {
             enemy.zapCooldown = 700
             return
         }
-        const to = zapTarget(this.game.network, enemy.u, enemy.d, ZAP_MIN, ZAP_MAX)
+        const to = zapTarget(this.game.movement.network, enemy.u, enemy.d, ZAP_MIN, ZAP_MAX)
         if (!to) return
         const from = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
         if (enemy.hacking) this.stopHacking(enemy)
@@ -390,11 +390,11 @@ export class Hacking {
     pulseFromChip(chip: PathChip) {
         const pulses = this.game.linePulses
         if (!pulses) return
-        const nodes = this.game.network.nodes
+        const nodes = this.game.movement.network.nodes
         const index = nodes.findIndex(node => node.kind === 'node' && Math.abs(node.u - chip.u) < 1 && Math.abs(node.d - chip.d) < 1)
         if (index < 0) return
         const fan = (from: number, strength: number, hops: number, cameBy: Trace | null) => {
-            for (const trace of this.game.network.traces) {
+            for (const trace of this.game.movement.network.traces) {
                 if (trace === cameBy || pulses.count >= LINE_PULSE_MAX) continue
                 const outward = trace.from === from
                 if (!outward && trace.to !== from) continue

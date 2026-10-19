@@ -106,7 +106,7 @@ export class Crowd {
      */
     private shove(moves: [EnemyEntity, number, number][]) {
         const was = moves.map(([e]) => [e.u, e.d] as const)
-        if (moves.some(([e, u, d], k) => this.game.ridesNetwork(e) && !this.nearLine(e, u, d, was[k]![0], was[k]![1]))) return false
+        if (moves.some(([e, u, d], k) => this.game.movement.ridesNetwork(e) && !this.nearLine(e, u, d, was[k]![0], was[k]![1]))) return false
         for (const [e, u, d] of moves) {
             e.u = u
             e.d = d
@@ -256,7 +256,7 @@ export class Crowd {
         if (toU === fromU && toD === fromD && enemy.yaw === fromYaw) return
         // One hacking or guarding a chip walks through everyone, and everyone through it.
         if (this.permeable(enemy)) return
-        const rides = this.game.ridesNetwork(enemy)
+        const rides = this.game.movement.ridesNetwork(enemy)
         // Only bodies it could touch this.game tick: every spot tried below (the
         // move, a sidestep, a back-off) lies within twice the move of where
         // it started, and no footprint, however turned, reaches past x + z.

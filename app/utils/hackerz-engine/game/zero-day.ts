@@ -40,9 +40,9 @@ export class ZeroDay {
         enemy.d = swap.d
         swap.u = u
         swap.d = d
-        if (this.game.ridesNetwork(enemy)) {
-            this.game.attachToNetwork(enemy)
-            this.game.attachToNetwork(swap)
+        if (this.game.movement.ridesNetwork(enemy)) {
+            this.game.movement.attachToNetwork(enemy)
+            this.game.movement.attachToNetwork(swap)
         }
         if (this.game.rail.target === enemy) this.game.rail.target = null
         const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
@@ -76,7 +76,7 @@ export class ZeroDay {
             splits: 3
         }
         // A ground copy lands on whichever data line is nearest.
-        if (this.game.ridesNetwork(decoy)) this.game.attachToNetwork(decoy)
+        if (this.game.movement.ridesNetwork(decoy)) this.game.movement.attachToNetwork(decoy)
         placeEnemy(decoy)
         this.game.enemies.push(decoy)
         return decoy
