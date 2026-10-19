@@ -57,6 +57,7 @@ import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
 import { Scoring } from './game/scoring'
 import { Bastion } from './game/bastion'
+import { PacketLoss } from './game/packet-loss'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -361,13 +362,8 @@ const LINE_PULSE_MAX = 24
 const PACKET_LOSS_OVERKILL = 2
 const PACKET_LOSS_SWARM_CAP = 120
 
-/** PACKET LOSS: how long the board's picture freezes, and the gap between freezes, give or take. */
-const LAG_FREEZE_MS = 1400
-const LAG_GAP_MS = 1800
-
 /** PACKET LOSS: when a spike clears, hostiles surge this many times faster for this long. */
 const LAG_CATCH_UP_SPEED = 4
-const LAG_CATCH_UP_MS = 500
 
 /** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
 const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
@@ -507,11 +503,6 @@ export class HackerzGame {
     private bearerTimer = 0
     private escortTimer = 0
     private distractTimer = 0
-    /** Packet loss: ms left on the current board-wide lag spike, and ms until the next. */
-    private boardLagMs = 0
-    private boardLagTimer = LAG_GAP_MS
-    /** Ms left on the catch-up surge that follows a lag spike. */
-    private lagCatchUpMs = 0
     /** How far the ground behind the fence has turned orange (0–1), eased toward whether every node is theirs. */
     private overrun = 0
     /** Dark-zone slots over clusters of hacked nodes; field units, strength eased 0–1. */
@@ -564,8 +555,8 @@ export class HackerzGame {
 
     // ── Entities ──
     enemies: EnemyEntity[] = []
-    private bullets: BulletEntity[] = []
-    private spits: SpitEntity[] = []
+    bullets: BulletEntity[] = []
+    spits: SpitEntity[] = []
     /** BLACK ICE's globs in flight (a field position and velocity; `left` seconds to landing), and the walls they have built. */
     private iceGlobs: { mesh: THREE.Mesh, u: number, d: number, y: number, vu: number, vd: number, vy: number, left: number, atRail: boolean, width: number }[] = []
     private iceWalls: { u: number, d: number, wall: IceWall, ageMs: number }[] = []
@@ -580,11 +571,11 @@ export class HackerzGame {
 
     // ── Input ──
     /** The hostile the button was pressed on: tracked only while it stays held. */
-    private target: EnemyEntity | null = null
+    target: EnemyEntity | null = null
     /** Left button held: the rail fires, at `target` or else at the cursor. */
     private holding = false
     /** Where a lag spike left the rail firing when it dropped the lock. */
-    private lockSpot: { u: number, d: number, y: number } | null = null
+    lockSpot: { u: number, d: number, y: number } | null = null
     /** A press always fires once, even if the button is up again before the next frame. */
     private queuedShot = false
     private aimU = 0
@@ -621,6 +612,7 @@ export class HackerzGame {
     readonly memory = new Leaks(this)
     readonly scoring = new Scoring(this)
     readonly bastion = new Bastion(this)
+    readonly lag = new PacketLoss(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -1217,7 +1209,7 @@ export class HackerzGame {
             // tracks it for as long as the button stays down — though not
             // through a packet-loss spike, which drops every lock.
             this.lockSpot = null
-            this.target = this.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y)
+            this.target = this.lag.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y)
             this.holding = true
             this.queuedShot = true
         }
@@ -2130,9 +2122,9 @@ export class HackerzGame {
         const live = !this.paused && !this.gameOver
         // PACKET LOSS: during a lag spike the whole picture holds — every
         // animation, every shader clock — while the game itself runs on.
-        if (live) this.updateBoardLag(dtMs)
-        const frozen = live && this.boardLagMs > 0
-        this.muteFx(frozen)
+        if (live) this.lag.updateBoardLag(dtMs)
+        const frozen = live && this.lag.boardLagMs > 0
+        this.lag.muteFx(frozen)
         const seen = frozen ? 0 : dt
         if (!frozen) this.visualTime += dtMs
         // The model clock is shared; a demo board hands it back after its own steps (see `demoFrame`).
@@ -2355,75 +2347,6 @@ export class HackerzGame {
             zone.strength += ((zone.on ? 1 : 0) - zone.strength) * Math.min(1, dt * 1.2)
             view.darkZones[i]!.set(zone.u * FIELD_SCALE, -zone.d * FIELD_SCALE, zone.r * FIELD_SCALE, zone.strength)
         })
-    }
-
-    /**
-     * Where a unit appears to be: normally where it is, but during a
-     * packet-loss spike where its frozen picture still stands.
-     */
-    private seenAt(enemy: EnemyEntity) {
-        if (this.boardLagMs <= 0) return { u: enemy.u, d: enemy.d }
-        const p = enemy.rig.root.position
-        return { u: p.x / FIELD_SCALE, d: -p.z / FIELD_SCALE }
-    }
-
-    /**
-     * Packet loss: every so often the whole board's picture stops updating for
-     * a fraction of a second, then catches up in one glitchy jump. Purely what
-     * is seen: nothing on the field ever stops. While a spike lasts, no
-     * sparks, flashes or floating numbers show until it catches up.
-     */
-    private muteFx(on: boolean) {
-        this.particles.muted = on
-        if (this.transient) this.transient.muted = on
-        this.overlay.muted = on
-    }
-
-    /**
-     * The board's lag spikes: PACKET LOSS throws them on its own timer, and a
-     * glob of BLACK ICE on the rail throws one any time (see `lagSpike`).
-     */
-    private updateBoardLag(dtMs: number) {
-        const packetLoss = this.bonus === 'packetloss'
-        if (!this.running || (!packetLoss && this.boardLagMs <= 0 && this.lagCatchUpMs <= 0)) {
-            this.boardLagMs = 0
-            this.lagCatchUpMs = 0
-            return
-        }
-        if (this.lagCatchUpMs > 0) this.lagCatchUpMs -= dtMs
-        if (this.boardLagMs > 0) {
-            this.boardLagMs -= dtMs
-            if (this.boardLagMs > 0) return
-            // Caught up: everything jumps to where it really was all along.
-            this.muteFx(false)
-            for (const enemy of this.enemies) {
-                this.placeEnemy(enemy)
-                this.particles.burst(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), 0xe879f9, 6, 4, { size: 0.22, life: 0.3 })
-            }
-            for (const bullet of this.bullets) this.orientBullet(bullet)
-            for (const spit of this.spits) fieldToWorld(spit.u, spit.d, spit.y * FIELD_SCALE, spit.mesh.position)
-            this.view?.flash(0xe879f9, 0.08)
-            this.boardLagTimer = LAG_GAP_MS * (0.6 + randomFloat() * 0.8)
-            this.lagCatchUpMs = LAG_CATCH_UP_MS
-            return
-        }
-        if (!packetLoss) return
-        this.boardLagTimer -= dtMs
-        if (this.boardLagTimer > 0) return
-        this.lagSpike()
-    }
-
-    /** The picture freezes: the board holds while everything on it carries on, then jumps to catch up. */
-    private lagSpike() {
-        if (this.boardLagMs > 0) return
-        this.boardLagMs = LAG_FREEZE_MS * (0.6 + randomFloat() * 0.8)
-        this.sysLog.lagSpike()
-        // The spike drops the lock: the rail keeps firing at the last spot it
-        // saw its target, while the target walks on out of it.
-        if (this.target) {
-            this.lockSpot = { u: this.target.u, d: this.target.d, y: this.enemyCentreY(this.target) }
-            this.target = null
-        }
     }
 
     // ─── Shield bearers ──────────────────────────────────────────────────────
@@ -2940,14 +2863,8 @@ export class HackerzGame {
     addShake(amount: number) {
         // The old engine shook in pixels; this one shakes in world units. A lag
         // spike shows nothing landing, so nothing shakes.
-        if (this.boardLagMs > 0) return
+        if (this.lag.boardLagMs > 0) return
         this.shake = Math.min(MAX_SHAKE, this.shake + amount * 0.05)
-    }
-
-    /** Like `enemyWorld`, but where the unit is seen: its frozen picture during a packet-loss spike. */
-    private seenWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3) {
-        const seen = this.seenAt(enemy)
-        return fieldToWorld(seen.u, seen.d, (enemy.altitude + lift) * FIELD_SCALE, out)
     }
 
     private drawOverlay(dt: number) {
@@ -2964,7 +2881,7 @@ export class HackerzGame {
             if (enemy.hp >= enemy.maxHp || !enemy.rig.root.visible || this.shroudOf(enemy) > 0.6) continue
             tags.push({
                 // Overlays follow the picture, so a lag spike does not give a position away.
-                pos: this.seenWorld(enemy, enemy.rig.height * PER_WORLD + 12, new THREE.Vector3()),
+                pos: this.lag.seenWorld(enemy, enemy.rig.height * PER_WORLD + 12, new THREE.Vector3()),
                 fraction,
                 trail,
                 color: hexCss(enemy.def.hex),
@@ -2975,8 +2892,8 @@ export class HackerzGame {
         let reticle = null
         if (this.target) {
             const height = this.target.rig.height * PER_WORLD
-            const pos = this.seenWorld(this.target, height * 0.5, new THREE.Vector3())
-            const top = view.project(this.seenWorld(this.target, height, _w), { x: 0, y: 0 })
+            const pos = this.lag.seenWorld(this.target, height * 0.5, new THREE.Vector3())
+            const top = view.project(this.lag.seenWorld(this.target, height, _w), { x: 0, y: 0 })
             const mid = view.project(pos, { x: 0, y: 0 })
             const size = top && mid ? clamp(Math.abs(top.y - mid.y) + 6, 12, 70) : 16
             reticle = { pos, size, color: '#22d3ee' }
@@ -2986,8 +2903,8 @@ export class HackerzGame {
         for (const enemy of this.enemies) {
             if (enemy.revealMs <= 0) continue
             const height = enemy.rig.height * PER_WORLD
-            const pos = this.seenWorld(enemy, height * 0.5, new THREE.Vector3())
-            const top = view.project(this.seenWorld(enemy, height, _w), { x: 0, y: 0 })
+            const pos = this.lag.seenWorld(enemy, height * 0.5, new THREE.Vector3())
+            const top = view.project(this.lag.seenWorld(enemy, height, _w), { x: 0, y: 0 })
             const mid = view.project(pos, { x: 0, y: 0 })
             const size = top && mid ? clamp(Math.abs(top.y - mid.y) + 8, 12, 80) : 16
             markers.push({ pos, size, alpha: enemy.revealMs / PING_REVEAL_MS, cloaked: !!enemy.def.cloaked })
@@ -3437,7 +3354,7 @@ export class HackerzGame {
             // holds where it was last seen — pose, turn, flash, sheen, all of it —
             // while everything carries on moving, and the rounds go where they
             // really are, not where they look.
-            if (this.boardLagMs > 0) continue
+            if (this.lag.boardLagMs > 0) continue
 
             easeSheen(enemy.rig, enemy.redShield, dt)
             // Riders snap round corners like a light cycle (turned in `ride`); flyers face the fence.
@@ -3691,7 +3608,7 @@ export class HackerzGame {
                 // On the gun: the frame freezes, as in PACKET LOSS.
                 this.transient?.ring(at, 0xa5b4fc, 3, 0.4)
                 this.view?.flash(0xa5b4fc, 0.12)
-                this.lagSpike()
+                this.lag.lagSpike()
                 continue
             }
             this.depositIce(glob.u, glob.d)
@@ -4836,7 +4753,7 @@ export class HackerzGame {
         this.bullets.push(bullet)
     }
 
-    private orientBullet(bullet: BulletEntity) {
+    orientBullet(bullet: BulletEntity) {
         const p = fieldToWorld(bullet.u, bullet.d, bullet.y * FIELD_SCALE, bullet.mesh.position)
         _w.set(p.x + bullet.vu * FIELD_SCALE, p.y, p.z - bullet.vd * FIELD_SCALE)
         bullet.mesh.lookAt(_w)
@@ -4878,7 +4795,7 @@ export class HackerzGame {
             bullet.y = bullet.fromY + (toY - bullet.fromY) * Math.min(1, bullet.flown / bullet.span)
             bullet.lifeMs -= dt * 1000
             // Mid lag spike the round flies on, but its picture holds.
-            if (this.boardLagMs <= 0) this.orientBullet(bullet)
+            if (this.lag.boardLagMs <= 0) this.orientBullet(bullet)
 
             if (bullet.lostAt !== undefined && bullet.flown >= bullet.lostAt) {
                 const at = fieldToWorld(bullet.u, bullet.d, bullet.y * FIELD_SCALE, new THREE.Vector3())
@@ -5096,7 +5013,7 @@ export class HackerzGame {
             const target = this.turretTarget(mount, dtMs)
             // Turrets aim at what they can see — during a packet-loss spike,
             // the stale picture rather than where the unit really is.
-            const seen = target ? this.seenAt(target) : null
+            const seen = target ? this.lag.seenAt(target) : null
             if (target && seen) {
                 const desired = Math.atan2((seen.u - mount.u) * FIELD_SCALE, -seen.d * FIELD_SCALE - mount.z)
                 mount.heading = turnToward(mount.heading, desired, dt * MOTION.turretTurn)
@@ -5120,7 +5037,7 @@ export class HackerzGame {
                 splashRadius: mount.runtime.splashRadius,
                 splashDamage: mount.runtime.splashDamage,
                 // A missile can only home on a signal it has; mid-spike it flies blind.
-                homing: isMissile && this.boardLagMs <= 0,
+                homing: isMissile && this.lag.boardLagMs <= 0,
                 chain: 0,
                 chainFalloff: 0,
                 speed: isMissile ? 780 : 1700,
@@ -5194,7 +5111,7 @@ export class HackerzGame {
             spit.vy -= SPIT_GRAVITY * dt
             spit.d += spit.vd * dt
             spit.y += spit.vy * dt
-            if (this.boardLagMs <= 0) {
+            if (this.lag.boardLagMs <= 0) {
                 fieldToWorld(spit.u, spit.d, spit.y * FIELD_SCALE, spit.mesh.position)
                 spit.mesh.rotation.y += dt * 8
             }
@@ -5902,7 +5819,7 @@ export class HackerzGame {
      */
     private groundSpeed(enemy: EnemyEntity) {
         // PACKET LOSS: straight after a spike everything surges to catch up.
-        const surge = this.lagCatchUpMs > 0 ? LAG_CATCH_UP_SPEED : 1
+        const surge = this.lag.lagCatchUpMs > 0 ? LAG_CATCH_UP_SPEED : 1
         const taken = this.pathChips?.chips.some(chip => chip.state === 'hacked')
         if (!taken || enemy.burrowMs > 0) return surge
         return (this.zoneOf(enemy.u, enemy.d) === 'theirs' ? THEIR_GROUND_SPEED : 1) * surge
