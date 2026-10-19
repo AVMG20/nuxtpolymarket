@@ -114,7 +114,8 @@ const MUSIC: Record<string, readonly [dur: number, duck: DfDuck]> = {
     'df:round-end': [5, DF_DUCK_STING],
     'df:game-start': [4.5, DF_DUCK_STING],
     'df:egg-step': [3, DF_DUCK_STING],
-    'df:box-jingle': [4.4, DF_DUCK_JINGLE]
+    'df:box-jingle': [4.4, DF_DUCK_JINGLE],
+    'df:rod-thunder': [3.5, DF_DUCK_BOOM]
 }
 
 const WORLD: Record<string, RuleRow> = {
@@ -124,7 +125,10 @@ const WORLD: Record<string, RuleRow> = {
     'df:box-roll': [0.5, 4.2, 1.5],
     'df:pap-work': [0.5, 3.6, 1.5],
     'df:perk-hum': [0.1, 1.8, 0.8],
-    'df:board-slam': [0.06, 0.4, 1.4]
+    'df:board-slam': [0.06, 0.4, 1.4],
+    'df:rod-lever': [0.1, 0.8, 1.6],
+    'df:rod-crackle': [0.25, 1.4, 1.3],
+    'df:rod-sputter': [0.2, 0.6, 1.2]
 }
 
 /** Category, priority, retrigger interval and length of a sound, from its name. */

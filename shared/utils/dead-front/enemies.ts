@@ -159,14 +159,88 @@ export interface DfHitTestTarget {
     pos: Vec3
     yaw: number
     anim: DfZombieAnim
+    /** Legs blown off: lying low and dragging itself (anim `crawl`, or `attack` / `stagger` while down). */
+    crawl?: boolean
+}
+
+/**
+ * A crawler's body, in metres from its feet position along its facing: the
+ * head out front low to the ground, the torso lying along the facing, the
+ * thigh stumps trailing behind. The zombie view poses the model to match.
+ */
+export function dfCrawlGeometry(type: DfEnemyType): { headAhead: number, headY: number, headR: number, bodyFrom: number, bodyTo: number, bodyY: number, bodyR: number, legFrom: number, legY: number, legR: number } {
+    const def = DF_ENEMIES[type]
+    // the models' voxel size: the head centre sits 23 voxels up
+    const v = def.headY / 23
+    return {
+        headAhead: 8.8 * v,
+        headY: 6.6 * v,
+        headR: def.headR,
+        bodyFrom: -1.2 * v,
+        bodyTo: 6.6 * v,
+        bodyY: 2.9 * v,
+        bodyR: def.radius * 0.62,
+        legFrom: -6.4 * v,
+        legY: 2.3 * v,
+        legR: def.radius * 0.4
+    }
+}
+
+function crawlHitTest(target: DfHitTestTarget, origin: Vec3, dir: Vec3, maxDist: number): { zone: DfHitZone, dist: number } | null {
+    const g = dfCrawlGeometry(target.type)
+    const p = target.pos
+    const fx = Math.sin(target.yaw)
+    const fz = Math.cos(target.yaw)
+    const at = (ahead: number, y: number): Vec3 => ({ x: p.x + fx * ahead, y: p.y + y, z: p.z + fz * ahead })
+    let best: { zone: DfHitZone, dist: number } | null = null
+    const th = raySphere(origin, dir, at(g.headAhead, g.headY), g.headR)
+    if (th !== null && th <= maxDist) best = { zone: 'head', dist: th }
+    const tb = rayCapsule(origin, dir, at(g.bodyFrom, g.bodyY), at(g.bodyTo, g.bodyY), g.bodyR)
+    if (tb !== null && tb <= maxDist && (!best || tb + 0.04 < best.dist)) best = { zone: 'body', dist: tb }
+    const tl = rayCapsule(origin, dir, at(g.legFrom, g.legY), at(g.bodyFrom, g.legY), g.legR)
+    if (tl !== null && tl <= maxDist && (!best || tl + 0.04 < best.dist)) best = { zone: 'limb', dist: tl }
+    return best
+}
+
+/** Ray against a capsule from `a` to `b` (any orientation); `d` is normalised. */
+function rayCapsule(o: Vec3, d: Vec3, a: Vec3, b: Vec3, r: number): number | null {
+    const bax = b.x - a.x
+    const bay = b.y - a.y
+    const baz = b.z - a.z
+    const oax = o.x - a.x
+    const oay = o.y - a.y
+    const oaz = o.z - a.z
+    const baba = bax * bax + bay * bay + baz * baz
+    const bard = bax * d.x + bay * d.y + baz * d.z
+    const baoa = bax * oax + bay * oay + baz * oaz
+    const rdoa = d.x * oax + d.y * oay + d.z * oaz
+    const oaoa = oax * oax + oay * oay + oaz * oaz
+    const ka = baba - bard * bard
+    const kb = baba * rdoa - baoa * bard
+    const kc = baba * oaoa - baoa * baoa - r * r * baba
+    let best: number | null = null
+    if (Math.abs(ka) > 1e-9) {
+        const h = kb * kb - ka * kc
+        if (h >= 0) {
+            const t = (-kb - Math.sqrt(h)) / ka
+            const y = baoa + t * bard
+            if (t >= 0 && y > 0 && y < baba) best = t
+        }
+    }
+    for (const c of [a, b]) {
+        const t = raySphere(o, d, c, r)
+        if (t !== null && (best === null || t < best)) best = t
+    }
+    return best
 }
 
 /**
  * Ray against one zombie's hitboxes: head sphere, torso capsule and a legs
  * capsule (limb). Returns the zone and distance of the nearest hit, or null.
- * `dir` is normalised.
+ * `dir` is normalised. A crawler lies low along its facing (`dfCrawlGeometry`).
  */
 export function dfZombieHitTest(target: DfHitTestTarget, origin: Vec3, dir: Vec3, maxDist: number): { zone: DfHitZone, dist: number } | null {
+    if (target.crawl || target.anim === 'crawl') return crawlHitTest(target, origin, dir, maxDist)
     const def = DF_ENEMIES[target.type]
     const p = target.pos
     let best: { zone: DfHitZone, dist: number } | null = null

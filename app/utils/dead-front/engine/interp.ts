@@ -11,6 +11,8 @@ const MAX_SNAPS = 40
 export const DF_MAX_EXTRAPOLATE = 0.25
 /** Upper bound for the adaptive render delay, in ms. */
 export const DF_MAX_INTERP_DELAY_MS = 300
+/** Lower bound for the zombies' render delay, in ms. */
+export const DF_MIN_ZOMBIE_DELAY_MS = 55
 
 export interface DfBufferedSnap {
     s: DfSnapshot
@@ -40,6 +42,11 @@ export function dfWrapAngle(a: number): number {
     if (x > Math.PI) x -= Math.PI * 2
     else if (x < -Math.PI) x += Math.PI * 2
     return x
+}
+
+/** A fresh sample object for `DfSnapBuffer.at(t, out)`. */
+export function dfNewSample(): DfSample {
+    return { a: null as unknown as DfBufferedSnap, b: null as unknown as DfBufferedSnap, alpha: 0, span: 0.05 }
 }
 
 export class DfSnapBuffer {
@@ -87,6 +94,16 @@ export class DfSnapBuffer {
         return Math.min(DF_MAX_INTERP_DELAY_MS, Math.max(baseMs, tickMs + this.jitter * 2.5 + 30))
     }
 
+    /**
+     * Zombies render closer to the present than players: about one tick plus
+     * the jitter margin. Past the newest snapshot they dead-reckon along their
+     * velocity and `DfZombieSmoother` blends the correction in, so a lower
+     * delay costs no visible snapping.
+     */
+    zombieDelay(tickMs: number): number {
+        return Math.min(DF_MAX_INTERP_DELAY_MS, Math.max(DF_MIN_ZOMBIE_DELAY_MS, tickMs + this.jitter * 1.5 + 10))
+    }
+
     reset(): void {
         this.snaps.length = 0
         this.offset = null
@@ -99,11 +116,10 @@ export class DfSnapBuffer {
         return (nowMs - this.offset - delayMs) / 1000
     }
 
-    /** Finds the pair of snapshots around `t` (server seconds). The returned object is reused. */
-    at(t: number): DfSample | null {
+    /** Finds the pair of snapshots around `t` (server seconds). The returned object is reused (pass `out` to keep two). */
+    at(t: number, out: DfSample = this.sample): DfSample | null {
         const n = this.snaps.length
         if (n === 0) return null
-        const out = this.sample
         if (n === 1) {
             out.a = out.b = this.snaps[0]!
             out.alpha = 1
@@ -171,7 +187,21 @@ export function dfInterpZombies(sample: DfSample, pool: DfZombieSnap[], out: DfZ
         z.anim = zb.anim
         z.armored = zb.armored
         z.shocked = zb.shocked
-        if (za && za !== zb) {
+        z.tell = zb.tell
+        z.crawl = zb.crawl
+        z.masked = zb.masked
+        const vel = z.vel ?? (z.vel = { x: 0, y: 0, z: 0 })
+        vel.x = zb.vel?.x ?? 0
+        vel.y = zb.vel?.y ?? 0
+        vel.z = zb.vel?.z ?? 0
+        if (t > 1 && zb.vel) {
+            // past the newest snapshot: dead-reckon along the reported velocity
+            const over = (t - 1) * sample.span
+            z.pos.x = zb.pos.x + zb.vel.x * over
+            z.pos.y = zb.pos.y + zb.vel.y * over
+            z.pos.z = zb.pos.z + zb.vel.z * over
+            z.yaw = zb.yaw
+        } else if (za && za !== zb) {
             // a long jump between snapshots (respawn / teleport) snaps instead of sliding
             const dx = zb.pos.x - za.pos.x
             const dz = zb.pos.z - za.pos.z
@@ -238,4 +268,86 @@ export function dfInterpPlayer(sample: DfSample, pid: number, out: DfInterpPlaye
     out.yaw = dfLerpAngle(pa.yaw, pb.yaw, Math.min(1, t))
     out.pitch = pa.pitch + (pb.pitch - pa.pitch) * Math.min(1, t)
     return true
+}
+
+interface SmoothState {
+    x: number
+    y: number
+    z: number
+    vy: number
+    seen: number
+}
+
+/**
+ * Exact step of a critically damped spring toward a fixed target: the offset
+ * `e` (value minus target) and its velocity `v` after `dt` at frequency `w`.
+ * Stable for any dt, never overshoots.
+ */
+export function dfCriticalSpring(e: number, v: number, w: number, dt: number, out: { e: number, v: number }): { e: number, v: number } {
+    const k = Math.exp(-w * dt)
+    const j = (v + w * e) * dt
+    out.e = (e + j) * k
+    out.v = (v - w * j) * k
+    return out
+}
+
+/**
+ * Smooths the interpolated zombies before they're drawn (pure, tested).
+ * Horizontally each zombie is carried along its velocity and the remaining
+ * error to the interpolated target decays exponentially, so a corrected
+ * extrapolation slides instead of snapping and a moving zombie never lags.
+ * Vertically a critically damped spring follows the target height on its
+ * own, so stair steps read as a climb, not a hop. Big jumps snap.
+ */
+export class DfZombieSmoother {
+    private readonly states = new Map<number, SmoothState>()
+    private frame = 0
+    private readonly sp = { e: 0, v: 0 }
+
+    /** `k`: horizontal error decay (1/s); `w`: vertical spring frequency (rad/s). */
+    constructor(readonly k = 14, readonly w = 18) {}
+
+    apply(list: DfZombieSnap[], dt: number): void {
+        this.frame++
+        const f = this.frame
+        const decay = Math.exp(-this.k * Math.max(0, dt))
+        for (const z of list) {
+            const s = this.states.get(z.id)
+            if (!s) {
+                this.states.set(z.id, { x: z.pos.x, y: z.pos.y, z: z.pos.z, vy: 0, seen: f })
+                continue
+            }
+            s.seen = f
+            const vx = z.vel?.x ?? 0
+            const vz = z.vel?.z ?? 0
+            const ex = s.x + vx * dt - z.pos.x
+            const ez = s.z + vz * dt - z.pos.z
+            if (ex * ex + ez * ez > 4) {
+                s.x = z.pos.x
+                s.z = z.pos.z
+            } else {
+                s.x = z.pos.x + ex * decay
+                s.z = z.pos.z + ez * decay
+            }
+            const ey = s.y - z.pos.y
+            if (Math.abs(ey) > 1.5) {
+                s.y = z.pos.y
+                s.vy = 0
+            } else {
+                dfCriticalSpring(ey, s.vy, this.w, dt, this.sp)
+                s.y = z.pos.y + this.sp.e
+                s.vy = this.sp.v
+            }
+            z.pos.x = s.x
+            z.pos.y = s.y
+            z.pos.z = s.z
+        }
+        if (f % 120 === 0) {
+            for (const [id, s] of this.states) if (f - s.seen > 120) this.states.delete(id)
+        }
+    }
+
+    forget(id: number): void {
+        this.states.delete(id)
+    }
 }

@@ -1,7 +1,8 @@
 import { DF_PLAYER } from '#shared/utils/dead-front/constants'
-import { dfBodyFits, dfMoveBody } from '#shared/utils/dead-front/physics'
+import { dfBodyFits, dfMoveBody, dfRampHeight } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { Vec3 } from '#shared/utils/dead-front/types'
+import { dfCriticalSpring } from './interp'
 
 // Local player movement, simulated at a fixed 60 Hz against the shared
 // collision world: walk / sprint with stamina / crouch / jump with coyote
@@ -16,9 +17,8 @@ const SPRINT_ACCEL = 22
 const AIR_ACCEL = 7
 /** Extra gravity on the way down. */
 const FALL_GRAVITY = 1.4
-/** Eye catch-up after a stair step: base speed plus a share of the walking speed (m/s). */
-const STEP_EASE_BASE = 0.7
-const STEP_EASE_PER_SPEED = 0.55
+/** Frequency (rad/s) of the critically damped spring that eases the visual eye over what the stair ramp can't hide. */
+const EYE_SPRING = 22
 const COYOTE = 0.1
 const JUMP_BUFFER = 0.14
 
@@ -63,7 +63,7 @@ export class DfPlayerController {
     stamina = 4
     tired = false
     downed = false
-    /** Smoothed eye offset that hides stair steps. */
+    /** Kept for compatibility: the stair smoothing now lives in `viewFloor`. */
     stepOffset = 0
     /** Horizontal speed this step. */
     speed = 0
@@ -81,6 +81,11 @@ export class DfPlayerController {
     private readonly corr: Vec3 = { x: 0, y: 0, z: 0 }
     private sprintRest = 0
     private crouchToggle = false
+    /** Visual floor height the camera rides on (independent of the physics' stepped y). */
+    private viewY = Number.NaN
+    private viewVel = 0
+    private lastTarget = Number.NaN
+    private readonly spring = { e: 0, v: 0 }
 
     teleport(p: Vec3): void {
         this.pos.x = this.prev.x = p.x
@@ -89,6 +94,53 @@ export class DfPlayerController {
         this.vel.x = this.vel.y = this.vel.z = 0
         this.corr.x = this.corr.y = this.corr.z = 0
         this.stepOffset = 0
+        this.viewY = Number.NaN
+    }
+
+    /**
+     * The height the camera's feet ride at this frame, for the render
+     * position (`x`, `y`, `z`, interpolated physics). On the ground it follows
+     * the floor smoothed into a ramp over stair steps (`dfRampHeight`), which
+     * depends only on where you stand, through a critically damped spring
+     * (exact at any frame rate, no overshoot), so a flight of stairs is one
+     * smooth climb or descent and a lone step eases instead of popping, at 60
+     * or 144 Hz alike. Jump arcs in the air are followed exactly.
+     */
+    viewFloor(world: DfCollisionWorld, x: number, y: number, z: number, dt: number): number {
+        const target = this.grounded ? dfRampHeight(world, x, z, y, 0.45, DF_PLAYER.stepHeight + 0.05) : y
+        if (!Number.isFinite(this.viewY) || Math.abs(this.viewY - target) > 1.5) {
+            this.viewY = target
+            this.viewVel = 0
+            this.lastTarget = target
+            return target
+        }
+        const d = target - this.lastTarget
+        this.lastTarget = target
+        // in the air the arc is followed exactly; on the ground the spring rides the ramp
+        if (!this.grounded) this.viewY += d
+        const sp = dfCriticalSpring(this.viewY - target, this.viewVel, EYE_SPRING, dt, this.spring)
+        this.viewY = target + sp.e
+        this.viewVel = sp.v
+        return this.viewY
+    }
+
+    /**
+     * Shoves the body sideways by (dx, dz) metres against the world (a zombie
+     * shouldering into you): blocked by walls like walking, and carried by the
+     * interpolation too, so the camera moves with it this frame.
+     */
+    shove(world: DfCollisionWorld, dx: number, dz: number): void {
+        if (dx === 0 && dz === 0) return
+        const height = this.downed ? 0.7 : this.crouched ? DF_PLAYER.crouchHeight : DF_PLAYER.height
+        const res = dfMoveBody(world, this.pos, { x: dx, y: 0, z: dz }, 1, { radius: DF_PLAYER.radius, height, stepHeight: DF_PLAYER.stepHeight })
+        const mx = res.pos.x - this.pos.x
+        const mz = res.pos.z - this.pos.z
+        // only sideways: a shove never lifts you onto a ledge or drops you off one
+        if (Math.abs(res.pos.y - this.pos.y) > 0.05) return
+        this.pos.x += mx
+        this.pos.z += mz
+        this.prev.x += mx
+        this.prev.z += mz
     }
 
     /** Queue a smooth correction toward the server's position. */
@@ -213,7 +265,6 @@ export class DfPlayerController {
         this.vel.y -= DF_PLAYER.gravity * (this.vel.y < 0 ? FALL_GRAVITY : 1) * dt
         const fallSpeed = this.vel.y
         const wasGrounded = this.grounded
-        const beforeY = this.pos.y
         const height = this.downed ? 0.7 : this.crouched ? DF_PLAYER.crouchHeight : DF_PLAYER.height
         const res = dfMoveBody(world, this.pos, this.vel, dt, { radius: DF_PLAYER.radius, height, stepHeight: DF_PLAYER.stepHeight })
         this.pos.x = res.pos.x
@@ -224,18 +275,6 @@ export class DfPlayerController {
         this.vel.z = res.vel.z
         this.grounded = res.grounded
         if (this.grounded && this.vel.y < 0) this.vel.y = 0
-
-        // stairs: hide the snap of a step in a smoothed eye offset
-        const dy = this.pos.y - beforeY
-        // The eye catches up at a limited speed (about the stair slope at walking
-        // pace) instead of snapping, so a flight of steps reads as one smooth climb.
-        if (wasGrounded && this.grounded && Math.abs(dy) > 0.02 && Math.abs(dy) <= DF_PLAYER.stepHeight + 0.05) this.stepOffset -= dy
-        if (this.stepOffset !== 0) {
-            const hs0 = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z)
-            const lim = (STEP_EASE_BASE + hs0 * STEP_EASE_PER_SPEED) * dt
-            this.stepOffset = Math.abs(this.stepOffset) <= lim ? 0 : this.stepOffset - Math.sign(this.stepOffset) * lim
-            this.stepOffset = Math.max(-0.8, Math.min(0.8, this.stepOffset * Math.exp(-dt * 1.2)))
-        }
 
         if (!wasGrounded && this.grounded && fallSpeed < -2.5) this.onLand?.(Math.min(1, (-fallSpeed - 2) / 9))
 
@@ -282,3 +321,4 @@ export class DfPlayerController {
         return out
     }
 }
+

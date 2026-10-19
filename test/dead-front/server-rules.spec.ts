@@ -7,7 +7,7 @@ import {
 import type { DfEggState } from '#shared/utils/dead-front/protocol'
 import { dfBoxPool, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import {
-    dfBoxChoices, dfBulletDamage, dfClaimPlausible, dfEggAdvance, dfFalloff, dfKillPoints, dfRayAxisApproach,
+    dfBoxChoices, dfBulletDamage, dfClaimPlausible, dfEggAdvance, dfEggTick, dfFalloff, dfKillPoints, dfRayAxisApproach,
     dfScalePoints, dfShotTolerance, dfVerifyZone
 } from '#server/utils/dead-front/rules'
 
@@ -149,7 +149,7 @@ describe('mystery box', () => {
 
 describe('easter egg', () => {
     const fuses = ['f1', 'f2', 'f3']
-    const fresh = (): DfEggState => ({ step: 'power', fusesFound: [], charge: 0, chargeNeeded: 3 })
+    const fresh = (): DfEggState => ({ step: 'power', fusesFound: [], charge: 0, chargeNeeded: 3, rodsOn: [], rodTimer: 0 })
 
     it('walks power, fuses, install, charge, claim', () => {
         const egg = fresh()
@@ -174,6 +174,52 @@ describe('easter egg', () => {
         expect(egg.claimedBy).toBe(1)
         expect(dfEggAdvance(egg, { kind: 'claim', pid: 2 }, fuses).progressed).toBe(false)
         expect(egg.step).toBe('done')
+    })
+
+    it('grounds the Arc with the lightning rods before the claim', () => {
+        const rods = ['rod-0', 'rod-1', 'rod-2']
+        const egg = fresh()
+        egg.step = 'charge'
+        for (let i = 0; i < 3; i++) dfEggAdvance(egg, { kind: 'soul', needed: 3 }, fuses, rods)
+        expect(egg.step).toBe('rods')
+        // nothing before the step, the clock starts on the first rod, repeats don't count
+        expect(dfEggAdvance(egg, { kind: 'claim', pid: 1 }, fuses, rods).progressed).toBe(false)
+        expect(dfEggAdvance(egg, { kind: 'rod', id: 'rod-1', time: 45 }, fuses, rods)).toEqual({ progressed: true, stepChanged: false })
+        expect(egg.rodTimer).toBe(45)
+        expect(dfEggAdvance(egg, { kind: 'rod', id: 'rod-1', time: 45 }, fuses, rods).progressed).toBe(false)
+        expect(dfEggAdvance(egg, { kind: 'rod', id: 'nope', time: 45 }, fuses, rods).progressed).toBe(false)
+        expect(dfEggTick(egg, 10, fuses, rods)).toEqual([])
+        dfEggAdvance(egg, { kind: 'rod', id: 'rod-0', time: 45 }, fuses, rods)
+        // the second rod doesn't restart the clock
+        expect(egg.rodTimer).toBeCloseTo(35)
+        expect(dfEggAdvance(egg, { kind: 'rod', id: 'rod-2', time: 45 }, fuses, rods).stepChanged).toBe(true)
+        expect(egg.step).toBe('claim')
+        expect(egg.rodTimer).toBe(0)
+        expect(dfEggTick(egg, 60, fuses, rods)).toEqual([])
+        expect(egg.step).toBe('claim')
+    })
+
+    it('resets every rod when the clock runs out, and the squad can retry', () => {
+        const rods = ['rod-0', 'rod-1', 'rod-2']
+        const egg = fresh()
+        egg.step = 'rods'
+        expect(dfEggTick(egg, 100, fuses, rods)).toEqual([])
+        dfEggAdvance(egg, { kind: 'rod', id: 'rod-0', time: 45 }, fuses, rods)
+        dfEggAdvance(egg, { kind: 'rod', id: 'rod-2', time: 45 }, fuses, rods)
+        expect(dfEggTick(egg, 44.9, fuses, rods)).toEqual([])
+        expect(dfEggTick(egg, 0.2, fuses, rods)).toEqual(['rod-0', 'rod-2'])
+        expect(egg.step).toBe('rods')
+        expect(egg.rodsOn).toEqual([])
+        expect(egg.rodTimer).toBe(0)
+        for (const id of rods) dfEggAdvance(egg, { kind: 'rod', id, time: 45 }, fuses, rods)
+        expect(egg.step).toBe('claim')
+    })
+
+    it('goes straight to the claim on a map without lightning rods', () => {
+        const egg = fresh()
+        egg.step = 'charge'
+        for (let i = 0; i < 3; i++) dfEggAdvance(egg, { kind: 'soul', needed: 3 }, fuses)
+        expect(egg.step).toBe('claim')
     })
 
     it('skips the fuse hunt on a map without fuses', () => {

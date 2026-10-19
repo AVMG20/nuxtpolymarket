@@ -131,6 +131,7 @@ export type DfEggStep
         | 'fuses' // recover the three Tesla fuses
         | 'install' // place them in the arc generator
         | 'charge' // kill zombies near the charged generator
+        | 'rods' // throw the three lightning-rod switches before the timer runs out
         | 'claim' // take the wunderweapon from the pedestal
         | 'done'
 
@@ -139,6 +140,7 @@ export const DF_EGG_STEPS: { id: DfEggStep, text: string }[] = [
     { id: 'fuses', text: 'Recover the Tesla fuses' },
     { id: 'install', text: 'Install the fuses in the Arc Generator' },
     { id: 'charge', text: 'Feed the generator: kill zombies near it' },
+    { id: 'rods', text: 'Ground the Arc: throw the three lightning-rod switches' },
     { id: 'claim', text: 'Claim the wonder weapon' },
     { id: 'done', text: 'The Arc Generator is spent' }
 ]

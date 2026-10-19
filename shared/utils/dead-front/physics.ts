@@ -516,3 +516,38 @@ export function dfLineOfSight(world: DfCollisionWorld, a: Vec3, b: Vec3): boolea
 export function dfAabbContains(box: DfAabb, p: Vec3): boolean {
     return p.x >= box.min.x && p.x <= box.max.x && p.y >= box.min.y && p.y <= box.max.y && p.z >= box.min.z && p.z <= box.max.z
 }
+
+/**
+ * Unit-disk sample offsets for `dfRampHeight`: a golden-angle spiral, so no two
+ * samples cross an axis-aligned stair edge at the same moment (the ramp rises
+ * in many small increments instead of a few big ones).
+ */
+const RAMP_SAMPLES: readonly (readonly [number, number])[] = (() => {
+    const out: [number, number][] = []
+    const n = 16
+    for (let i = 0; i < n; i++) {
+        const r = Math.sqrt((i + 0.5) / n)
+        const a = i * 2.399963229728653
+        out.push([Math.cos(a) * r, Math.sin(a) * r])
+    }
+    return out
+})()
+
+/**
+ * Floor height smoothed over a disk of `radius` around (x, z), for visuals
+ * only (the camera's eye, a zombie's shown height): the mean of the ground
+ * under 16 sample points, ignoring samples more than `step` above or below
+ * `y` (walls, drops). On a flight of stairs the steps become a ramp that
+ * depends only on the position, never on when the physics stepped up.
+ */
+export function dfRampHeight(world: DfCollisionWorld, x: number, z: number, y: number, radius = 0.25, step = 0.6, zombie = false): number {
+    let sum = 0
+    let n = 0
+    for (const [ox, oz] of RAMP_SAMPLES) {
+        const g = dfGroundHeight(world, x + ox * radius, z + oz * radius, y + step, zombie)
+        if (g < y - step) continue
+        sum += g
+        n++
+    }
+    return n > 0 ? sum / n : y
+}

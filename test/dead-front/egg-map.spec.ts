@@ -54,7 +54,7 @@ function useAs(sim: DfMatchSim, it: DfInteractable, expectText?: RegExp): void {
 }
 
 describe('the easter egg on Sainte-Croix', () => {
-    it('runs power -> fuses -> install -> charge -> claim with the right prompts and waypoints', () => {
+    it('runs power -> fuses -> install -> charge -> rods -> claim with the right prompts and waypoints', () => {
         let sim: DfMatchSim | null = null
         sim = new DfMatchSim([{ userId: 'u', name: 'u', startWeapon: 'm1911', attachments: {}, perkMods: {} }], { now: () => sim?.time ?? 0, startDelay: 1000 })
         const s = sim
@@ -102,12 +102,65 @@ describe('the easter egg on Sainte-Croix', () => {
             const z = s.debugSpawn('shambler', { ...standNear(s, gen) }, 1)
             s['killZombie'](z, p, 'body', { weapon: 'knife', credit: null })
         }
+        expect(s.egg.step).toBe('rods')
+        // the pedestal and the generator point at the rods; each rod is thrown once, the waypoint walks them
+        const ped = ITEMS.find(i => i.kind === 'pedestal')!
+        expect(dfPromptFor(ped, { map: DF_MAP, world: s.snapshot().world, me: s.snapshot().players[0]!, solo: true })!.action).toBe('none')
+        expect(DF_MAP.egg.rods).toHaveLength(3)
+        expect(DF_MAP.egg.rods.some(r => r.pos.y > 1), 'one rod up on the raised level').toBe(true)
+        const thrown: string[] = []
+        for (let n = 0; n < DF_MAP.egg.rods.length; n++) {
+            const t = target()!
+            expect(t.label).toBe('Lightning rod')
+            const rod = ITEMS.find(i => i.kind === 'rod' && i.pos === t.pos)!
+            expect(rod, 'waypoint points at a rod').toBeDefined()
+            expect(thrown).not.toContain(rod.id)
+            useAs(s, rod, /lightning-rod switch/)
+            thrown.push(rod.id)
+            if (n < DF_MAP.egg.rods.length - 1) {
+                expect(s.egg.rodsOn).toHaveLength(n + 1)
+                expect(s.egg.rodTimer).toBeGreaterThan(0)
+                const again = dfPromptFor(rod, { map: DF_MAP, world: s.snapshot().world, me: s.snapshot().players[0]!, solo: true })!
+                expect(again.text).toBe('Already thrown')
+                expect(again.action).toBe('none')
+            }
+            // walking to the next one takes a while (zombies keep coming meanwhile)
+            for (let k = 0; k < 10; k++) s.step(1)
+        }
         expect(s.egg.step).toBe('claim')
         expect(target()!.pos).toEqual(DF_MAP.egg.pedestal.pos)
         useAs(s, ITEMS.find(i => i.kind === 'pedestal')!, /wonder weapon/)
         expect(s.egg.step).toBe('done')
         expect(p.weapons.some(w => w.id === 'wunder')).toBe(true)
         expect(target()).toBeNull()
+    })
+
+    it('the lightning rods reset when the clock runs out, and can be thrown again', () => {
+        let sim: DfMatchSim | null = null
+        sim = new DfMatchSim([{ userId: 'u', name: 'u', startWeapon: 'm1911', attachments: {}, perkMods: {} }], { now: () => sim?.time ?? 0, startDelay: 1000 })
+        const s = sim
+        for (const d of DF_MAP.doors) s.doors.add(d.id)
+        s.world = dfBuildCollision(DF_MAP, s.doors)
+        s.dev(0, { k: 'hold', on: true })
+        s.dev(0, { k: 'egg', step: 'rods' })
+        expect(s.egg.step).toBe('rods')
+        expect(s.power).toBe(true)
+        const rods = ITEMS.filter(i => i.kind === 'rod')
+        expect(rods.map(r => r.id).sort()).toEqual(['rod-0', 'rod-1', 'rod-2'])
+        s.snapshot()
+        useAs(s, rods[0]!)
+        useAs(s, rods[1]!)
+        expect(s.egg.rodsOn).toHaveLength(2)
+        const events = (): { k: string, on?: boolean, n?: number }[] => s.snapshot().events as { k: string, on?: boolean, n?: number }[]
+        events()
+        for (let k = 0; k < 70; k++) s.step(1)
+        const resets = events().filter(e => e.k === 'rod')
+        expect(resets.map(e => [e.on, e.n])).toEqual([[false, 1], [false, 0]])
+        expect(s.egg.step).toBe('rods')
+        expect(s.egg.rodsOn).toEqual([])
+        expect(s.egg.rodTimer).toBe(0)
+        for (const r of rods) useAs(s, r)
+        expect(s.egg.step).toBe('claim')
     })
 
     it('every buyable on the map can be reached and used from where a player can stand', () => {

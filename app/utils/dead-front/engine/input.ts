@@ -14,6 +14,12 @@ export class DfInput {
     private devLocked = false
     /** Fired on every user gesture (audio unlock). */
     onGesture: (() => void) | null = null
+    /**
+     * Fired the moment a mouse button goes down while locked (after it is
+     * recorded as pressed), so the engine can fire on the event itself instead
+     * of waiting for the next frame.
+     */
+    onPress: ((code: string) => void) | null = null
     private readonly el: HTMLElement
     private readonly off: (() => void)[] = []
 
@@ -47,8 +53,10 @@ export class DfInput {
             this.onGesture?.()
             if (!this.locked) return
             const code = `Mouse${e.button}`
-            if (!this.down.has(code)) this.pressedSet.add(code)
+            const fresh = !this.down.has(code)
+            if (fresh) this.pressedSet.add(code)
             this.down.add(code)
+            if (fresh) this.onPress?.(code)
         })
         on(window, 'mouseup', (e: MouseEvent) => {
             const code = `Mouse${e.button}`
@@ -114,8 +122,10 @@ export class DfInput {
     /** Development hook: press or release a key / mouse code as if from a real event. */
     devInject(code: string, down: boolean): void {
         if (down) {
-            if (!this.down.has(code)) this.pressedSet.add(code)
+            const fresh = !this.down.has(code)
+            if (fresh) this.pressedSet.add(code)
             this.down.add(code)
+            if (fresh && code.startsWith('Mouse')) this.onPress?.(code)
         } else {
             if (this.down.has(code)) this.releasedSet.add(code)
             this.down.delete(code)
@@ -149,6 +159,15 @@ export class DfInput {
 
     released(code: string): boolean {
         return this.releasedSet.has(code)
+    }
+
+    /** Takes the mouse movement gathered so far (pixels) and clears it. */
+    takeLook(out: { x: number, y: number }): { x: number, y: number } {
+        out.x = this.mouseX
+        out.y = this.mouseY
+        this.mouseX = 0
+        this.mouseY = 0
+        return out
     }
 
     /** Call at the end of each frame. */

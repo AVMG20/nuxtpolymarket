@@ -1,4 +1,4 @@
-import type { DfMapDef } from '#shared/utils/dead-front/map'
+import type { DfMapDef, DfSpot } from '#shared/utils/dead-front/map'
 import type { DfEggState } from '#shared/utils/dead-front/protocol'
 import { DF_EGG_STEPS } from '#shared/utils/dead-front/types'
 import type { Vec3 } from '#shared/utils/dead-front/types'
@@ -11,33 +11,49 @@ export interface DfObjectiveTarget {
     label: string
 }
 
+/** The map's lightning-rod switches (the egg step before the claim). */
+export function dfEggRodSpots(map: DfMapDef): DfSpot[] {
+    return map.egg.rods ?? []
+}
+
+/** Nearest of `spots` not in `done` (height weighs more: a floor up is far), or null. */
+function nearestOpen(spots: readonly DfSpot[], done: readonly string[], from: Vec3): DfSpot | null {
+    let best: DfSpot | null = null
+    let bestD = Infinity
+    for (const f of spots) {
+        if (done.includes(f.id)) continue
+        const dx = f.pos.x - from.x
+        const dy = f.pos.y - from.y
+        const dz = f.pos.z - from.z
+        const d = dx * dx + dy * dy * 4 + dz * dz
+        if (d < bestD) {
+            bestD = d
+            best = f
+        }
+    }
+    return best
+}
+
 export function dfObjectiveText(step: DfEggState['step']): string {
     return DF_EGG_STEPS.find(s => s.id === step)?.text ?? ''
 }
 
 /**
  * The next target: power switch -> nearest unfound fuse -> generator
- * (install) -> generator (charge) -> pedestal. Null when done.
+ * (install) -> generator (charge) -> nearest unthrown lightning rod ->
+ * pedestal. Null when done.
  */
 export function dfObjectiveTarget(egg: DfEggState, power: boolean, map: DfMapDef, from: Vec3): DfObjectiveTarget | null {
     switch (egg.step) {
         case 'power':
             return power ? null : { pos: map.power.pos, label: 'Power' }
         case 'fuses': {
-            let best: Vec3 | null = null
-            let bestD = Infinity
-            for (const f of map.egg.fuses) {
-                if (egg.fusesFound.includes(f.id)) continue
-                const dx = f.pos.x - from.x
-                const dy = f.pos.y - from.y
-                const dz = f.pos.z - from.z
-                const d = dx * dx + dy * dy * 4 + dz * dz
-                if (d < bestD) {
-                    bestD = d
-                    best = f.pos
-                }
-            }
-            return best ? { pos: best, label: 'Tesla fuse' } : { pos: map.egg.generator.pos, label: 'Arc Generator' }
+            const best = nearestOpen(map.egg.fuses, egg.fusesFound, from)
+            return best ? { pos: best.pos, label: 'Tesla fuse' } : { pos: map.egg.generator.pos, label: 'Arc Generator' }
+        }
+        case 'rods': {
+            const best = nearestOpen(dfEggRodSpots(map), egg.rodsOn ?? [], from)
+            return best ? { pos: best.pos, label: 'Lightning rod' } : { pos: map.egg.pedestal.pos, label: 'Pedestal' }
         }
         case 'install':
         case 'charge':

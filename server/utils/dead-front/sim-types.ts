@@ -28,6 +28,8 @@ export interface SimWeapon {
     reserve: number
     attachments: DfAttachmentChoice
     stats: DfWeaponStats
+    /** In the Pack-a-Punch: the slot stays reserved (indices never shift) until the upgrade comes back. */
+    away?: boolean
 }
 
 export interface SimReload {
@@ -151,6 +153,25 @@ export interface SimZombie {
     lungeReadyAt: number
     chargeReadyAt: number
     dash: SimDash | null
+    /** Velocity over the last tick (m/s), sent for client dead-reckoning. */
+    vel: Vec3
+    /**
+     * Height the snapshot shows: follows `pos.y` up and down stair steps as a
+     * ramp instead of the physics' instant step-up, so zombies don't hop.
+     */
+    viewY: number
+    /** Legs blown off: crawls slowly, can't leap or charge (specials.ts). */
+    crawl?: boolean
+    /** A gas-masked ghoul of a gas round. */
+    masked?: boolean
+}
+
+/** A weapon sitting in the Pack-a-Punch: whose it is, the slot it keeps reserved, and what comes back. */
+export interface SimPapJob {
+    owner: number
+    placeholder: SimWeapon
+    id: DfWeaponId
+    tier: number
 }
 
 export interface SimProjectile {

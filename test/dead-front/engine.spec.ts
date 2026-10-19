@@ -28,7 +28,7 @@ function world(over: Partial<DfWorldSnap> = {}): DfWorldSnap {
         doors: [], planks: {}, power: false,
         box: { spot: 0, state: 'idle', timer: 0 },
         pap: { state: 'idle', timer: 0 },
-        egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 15 },
+        egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 },
         double: 0, insta: 0, ...over
     }
 }
@@ -147,9 +147,12 @@ describe('dfPromptFor', () => {
         const p = dfPromptFor(it_('door', 'door-a', 'door-a'), ctx())!
         expect(p.text).toBe('Hold F to clear the debris')
         expect(p.cost).toBe(1000)
-        expect(p.sub).toBe('Chapel Nave')
-        expect(p.ok).toBe(false) // 500 points
-        expect(dfPromptFor(it_('door', 'door-a', 'door-a'), ctx({ me: { points: 1500 } }))!.ok).toBe(true)
+        // 500 points: the plate says how many more it takes
+        expect(p.sub).toBe('Chapel Nave · Need 500 more points')
+        expect(p.ok).toBe(false)
+        const rich = dfPromptFor(it_('door', 'door-a', 'door-a'), ctx({ me: { points: 1500 } }))!
+        expect(rich.ok).toBe(true)
+        expect(rich.sub).toBe('Chapel Nave')
         expect(dfPromptFor(it_('door', 'door-a', 'door-a'), ctx({ world: { doors: ['door-a'] } }))).toBeNull()
     })
 
@@ -191,26 +194,37 @@ describe('dfPromptFor', () => {
 
     it('Pack-a-Punch prices tiers and caps at the maximum', () => {
         expect(dfPromptFor(it_('pap', 'pap'), ctx())!.text).toBe('Requires power')
-        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true } }))!.cost).toBe(DF_COSTS.papFirst)
+        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true } }))!.cost).toBe(DF_COSTS.pap[0])
         const tier1 = { weapons: [{ id: 'm1911' as const, pap: 1, mag: 8, reserve: 40, attachments: {} }] }
-        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true }, me: tier1 }))!.cost).toBe(DF_COSTS.papRepeat)
+        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true }, me: tier1 }))!.cost).toBe(DF_COSTS.pap[1])
         const max = { weapons: [{ id: 'm1911' as const, pap: 3, mag: 8, reserve: 40, attachments: {} }] }
         expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true }, me: max }))!.text).toBe('Maximum upgrade')
+        const tier2 = { weapons: [{ id: 'm1911' as const, pap: 2, mag: 8, reserve: 40, attachments: {} }] }
+        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true }, me: tier2 }))!.cost).toBe(DF_COSTS.pap[2])
+    })
+
+    it('a weapon in the Pack-a-Punch is not in hand and cannot be bought twice', () => {
+        const away = { slot: 0, weapons: [{ id: 'mp18' as const, pap: 0, mag: 0, reserve: 0, attachments: {}, away: true }] }
+        // nothing in hand: nothing to pack
+        expect(dfPromptFor(it_('pap', 'pap'), ctx({ world: { power: true }, me: { ...away, points: 99999 } }))).toBeNull()
+        const wall = dfPromptFor(it_('wallbuy', 'wall-mp18', 'mp18'), ctx({ me: { ...away, points: 99999 } }))!
+        expect(wall.text).toBe('In the Pack-a-Punch')
+        expect(wall.action).toBe('none')
     })
 
     it('easter egg parts only prompt on their step', () => {
         expect(dfPromptFor(it_('fuse', 'fuse-1', 'fuse-1'), ctx())!.action).toBe('none') // dead until the power is on
-        expect(dfPromptFor(it_('fuse', 'fuse-1', 'fuse-1'), ctx({ world: { egg: { step: 'fuses', fusesFound: [], charge: 0, chargeNeeded: 15 } } }))).not.toBeNull()
-        expect(dfPromptFor(it_('fuse', 'fuse-1', 'fuse-1'), ctx({ world: { egg: { step: 'fuses', fusesFound: ['fuse-1'], charge: 0, chargeNeeded: 15 } } }))).toBeNull()
-        const install = dfPromptFor(it_('generator', 'generator'), ctx({ world: { egg: { step: 'install', fusesFound: ['fuse-1', 'fuse-2', 'fuse-3'], charge: 0, chargeNeeded: 15 } } }))!
+        expect(dfPromptFor(it_('fuse', 'fuse-1', 'fuse-1'), ctx({ world: { egg: { step: 'fuses', fusesFound: [], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 } } }))).not.toBeNull()
+        expect(dfPromptFor(it_('fuse', 'fuse-1', 'fuse-1'), ctx({ world: { egg: { step: 'fuses', fusesFound: ['fuse-1'], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 } } }))).toBeNull()
+        const install = dfPromptFor(it_('generator', 'generator'), ctx({ world: { egg: { step: 'install', fusesFound: ['fuse-1', 'fuse-2', 'fuse-3'], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 } } }))!
         expect(install.text).toBe('Hold F to install the Tesla fuses')
         expect(install.action).toBe('use')
-        expect(dfPromptFor(it_('pedestal', 'pedestal'), ctx({ world: { egg: { step: 'claim', fusesFound: [], charge: 15, chargeNeeded: 15 } } }))!.text).toBe('Hold F to claim the wonder weapon')
+        expect(dfPromptFor(it_('pedestal', 'pedestal'), ctx({ world: { egg: { step: 'claim', fusesFound: [], charge: 15, chargeNeeded: 15, rodsOn: [], rodTimer: 0 } } }))!.text).toBe('Hold F to claim the wonder weapon')
         expect(dfPromptFor(it_('power', 'power'), ctx({ world: { power: true } }))).toBeNull()
     })
 
     it('explains every egg and machine state instead of going quiet', () => {
-        const egg = (step: DfWorldSnap['egg']['step'], charge = 0) => ({ egg: { step, fusesFound: [], charge, chargeNeeded: 15 } })
+        const egg = (step: DfWorldSnap['egg']['step'], charge = 0) => ({ egg: { step, fusesFound: [], charge, chargeNeeded: 15, rodsOn: [], rodTimer: 0 } })
         expect(dfPromptFor(it_('generator', 'generator'), ctx({ world: egg('power') }))!.text).toBe('The Arc Generator lies dead')
         const charging = dfPromptFor(it_('generator', 'generator'), ctx({ world: egg('charge', 4) }))!
         expect(charging.text).toBe('Charge 4/15')
@@ -261,7 +275,7 @@ describe('dfPromptFor', () => {
 // ---------------------------------------------------------------- objective
 
 describe('objective guide', () => {
-    const egg = (step: 'power' | 'fuses' | 'install' | 'charge' | 'claim' | 'done', fusesFound: string[] = []) => ({ step, fusesFound, charge: 0, chargeNeeded: 15 })
+    const egg = (step: 'power' | 'fuses' | 'install' | 'charge' | 'claim' | 'done', fusesFound: string[] = []) => ({ step, fusesFound, charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 })
 
     it('walks power -> nearest fuse -> generator -> pedestal', () => {
         expect(dfObjectiveTarget(egg('power'), false, MAP, { x: 0, y: 0, z: 0 })!.pos).toEqual(MAP.power.pos)

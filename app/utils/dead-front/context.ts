@@ -36,7 +36,8 @@ export interface DfFx {
     tracer(from: Vec3 | THREE.Vector3, to: Vec3 | THREE.Vector3, color?: THREE.ColorRepresentation): void
     /** Lightning bolt polyline (wunderweapon, reload shock). */
     lightning(from: Vec3 | THREE.Vector3, to: Vec3 | THREE.Vector3, color?: THREE.ColorRepresentation): void
-    decal(pos: Vec3 | THREE.Vector3, normal: Vec3 | THREE.Vector3, kind: 'bullet' | 'scorch' | 'blood'): void
+    /** `scale` multiplies the kind's size (default 1; scorches are 2-2.8 m across). */
+    decal(pos: Vec3 | THREE.Vector3, normal: Vec3 | THREE.Vector3, kind: 'bullet' | 'scorch' | 'blood', scale?: number): void
     /** Short-lived point light from a pool (muzzle flashes, explosions). */
     flash(pos: Vec3 | THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, seconds: number): void
     /** Camera shake, 0..1 trauma added. */
@@ -100,6 +101,18 @@ export interface DfZombieView {
     update(dt: number, zombies: readonly import('#shared/utils/dead-front/protocol').DfZombieSnap[]): void
     /** Hit / kill reactions: flinch, blood, headshot pop, gib, death animation (the snap stops listing a dead zombie; the view keeps a corpse animating out). */
     onEvent(ev: import('#shared/utils/dead-front/protocol').DfEvent): void
+    /**
+     * Optional: undo a kill the engine predicted but the server didn't take
+     * (a refused shot). Forget the death so the next frames show the zombie
+     * again. Rare by design: the server honours kill claims.
+     */
+    unkill?(id: number): void
+    /**
+     * Optional: the round's last few zombies (ids; empty when not in the final
+     * stretch). The view makes them easy to find, e.g. a glow that reads
+     * through the dark. Called whenever the set changes.
+     */
+    highlight?(ids: readonly number[]): void
     dispose(): void
 }
 

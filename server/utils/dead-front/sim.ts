@@ -1,7 +1,7 @@
 import {
-    DF_COSTS, DF_EGG_CHARGE, DF_GRENADES, DF_INTERMISSION_SECONDS, DF_MACHINE_TIMES,
+    DF_COSTS, DF_EGG_CHARGE, DF_EGG_ROD_TIME, DF_GRENADES, DF_INTERMISSION_SECONDS, DF_MACHINE_TIMES,
     DF_MAX_PERKS, DF_MELEE, DF_PLAYER, DF_POINTS, DF_POWERUP_LIFETIME,
-    DF_POWERUP_MAX_PER_ROUND, DF_POWERUP_SECONDS, DF_REVIVE_GRACE, DF_SOLO_SECONDWIND_MAX
+    DF_POWERUP_MAX_PER_ROUND, DF_POWERUP_SECONDS, DF_REVIVE_GRACE, DF_SOLO_SECONDWIND_MAX, dfPapCost
 } from '#shared/utils/dead-front/constants'
 import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
 import {
@@ -11,7 +11,7 @@ import {
 import { DF_BARRICADE_PLANKS, DF_MAP, dfInteractables } from '#shared/utils/dead-front/map'
 import type { DfBarricade, DfInteractable, DfMapDef, DfSpot } from '#shared/utils/dead-front/map'
 import { DF_PERKS, dfComputeEffects } from '#shared/utils/dead-front/perks'
-import { dfBodyFits, dfBuildCollision, dfGroundHeight, dfLineOfSight, dfMoveBody, dfRaycast } from '#shared/utils/dead-front/physics'
+import { dfBodyFits, dfBuildCollision, dfGroundHeight, dfLineOfSight, dfMoveBody, dfRampHeight, dfRaycast } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import { DF_FLAG } from '#shared/utils/dead-front/protocol'
 import type {
@@ -19,18 +19,20 @@ import type {
     DfShotHit, DfSnapshot, DfZombieSnap
 } from '#shared/utils/dead-front/protocol'
 import { DF_WEAPONS, dfBoxPool, dfWeaponStats } from '#shared/utils/dead-front/weapons'
+import { DF_EGG_STEPS } from '#shared/utils/dead-front/types'
 import type {
     DfEnemyType, DfHitZone, DfMatchResult, DfPerkId, DfWeaponId, Vec3
 } from '#shared/utils/dead-front/types'
 import { randomChance, randomFloat, randomInt, randomPick } from '#shared/utils/random'
 import { DfNav } from './nav'
+import { DfSpecials } from './specials'
 import {
-    dfBoxChoices, dfBoxRoll, dfBulletDamage, dfClaimPlausible, dfEggAdvance, dfKillPoints, dfRayPointApproach,
-    dfScalePoints, dfVerifyZone
+    dfBoxChoices, dfBoxRoll, dfBulletDamage, dfClaimSane, dfEggAdvance, dfEggTick, dfKillClaimHonoured, dfKillPoints,
+    dfRayPointApproach, dfScalePoints
 } from './rules'
 import type { DfEggAction } from './rules'
 import type {
-    DfPlayerSetup, SimGas, SimPlayer, SimPowerup, SimProjectile, SimWeapon, SimZombie, SimZombieState
+    DfPlayerSetup, SimGas, SimPapJob, SimPlayer, SimPowerup, SimProjectile, SimWeapon, SimZombie, SimZombieState
 } from './sim-types'
 
 // The authoritative Dead Front match: rounds, zombies, shots, projectiles,
@@ -38,7 +40,7 @@ import type {
 // (match.ts) feeds it client messages and ships its snapshots, so the whole
 // game is testable by calling handlers and `step(dt)`.
 
-type KillWeapon = DfWeaponId | 'knife' | 'grenade' | 'arc'
+type KillWeapon = DfWeaponId | 'knife' | 'grenade' | 'arc' | 'trap'
 
 interface DamageSource {
     weapon: KillWeapon
@@ -48,6 +50,8 @@ interface DamageSource {
     melee?: boolean
     /** Where the hit landed (for the hit event); defaults to the zombie's chest. */
     at?: Vec3
+    /** The shooter's client predicted this hit kills (see `dfKillClaimHonoured`). */
+    claimKill?: boolean
 }
 
 export interface DfSimOptions {
@@ -61,6 +65,8 @@ export interface DfSimOptions {
 const GRAVITY = 16
 const ZOMBIE_STEP = 0.6
 const CLIMB_TIME = 1.3
+/** Alive zombies (with nothing left to spawn) at which the walkers start running. */
+const DF_LAST_RUSH = 2
 const RISE_TIME = 1.7
 const SWAP_TIME = 0.55
 const USE_TOLERANCE = 0.9
@@ -76,6 +82,8 @@ const FIRE_BURST_SECONDS = 0.35
 const SWIPE_SLACK = 0.15
 /** Players further than this, or out of sight, don't see a stuck zombie being recycled. */
 const UNSEEN_RANGE = 32
+/** Chance each mystery box roll ends with the box moving to another spot (roll refunded). */
+export const DF_BOX_MOVE_CHANCE = 0.1
 const POWERUP_KINDS: DfPowerupKind[] = ['maxammo', 'double', 'insta', 'nuke', 'carpenter']
 /** Relative drop odds: ammo and double points are the common ones, a nuke is a treat. */
 const POWERUP_WEIGHTS: Record<DfPowerupKind, number> = { maxammo: 1.25, double: 1.2, insta: 0.9, nuke: 0.75, carpenter: 0.7 }
@@ -123,8 +131,11 @@ export class DfMatchSim {
     private killsSinceDrop = 0
     private lastPowerup: DfPowerupKind | null = null
     private barricadeTimers = new Map<string, { nextTearAt: number, climbFreeAt: number }>()
-    private boxInternal = { rolls: 0, moveAfter: 4, final: null as DfWeaponId | null, cycleAt: 0, paid: 0, willMove: false }
-    private papWeapon: SimWeapon | null = null
+    private boxInternal = { final: null as DfWeaponId | null, cycleAt: 0, paid: 0, willMove: false }
+    /** The weapon in the Pack-a-Punch (its owner's slot stays reserved by `placeholder`). */
+    private papJob: SimPapJob | null = null
+    /** Solo pause (menu open, pointer lock lost): the match layer stops stepping. */
+    paused = false
     private departed: DfEndPlayer[] = []
     /** Development hook: pause zombie spawning. */
     private devHold = false
@@ -133,6 +144,9 @@ export class DfMatchSim {
     private playerNodes = new Map<number, number>()
     private pointsBatch: Map<number, number> | null = null
     private fuseIds: string[]
+    private rodIds: string[]
+    /** Gas rounds, electric traps, crawlers and kill streaks (specials.ts). */
+    readonly specials: DfSpecials
 
     constructor(setups: DfPlayerSetup[], opts: DfSimOptions = {}) {
         this.map = opts.map ?? DF_MAP
@@ -148,11 +162,20 @@ export class DfMatchSim {
             this.barricadeTimers.set(b.id, { nextTearAt: 0, climbFreeAt: 0 })
         }
         this.fuseIds = this.map.egg.fuses.map(f => f.id)
-        this.egg = { step: 'power', fusesFound: [], charge: 0, chargeNeeded: this.solo ? DF_EGG_CHARGE.solo : DF_EGG_CHARGE.squad }
-        this.box = { spot: 0, state: 'idle', timer: 0 }
-        this.boxInternal.moveAfter = randomInt(3, 6)
+        this.rodIds = dfEggRods(this.map).map(r => r.id)
+        this.egg = { step: 'power', fusesFound: [], charge: 0, chargeNeeded: this.solo ? DF_EGG_CHARGE.solo : DF_EGG_CHARGE.squad, rodsOn: [], rodTimer: 0 }
+        // the box never starts in the start zone (it may wander there later)
+        const boxStarts = this.map.boxSpots.map((_, i) => i).filter(i => this.map.boxSpots[i]!.zone !== this.map.startZone)
+        this.box = { spot: boxStarts.length ? randomPick(boxStarts) : 0, state: 'idle', timer: 0 }
         this.pap = { state: 'idle', timer: 0 }
         setups.forEach((s, i) => this.players.push(this.createPlayer(s, i)))
+        this.specials = new DfSpecials(this, {
+            killByTrap: z => this.killZombie(z, null, 'body', { weapon: 'trap', credit: null }),
+            points: (p, amount) => this.addPoints(p, amount),
+            hurt: (p, dmg) => this.hurtPlayer(p, dmg, -1, false),
+            spend: (p, cost) => this.spend(p, cost),
+            left: () => this.toSpawn + this.zombies.length
+        })
     }
 
     // ================================================================ players
@@ -238,6 +261,12 @@ export class DfMatchSim {
         return p.weapons[p.slot]
     }
 
+    /** The weapon in hand, unless that slot is waiting on the Pack-a-Punch. */
+    private usable(p: SimPlayer): SimWeapon | undefined {
+        const w = p.weapons[p.slot]
+        return w && !w.away ? w : undefined
+    }
+
     private eye(p: SimPlayer): Vec3 {
         const h = p.life === 'down' ? 0.55 : (p.flags & DF_FLAG.crouch) ? DF_PLAYER.crouchEyeHeight : DF_PLAYER.eyeHeight
         return { x: p.pos.x, y: p.pos.y + h, z: p.pos.z }
@@ -271,6 +300,13 @@ export class DfMatchSim {
         if (this.box.owner === pid && this.box.state !== 'moving') {
             this.box.owner = undefined
         }
+        if (this.papJob?.owner === pid) this.resetPap()
+    }
+
+    /** Solo only: the pause menu (or a lost pointer lock) freezes the whole match. */
+    pause(pid: number, paused: boolean): void {
+        if (!this.solo || !this.player(pid)) return
+        this.paused = paused === true
     }
 
     setConnected(pid: number, connected: boolean): void {
@@ -281,6 +317,8 @@ export class DfMatchSim {
             p.lastInputAt = this.now()
             p.moveBudget = 2
             p.tp++
+            // a fresh client (remounted game view) needs snapshots to resume: it re-pauses if it wants
+            this.paused = false
         } else {
             p.reviving = -1
         }
@@ -327,6 +365,26 @@ export class DfMatchSim {
                 if (op.on === true) this.devGod.add(pid)
                 else this.devGod.delete(pid)
                 return
+            case 'special':
+                this.specials.dev(p, op)
+                return
+            case 'egg': {
+                const order = DF_EGG_STEPS.map(x => x.id)
+                const at = order.indexOf(op.step)
+                if (at < 0) return
+                if (at > 0 && !this.power) {
+                    this.power = true
+                    this.emit({ k: 'power' })
+                }
+                const e = this.egg
+                e.fusesFound = at > order.indexOf('fuses') ? [...this.fuseIds] : []
+                e.charge = at > order.indexOf('charge') ? e.chargeNeeded : 0
+                e.rodsOn = at > order.indexOf('rods') ? [...this.rodIds] : []
+                e.rodTimer = 0
+                e.step = op.step
+                this.emit({ k: 'egg', step: e.step })
+                return
+            }
             case 'round': {
                 if (!Number.isFinite(op.round) || op.round < 1) return
                 for (const z of [...this.zombies]) this.killZombie(z, null, 'body', { weapon: 'knife', credit: null }, { noPoints: true, noDrop: true })
@@ -353,59 +411,57 @@ export class DfMatchSim {
         this.applyMove(p, target, dt)
     }
 
+    /**
+     * Client-authoritative movement: the reported position is taken whenever
+     * the body fits there and the move is within a generous speed budget, so
+     * the server never drags a player back (no rubber-banding). Only a move
+     * into geometry (slid along the walls instead), a teleport-sized jump or a
+     * fall out of the map moves the player server-side; the client snaps back
+     * only when that leaves it far off (`tp`).
+     */
     private applyMove(p: SimPlayer, target: Vec3, dt: number): void {
         const maxSpeed = p.life === 'down'
-            ? 1.6
-            : DF_PLAYER.sprintSpeed * Math.max(1, p.effects.moveMult) * Math.max(1, p.effects.sprintMult) * 1.25 + 0.5
-        p.moveBudget = Math.min(2.5, p.moveBudget + maxSpeed * dt)
+            ? 2.2
+            : DF_PLAYER.sprintSpeed * Math.max(1, p.effects.moveMult) * Math.max(1, p.effects.sprintMult) * 1.5 + 1
+        p.moveBudget = Math.min(4, p.moveBudget + maxSpeed * dt)
         const dx = target.x - p.pos.x
         const dz = target.z - p.pos.z
         const dy = target.y - p.pos.y
         const horiz = Math.hypot(dx, dz)
-        if (horiz > p.moveBudget + 4 || dy > 4 + horiz) {
-            // Teleport: keep the server position and make the client snap back.
+        if (horiz > p.moveBudget + 6 || dy > 6 + horiz) {
+            // Teleport-sized: keep the server position and make the client snap back.
             p.tp++
             return
         }
         let tx = target.x
         let tz = target.z
         let ty = target.y
-        let clipped = false
         const allowed = p.moveBudget
         if (horiz > allowed) {
+            // a little faster than possible (a hitch, a burst of packets): take what the budget allows, quietly
             const k = allowed / horiz
             tx = p.pos.x + dx * k
             tz = p.pos.z + dz * k
-            clipped = true
         }
         const moved = Math.min(horiz, allowed)
         p.moveBudget = Math.max(0, p.moveBudget - moved)
-        if (ty - p.pos.y > 1.1 + moved) {
-            ty = p.pos.y + 1.1 + moved
-            clipped = true
-        }
+        if (ty - p.pos.y > 1.6 + moved) ty = p.pos.y + 1.6 + moved
         const crouch = p.life === 'down' || (p.flags & DF_FLAG.crouch) !== 0
         const body = {
-            radius: DF_PLAYER.radius * 0.9,
+            radius: DF_PLAYER.radius * 0.85,
             height: crouch ? DF_PLAYER.crouchHeight : DF_PLAYER.height,
             stepHeight: DF_PLAYER.stepHeight
         }
         const next = { x: tx, y: ty, z: tz }
-        // Short hops into free space are taken as reported (client prediction agrees with
-        // the shared physics); anything else is walked through the collision world.
-        if (!clipped && moved <= 0.6 && dfBodyFits(this.world, next, body)) {
+        if (dfBodyFits(this.world, next, body) || dfBodyFits(this.world, next, { ...body, height: DF_PLAYER.crouchHeight })) {
             p.pos = next
         } else {
+            // into geometry (a door state a tick apart, a squeeze): slide there through the collision world
             const res = dfMoveBody(this.world, p.pos, { x: tx - p.pos.x, y: 0, z: tz - p.pos.z }, 1, body)
-            const devH = Math.hypot(res.pos.x - tx, res.pos.z - tz)
-            if (devH < 0.3 && dfBodyFits(this.world, next, body)) {
-                p.pos = next
-            } else {
-                p.pos = res.pos
-                if (devH > 0.6) clipped = true
-            }
+            p.pos = res.pos
+            // truly stuck or far off: only then make the client snap
+            if (Math.hypot(res.pos.x - target.x, res.pos.z - target.z) > 1.5) p.tp++
         }
-        if (clipped) p.tp++
         const floor = dfGroundHeight(this.world, p.pos.x, p.pos.z, p.pos.y + 0.5)
         if (Number.isFinite(floor) && p.pos.y < floor - 0.3) p.pos.y = floor
         if (p.pos.y < this.map.bounds.min.y - 1) {
@@ -414,16 +470,30 @@ export class DfMatchSim {
         }
     }
 
-    fire(pid: number, msg: { origin: Vec3, dirs: Vec3[], hits: DfShotHit[] }): boolean {
+    /**
+     * One trigger pull. Client-authoritative (players are friends): the
+     * client's magazine, swap and reload timing are taken as reported and its
+     * hit claims only pass sanity bounds. The server keeps the ammo total
+     * honest (the magazine is refilled from the reserve, never from nothing)
+     * and the fire rate within reason.
+     */
+    fire(pid: number, msg: { origin: Vec3, dirs: Vec3[], hits: DfShotHit[], shot?: number, mag?: number }): boolean {
         const p = this.player(pid)
         if (!p || p.life === 'dead') return false
-        const w = this.held(p)
+        const w = this.usable(p)
         if (!w) return false
-        if (!this.readyToFire(p)) return false
+        const reported = typeof msg.mag === 'number' && Number.isFinite(msg.mag)
+        if (reported) {
+            // the client finished (or interrupted) its own reload: adopt its magazine
+            p.reload = null
+            this.syncMag(w, msg.mag! + 1)
+        } else if (!this.readyToFire(p)) {
+            return false
+        }
         if (w.mag <= 0) return false
         // Fire rate: a token bucket refilled at the weapon's rpm, tolerant to network jitter.
         const now = this.now()
-        const rate = Math.max(0.5, (w.stats.rpm * p.effects.fireRateMult) / 60) * 1.2
+        const rate = Math.max(0.5, (w.stats.rpm * p.effects.fireRateMult) / 60) * 1.35
         const cap = Math.max(MAX_FIRE_TOKENS, 1 + rate * FIRE_BURST_SECONDS)
         p.fireTokens = Math.min(cap, p.fireTokens + (now - p.fireTokensAt) * rate)
         p.fireTokensAt = now
@@ -433,7 +503,7 @@ export class DfMatchSim {
 
         const eye = this.eye(p)
         let origin = finiteVec(msg.origin) ?? eye
-        if (dist(origin, eye) > 1.5) origin = eye
+        if (dist(origin, eye) > 2.5) origin = eye
         const maxRays = Math.max(1, w.stats.pellets)
         const dirs: Vec3[] = []
         for (const d of Array.isArray(msg.dirs) ? msg.dirs.slice(0, maxRays) : []) {
@@ -441,6 +511,7 @@ export class DfMatchSim {
             if (n) dirs.push(n)
         }
         if (!dirs.length) dirs.push(forward(p.yaw, p.pitch))
+        const shotId = typeof msg.shot === 'number' && Number.isFinite(msg.shot) ? Math.floor(msg.shot) : undefined
 
         const shot = w.stats.shot
         if (shot === 'grenade' || shot === 'xray-bolt') {
@@ -452,11 +523,28 @@ export class DfMatchSim {
             this.fireArc(p, w, origin, dirs[0]!, Array.isArray(msg.hits) ? msg.hits : [])
             return true
         }
-        this.fireHitscan(p, w, origin, dirs, Array.isArray(msg.hits) ? msg.hits : [])
+        this.fireHitscan(p, w, origin, dirs, Array.isArray(msg.hits) ? msg.hits : [], shotId)
         return true
     }
 
-    /** Lenient against reload / swap timers that run a little behind the client. */
+    /**
+     * Moves rounds between reserve and magazine so the magazine holds `want`
+     * (clamped to the magazine size). Rounds only come out of the reserve, and
+     * rounds the client didn't load go back into it: the total never grows.
+     */
+    private syncMag(w: SimWeapon, want: number): void {
+        const target = clamp(Math.round(want), 0, w.stats.magSize)
+        if (target > w.mag) {
+            const take = Math.min(target - w.mag, w.reserve)
+            w.mag += take
+            w.reserve -= take
+        } else if (target < w.mag) {
+            w.reserve += w.mag - target
+            w.mag = target
+        }
+    }
+
+    /** Lenient against reload / swap timers that run a little behind the client (clients that don't report ammo). */
     private readyToFire(p: SimPlayer): boolean {
         if (p.reload) {
             if (p.reload.perRound) {
@@ -470,12 +558,11 @@ export class DfMatchSim {
         return p.swapUntil - this.time <= 0.2
     }
 
-    private fireHitscan(p: SimPlayer, w: SimWeapon, origin: Vec3, dirs: Vec3[], claims: DfShotHit[]): void {
+    private fireHitscan(p: SimPlayer, w: SimWeapon, origin: Vec3, dirs: Vec3[], claims: DfShotHit[], shotId?: number): void {
         const range = w.stats.maxRange
-        const walls = dirs.map(d => dfRaycast(this.world, origin, d, range + 2)?.dist ?? Infinity)
         const budget = dirs.map(() => w.stats.penetration + 1)
         const used = new Set<string>()
-        let shotEnd = Math.min(walls[0]!, range)
+        let shotEnd = Math.min(dfRaycast(this.world, origin, dirs[0]!, range + 2)?.dist ?? Infinity, range)
         this.pointsBatch = new Map()
         try {
             for (const claim of claims.slice(0, dirs.length * (w.stats.penetration + 1))) {
@@ -487,9 +574,9 @@ export class DfMatchSim {
                 let bestHit: { t: number, miss: number } | null = null
                 for (let i = 0; i < dirs.length; i++) {
                     if (budget[i]! <= 0 || used.has(`${i}:${z.id}`)) continue
-                    const hit = dfClaimPlausible(target, origin, dirs[i]!, range)
-                    if (!hit || hit.t > range + 2) continue
-                    if (hit.t - z.def.radius - 0.6 > walls[i]!) continue
+                    // sanity only: the ray passes within a few metres of the zombie, inside the weapon's range
+                    const hit = dfClaimSane(target, origin, dirs[i]!, range)
+                    if (!hit || hit.t > range + 4) continue
                     if (!bestHit || hit.miss < bestHit.miss) {
                         best = i
                         bestHit = hit
@@ -499,13 +586,15 @@ export class DfMatchSim {
                 budget[best]!--
                 used.add(`${best}:${z.id}`)
                 const dir = dirs[best]!
-                const zone = dfVerifyZone(target, origin, dir, isZone(claim.zone) ? claim.zone : 'body')
-                const dmg = dfBulletDamage(w.stats, p.effects, zone, bestHit.t, p.life === 'down')
-                if (best === 0) shotEnd = Math.min(shotEnd, bestHit.t)
-                this.damageZombie(z, p, dmg, zone, { weapon: w.id, credit: w.id, at: add(origin, scale(dir, bestHit.t)) })
+                // the client saw the zone and the distance: take them
+                const zone: DfHitZone = isZone(claim.zone) ? claim.zone : 'body'
+                const at = typeof claim.dist === 'number' && Number.isFinite(claim.dist) ? clamp(claim.dist, 0, range + 4) : bestHit.t
+                const dmg = dfBulletDamage(w.stats, p.effects, zone, at, p.life === 'down')
+                if (best === 0) shotEnd = Math.min(shotEnd, at)
+                this.damageZombie(z, p, dmg, zone, { weapon: w.id, credit: w.id, at: add(origin, scale(dir, at)), claimKill: claim.kill === true })
             }
         } finally {
-            this.flushPoints()
+            this.flushPoints(p.pid, shotId)
         }
         this.emit({ k: 'shot', p: p.pid, weapon: w.id, pap: w.pap, from: rv(origin), to: rv(add(origin, scale(dirs[0]!, shotEnd))) })
     }
@@ -516,8 +605,8 @@ export class DfMatchSim {
         for (const c of claims) {
             const z = this.zombies.find(q => q.id === c?.z)
             if (!z) continue
-            const ok = dfClaimPlausible({ type: z.type, pos: z.pos, speed: z.curSpeed }, origin, dir, range)
-            if (ok && dfLineOfSight(this.world, origin, zChest(z))) {
+            // client-authoritative first target: a sanity bound only
+            if (z.hp > 0 && dfClaimSane({ type: z.type, pos: z.pos, speed: z.curSpeed }, origin, dir, range)) {
                 hit.push(z)
                 break
             }
@@ -577,10 +666,24 @@ export class DfMatchSim {
         }
     }
 
-    reload(pid: number): void {
+    /**
+     * Without `mag`: a reload starts (the flag remote players see, reload
+     * perks, and a timed fallback for clients that don't report ammo). With
+     * `mag`: the client's reload finished (or a shell went in) and left the
+     * magazine at `mag`, taken from the reserve.
+     */
+    reload(pid: number, mag?: number): void {
         const p = this.player(pid)
-        if (!p || p.life === 'dead' || p.reload) return
-        const w = this.held(p)
+        if (!p || p.life === 'dead') return
+        if (typeof mag === 'number' && Number.isFinite(mag)) {
+            const w = this.usable(p)
+            if (!w) return
+            this.syncMag(w, mag)
+            p.reload = null
+            return
+        }
+        if (p.reload) return
+        const w = this.usable(p)
         if (!w || w.mag >= w.stats.magSize || w.reserve <= 0) return
         const mult = Math.max(0.1, p.effects.reloadMult)
         const empty = w.mag === 0
@@ -617,6 +720,7 @@ export class DfMatchSim {
         const p = this.player(pid)
         if (!p || p.life === 'dead' || !Number.isInteger(slot)) return
         if (slot === p.slot || slot < 0 || slot >= p.weapons.length) return
+        if (p.weapons[slot]!.away) return
         // Last stand is pistols only.
         if (p.life === 'down' && DF_WEAPONS[p.weapons[slot]!.id]?.class !== 'pistol') return
         p.slot = slot
@@ -624,25 +728,26 @@ export class DfMatchSim {
         p.swapUntil = this.time + (SWAP_TIME / Math.max(0.1, p.effects.swapMult)) * 0.85
     }
 
-    melee(pid: number, msg: { z?: number, zone?: DfHitZone }): void {
+    melee(pid: number, msg: { z?: number, zone?: DfHitZone, shot?: number, kill?: boolean }): void {
         const p = this.player(pid)
         if (!p || p.life !== 'alive') return
-        if (this.time < p.meleeReadyAt - 0.1) return
+        if (this.time < p.meleeReadyAt - 0.15) return
         p.meleeReadyAt = this.time + DF_MELEE.cooldown
         // the knife interrupts a reload, as it does on the client
         p.reload = null
         if (typeof msg.z !== 'number') return
         const z = this.zombies.find(q => q.id === msg.z)
         if (!z) return
-        const reach = DF_MELEE.range + p.effects.meleeLunge + z.def.radius + 0.6 + z.curSpeed * 0.25
-        if (hdist(p.pos, z.pos) > reach || Math.abs(p.pos.y - z.pos.y) > 1.6) return
-        if (!dfLineOfSight(this.world, this.eye(p), zChest(z))) return
+        // client-authoritative: only a sanity bound on the reach (lag and the lunge included)
+        const reach = DF_MELEE.range + p.effects.meleeLunge + z.def.radius + 2 + z.curSpeed * 0.35
+        if (hdist(p.pos, z.pos) > reach || Math.abs(p.pos.y - z.pos.y) > 2) return
         const zone: DfHitZone = msg.zone === 'head' ? 'head' : 'body'
+        const shotId = typeof msg.shot === 'number' && Number.isFinite(msg.shot) ? Math.floor(msg.shot) : undefined
         this.pointsBatch = new Map()
         try {
-            this.damageZombie(z, p, DF_MELEE.damage * p.effects.meleeMult, zone, { weapon: 'knife', credit: null, melee: true })
+            this.damageZombie(z, p, DF_MELEE.damage * p.effects.meleeMult, zone, { weapon: 'knife', credit: null, melee: true, claimKill: msg.kill === true })
         } finally {
-            this.flushPoints()
+            this.flushPoints(p.pid, shotId)
         }
     }
 
@@ -715,6 +820,7 @@ export class DfMatchSim {
 
     private useKind(p: SimPlayer, it: DfInteractable): boolean {
         switch (it.kind) {
+            case 'rod': return this.useRod(p, it.ref ?? it.id)
             case 'door': return this.useDoor(p, it.ref ?? it.id)
             case 'wallbuy': return this.useWallBuy(p, it)
             case 'perk': return this.usePerk(p, it.ref as DfPerkId)
@@ -725,6 +831,7 @@ export class DfMatchSim {
             case 'generator': return this.eggAction({ kind: 'install' }).progressed
             case 'pedestal': return this.usePedestal(p)
             case 'barricade': return this.useBarricade(p, it.ref ?? it.id)
+            case 'trap': return this.specials.useTrap(p, it.ref ?? it.id)
         }
         return false
     }
@@ -754,6 +861,8 @@ export class DfMatchSim {
         if (!id || !DF_WEAPONS[id]) return false
         const def = DF_WEAPONS[id]
         const owned = p.weapons.find(w => w.id === id)
+        // its slot is reserved while it's in the Pack-a-Punch: no second copy, no ammo for the placeholder
+        if (owned?.away) return false
         if (owned) {
             const max = this.maxReserve(p, owned.stats.reserve)
             if (owned.reserve >= max && owned.mag >= owned.stats.magSize) return false
@@ -770,21 +879,33 @@ export class DfMatchSim {
         return true
     }
 
-    /** Adds a weapon: the matching slot, an empty slot, or replaces the held one. The wunderweapon rides a third slot. */
+    /**
+     * Adds a weapon without ever shifting the other slots: the matching slot,
+     * the free normal slot (always before the wunderweapon, which rides last),
+     * or it replaces the weapon in hand. A slot reserved by the Pack-a-Punch
+     * is never replaced.
+     */
     private giveWeapon(p: SimPlayer, w: SimWeapon, found: boolean): void {
         if (found) p.weaponsFound.add(w.id)
         let idx = p.weapons.findIndex(x => x.id === w.id)
-        if (idx < 0) {
+        if (idx >= 0) {
+            if (p.weapons[idx]!.away) return
+            p.weapons[idx] = w
+        } else if (w.id === 'wunder') {
+            p.weapons.push(w)
+            idx = p.weapons.length - 1
+        } else {
             const normals = p.weapons.filter(x => x.id !== 'wunder').length
-            if (w.id === 'wunder' || normals < 2) {
-                p.weapons.push(w)
-                idx = p.weapons.length - 1
+            if (normals < 2) {
+                const wunder = p.weapons.findIndex(x => x.id === 'wunder')
+                idx = wunder >= 0 ? wunder : p.weapons.length
+                p.weapons.splice(idx, 0, w)
             } else {
-                idx = p.weapons[p.slot] && p.weapons[p.slot]!.id !== 'wunder' ? p.slot : p.weapons.findIndex(x => x.id !== 'wunder')
+                const cur = p.weapons[p.slot]
+                idx = cur && cur.id !== 'wunder' && !cur.away ? p.slot : p.weapons.findIndex(x => x.id !== 'wunder' && !x.away)
+                if (idx < 0) return
                 p.weapons[idx] = w
             }
-        } else {
-            p.weapons[idx] = w
         }
         p.slot = idx
         p.reload = null
@@ -832,10 +953,10 @@ export class DfMatchSim {
         if (box.state !== 'idle') return false
         if (!this.spend(p, DF_COSTS.box)) return false
         const bi = this.boxInternal
-        bi.rolls++
         bi.paid = DF_COSTS.box
         bi.final = dfBoxRoll(dfBoxChoices(dfBoxPool(), p.weapons.map(w => w.id)), randomFloat())
-        bi.willMove = this.map.boxSpots.length > 1 && bi.rolls > bi.moveAfter && randomChance(0.35)
+        // every roll has a flat chance to send the box elsewhere (the roll is refunded, your weapons untouched)
+        bi.willMove = this.map.boxSpots.length > 1 && randomChance(DF_BOX_MOVE_CHANCE)
         bi.cycleAt = this.time + 0.15
         box.state = 'rolling'
         box.owner = p.pid
@@ -880,8 +1001,6 @@ export class DfMatchSim {
         } else if (box.state === 'moving' && box.timer <= 0) {
             const spots = this.map.boxSpots.map((_, i) => i).filter(i => i !== box.spot)
             if (spots.length) box.spot = randomPick(spots)
-            bi.rolls = 0
-            bi.moveAfter = randomInt(3, 6)
             this.resetBox()
         }
     }
@@ -897,28 +1016,25 @@ export class DfMatchSim {
     private usePap(p: SimPlayer): boolean {
         const pap = this.pap
         if (!this.power) return false
-        if (pap.state === 'ready' && pap.owner === p.pid && this.papWeapon) {
-            const w = this.papWeapon
-            const upgraded = this.makeWeapon(p, w.id, w.pap)
-            this.papWeapon = null
-            this.giveWeapon(p, upgraded, false)
-            pap.state = 'idle'
-            pap.owner = undefined
-            pap.weapon = undefined
-            pap.tier = undefined
-            pap.timer = 0
+        if (pap.state === 'ready' && pap.owner === p.pid && this.papJob) {
+            this.returnPap(p, true)
             return true
         }
         if (pap.state !== 'idle') return false
-        const w = this.held(p)
-        if (!w || w.pap >= DF_COSTS.maxPap) return false
-        const cost = w.pap === 0 ? DF_COSTS.papFirst : DF_COSTS.papRepeat
-        if (!this.spend(p, cost)) return false
-        p.weapons.splice(p.slot, 1)
-        p.slot = Math.max(0, Math.min(p.slot, p.weapons.length - 1))
+        const w = this.usable(p)
+        if (!w) return false
+        const cost = dfPapCost(w.pap)
+        if (cost === null || !this.spend(p, cost)) return false
+        // The weapon goes in but its slot stays put (reserved), so nothing shifts
+        // and it comes back to exactly where it was.
+        w.away = true
         p.reload = null
-        p.swapUntil = this.time + 0.4
-        this.papWeapon = { ...w, pap: w.pap + 1 }
+        const other = p.weapons.findIndex(x => !x.away)
+        if (other >= 0) {
+            p.slot = other
+            p.swapUntil = this.time + 0.4
+        }
+        this.papJob = { owner: p.pid, placeholder: w, id: w.id, tier: w.pap + 1 }
         pap.state = 'working'
         pap.owner = p.pid
         pap.weapon = w.id
@@ -929,21 +1045,68 @@ export class DfMatchSim {
         return true
     }
 
+    /**
+     * Hands the upgraded weapon back with a full magazine and reserve: into the
+     * slot it left (also while that list is set aside for last stand), or, if
+     * the owner lost their weapons since (bled out and respawned), like a new
+     * pickup. Taking it from the machine puts it in hand; an automatic return
+     * only does when the owner has nothing else to hold.
+     */
+    private returnPap(p: SimPlayer, taken: boolean): void {
+        const job = this.papJob
+        if (!job) return
+        this.resetPap()
+        const upgraded = this.makeWeapon(p, job.id, job.tier)
+        if (!taken) this.emit({ k: 'papReturn', p: p.pid, weapon: job.id, tier: job.tier })
+        for (const list of [p.weapons, p.savedWeapons]) {
+            const i = list ? list.indexOf(job.placeholder) : -1
+            if (!list || i < 0) continue
+            list[i] = upgraded
+            if (list === p.weapons && p.life === 'alive' && (taken || !this.usable(p))) {
+                p.slot = i
+                p.reload = null
+                p.swapUntil = this.time + (SWAP_TIME / Math.max(0.1, p.effects.swapMult)) * 0.85
+            }
+            return
+        }
+        if (p.life === 'alive') {
+            const before = p.slot
+            this.giveWeapon(p, upgraded, false)
+            if (!taken && this.usable(p) && p.weapons[before] && !p.weapons[before]!.away && p.weapons[before] !== upgraded) p.slot = before
+        } else if (p.savedWeapons) {
+            p.savedWeapons.push(upgraded)
+        } else {
+            p.weapons.push(upgraded)
+        }
+    }
+
+    private resetPap(): void {
+        this.papJob = null
+        this.pap.state = 'idle'
+        this.pap.owner = undefined
+        this.pap.weapon = undefined
+        this.pap.tier = undefined
+        this.pap.timer = 0
+    }
+
     private stepPap(dt: number): void {
         const pap = this.pap
         if (pap.state === 'idle') return
+        const owner = pap.owner !== undefined ? this.player(pap.owner) : undefined
+        if (!owner || !this.papJob) {
+            this.resetPap()
+            return
+        }
+        // The offer waits for an owner who bled out (until they respawn) or dropped (until they're back).
+        if (pap.state === 'ready' && (owner.life === 'dead' || !owner.connected)) return
         pap.timer -= dt
         if (pap.timer > 0) return
         if (pap.state === 'working') {
             pap.state = 'ready'
             pap.timer = DF_MACHINE_TIMES.papOffer
         } else {
-            pap.state = 'idle'
-            pap.owner = undefined
-            pap.weapon = undefined
-            pap.tier = undefined
-            pap.timer = 0
-            this.papWeapon = null
+            // never keep it: the machine hands it back to its owner
+            this.returnPap(owner, false)
         }
     }
 
@@ -962,6 +1125,20 @@ export class DfMatchSim {
         return res.progressed
     }
 
+    /** Throws a lightning-rod switch; the first one starts the clock for the rest. */
+    private useRod(p: SimPlayer, rodId: string): boolean {
+        const res = this.eggAction({ kind: 'rod', id: rodId, time: this.solo ? DF_EGG_ROD_TIME.solo : DF_EGG_ROD_TIME.squad })
+        if (res.progressed) this.emit({ k: 'rod', id: rodId, p: p.pid, on: true, n: this.egg.rodsOn.length })
+        return res.progressed
+    }
+
+    /** The rod clock: when it runs out every thrown rod resets and the squad tries again. */
+    private stepEgg(dt: number): void {
+        const reset = dfEggTick(this.egg, dt, this.fuseIds, this.rodIds)
+        // one event per rod, `n` counting down to 0 on the last (the HUD speaks once)
+        reset.forEach((id, i) => this.emit({ k: 'rod', id, p: -1, on: false, n: reset.length - 1 - i }))
+    }
+
     private usePedestal(p: SimPlayer): boolean {
         if (this.egg.step !== 'claim') return false
         const res = this.eggAction({ kind: 'claim', pid: p.pid })
@@ -974,7 +1151,7 @@ export class DfMatchSim {
     }
 
     private eggAction(action: DfEggAction): { progressed: boolean, stepChanged: boolean } {
-        const res = dfEggAdvance(this.egg, action, this.fuseIds)
+        const res = dfEggAdvance(this.egg, action, this.fuseIds, this.rodIds)
         if (res.stepChanged) this.emit({ k: 'egg', step: this.egg.step })
         return res
     }
@@ -1015,12 +1192,29 @@ export class DfMatchSim {
         this.stepBox(dt)
         this.stepPap(dt)
         this.stepZombies(dt)
+        this.specials.step(dt)
+        this.rushLastZombies()
         this.stepProjectiles(dt)
         this.stepPowerups()
+        this.stepEgg(dt)
         this.gas = this.gas.filter(g => g.until > this.time)
 
         if (this.phase === 'active' && this.toSpawn <= 0 && this.zombies.length === 0) this.endRound()
         this.checkGameOver()
+    }
+
+    /**
+     * The round's last stragglers pick up the pace (from round 2): with nothing
+     * left to spawn and two or fewer alive, walkers break into a run, so the
+     * end of a round comes to you instead of stalling on a slow walker.
+     */
+    private rushLastZombies(): void {
+        if (this.phase !== 'active' || this.toSpawn > 0 || this.round < 2 || this.zombies.length > DF_LAST_RUSH) return
+        for (const z of this.zombies) {
+            if (z.gait !== 'walk' || z.type === 'brute') continue
+            z.gait = 'run'
+            z.speed = Math.max(z.speed, z.def.speeds.run)
+        }
     }
 
     /**
@@ -1049,20 +1243,20 @@ export class DfMatchSim {
             this.toSpawn--
             this.spawnedThisRound++
         }
-        this.spawnTimer = dfSpawnInterval(this.round, this.players.length) * (0.75 + randomFloat() * 0.5)
+        this.spawnTimer = this.specials.spawnInterval(dfSpawnInterval(this.round, this.players.length)) * (0.75 + randomFloat() * 0.5)
     }
 
     startRound(): void {
         this.round++
         this.phase = 'active'
         this.phaseTimer = 0
-        const total = dfRoundZombieCount(this.round, Math.max(1, this.players.length))
+        const total = this.specials.roundStart(this.round, dfRoundZombieCount(this.round, Math.max(1, this.players.length)))
         this.toSpawn = total
         this.spawnedThisRound = 0
         this.spawnTimer = this.round === 1 ? 1.5 : 2.5
         this.powerupsThisRound = 0
         this.bruteAt = []
-        const brutes = dfBrutesInRound(this.round)
+        const brutes = this.specials.gas ? 0 : dfBrutesInRound(this.round)
         for (let i = 0; i < brutes; i++) {
             const lo = Math.floor(total * (0.25 + 0.5 * (i / brutes)))
             const hi = Math.max(lo, Math.floor(total * (0.25 + 0.5 * ((i + 1) / brutes))) - 1)
@@ -1077,6 +1271,7 @@ export class DfMatchSim {
     }
 
     private endRound(): void {
+        this.specials.roundEnd()
         this.roundsCompleted = this.round
         this.phase = 'intermission'
         this.phaseTimer = DF_INTERMISSION_SECONDS
@@ -1136,8 +1331,11 @@ export class DfMatchSim {
             flankGoal: null,
             lungeReadyAt: this.time + 1.5,
             chargeReadyAt: this.time + 3,
-            dash: null
+            dash: null,
+            vel: { x: 0, y: 0, z: 0 },
+            viewY: spot.pos.y
         }
+        this.specials.onSpawn(z)
         this.zombies.push(z)
         return true
     }
@@ -1153,7 +1351,7 @@ export class DfMatchSim {
             inside: true, target: -1, goal: null, goalIsNode: false, repathAt: 0, attackReadyAt: 0, attackTarget: -1,
             spitReadyAt: 0, stuckCheckAt: this.time + 1.5, stuckRef: { ...pos }, stuckTime: 0, unreachableTime: 0,
             detourUntil: 0, detour: null, shockedUntil: 0, heading: 0, flank: 0, flankGoal: null,
-            lungeReadyAt: this.time + 1, chargeReadyAt: this.time + 1, dash: null
+            lungeReadyAt: this.time + 1, chargeReadyAt: this.time + 1, dash: null, vel: { x: 0, y: 0, z: 0 }, viewY: pos.y
         }
         this.zombies.push(z)
         return z
@@ -1166,6 +1364,7 @@ export class DfMatchSim {
     }
 
     private pickType(): DfEnemyType {
+        if (this.specials.gas) return 'ghoul'
         if (this.bruteAt.includes(this.spawnedThisRound)) return 'brute'
         const chances = dfSpecialChances(this.round)
         const bloaters = this.zombies.filter(z => z.type === 'bloater').length
@@ -1184,7 +1383,7 @@ export class DfMatchSim {
         const weight = (d: number) => 1 / (1 + (d / 9) * (d / 9))
         const windows = this.map.barricades.filter(b => this.activeZones.has(b.zone))
         const risers = this.map.riserSpawns.filter(r => this.activeZones.has(r.zone) && near(r.pos) > 3.5)
-        const useRiser = risers.length > 0 && (windows.length === 0 || (this.round >= 2 && type !== 'brute' && randomChance(0.25)))
+        const useRiser = risers.length > 0 && (this.specials.gas || windows.length === 0 || (this.round >= 2 && type !== 'brute' && randomChance(0.25)))
         if (useRiser) {
             const r = weightedPick(risers, s => weight(near(s.pos)))
             const pos = { x: r.pos.x + (randomFloat() - 0.5) * 1.2, y: r.pos.y, z: r.pos.z + (randomFloat() - 0.5) * 1.2 }
@@ -1233,14 +1432,29 @@ export class DfMatchSim {
 
     private stepZombies(dt: number): void {
         const targets = this.targets()
+        const before = new Map<SimZombie, Vec3>()
         for (const z of [...this.zombies]) {
             if (z.hp <= 0) continue
+            before.set(z, { ...z.pos })
             const bx = z.pos.x
             const bz = z.pos.z
             this.thinkZombie(z, dt, targets)
             z.curSpeed = dt > 0 ? Math.hypot(z.pos.x - bx, z.pos.z - bz) / dt : 0
         }
         this.separate()
+        for (const z of this.zombies) {
+            const b = before.get(z)
+            if (!b || dt <= 0) continue
+            z.vel.x = (z.pos.x - b.x) / dt
+            z.vel.y = (z.pos.y - b.y) / dt
+            z.vel.z = (z.pos.z - b.z) / dt
+            const follow = z.state === 'climb' || z.state === 'rise' || z.vy !== 0
+            // on stairs the shown height rides a ramp over the steps (feet on the slope), then eases
+            const ramp = follow ? z.pos.y : dfRampHeight(this.world, z.pos.x, z.pos.z, z.pos.y, 0.25, ZOMBIE_STEP, true)
+            z.viewY = dfZombieViewY(z.viewY, ramp, Math.hypot(z.vel.x, z.vel.z), dt, follow)
+            // a long jump (recycled, teleported) carries no velocity
+            if (Math.hypot(z.vel.x, z.vel.z) > 20) z.vel.x = z.vel.y = z.vel.z = 0
+        }
     }
 
     private thinkZombie(z: SimZombie, dt: number, targets: SimPlayer[]): void {
@@ -1627,7 +1841,7 @@ export class DfMatchSim {
             }
         }
         // Ghoul leaps and brute charges.
-        if ((z.type === 'ghoul' || z.type === 'brute') && this.trySpecial(z, target, d, dy)) return
+        if ((z.type === 'ghoul' || z.type === 'brute') && !z.crawl && this.trySpecial(z, target, d, dy)) return
         // Bloaters hang back and lob spit.
         if (z.type === 'bloater' && d > 2.2 && d <= DF_BLOATER.spitMax && dy < 4) {
             const los = dfLineOfSight(this.world, { x: z.pos.x, y: z.pos.y + z.def.headY, z: z.pos.z }, this.chest(target))
@@ -1933,6 +2147,20 @@ export class DfMatchSim {
                 this.nudge(a, -nx * push * (wa / sum) * 2, -nz * push * (wa / sum) * 2)
                 this.nudge(b, nx * push * (wb / sum) * 2, nz * push * (wb / sum) * 2)
             }
+            // nor into a standing player: bodies touch, they don't overlap (the client
+            // eases itself out of zombies the same way)
+            for (const p of this.players) {
+                if (p.life !== 'alive' || Math.abs(p.pos.y - a.pos.y) > 1.2) continue
+                const dx = a.pos.x - p.pos.x
+                const dz = a.pos.z - p.pos.z
+                const min = a.def.radius + DF_PLAYER.radius - 0.08
+                const d2 = dx * dx + dz * dz
+                if (d2 >= min * min) continue
+                const d = Math.sqrt(d2)
+                if (d < 1e-3) continue
+                const push = (min - d) * 0.5
+                this.nudge(a, (dx / d) * push, (dz / d) * push)
+            }
         }
     }
 
@@ -2199,8 +2427,11 @@ export class DfMatchSim {
             return false
         } else {
             z.hp -= dmg
+            // the shooter's client already showed this kill: finish a sliver rather than leave a ghost
+            if (z.hp > 0 && src.claimKill && dfKillClaimHonoured(z.hp, dmg, z.maxHp)) z.hp = 0
         }
         if (z.hp > 0) {
+            this.specials.onWound(z, dmg, zone, src.explosive === true)
             if (p) {
                 this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
                 this.addPoints(p, DF_POINTS.hit)
@@ -2240,6 +2471,7 @@ export class DfMatchSim {
             if (res.progressed) this.emit({ k: 'soul', from: rv(zChest(z)) })
         }
         if (!opts.noDrop) this.maybeDrop(z)
+        this.specials.onKill(z, p, src.weapon, zone, opts)
     }
 
     private maybeDrop(z: SimZombie): void {
@@ -2284,7 +2516,9 @@ export class DfMatchSim {
         switch (pu.kind) {
             case 'maxammo':
                 for (const q of this.players) {
-                    for (const w of [...q.weapons, ...(q.savedWeapons ?? [])]) w.reserve = this.maxReserve(q, w.stats.reserve)
+                    for (const w of [...q.weapons, ...(q.savedWeapons ?? [])]) {
+                        if (!w.away) w.reserve = this.maxReserve(q, w.stats.reserve)
+                    }
                     q.grenades = DF_GRENADES.max
                 }
                 break
@@ -2325,11 +2559,15 @@ export class DfMatchSim {
         this.emit({ k: 'points', p: p.pid, amount })
     }
 
-    private flushPoints(): void {
+    /** Emits the batched points; the shooter's line carries their client shot id (`shot`) for prediction. */
+    private flushPoints(shooter?: number, shot?: number): void {
         const batch = this.pointsBatch
         this.pointsBatch = null
         if (!batch) return
-        for (const [pid, amount] of batch) this.emit({ k: 'points', p: pid, amount })
+        for (const [pid, amount] of batch) {
+            if (shot !== undefined && pid === shooter) this.emit({ k: 'points', p: pid, amount, shot })
+            else this.emit({ k: 'points', p: pid, amount })
+        }
     }
 
     // ================================================================ player life
@@ -2379,7 +2617,7 @@ export class DfMatchSim {
         // Last stand with a pistol: theirs if they carry one, otherwise their start pistol.
         // The weapon in hand comes back on revive.
         p.savedSlot = p.slot
-        const pistol = p.weapons.findIndex(w => DF_WEAPONS[w.id]?.class === 'pistol')
+        const pistol = p.weapons.findIndex(w => !w.away && DF_WEAPONS[w.id]?.class === 'pistol')
         if (pistol >= 0) {
             p.slot = pistol
             const w = p.weapons[pistol]!
@@ -2406,6 +2644,10 @@ export class DfMatchSim {
             p.savedWeapons = null
         }
         p.slot = Math.min(p.savedSlot, Math.max(0, p.weapons.length - 1))
+        if (p.weapons[p.slot]?.away) {
+            const other = p.weapons.findIndex(w => !w.away)
+            if (other >= 0) p.slot = other
+        }
         p.reload = null
         p.swapUntil = this.time + 0.5
         p.invulnUntil = this.time + DF_REVIVE_GRACE
@@ -2531,9 +2773,10 @@ export class DfMatchSim {
                 power: this.power,
                 box: { ...this.box, timer: r2(Math.max(0, this.box.timer)) },
                 pap: { ...this.pap, timer: r2(Math.max(0, this.pap.timer)) },
-                egg: { ...this.egg, fusesFound: [...this.egg.fusesFound] },
+                egg: { ...this.egg, fusesFound: [...this.egg.fusesFound], rodsOn: [...this.egg.rodsOn], rodTimer: Math.ceil(this.egg.rodTimer * 10) / 10 },
                 double: r2(this.double),
-                insta: r2(this.insta)
+                insta: r2(this.insta),
+                ...this.specials.worldSnap()
             },
             events
         }
@@ -2561,7 +2804,7 @@ export class DfMatchSim {
             downs: p.downs,
             revives: p.revives,
             perks: [...p.perks],
-            weapons: p.weapons.map((w): DfHeldWeapon => ({ id: w.id, pap: w.pap, mag: w.mag, reserve: w.reserve, attachments: w.attachments, maxReserve: this.maxReserve(p, w.stats.reserve) })),
+            weapons: p.weapons.map((w): DfHeldWeapon => ({ id: w.id, pap: w.pap, mag: w.mag, reserve: w.reserve, attachments: w.attachments, maxReserve: this.maxReserve(p, w.stats.reserve), away: w.away || undefined })),
             slot: p.slot,
             grenades: p.grenades,
             bleedout: r2(p.bleedout),
@@ -2578,15 +2821,17 @@ export class DfMatchSim {
         const snap: DfZombieSnap = {
             id: z.id,
             type: z.type,
-            pos: rv(z.pos),
+            pos: { x: r2(z.pos.x), y: r2(z.viewY), z: r2(z.pos.z) },
             yaw: r2(z.yaw),
-            hp: r2(clamp(z.hp / z.maxHp, 0, 1)),
-            anim: z.anim
+            hp: r3(clamp(z.hp / z.maxHp, 0, 1)),
+            anim: z.anim,
+            vel: { x: r2(z.vel.x), y: r2(z.state === 'climb' || z.state === 'rise' ? z.vel.y : 0), z: r2(z.vel.z) }
         }
         if (z.type === 'brute') snap.armored = z.helmet > 0
         if (z.shockedUntil > this.time || this.insta > 0) snap.shocked = true
         if (z.state === 'lunge' && !z.dash) snap.tell = 'lunge'
         else if (z.state === 'charge' && !z.dash) snap.tell = 'charge'
+        this.specials.decorate(z, snap)
         return snap
     }
 
@@ -2624,6 +2869,19 @@ export class DfMatchSim {
 }
 
 // ---------------------------------------------------------------- helpers
+
+/**
+ * The height a zombie is shown at. The physics lifts a body a whole stair step
+ * in one tick; the shown height instead ramps over the step at a rate that
+ * keeps up with the zombie's walking pace on stairs (45 degrees and steeper),
+ * so it climbs instead of hopping. Climbs, rises and big drops follow at once.
+ */
+export function dfZombieViewY(viewY: number, y: number, speed: number, dt: number, follow: boolean): number {
+    const d = y - viewY
+    if (follow || Math.abs(d) > 1.2 || !Number.isFinite(viewY)) return y
+    const rate = (1.2 + Math.max(0, speed) * 1.6) * dt
+    return Math.abs(d) <= rate ? y : viewY + Math.sign(d) * rate
+}
 
 function isZone(v: unknown): v is DfHitZone {
     return v === 'head' || v === 'body' || v === 'limb'
@@ -2724,4 +2982,9 @@ function weightedPick<T>(items: readonly T[], weight: (item: T) => number): T {
         if (roll < 0) return items[i]!
     }
     return items[items.length - 1]!
+}
+
+/** The map's lightning-rod switches (the easter egg's last step); none on a map without them. */
+export function dfEggRods(map: DfMapDef): DfSpot[] {
+    return map.egg.rods ?? []
 }

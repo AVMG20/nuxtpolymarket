@@ -1,8 +1,9 @@
-import { DF_COSTS, DF_MAX_PERKS, DF_SOLO_SECONDWIND_MAX } from '#shared/utils/dead-front/constants'
+import { DF_COSTS, DF_MAX_PERKS, DF_SOLO_SECONDWIND_MAX, dfPapCost } from '#shared/utils/dead-front/constants'
 import { DF_BARRICADE_PLANKS } from '#shared/utils/dead-front/map'
 import type { DfInteractable, DfMapDef } from '#shared/utils/dead-front/map'
 import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import type { DfHeldWeapon, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
+import { dfEggRodSpots } from './objective'
 import type { Vec3 } from '#shared/utils/dead-front/types'
 import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 
@@ -40,8 +41,11 @@ export function dfWallAmmoCost(weapon: DfHeldWeapon['id'], pap: number): number 
     return pap > 0 ? DF_COSTS.papAmmo : base
 }
 
+/** The weapon in hand; one sitting in the Pack-a-Punch (`away`) isn't. */
 function heldWeapon(me: DfPlayerSnap): DfHeldWeapon | null {
-    return me.weapons[me.slot] ?? me.weapons[0] ?? null
+    const w = me.weapons[me.slot]
+    if (w) return w.away ? null : w
+    return me.weapons.find(x => !x.away) ?? null
 }
 
 function weaponName(id: DfHeldWeapon['id'], pap = 0): string {
@@ -49,7 +53,10 @@ function weaponName(id: DfHeldWeapon['id'], pap = 0): string {
 }
 
 function buyPrompt(id: string, kind: DfPrompt['kind'], text: string, cost: number, points: number, sub?: string): DfPrompt {
-    return { id, kind, text, sub, cost, ok: points >= cost, action: 'use', repeat: false }
+    const ok = points >= cost
+    // short of points: say how many more (after the label, if there is one)
+    const need = ok ? '' : `Need ${(cost - points).toLocaleString('en-US')} more points`
+    return { id, kind, text, sub: ok ? sub : sub ? `${sub} · ${need}` : need, cost, ok, action: 'use', repeat: false }
 }
 
 function info(id: string, kind: DfPrompt['kind'], text: string, sub?: string): DfPrompt {
@@ -73,6 +80,7 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (!wid || !DF_WEAPONS[wid]) return null
             const def = DF_WEAPONS[wid]
             const owned = me.weapons.find(w => w.id === wid)
+            if (owned?.away) return info(it.id, 'wallbuy', 'In the Pack-a-Punch', weaponName(wid, owned.pap))
             if (owned) {
                 const stats = dfWeaponStats(wid, owned.pap, owned.attachments)
                 // the server's cap includes reserve perks (Bandolier, Deep Crates)
@@ -119,8 +127,8 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (!world.power) return info(it.id, 'pap', 'Requires power')
             const held = heldWeapon(me)
             if (!held) return null
-            if (held.pap >= DF_COSTS.maxPap) return info(it.id, 'pap', 'Maximum upgrade', weaponName(held.id, held.pap))
-            const cost = held.pap === 0 ? DF_COSTS.papFirst : DF_COSTS.papRepeat
+            const cost = dfPapCost(held.pap)
+            if (cost === null) return info(it.id, 'pap', 'Maximum upgrade', weaponName(held.id, held.pap))
             return buyPrompt(it.id, 'pap', 'Hold F to Pack-a-Punch', cost, pts, weaponName(held.id, held.pap))
         }
         case 'power': {
@@ -141,14 +149,18 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (egg.step === 'fuses') return info(it.id, 'generator', `Tesla fuses ${egg.fusesFound.length}/${map.egg.fuses.length || 3}`, 'The Arc Generator needs its fuses')
             if (egg.step === 'power') return info(it.id, 'generator', 'The Arc Generator lies dead', 'Restore the power')
             if (egg.step === 'charge') return info(it.id, 'generator', `Charge ${egg.charge}/${egg.chargeNeeded}`, 'Kill zombies near the generator')
+            if (egg.step === 'rods') return info(it.id, 'generator', 'The Arc Generator is charged', 'Throw the three lightning-rod switches')
             return null
         }
         case 'pedestal': {
             const step = world.egg.step
             if (step === 'power' || step === 'fuses' || step === 'install' || step === 'charge') return info(it.id, 'pedestal', 'An empty pedestal', 'Charge the Arc Generator')
+            if (step === 'rods') return info(it.id, 'pedestal', 'An empty pedestal', 'Ground the Arc: throw the lightning rods')
             if (step !== 'claim') return null
             return { id: it.id, kind: 'pedestal', text: 'Hold F to claim the wonder weapon', cost: null, ok: true, action: 'use', repeat: false }
         }
+        case 'rod':
+            return rodPrompt(it, world, dfEggRodSpots(map).length || 3)
         case 'barricade': {
             const boards = world.planks[it.ref ?? it.id] ?? DF_BARRICADE_PLANKS
             if (boards >= DF_BARRICADE_PLANKS) return null
@@ -156,6 +168,24 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
         }
     }
     return null
+}
+
+/** A lightning-rod switch: thrown during the `rods` step, otherwise it explains itself or stays quiet. */
+function rodPrompt(it: DfInteractable, world: DfWorldSnap, total: number): DfPrompt | null {
+    const egg = world.egg
+    const id = it.ref ?? it.id
+    const on = (egg.rodsOn ?? []).includes(id)
+    if (egg.step === 'rods') {
+        if (on) return info(it.id, it.kind, 'Already thrown', rodsLine(egg, total))
+        return { id: it.id, kind: it.kind, text: 'Hold F to throw the lightning-rod switch', sub: rodsLine(egg, total), cost: null, ok: true, action: 'use', repeat: false }
+    }
+    if (egg.step === 'claim' || egg.step === 'done') return on ? info(it.id, it.kind, 'Already thrown') : null
+    return info(it.id, it.kind, 'A dead lightning rod', 'Charge the Arc Generator first')
+}
+
+function rodsLine(egg: DfWorldSnap['egg'], total: number): string {
+    const n = (egg.rodsOn ?? []).length
+    return egg.rodTimer > 0 ? `Rods ${n}/${total} · ${Math.ceil(egg.rodTimer)} s` : `Rods ${n}/${total}`
 }
 
 /** Revive prompt for a downed teammate. */

@@ -32,6 +32,10 @@ describe('dfHudFeedLine', () => {
         expect(dfHudFeedLine({ k: 'powerup', p: 1, kind: 'insta' }, ctx)?.text).toBe('grabbed Insta-Kill')
         expect(dfHudFeedLine({ k: 'pap', p: 0, weapon: 'kar98k', tier: 1 }, ctx)).toMatchObject({ who: 'You', text: 'packed the Kar98k', tone: 'gold' })
         expect(dfHudFeedLine({ k: 'buy', p: 2, what: 'weapon:wunder' }, ctx)?.text).toBe('claimed the wonder weapon')
+        expect(dfHudFeedLine({ k: 'papReturn', p: 0, weapon: 'kar98k', tier: 1 }, ctx)).toMatchObject({ who: null, text: 'Pack-a-Punch returned your Kar98k', tone: 'gold' })
+        expect(dfHudFeedLine({ k: 'papReturn', p: 1, weapon: 'kar98k', tier: 1 }, ctx)).toBeNull()
+        expect(dfHudFeedLine({ k: 'box', what: 'move' }, ctx)).toMatchObject({ who: null, text: 'The mystery box moved' })
+        expect(dfHudFeedLine({ k: 'box', what: 'open' }, ctx)).toBeNull()
     })
 
     it('ignores the noise', () => {
@@ -61,5 +65,13 @@ describe('dfHudPushFeed', () => {
         expect(feed.map(f => f.born)).toEqual([100])
         dfHudPushFeed(feed, line, DF_HUD_FEED_MS + 200)
         expect(feed.map(f => f.born)).toEqual([DF_HUD_FEED_MS + 200])
+    })
+})
+
+describe('lightning rods in the feed', () => {
+    it('counts thrown rods and speaks once for a reset', () => {
+        expect(dfHudFeedLine({ k: 'rod', id: 'rod-1', p: 1, on: true, n: 2 }, ctx)!.text).toBe('Lightning rod thrown (2/3)')
+        expect(dfHudFeedLine({ k: 'rod', id: 'rod-0', p: -1, on: false, n: 1 }, ctx)).toBeNull()
+        expect(dfHudFeedLine({ k: 'rod', id: 'rod-1', p: -1, on: false, n: 0 }, ctx)!.text).toBe('The rods lost their charge')
     })
 })

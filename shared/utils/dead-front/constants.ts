@@ -27,13 +27,20 @@ export const DF_POINTS = {
 
 export const DF_COSTS = {
     box: 950,
-    papFirst: 5000,
-    papRepeat: 2500,
+    /** Pack-a-Punch price per tier bought: index 0 buys tier 1, 1 buys tier 2, 2 buys tier 3. */
+    pap: [5000, 15000, 30000],
     maxPap: 3,
     secondwindSolo: 500,
     /** Wall ammo for a Pack-a-Punched weapon. */
     papAmmo: 4500
 } as const
+
+/** Price to Pack-a-Punch a weapon currently at `currentTier` (0..2); null when it is maxed. */
+export function dfPapCost(currentTier: number): number | null {
+    const t = Math.max(0, Math.floor(currentTier))
+    if (t >= DF_COSTS.maxPap) return null
+    return DF_COSTS.pap[t] ?? null
+}
 
 /** Solo: Second Wind bottles the machine sells before it runs dry. */
 export const DF_SOLO_SECONDWIND_MAX = 3
@@ -112,3 +119,6 @@ export const DF_MELEE = { damage: 150, range: 1.8, cooldown: 0.65 } as const
 
 /** Kills that charge the Arc Generator (solo needs fewer). */
 export const DF_EGG_CHARGE = { squad: 15, solo: 12 } as const
+
+/** Seconds to throw every lightning rod once the first is thrown (a squad can split up, so it gets less). */
+export const DF_EGG_ROD_TIME = { squad: 45, solo: 60 } as const

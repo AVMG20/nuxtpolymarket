@@ -1,6 +1,7 @@
 import * as THREE from 'three'
-import { DF_GRENADES, DF_INTERP_DELAY_MS, DF_TICK_HZ, DF_MELEE, DF_PLAYER, DF_BASE_EFFECTS } from '#shared/utils/dead-front/constants'
-import { DF_ENEMIES, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
+import { DF_GRENADES, DF_INTERP_DELAY_MS, DF_TICK_HZ, DF_MELEE, DF_PLAYER, DF_BASE_EFFECTS, DF_POINTS } from '#shared/utils/dead-front/constants'
+import { dfBulletDamage, dfKillPoints, dfScalePoints } from '#shared/utils/dead-front/combat'
+import { DF_ENEMIES, dfZombieBaseHealth, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
 import { DF_BARRICADE_PLANKS, DF_MAP, dfInteractables, dfMaterialSurface } from '#shared/utils/dead-front/map'
 import { DF_PERKS, dfComputeEffects } from '#shared/utils/dead-front/perks'
 import { dfBuildCollision, dfGroundHeight, dfRaycast } from '#shared/utils/dead-front/physics'
@@ -10,10 +11,13 @@ import type {
     DfEvent, DfHeldWeapon, DfMatchStart, DfPlayerSnap, DfProjectileSnap, DfShotHit, DfSnapshot, DfZombieSnap
 } from '#shared/utils/dead-front/protocol'
 import type { DfHitZone, DfPlayerEffects, DfProfileView, Vec3 } from '#shared/utils/dead-front/types'
-import { DF_PAP_COLORS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
+import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { randomFloat } from '#shared/utils/random'
-import { createDfProjectileView, createDfViewmodel, dfShotSoundName, registerDfWeaponSounds } from '~/utils/dead-front/weapons'
+import {
+    buildDfWeaponModel, createDfProjectileView, createDfViewmodel, dfMuzzleFlashColor, dfShotSoundName,
+    registerDfWeaponSounds
+} from '~/utils/dead-front/weapons'
 import { createDfWorldView, createDfZombieView, registerDfWorldSounds } from '~/utils/dead-front/world'
 import type { DfProjectileView, DfRenderContext, DfViewmodel, DfViewmodelInput, DfWorldView, DfZombieView } from '../context'
 import type { DfNet } from '../net'
@@ -23,11 +27,14 @@ import type { DfAvatarManager } from './avatars'
 import { createDfEnvMap } from './envmap'
 import { createDfFx } from './fx'
 import { DfGunState, DfRecoil, dfAimDir, dfConeDir, dfSpread } from './gun'
+import { DfHintTracker, dfAmmoHint, dfLoadHintsSeen, dfSaveHintsSeen } from './hints'
+import type { DfHintFacts } from './hints'
+import { DF_HUD_MARKERS } from './hud'
 import type { DfHudState } from './hud'
 import { DfInput } from './input'
-import { DfSnapBuffer, dfInterpPlayer, dfInterpZombies, dfNewInterpPlayer, dfWrapAngle } from './interp'
+import { DfSnapBuffer, DfZombieSmoother, dfInterpPlayer, dfInterpZombies, dfNewInterpPlayer, dfNewSample, dfWrapAngle } from './interp'
 import type { DfInterpPlayer } from './interp'
-import { dfClampToScreen, dfObjectiveTarget, dfObjectiveText } from './objective'
+import { dfClampToScreen, dfEggRodSpots, dfObjectiveTarget, dfObjectiveText } from './objective'
 import type { DfScreenPoint } from './objective'
 import { DF_STEP, DfPlayerController } from './player'
 import type { DfMoveIntent, DfMoveSpeeds } from './player'
@@ -39,6 +46,8 @@ import { createDfRenderer } from './renderer'
 import { dfVerticalFov } from './settings'
 import type { DfSettings } from './settings'
 import { DF_SND, registerDfEngineSounds } from './sounds'
+import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
+import { DF_STREAK_TITLES } from '#shared/utils/dead-front/specials'
 
 // The Dead Front client engine: owns the renderer, the loop, input and the
 // local player, interpolates the server's snapshots, routes events to the
@@ -135,6 +144,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     const ctx: DfRenderContext = { renderer, scene, camera, vmScene, vmCamera, fx, audio, quality: rr.quality }
 
     registerDfEngineSounds(audio)
+    registerDfSpecialSounds(audio)
     safe('world sounds', () => registerDfWorldSounds(audio), undefined)
     safe('weapon sounds', () => registerDfWeaponSounds(audio), undefined)
 
@@ -188,6 +198,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let sprintFov = 0
     let sprintLockUntil = 0
     let meleeReadyAt = 0
+    let meleeQueuedUntil = 0
     let grenadeReadyAt = 0
     let useCooldown = 0
     let useRepeatAt = 0
@@ -197,6 +208,17 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** Zombies this client just hit (render clock): their flinch played locally, so the server's echo is skipped. */
     const predictedFlinch = new Map<number, number>()
     const localHits: { z: number, zone: DfHitZone, pos: Vec3 }[] = []
+    // ---- client-side prediction (hits, kills, points, buys); the server reconciles
+    let shotSeq = 0
+    /** Points this client predicted per shot id, until the server's points event for that shot. */
+    const pendingPoints = new Map<number, { amount: number, at: number }>()
+    /** Damage dealt that the latest snapshot doesn't show yet, per zombie id. */
+    const pendingDamage = new Map<number, { dmg: number, shot: number, at: number }[]>()
+    /** Zombies this client killed (predicted, render clock): hidden at once, the server's kill echo is skipped. */
+    const predictedDead = new Map<number, number>()
+    /** Optimistic purchases: points shown spent at once, refunded on screen if the server never confirms. */
+    const pendingBuys: { id: string, cost: number, at: number, door?: string, perk?: DfPlayerSnap['perks'][number] }[] = []
+    const smoother = new DfZombieSmoother()
     /** Kill punch 0..1: a quick FOV squeeze on kills (more on headshots). */
     let killPunch = 0
     let damagePulse = 0
@@ -209,6 +231,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let currentPrompt: DfPrompt | null = null
     let reloadEmptyPending = false
     let wasLocked = false
+    /** We paused a solo match: the snapshot silence that follows isn't a lost connection. */
+    let pausedByMe = false
 
     // scratch
     const tmpV = new THREE.Vector3()
@@ -230,6 +254,20 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let wpHas = false
     const fwdFlat = { x: 0, z: -1 }
 
+    // coaching, ammo line, last zombies and markers
+    const hints = new DfHintTracker(dfLoadHintsSeen())
+    hints.onSeen = () => dfSaveHintsSeen(hints.seen)
+    const hintFacts: DfHintFacts = {
+        time: 0, alive: false, round: 0, phase: 'intermission', points: 0, brokenWindowNear: false, zombieClose: false,
+        wallbuyNear: false, cheapestDoor: Infinity, doorsOpen: 0, power: false, perkNear: false, downedMate: null, reviving: false
+    }
+    let highlightKey = ''
+    const highlightIds: number[] = []
+    /** What each HUD marker follows: a zombie id or a teammate pid. */
+    const markerSubjects: { kind: 'zombie' | 'revive', id: number }[] = []
+    const lastMarkKeys: number[] = []
+    const markPos = new THREE.Vector3()
+
     let popupId = 0
     let damageId = 0
     let chatId = 0
@@ -249,8 +287,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
     }
 
+    /** The weapon in a slot; a slot whose weapon sits in the Pack-a-Punch holds nothing. */
     function heldWeapon(p: DfPlayerSnap, slot: number): DfHeldWeapon | null {
-        return p.weapons[slot] ?? p.weapons[0] ?? null
+        const w = p.weapons[slot]
+        if (w) return w.away ? null : w
+        return p.weapons.find(x => !x.away) ?? null
     }
 
     function equip(w: DfHeldWeapon, now: number): void {
@@ -299,9 +340,88 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         return latest?.players.find(p => p.pid === pid)?.name ?? 'A soldier'
     }
 
+    // ---------------------------------------------------------------- shader warm-up
+    /**
+     * Compiles every shader the match can need before the first shot, so the
+     * first muzzle flash, explosion, Pack-a-Punch camo or box weapon doesn't
+     * hitch (a program link costs 10-200 ms, worst on Windows' D3D backend).
+     * Everything is compiled the way it is drawn: into the composer's linear
+     * render target (a compile against the canvas would build sRGB variants
+     * nothing uses), with each scene's lights. Weapon models (every weapon,
+     * plain and packed, plus a scope) are compiled against both the world and
+     * the viewmodel lights, then thrown away; their materials are shared.
+     */
+    let warmed = false
+    const warmMats = new Set<THREE.Material>()
+    function warmUp(): void {
+        if (warmed) return
+        warmed = true
+        const t0 = performance.now()
+        const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType })
+        const prevTarget = renderer.getRenderTarget()
+        const models = new THREE.Group()
+        try {
+            for (const id of Object.keys(DF_WEAPONS) as (keyof typeof DF_WEAPONS)[]) {
+                for (const pap of [0, 1]) {
+                    try {
+                        models.add(buildDfWeaponModel(id, pap, {}))
+                    } catch {
+                        // a weapon that fails to build fails later too; nothing to warm
+                    }
+                }
+            }
+            try {
+                models.add(buildDfWeaponModel('kar98k', 0, { optic: 'kar98k-scope' }))
+            } catch {
+                // optional
+            }
+            // one of each projectile (made on first sight), parked below the map for the compile
+            const kinds: DfProjectileSnap['kind'][] = ['grenade', 'pap-grenade', 'xray-bolt', 'spit']
+            try {
+                projectileView.update(0, kinds.map((kind, i) => ({ id: -1 - i, kind, tier: 1, pos: { x: 0, y: -60, z: 0 }, vel: { x: 0, y: 0, z: 0 } })))
+            } catch {
+                // optional
+            }
+            renderer.setRenderTarget(rt)
+            const compile = (obj: THREE.Object3D, cam: THREE.Camera, target: THREE.Scene) => {
+                const r = renderer as THREE.WebGLRenderer & { compileAsync?: (o: THREE.Object3D, c: THREE.Camera, t: THREE.Scene) => Promise<unknown> }
+                // the async variant links in parallel (KHR_parallel_shader_compile) when the driver can
+                if (r.compileAsync) r.compileAsync(obj, cam, target).catch(noop)
+                else renderer.compile(obj, cam, target)
+            }
+            compile(scene, camera, scene)
+            compile(vmScene, vmCamera, vmScene)
+            compile(models, camera, scene)
+            compile(models, vmCamera, vmScene)
+        } catch (e) {
+            console.error('[dead-front] shader warm-up', e)
+        } finally {
+            renderer.setRenderTarget(prevTarget)
+            try {
+                projectileView.update(0, [])
+            } catch {
+                // optional
+            }
+            rt.dispose()
+            // geometries go now; owned materials (X-Ray tubes, coils) live as long as the
+            // match, so the programs they warmed aren't released and rebuilt on first use
+            models.traverse((o) => {
+                const m = o as THREE.Mesh
+                if (!m.isMesh) return
+                m.geometry.dispose()
+                const mats = Array.isArray(m.material) ? m.material : [m.material]
+                for (const mat of mats) if (mat.userData.dfOwned) warmMats.add(mat)
+            })
+            models.clear()
+        }
+        if (import.meta.dev) console.info(`[dead-front] shaders warmed in ${(performance.now() - t0).toFixed(0)} ms (${renderer.info.programs?.length ?? 0} programs)`)
+    }
+
     // ---------------------------------------------------------------- snapshots
     function onSnap(s: DfSnapshot): void {
         const nowMs = performance.now()
+        // after a pause or a stall the server clock resumes where it stopped: re-sync the render clock
+        if (nowMs - lastSnapAt > 1000) buffer.offset = null
         lastSnapAt = nowMs
         if (!buffer.push(s, nowMs)) return
         latest = s
@@ -318,6 +438,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
             if (!spawned) {
                 spawned = true
+                // solo: the match waits for the first click into the game
+                if (!input.locked) sendPause(true)
                 player.teleport(p.pos)
                 player.yaw = p.yaw
                 player.pitch = 0
@@ -326,6 +448,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 if (w) equip(w, now)
                 hud.started = true
                 audio.play(DF_SND.gameStart)
+                warmUp()
             }
             // life transitions
             if (p.life !== life) {
@@ -359,8 +482,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                     const dy = p.pos.y - histPos[i * 3 + 1]!
                     const dz = p.pos.z - histPos[i * 3 + 2]!
                     const d2 = dx * dx + dy * dy + dz * dz
-                    if (d2 > 16) player.teleport(p.pos)
-                    else if (d2 > 0.5) player.correct(dx, dy, dz)
+                    // movement is client-authoritative: only a real divergence (the server
+                    // slid us out of a wall it had closed) is eased back; never rubber-band
+                    if (d2 > 36) player.teleport(p.pos)
+                    else if (d2 > 2.25) player.correct(dx, dy, dz)
                 }
             }
             // weapon changes from the server (buys, box, PaP, last stand)
@@ -384,12 +509,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 gun.cancelReload()
             }
         }
-        // the collision world follows the bought doors
-        const dk = s.world.doors.join(',')
-        if (dk !== doorsKey) {
-            doorsKey = dk
-            collision = dfBuildCollision(DF_MAP, new Set(s.world.doors))
-        }
+        reconcilePredictions(s)
+        // the collision world follows the bought doors (and the ones we just bought, predicted)
+        updateCollision(s)
         // HUD-side reactions happen on arrival; view events wait for the render clock
         for (const ev of s.events) handleImmediate(ev, s)
         if (s.events.length) eventQueue.push({ time: s.time, events: s.events })
@@ -399,9 +521,189 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
     }
 
+    /** Doors in the snapshot plus our pending door buys, for collision and the world view. */
+    function doorsWithPredicted(world: DfSnapshot['world']): string[] {
+        let doors = world.doors
+        for (const b of pendingBuys) {
+            if (b.door && !doors.includes(b.door)) doors = [...doors, b.door]
+        }
+        return doors
+    }
+
+    function updateCollision(s: DfSnapshot): void {
+        const doors = doorsWithPredicted(s.world)
+        const dk = doors.join(',')
+        if (dk !== doorsKey) {
+            doorsKey = dk
+            collision = dfBuildCollision(DF_MAP, new Set(doors))
+        }
+    }
+
+    /** Settles predictions against a fresh snapshot: rejected shots, kills the server didn't take, buys it never confirmed. */
+    function reconcilePredictions(s: DfSnapshot): void {
+        const settle = 0.6 + (net.rtt / 1000) * 2
+        for (const [shot, pp] of pendingPoints) if (time - pp.at > settle + 0.6) pendingPoints.delete(shot)
+        for (const [id, list] of pendingDamage) {
+            const keep = list.filter(d => time - d.at <= settle + 0.6)
+            if (keep.length) pendingDamage.set(id, keep)
+            else pendingDamage.delete(id)
+        }
+        if (predictedDead.size) {
+            const alive = new Set(s.zombies.map(z => z.id))
+            for (const [id, at] of predictedDead) {
+                if (!alive.has(id)) {
+                    if (time - at > 4) predictedDead.delete(id)
+                } else if (time - at > settle) {
+                    // the server kept it alive (a refused shot): bring it back
+                    predictedDead.delete(id)
+                    smoother.forget(id)
+                    try {
+                        zombieView.unkill?.(id)
+                    } catch (e) {
+                        console.error('[dead-front] zombie view unkill', e)
+                    }
+                }
+            }
+        }
+        for (let i = pendingBuys.length - 1; i >= 0; i--) {
+            const b = pendingBuys[i]!
+            if (b.door && s.world.doors.includes(b.door)) {
+                pendingBuys.splice(i, 1)
+            } else if (time - b.at > settle + 0.3) {
+                // never confirmed: the points come back on screen
+                pendingBuys.splice(i, 1)
+                audio.play(DF_SND.denied, { volume: 0.6 })
+            }
+        }
+    }
+
+    /** Settles the oldest pending buy matching a confirmed `buy` event. */
+    function confirmBuy(what: string): boolean {
+        const id = what.startsWith('door:') ? what.slice(5) : null
+        const i = pendingBuys.findIndex(b => (id !== null ? b.door === id : !b.door))
+        if (i < 0) return false
+        pendingBuys.splice(i, 1)
+        return true
+    }
+
+    function shownPerks(p: DfPlayerSnap): DfPlayerSnap['perks'] {
+        let perks = p.perks
+        for (const b of pendingBuys) {
+            if (b.perk && !perks.includes(b.perk)) perks = [...perks, b.perk]
+        }
+        return perks
+    }
+
+    function pendingSpend(): number {
+        let n = 0
+        for (const b of pendingBuys) n += b.cost
+        return n
+    }
+
+    function pendingGain(): number {
+        let n = 0
+        for (const pp of pendingPoints.values()) n += pp.amount
+        return n
+    }
+
+    /** Points as this client shows them: the server's plus predicted earnings, minus optimistic spends. */
+    function shownPoints(p: DfPlayerSnap): number {
+        return Math.max(0, p.points + pendingGain() - pendingSpend())
+    }
+
+    /** Solo pause: the server freezes the match (and sends no snapshots meanwhile). */
+    function sendPause(paused: boolean): void {
+        pausedByMe = paused && solo
+        net.send({ t: 'pause', paused })
+    }
+
+    function popup(amount: number, gold: boolean): void {
+        hud.popups.push({ id: ++popupId, pid: me, amount, gold, dx: Math.random() * 2 - 1, born: time })
+        if (hud.popups.length > 16) hud.popups.shift()
+    }
+
+    // ---------------------------------------------------------------- hit / kill prediction
+    /** Server-side max health of a zombie of this type this round. */
+    function zombieMaxHp(z: DfZombieSnap): number {
+        return Math.round(dfZombieBaseHealth(Math.max(1, latest?.round ?? 1)) * DF_ENEMIES[z.type].healthMult)
+    }
+
+    /** Health left as far as this client knows: the newest snapshot minus our damage it doesn't show yet. */
+    function zombieHpLeft(z: DfZombieSnap): number {
+        const snap = buffer.latest?.zombies.get(z.id) ?? z
+        let hp = snap.hp * zombieMaxHp(z)
+        for (const d of pendingDamage.get(z.id) ?? []) hp -= d.dmg
+        return hp
+    }
+
+    /**
+     * Predicts one hit (bullet or knife). Returns the base points it pays and
+     * whether it kills; a predicted kill hides the zombie and plays the death
+     * right now. Brute helmets soak head hits like the server's.
+     */
+    function predictHit(z: DfZombieSnap, dmg: number, zone: DfHitZone, shot: number, melee: boolean): { points: number, kill: boolean } {
+        if (predictedDead.has(z.id)) return { points: 0, kill: false }
+        const insta = (latest?.world.insta ?? 0) > 0
+        if (!insta && zone === 'head' && z.armored) return { points: DF_POINTS.hit, kill: false }
+        const left = zombieHpLeft(z)
+        let list = pendingDamage.get(z.id)
+        if (!list) pendingDamage.set(z.id, list = [])
+        list.push({ dmg, shot, at: time })
+        if (!insta && left - dmg > 0) return { points: DF_POINTS.hit, kill: false }
+        predictKill(z, zone, melee ? 'knife' : gun.id)
+        return { points: dfKillPoints(zone, melee), kill: true }
+    }
+
+    function predictKill(z: DfZombieSnap, zone: DfHitZone, weapon: Extract<DfEvent, { k: 'kill' }>['weapon']): void {
+        predictedDead.set(z.id, time)
+        try {
+            zombieView.onEvent({ k: 'kill', z: z.id, p: me, zone, weapon, pos: { x: z.pos.x, y: z.pos.y, z: z.pos.z } })
+        } catch (e) {
+            console.error('[dead-front] zombie view predicted kill', e)
+        }
+        killFeedback(zone === 'head')
+    }
+
+    function killFeedback(head: boolean): void {
+        hud.hitmarker = { key: hud.hitmarker.key + 1, kind: head ? 'head' : 'kill' }
+        hud.killKey++
+        killPunch = head ? 1 : 0.6
+        fx.shake(head ? 0.07 : 0.045)
+        audio.play(head ? DF_SND.killHead : DF_SND.kill, { volume: 0.75 })
+    }
+
+    /** One hit's points as the server pays them (perk multiplier and double points, rounded per hit). */
+    function scalePoints(base: number): number {
+        return base > 0 ? dfScalePoints(base, effects.pointsMult, (latest?.world.double ?? 0) > 0) : 0
+    }
+
+    /** Shows a shot's predicted points at once and remembers them for the server's echo. */
+    function predictPoints(shot: number, amount: number): void {
+        if (amount <= 0) return
+        pendingPoints.set(shot, { amount, at: time })
+        popup(amount, (latest?.world.double ?? 0) > 0)
+        audio.play(DF_SND.points, { volume: 0.5, rate: amount >= 100 ? 1.12 : 1 })
+    }
+
     function handleImmediate(ev: DfEvent, s: DfSnapshot): void {
         switch (ev.k) {
             case 'points': {
+                if (ev.p === me && ev.shot !== undefined) {
+                    // our own shot's points: settle the prediction (shots resolve in order, so older
+                    // unanswered ones were refused) and only show what the prediction got wrong
+                    const pred = pendingPoints.get(ev.shot)
+                    for (const k of pendingPoints.keys()) if (k <= ev.shot) pendingPoints.delete(k)
+                    for (const [id, list] of pendingDamage) {
+                        const keep = list.filter(d => d.shot > ev.shot!)
+                        if (keep.length) pendingDamage.set(id, keep)
+                        else pendingDamage.delete(id)
+                    }
+                    if (pred) {
+                        const diff = ev.amount - pred.amount
+                        if (diff > 0) popup(diff, s.world.double > 0)
+                        break
+                    }
+                }
                 hud.popups.push({ id: ++popupId, pid: ev.p, amount: ev.amount, gold: s.world.double > 0, dx: Math.random() * 2 - 1, born: time })
                 if (hud.popups.length > 16) hud.popups.shift()
                 if (ev.p === me && ev.amount > 0) audio.play(DF_SND.points, { volume: 0.5, rate: ev.amount >= 100 ? 1.12 : 1 })
@@ -418,13 +720,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 break
             }
             case 'kill': {
-                if (ev.p !== me) break
-                const head = ev.zone === 'head'
-                hud.hitmarker = { key: hud.hitmarker.key + 1, kind: head ? 'head' : 'kill' }
-                hud.killKey++
-                killPunch = head ? 1 : 0.6
-                fx.shake(head ? 0.07 : 0.045)
-                audio.play(head ? DF_SND.killHead : DF_SND.kill, { volume: 0.75 })
+                // a kill we predicted already played its feedback
+                if (ev.p !== me || predictedDead.has(ev.z)) break
+                killFeedback(ev.zone === 'head')
                 break
             }
             case 'zhit': {
@@ -440,7 +738,21 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 hud.round = ev.round
                 hud.roundKey++
                 audio.play(DF_SND.roundStart, { volume: 0.9 })
-                announce(`Round ${ev.round}`, ROUND_LINES[Math.floor(Math.random() * ROUND_LINES.length)]!, 'red')
+                if (s.world.special?.kind === 'gas') {
+                    // a gas round (specials.ts): the alarm, and masks on
+                    audio.play(DF_SPECIAL_SND.gasAlarm, { volume: 1 })
+                    announce('GAS! GAS! GAS!', `Round ${ev.round} · masks on, they come through the fog`, 'gold')
+                } else {
+                    announce(`Round ${ev.round}`, ROUND_LINES[Math.floor(Math.random() * ROUND_LINES.length)]!, 'red')
+                }
+                break
+            }
+            case 'streak': {
+                if (ev.p !== me) break
+                const tier = ev.kind === 'double' ? 1 : ev.kind === 'triple' ? 2 : ev.kind === 'multi' ? 3 : 4
+                audio.play(ev.kind === 'head' ? DF_SPECIAL_SND.calloutHead : DF_SPECIAL_SND.callout(tier), { volume: 0.8 })
+                // a double only rings; bigger streaks get the banner
+                if (ev.kind !== 'double') announce(ev.kind === 'head' ? `${DF_STREAK_TITLES.head} ×${ev.n}` : DF_STREAK_TITLES[ev.kind], `+${ev.bonus}`, 'gold')
                 break
             }
             case 'roundEnd': {
@@ -455,7 +767,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 break
             }
             case 'buy': {
-                if (ev.p === me) audio.play(DF_SND.buy, { volume: 0.7 })
+                // an optimistic buy already played its sound
+                if (ev.p === me && !confirmBuy(ev.what)) audio.play(DF_SND.buy, { volume: 0.7 })
                 break
             }
             case 'down': {
@@ -497,6 +810,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 else announce('The Arc Generator is spent', 'The wonder weapon is claimed', 'gold')
                 break
             }
+            case 'rod': {
+                if (ev.on && ev.n !== undefined && ev.n < (dfEggRodSpots(DF_MAP).length || 3)) announce('Lightning rod thrown', `${ev.n}/${dfEggRodSpots(DF_MAP).length || 3} · keep moving`, 'pale')
+                else if (!ev.on && (ev.n ?? 0) === 0) {
+                    announce('The rods lost their charge', 'Throw all three before the clock runs out', 'red')
+                    audio.play(DF_SND.denied, { volume: 0.8 })
+                }
+                break
+            }
             case 'fuse': {
                 const found = s.world.egg.fusesFound.length
                 announce('Tesla fuse recovered', `${found}/${DF_MAP.egg.fuses.length || 3}`, 'pale')
@@ -516,7 +837,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         try {
             // our own hits already flinched locally when we fired
-            const echo = ev.k === 'hit' && ev.p === me && time - (predictedFlinch.get(ev.z) ?? -10) < 0.7
+            const echo = (ev.k === 'hit' && ev.p === me && time - (predictedFlinch.get(ev.z) ?? -10) < 0.7)
+                || ((ev.k === 'kill' || ev.k === 'hit') && predictedDead.has(ev.z))
             if (!echo) zombieView.onEvent(ev)
         } catch (e) {
             console.error('[dead-front] zombie view event', e)
@@ -593,8 +915,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const wh = dfRaycast(collision, eye, dir, maxRange)
             const limit = wh ? wh.dist : maxRange
             // every zombie along the ray before the wall, nearest first
-            const cands: { z: number, zone: DfHitZone, dist: number }[] = []
+            const cands: DfShotHit[] = []
             for (const z of zList) {
+                if (predictedDead.has(z.id)) continue
                 const h = dfZombieHitTest(z, eye, dir, limit)
                 if (h) cands.push({ z: z.id, zone: h.zone, dist: h.dist })
             }
@@ -602,7 +925,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const through = 1 + Math.max(0, Math.floor(s.penetration))
             const n = Math.min(through, cands.length)
             for (let k = 0; k < n; k++) {
-                const c = cands[k]!
+                const c: DfShotHit = cands[k]!
                 hits.push(c)
                 localHits.push({ z: c.z, zone: c.zone, pos: { x: eye.x + dir.x * c.dist, y: eye.y + dir.y * c.dist, z: eye.z + dir.z * c.dist } })
             }
@@ -616,11 +939,26 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 tracerEnd = { x: eye.x + dir.x * d, y: eye.y + dir.y * d, z: eye.z + dir.z * d }
             }
         }
-        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits })
+        // predict every hit now: damage, kills (the zombie drops on this frame) and points
+        const shot = ++shotSeq
+        let base = 0
+        let killed = false
+        for (const h of hits) {
+            const z = zList.find(q => q.id === h.z)
+            if (!z) continue
+            const r = predictHit(z, dfBulletDamage(s, effects, h.zone, h.dist, life === 'down'), h.zone, shot, false)
+            base += scalePoints(r.points)
+            if (r.kill) {
+                h.kill = true
+                killed = true
+            }
+        }
+        predictPoints(shot, base)
+        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits, shot, mag: Math.max(0, gun.mag - 1) })
         // the zombie flinches (and bleeds) on this frame, not a round trip later; the server's echo is skipped
         for (let i = 0; i < localHits.length; i++) {
             const h = localHits[i]!
-            if (localHits.findIndex(o => o.z === h.z) !== i) continue
+            if (localHits.findIndex(o => o.z === h.z) !== i || predictedDead.has(h.z)) continue
             predictedFlinch.set(h.z, time)
             try {
                 zombieView.onEvent({ k: 'hit', z: h.z, p: me, zone: h.zone, pos: h.pos, dmg: Math.round(s.damage) })
@@ -645,7 +983,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         viewmodel.muzzleWorld(camera, tmpV2)
         // candela: has to beat the ~5-12 cd lantern pools to visibly light the surroundings
         // (one pooled light per shot; Pack-a-Punched guns flash in their tier colour)
-        const flashColor = s.shot === 'xray-bolt' ? 0x60ff80 : s.shot === 'arc' ? 0x8ab8ff : gun.pap > 0 ? (DF_PAP_COLORS[gun.pap - 1] ?? 0xffa850) : 0xffa850
+        const flashColor = dfMuzzleFlashColor(gun.id, gun.pap)
         fx.flash(tmpV2, flashColor, 28, 0.06)
         vmMuzzle.intensity = s.shot === 'hitscan' ? 3 : 1.5
         // tracers on some rounds
@@ -656,8 +994,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (claimed) {
             predictedHitAt = time
             const head = hits.some(h => h.zone === 'head')
-            hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
-            audio.play(head ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
+            // a predicted kill already set the kill marker and sound
+            if (!killed) {
+                hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
+                audio.play(head ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
+            }
         }
         if (gun.mag <= 0) reloadEmptyPending = true
     }
@@ -667,6 +1008,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const empty = gun.mag === 0
         const t = gun.startReload(now, effects.reloadMult)
         if (t <= 0) return
+        reloadHoldsSprint = true
+        // the reload runs here; the server hears the start (remote animation, perks) and the result
         net.send({ t: 'reload' })
         safe('vm reload', () => viewmodel.reload(empty, t, gun.shellMode), undefined)
     }
@@ -674,6 +1017,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function melee(now: number): void {
         if (now < meleeReadyAt || !mine) return
         meleeReadyAt = now + DF_MELEE.cooldown
+        hints.done('knife')
         aimDirection(aim)
         const reach = DF_MELEE.range + effects.meleeLunge
         let best: DfZombieSnap | null = null
@@ -693,10 +1037,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 best = z
             }
         }
-        if (gun.reloading) {
-            gun.cancelReload()
-            safe('vm cancel', () => viewmodel.cancelReload(), undefined)
-        }
+        interruptReload(now)
         safe('vm melee', () => viewmodel.melee(), undefined)
         if (!best) {
             net.send({ t: 'melee' })
@@ -716,9 +1057,21 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         eye.y = camera.position.y
         eye.z = camera.position.z
         const h = dfZombieHitTest(best, eye, aim, reach + 1)
-        net.send({ t: 'melee', z: best.id, zone: h?.zone === 'head' ? 'head' : 'body' })
+        const zone: DfHitZone = h?.zone === 'head' ? 'head' : 'body'
+        const shot = ++shotSeq
+        const r = predictHit(best, DF_MELEE.damage * effects.meleeMult, zone, shot, true)
+        predictPoints(shot, scalePoints(r.points))
+        net.send({ t: 'melee', z: best.id, zone, shot, kill: r.kill || undefined })
         predictedHitAt = time
-        hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
+        if (!r.kill) {
+            hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
+            predictedFlinch.set(best.id, time)
+            try {
+                zombieView.onEvent({ k: 'hit', z: best.id, p: me, zone, pos: { x: best.pos.x, y: best.pos.y + DF_ENEMIES[best.type].height * 0.6, z: best.pos.z }, dmg: Math.round(DF_MELEE.damage * effects.meleeMult) })
+            } catch (e) {
+                console.error('[dead-front] zombie view predicted melee hit', e)
+            }
+        }
     }
 
     function throwGrenade(now: number): void {
@@ -735,17 +1088,24 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         safe('vm melee', () => viewmodel.melee(), undefined)
     }
 
-    function swapTo(slot: number, now: number): void {
+    function swapTo(slot: number, now: number, cycle = false): void {
         if (!mine || life === 'dead') return
         if (life === 'down') return
         const count = mine.weapons.length
         if (count < 2) return
-        const s = ((slot % count) + count) % count
+        let s = ((slot % count) + count) % count
+        // a slot waiting on the Pack-a-Punch is skipped by the wheel and ignored by its key
+        if (mine.weapons[s]?.away) {
+            if (!cycle) return
+            const dir = slot > localSlot ? 1 : -1
+            for (let k = 0; k < count && mine.weapons[s]?.away; k++) s = (((s + dir) % count) + count) % count
+            if (mine.weapons[s]?.away) return
+        }
         if (s === localSlot) return
+        interruptReload(now)
         localSlot = s
         swapPendingUntil = now + 1.2
         net.send({ t: 'swap', slot: s })
-        gun.cancelReload()
         const w = mine.weapons[s]
         if (w) equip(w, now)
     }
@@ -754,7 +1114,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updatePrompt(): void {
         currentPrompt = null
         if (!mine || !latest || life !== 'alive') return
-        const pctx = { map: DF_MAP, world: latest.world, me: mine, solo }
+        // affordability and owned perks as this client shows them (predictions included)
+        const shown = shownPoints(mine)
+        const meShown = shown === mine.points && !pendingBuys.some(b => b.perk) ? mine : { ...mine, points: shown, perks: shownPerks(mine) }
+        const world = pendingBuys.some(b => b.door) ? { ...latest.world, doors: doorsWithPredicted(latest.world) } : latest.world
+        const pctx = { map: DF_MAP, world, me: meShown, solo }
         // downed teammates first
         let bestRevive: DfPrompt | null = null
         let bestD = Infinity
@@ -782,6 +1146,31 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         currentPrompt = dfPromptFor(interactables[idx]!, pctx)
     }
 
+    /**
+     * Instant feedback for a purchase the client already knows it can afford:
+     * the points come off and the buy sounds now; a door opens (and stops
+     * blocking) at once; a perk shows on the HUD. Settled by the server's
+     * `buy` event, rolled back if it never comes.
+     */
+    function buyOptimistic(p: DfPrompt): void {
+        if (pendingBuys.length >= 4) return
+        const it = interactables.find(i => i.id === p.id)
+        const door = p.kind === 'door' && it ? (it.ref ?? it.id) : undefined
+        const perk = p.kind === 'perk' && it?.ref && DF_PERKS[it.ref as keyof typeof DF_PERKS] ? it.ref as DfPlayerSnap['perks'][number] : undefined
+        pendingBuys.push({ id: p.id, cost: p.cost ?? 0, at: time, door, perk })
+        audio.play(DF_SND.buy, { volume: 0.7 })
+        if (door && latest) {
+            updateCollision(latest)
+            try {
+                worldView.onEvent({ k: 'door', id: door })
+            } catch (e) {
+                console.error('[dead-front] world view predicted door', e)
+            }
+        }
+        currentPrompt = null
+        hud.prompt = null
+    }
+
     function handleUse(now: number): void {
         const p = currentPrompt
         const held = input.has('KeyF')
@@ -804,6 +1193,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 return
             }
             net.send({ t: 'use', id: p.id })
+            if (p.cost !== null && p.cost > 0) buyOptimistic(p)
+            if (p.kind === 'wallbuy') hints.done('wallbuy')
+            else if (p.kind === 'door') hints.done('doors')
+            else if (p.kind === 'power') hints.done('power')
+            else if (p.kind === 'barricade') hints.done('rebuild')
             useCooldown = now + 0.4
             useRepeatAt = now + 0.25
         } else if (p.repeat && held && now >= useRepeatAt) {
@@ -813,25 +1207,81 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     // ---------------------------------------------------------------- per-frame input
+    const lookIn = { x: 0, y: 0 }
+    /** Mouse movement applied this frame (pixels), for the viewmodel's sway. */
+    const frameLook = { x: 0, y: 0 }
+    /** The trigger press was already handled on the mousedown event itself. */
+    let pressHandled = false
+    /** ADS was pressed after sprint: holding both aims. A fresh sprint press flips it back. */
+    let adsOverSprint = false
+    /** A reload in progress keeps a held sprint key from cancelling it; a fresh press does cancel. */
+    let reloadHoldsSprint = false
+    let wasSprinting = false
+
+    /** Turns the mouse movement gathered so far into yaw / pitch (no smoothing, no acceleration). */
+    function applyLook(): void {
+        input.takeLook(lookIn)
+        if (!input.locked || (lookIn.x === 0 && lookIn.y === 0)) return
+        frameLook.x += lookIn.x
+        frameLook.y += lookIn.y
+        const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * viewmodel.adsBlend
+        const sens = 0.0022 * settings.sensitivity / (1 + (zoom - 1) * 0.85)
+        player.yaw = dfWrapAngle(player.yaw - lookIn.x * sens)
+        const dPitch = -lookIn.y * sens * (settings.invertY ? -1 : 1)
+        player.pitch += dPitch
+        // pulling down against the climb counts as recoil control
+        if (dPitch < 0) player.pitch += recoil.compensate(-dPitch)
+        player.pitch = Math.max(-1.52, Math.min(1.52, player.pitch))
+    }
+
+    /** The clock at this instant (between frames), never behind the frame clock. */
+    function eventTime(): number {
+        return time + Math.min(0.1, Math.max(0, (performance.now() - last) / 1000))
+    }
+
+    /**
+     * A trigger pull. Called from the mousedown event, so a shot leaves (hit
+     * test, prediction, the message to the server, the viewmodel kick) the
+     * moment the button goes down rather than on the next frame; the frame then
+     * only draws it. Look gathered since the last frame is applied first, so
+     * the shot goes where the crosshair is now.
+     */
+    function pullTrigger(now: number): void {
+        gun.press(now)
+        if (player.sprinting) sprintLockUntil = now + 0.3
+        if (gun.mag <= 0 && gun.canReload()) {
+            tryReload(now)
+            return
+        }
+        if (!player.sprinting && gun.canFire(now, true)) fire(now)
+    }
+
+    function onTriggerEvent(code: string): void {
+        if (code !== 'Mouse0' || disposed || !spawned || !input.locked || life === 'dead' || !mine) return
+        applyLook()
+        pressHandled = true
+        pullTrigger(eventTime())
+    }
+
+    /** Drops a reload in progress (sprint, swap, knife); a seated magazine is kept and reported. */
+    function interruptReload(now: number): void {
+        if (!gun.reloading) return
+        gun.cancelReload(now)
+        safe('vm cancel', () => viewmodel.cancelReload(), undefined)
+        // the server runs its own reload timer: settle it with what we have now
+        net.send({ t: 'reload', mag: gun.mag })
+    }
+
     function handleInput(dt: number, now: number): void {
         const locked = input.locked
         if (locked !== wasLocked) {
             wasLocked = locked
             hud.locked = locked
         }
-        // look
-        const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * viewmodel.adsBlend
-        const sens = 0.0022 * settings.sensitivity / (1 + (zoom - 1) * 0.85)
-        if (locked) {
-            player.yaw = dfWrapAngle(player.yaw - input.mouseX * sens)
-            const dPitch = -input.mouseY * sens * (settings.invertY ? -1 : 1)
-            player.pitch += dPitch
-            // pulling down against the climb counts as recoil control
-            if (dPitch < 0) player.pitch += recoil.compensate(-dPitch)
-            player.pitch = Math.max(-1.52, Math.min(1.52, player.pitch))
-        }
-        vmInput.look.x = locked ? input.mouseX : 0
-        vmInput.look.y = locked ? input.mouseY : 0
+        // look: raw, unsmoothed, applied this frame
+        applyLook()
+        vmInput.look.x = locked ? frameLook.x : 0
+        vmInput.look.y = locked ? frameLook.y : 0
         hud.scoreboard = locked && input.has('Tab')
 
         const alive = life !== 'dead'
@@ -839,12 +1289,22 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // movement intent
         intent.fwd = canAct ? (input.has('KeyW') || input.has('ArrowUp') ? 1 : 0) - (input.has('KeyS') || input.has('ArrowDown') ? 1 : 0) : 0
         intent.right = canAct ? (input.has('KeyD') || input.has('ArrowRight') ? 1 : 0) - (input.has('KeyA') || input.has('ArrowLeft') ? 1 : 0) : 0
+        // ADS and sprint: whichever was pressed last wins while both are held (CoD style)
+        if (input.pressed('Mouse2')) adsOverSprint = true
+        if (input.pressed('ShiftLeft')) {
+            adsOverSprint = false
+            reloadHoldsSprint = false
+        }
+        const adsHeld = input.has('Mouse2')
         intent.sprint = canAct && input.has('ShiftLeft') && now >= sprintLockUntil && life === 'alive'
+            && !(adsHeld && adsOverSprint) && !(gun.reloading && reloadHoldsSprint)
         intent.crouch = false
         if (canAct && input.pressed('KeyC')) player.toggleCrouch()
         if (canAct && input.pressed('Space')) player.queueJump(now)
         if (canAct && input.pressed('Space') && player.crouched) player.wantsCrouch = false
-        const wantsAds = canAct && input.has('Mouse2') && !player.sprinting
+        // a fresh sprint press over a held ADS lowers the sights so the sprint can start
+        const sprintWins = input.has('ShiftLeft') && !adsOverSprint && !player.tired && now >= sprintLockUntil && intent.fwd > 0
+        const wantsAds = canAct && adsHeld && !player.sprinting && !sprintWins
         intent.ads = viewmodel.adsBlend
 
         if (life === 'dead') {
@@ -857,14 +1317,13 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         vmInput.ads = wantsAds
 
-        // weapon actions
+        // weapon actions (a press already handled on its event isn't pulled twice)
         const trigger = input.has('Mouse0')
-        if (input.pressed('Mouse0')) {
-            gun.press(now)
-            if (player.sprinting) sprintLockUntil = now + 0.3
-            if (gun.mag <= 0 && gun.canReload()) tryReload(now)
-        }
+        if (input.pressed('Mouse0') && !pressHandled) pullTrigger(now)
         if (trigger && player.sprinting) sprintLockUntil = now + 0.3
+        // breaking into a sprint drops the reload (tap sprint to cancel one, as in CoD)
+        if (player.sprinting && !wasSprinting && gun.reloading) interruptReload(now)
+        wasSprinting = player.sprinting
         gun.setSprinting(player.sprinting, now, effects.adsMult)
         if (!player.sprinting) {
             let shots = 0
@@ -878,19 +1337,30 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             reloadEmptyPending = false
             if (gun.mag <= 0) tryReload(now)
         }
-        if (input.pressed('KeyR')) tryReload(now)
+        if (input.pressed('KeyR')) {
+            // reloading drops out of a sprint; the held sprint key waits for a fresh press
+            if (player.sprinting && gun.canReload()) sprintLockUntil = now + 0.15
+            tryReload(now)
+        }
         if (life === 'alive') {
             if (input.pressed('Digit1')) swapTo(0, now)
             if (input.pressed('Digit2')) swapTo(1, now)
             if (input.pressed('Digit3')) swapTo(2, now)
-            if (input.wheel !== 0) swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now)
-            if (input.pressed('KeyV')) melee(now)
+            if (input.wheel !== 0) swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now, true)
+            // a knife press a moment early (still recovering) is kept and swings when ready
+            if (input.pressed('KeyV')) meleeQueuedUntil = now + 0.2
+            if (meleeQueuedUntil >= now && now >= meleeReadyAt) {
+                meleeQueuedUntil = 0
+                melee(now)
+            }
             if (input.pressed('KeyG')) throwGrenade(now)
             handleUse(now)
         }
         // reload / shell progress
         const ev = gun.update(now, dt, effects.reloadMult)
         if (ev === 'shell' && stats) safe('vm shell', () => viewmodel.reload(false, stats!.perRoundReload / Math.max(0.1, effects.reloadMult), true), undefined)
+        // ammo is client-driven: report the magazine a finished reload left
+        if (ev === 'done') net.send({ t: 'reload', mag: gun.mag })
     }
 
     function cycleSpectate(dir: number): void {
@@ -904,18 +1374,80 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         spectatePid = alive[((i + dir) % alive.length + alive.length) % alive.length]!.pid
     }
 
+    /**
+     * Zombies have bodies: one overlapping you eases you out of it (most of the
+     * overlap per frame, never a hard stop), so the camera never ends up inside
+     * a zombie and you can't walk through a horde. Dead ones don't count.
+     */
+    function keepOutOfZombies(dt: number): void {
+        if (player.downed) return
+        let sx = 0
+        let sz = 0
+        const k = Math.min(1, dt * 14)
+        for (const z of zList) {
+            const dy = z.pos.y - player.pos.y
+            if (dy < -1.2 || dy > 1.6) continue
+            const r = DF_ENEMIES[z.type].radius + DF_PLAYER.radius - 0.08
+            const dx = player.pos.x - z.pos.x
+            const dz = player.pos.z - z.pos.z
+            const d2 = dx * dx + dz * dz
+            if (d2 >= r * r) continue
+            const d = Math.sqrt(d2)
+            const push = (r - d) * k
+            if (d > 1e-3) {
+                sx += (dx / d) * push
+                sz += (dz / d) * push
+            } else {
+                // dead centre: out the way you're facing away from it
+                sx += Math.sin(player.yaw) * push
+                sz += Math.cos(player.yaw) * push
+            }
+        }
+        const l = Math.sqrt(sx * sx + sz * sz)
+        if (l < 1e-4) return
+        // never more than a brisk step per frame
+        const max = 4 * dt
+        if (l > max) {
+            sx *= max / l
+            sz *= max / l
+        }
+        player.shove(collision, sx, sz)
+    }
+
     // ---------------------------------------------------------------- the loop
+    /** Dev frame profiler: per-section milliseconds of `frame()` work (see `window.__df.prof`). */
+    const PROF_SECTIONS = ['input', 'move', 'interp', 'camera', 'world', 'zombies', 'proj', 'avatars', 'vm', 'fx', 'hud', 'render'] as const
+    const prof = { on: false, frames: 0, at: 0, sec: new Float64Array(PROF_SECTIONS.length), total: [] as number[], gap: [] as number[], gpu: [] as number[], cur: new Float64Array(12), worst: new Float64Array(12), worstMs: 0 }
+    /** GPU time per frame through EXT_disjoint_timer_query_webgl2 (dev profiler only). */
+    const gpuTimer = import.meta.dev ? createGpuTimer(renderer.getContext()) : null
+    function mark(i: number): void {
+        if (!prof.on) return
+        const t = performance.now()
+        prof.sec[i]! += t - prof.at
+        prof.cur[i] = t - prof.at
+        prof.at = t
+    }
     let interpDelay: number = DF_INTERP_DELAY_MS
-    function frame(): void {
+    let zombieDelay: number = DF_INTERP_DELAY_MS * 0.6
+    const zSample = dfNewSample()
+    function frame(ts?: number): void {
         if (disposed) return
         raf = requestAnimationFrame(frame)
-        const nowMs = performance.now()
+        // the frame's own timestamp (vsync-aligned, the same for every callback this frame)
+        // paces motion more evenly than reading the clock whenever this callback happens to run
+        const nowMs = typeof ts === 'number' && ts > 0 && ts <= performance.now() + 1 ? ts : performance.now()
         const dt = Math.min(0.1, Math.max(0, (nowMs - last) / 1000))
+        const workStart = prof.on ? performance.now() : 0
+        if (prof.on) {
+            prof.gap.push(nowMs - last)
+            prof.at = workStart
+        }
         last = nowMs
         time += dt
         const now = time
 
         handleInput(dt, now)
+        mark(0)
 
         // movement: speeds from the player constants, effects and the held weapon
         const wMove = stats?.moveMult ?? 1
@@ -933,8 +1465,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 steps++
             }
             if (steps === 6) acc = 0
+            keepOutOfZombies(dt)
         }
         const alpha = Math.min(1, acc / DF_STEP)
+        mark(1)
 
         // send input at 20 Hz
         sendTimer += dt
@@ -964,19 +1498,37 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         interpDelay += (targetDelay - interpDelay) * Math.min(1, dt * (targetDelay > interpDelay ? 2 : 0.3))
         const renderT = buffer.renderTime(nowMs, interpDelay)
         const sample = buffer.at(renderT)
-        while (eventQueue.length && eventQueue[0]!.time <= renderT + 1e-4) {
+        // Zombies (and the events that hit them) run on their own, shorter delay:
+        // about a tick, dead-reckoned past the newest snapshot and smoothed.
+        const zTarget = buffer.zombieDelay(1000 / DF_TICK_HZ)
+        zombieDelay += (zTarget - zombieDelay) * Math.min(1, dt * (zTarget > zombieDelay ? 2 : 0.3))
+        const zRenderT = buffer.renderTime(nowMs, zombieDelay)
+        const zs = buffer.at(zRenderT, zSample)
+        while (eventQueue.length && eventQueue[0]!.time <= zRenderT + 1e-4) {
             const q = eventQueue.shift()!
             for (const ev of q.events) dispatchView(ev)
         }
         // never hold events more than a second behind
-        while (eventQueue.length && eventQueue[0]!.time < renderT - 1) {
+        while (eventQueue.length && eventQueue[0]!.time < zRenderT - 1) {
             const q = eventQueue.shift()!
             for (const ev of q.events) dispatchView(ev)
         }
-        buffer.trim(renderT)
+        buffer.trim(Math.min(renderT, zRenderT))
+        if (zs) {
+            dfInterpZombies(zs, zPool, zList)
+            // our own kills are already down: never draw or hit them again
+            if (predictedDead.size) {
+                let w = 0
+                for (let i = 0; i < zList.length; i++) {
+                    const z = zList[i]!
+                    if (!predictedDead.has(z.id)) zList[w++] = z
+                }
+                zList.length = w
+            }
+            smoother.apply(zList, dt)
+        }
         let pCount = 0
         if (sample) {
-            dfInterpZombies(sample, zPool, zList)
             pList.length = 0
             for (const p of sample.b.s.players) {
                 if (p.pid === me) continue
@@ -990,8 +1542,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             interpProjectiles(sample.a.s.projectiles, sample.b.s.projectiles, sample.alpha, sample.span)
         }
 
+        mark(2)
         // ---- camera
         updateCamera(dt, now, alpha)
+        mark(3)
 
         // ---- views
         const world = sample?.b.s.world ?? latest?.world
@@ -1000,18 +1554,22 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         } catch (e) {
             console.error('[dead-front] world view update', e)
         }
+        mark(4)
         try {
             zombieView.update(dt, zList)
         } catch (e) {
             console.error('[dead-front] zombie view update', e)
         }
+        mark(5)
         try {
             projectileView.update(dt, projList)
         } catch (e) {
             console.error('[dead-front] projectile view update', e)
         }
+        mark(6)
         avatars.update(dt, now, pList, pCount)
         powerupView.update(dt, now, latest?.powerups ?? [])
+        mark(7)
 
         // viewmodel
         vmInput.speed = Math.min(1, player.speed / Math.max(0.1, speeds.sprint))
@@ -1026,6 +1584,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             console.error('[dead-front] viewmodel update', e)
         }
         vmMuzzle.intensity *= Math.exp(-dt * 40)
+        mark(8)
 
         // feedback: low health, downed, damage
         updateFeedback(dt, now)
@@ -1034,6 +1593,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         fx.update(dt, now)
         audio.setTension(Math.min(1, zList.length / 18))
         audio.updateListener(camera)
+        mark(9)
 
         // HUD
         hudTimer += dt
@@ -1043,6 +1603,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             updateHud(nowMs)
         }
         updateHudFast()
+        mark(10)
 
         const health = mine && mine.maxHealth > 0 ? mine.health / mine.maxHealth : 1
         // The moon's shadow map is the most expensive pass (hundreds of casters, zombies
@@ -1050,6 +1611,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         shadowTick = (shadowTick + 1) % 2
         renderer.shadowMap.needsUpdate = shadowTick === 0
         if (import.meta.dev && !renderer.info.autoReset) renderer.info.reset()
+        if (prof.on) gpuTimer?.begin()
         rr.render(dt, now, {
             lowHealth: life === 'alive' ? Math.max(0, Math.min(1, (0.5 - health) / 0.38)) : 0,
             damage: damagePulse,
@@ -1057,6 +1619,19 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             flash: gradeFlash
         })
         input.endFrame()
+        pressHandled = false
+        frameLook.x = frameLook.y = 0
+        if (prof.on) {
+            gpuTimer?.end(prof.gpu)
+            mark(11)
+            prof.frames++
+            const ms = performance.now() - workStart
+            prof.total.push(ms)
+            if (ms > prof.worstMs) {
+                prof.worstMs = ms
+                prof.worst.set(prof.cur)
+            }
+        }
     }
 
     function interpProjectiles(a: readonly DfProjectileSnap[], b: readonly DfProjectileSnap[], t: number, span: number): void {
@@ -1141,11 +1716,13 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
         }
 
-        const eyeH = player.eyeHeight() + player.stepOffset - landOff * 0.12 + bobY
+        const eyeH = player.eyeHeight() - landOff * 0.12 + bobY
+        // the camera rides a smoothed floor (stairs become a ramp), independent of the physics' steps
+        const floorY = player.viewFloor(collision, rx, ry, rz, dt)
         // sideways bob in camera space
         const sy = Math.sin(player.yaw)
         const cy = Math.cos(player.yaw)
-        camera.position.set(rx + cy * bobX, ry + eyeH, rz - sy * bobX)
+        camera.position.set(rx + cy * bobX, floorY + eyeH, rz - sy * bobX)
 
         // recoil lands, then recovers once the trigger rests
         recoil.update(dt, now)
@@ -1201,7 +1778,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updateHud(nowMs: number): void {
         const s = latest
         hud.ping = Math.round(net.rtt)
-        hud.connection = net.status !== 'open' ? 'reconnecting' : nowMs - lastSnapAt > 2500 && spawned ? 'lost' : 'ok'
+        hud.connection = net.status !== 'open' ? 'reconnecting' : nowMs - lastSnapAt > 2500 && spawned && !pausedByMe ? 'lost' : 'ok'
         if (!s) return
         if (hud.round !== s.round && s.round > 0 && hud.round === 0) hud.round = s.round
         hud.phase = s.phase
@@ -1214,11 +1791,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         players.forEach((p, i) => {
             const row = hud.players[i]
             const ping = p.pid === me ? Math.round(net.rtt) : null
+            const points = p.pid === me ? shownPoints(p) : p.points
             if (!row || row.pid !== p.pid) {
-                hud.players[i] = { pid: p.pid, name: p.name, color: dfPlayerColor(p.pid), me: p.pid === me, points: p.points, kills: p.kills, headshots: p.headshots, downs: p.downs, revives: p.revives, life: p.life, connected: p.connected, ping }
+                hud.players[i] = { pid: p.pid, name: p.name, color: dfPlayerColor(p.pid), me: p.pid === me, points, kills: p.kills, headshots: p.headshots, downs: p.downs, revives: p.revives, life: p.life, connected: p.connected, ping }
                 return
             }
-            row.points = p.points
+            row.points = points
             row.kills = p.kills
             row.headshots = p.headshots
             row.downs = p.downs
@@ -1242,7 +1820,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             hud.beingRevived = m.reviveProgress
             hud.selfRevives = m.selfRevives
             hud.grenades = Math.min(DF_GRENADES.max, m.grenades)
-            const pk = m.perks
+            const pk = shownPerks(m)
             if (hud.perks.length !== pk.length || hud.perks.some((x, i) => x.id !== pk[i])) {
                 const fresh = pk.find(id => !hud.perks.some(x => x.id === id))
                 if (fresh) hud.perkPulse = { id: fresh, key: hud.perkPulse.key + 1 }
@@ -1269,10 +1847,22 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         // power-up timers
         const w = s.world
+        // rows are updated in place: the HUD re-renders only what changed
         const pu = hud.powerups
-        pu.length = 0
-        if (w.double > 0) pu.push({ kind: 'double', name: DF_POWERUP_NAMES.double, seconds: w.double, ending: w.double < 5 })
-        if (w.insta > 0) pu.push({ kind: 'insta', name: DF_POWERUP_NAMES.insta, seconds: w.insta, ending: w.insta < 5 })
+        let n = 0
+        for (const kind of ['double', 'insta'] as const) {
+            const left = w[kind]
+            if (left <= 0) continue
+            const row = pu[n]
+            if (!row || row.kind !== kind) pu[n] = { kind, name: DF_POWERUP_NAMES[kind], seconds: left, ending: left < 5 }
+            else {
+                if (row.seconds !== left) row.seconds = left
+                const ending = left < 5
+                if (row.ending !== ending) row.ending = ending
+            }
+            n++
+        }
+        if (pu.length !== n) pu.length = n
 
         // prompt
         const p = currentPrompt
@@ -1290,6 +1880,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
         } else if (hud.prompt) hud.prompt = null
 
+        updateCoaching(s)
+
         // objective
         const egg = w.egg
         const o = hud.objective
@@ -1298,6 +1890,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         o.text = dfObjectiveText(egg.step)
         o.fuses = egg.step === 'fuses' ? `${egg.fusesFound.length}/${DF_MAP.egg.fuses.length || 3}` : null
         o.charge = egg.step === 'charge' ? Math.min(1, egg.charge / Math.max(1, egg.chargeNeeded)) : null
+        o.rods = egg.step === 'rods' ? `${(egg.rodsOn ?? []).length}/${dfEggRodSpots(DF_MAP).length || 3}` : null
+        o.rodTimer = egg.step === 'rods' && egg.rodTimer > 0 ? Math.ceil(egg.rodTimer) : null
         const target = o.visible ? dfObjectiveTarget(egg, w.power, DF_MAP, player.pos) : null
         wpHas = !!target
         o.hasTarget = wpHas
@@ -1310,8 +1904,142 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
     }
 
+    /** Hints, the ammo line, the last-zombies stretch and the HUD markers (20 Hz). */
+    function updateCoaching(s: DfSnapshot): void {
+        const m = mine
+        const alive = !!m && life === 'alive'
+        const px = player.pos.x
+        const py = player.pos.y
+        const pz = player.pos.z
+        // ---- facts for the coaching
+        const f = hintFacts
+        f.time = time
+        f.alive = alive
+        f.round = s.round
+        f.phase = s.phase
+        f.points = m ? shownPoints(m) : 0
+        f.power = s.world.power
+        f.reviving = reviveTarget !== null
+        f.brokenWindowNear = false
+        f.wallbuyNear = false
+        f.perkNear = false
+        f.zombieClose = false
+        if (alive && m) {
+            for (const b of DF_MAP.barricades) {
+                if ((s.world.planks[b.id] ?? DF_BARRICADE_PLANKS) >= DF_BARRICADE_PLANKS) continue
+                const dx = b.pos.x - px
+                const dz = b.pos.z - pz
+                if (dx * dx + dz * dz < 3.5 * 3.5 && Math.abs(b.pos.y - py) < 2) {
+                    f.brokenWindowNear = true
+                    break
+                }
+            }
+            for (const it of interactables) {
+                if (it.kind !== 'wallbuy' && it.kind !== 'perk') continue
+                const dx = it.pos.x - px
+                const dz = it.pos.z - pz
+                const d2 = dx * dx + dz * dz
+                if (Math.abs(it.pos.y - py) > 2.5) continue
+                if (it.kind === 'perk' && d2 < 4 * 4) f.perkNear = true
+                if (it.kind === 'wallbuy' && d2 < 6 * 6 && it.ref && !m.weapons.some(x => x.id === it.ref)) {
+                    const cost = DF_WEAPONS[it.ref as keyof typeof DF_WEAPONS]?.wallCost ?? Infinity
+                    if (cost <= f.points) f.wallbuyNear = true
+                }
+            }
+            for (const z of zList) {
+                const dx = z.pos.x - px
+                const dz = z.pos.z - pz
+                if (dx * dx + dz * dz < 2.4 * 2.4 && Math.abs(z.pos.y - py) < 1.5) {
+                    f.zombieClose = true
+                    break
+                }
+            }
+        }
+        const doors = doorsWithPredicted(s.world)
+        f.doorsOpen = doors.length
+        f.cheapestDoor = Infinity
+        for (const d of DF_MAP.doors) if (!doors.includes(d.id)) f.cheapestDoor = Math.min(f.cheapestDoor, d.cost)
+        f.downedMate = null
+        for (const p of s.players) {
+            if (p.pid !== me && p.life === 'down' && p.connected) {
+                f.downedMate = p.name
+                break
+            }
+        }
+        const h = hints.update(f)
+        if (!h) hud.hint = null
+        else if (hud.hint?.key !== h.key) hud.hint = { key: h.key, text: h.text, sub: h.sub }
+
+        // ---- the line under the crosshair
+        hud.ammoHint = m && life !== 'dead' && stats && !hud.ammo.infinite ? dfAmmoHint(gun.mag, stats.magSize, gun.reserve, gun.reloading) : null
+
+        // ---- the last few zombies: counted, highlighted and marked
+        const lastStretch = s.phase === 'active' && s.zombiesLeft > 0 && s.zombiesLeft <= 3 && s.zombiesLeft <= s.zombies.length
+        hud.lastZombies = lastStretch ? s.zombiesLeft : 0
+        highlightIds.length = 0
+        if (lastStretch) for (const z of s.zombies) if (!predictedDead.has(z.id)) highlightIds.push(z.id)
+        const hk = highlightIds.join(',')
+        if (hk !== highlightKey) {
+            highlightKey = hk
+            try {
+                zombieView.highlight?.(highlightIds)
+            } catch (e) {
+                console.error('[dead-front] zombie view highlight', e)
+            }
+        }
+
+        // ---- markers: downed teammates first, then the last zombies
+        markerSubjects.length = 0
+        if (life !== 'dead') {
+            for (const p of s.players) {
+                if (markerSubjects.length >= DF_HUD_MARKERS) break
+                if (p.pid !== me && p.life === 'down' && p.connected) markerSubjects.push({ kind: 'revive', id: p.pid })
+            }
+            for (const id of highlightIds) {
+                if (markerSubjects.length >= DF_HUD_MARKERS) break
+                markerSubjects.push({ kind: 'zombie', id })
+            }
+        }
+        const mk = hud.markers
+        if (mk.length !== markerSubjects.length) mk.length = 0
+        markerSubjects.forEach((sub, i) => {
+            const key = sub.kind === 'zombie' ? `z${sub.id}` : `p${sub.id}`
+            const pos = markerTarget(sub, markPos) ? markPos : null
+            const distance = pos ? Math.round(Math.hypot(pos.x - px, pos.z - pz)) : 0
+            const label = sub.kind === 'revive' ? playerName(sub.id) : ''
+            const row = mk[i]
+            if (!row || row.key !== key) mk[i] = { key, kind: sub.kind, label, distance }
+            else if (row.distance !== distance) row.distance = distance
+        })
+    }
+
+    /** Where a marker's subject is this frame (rendered positions), or false if it's gone. */
+    function markerTarget(sub: { kind: 'zombie' | 'revive', id: number }, out: THREE.Vector3): boolean {
+        if (sub.kind === 'zombie') {
+            for (const z of zList) {
+                if (z.id !== sub.id) continue
+                out.set(z.pos.x, z.pos.y + DF_ENEMIES[z.type].height * 0.6, z.pos.z)
+                return true
+            }
+            return false
+        }
+        for (const p of pList) {
+            if (p.pid !== sub.id) continue
+            out.set(p.pos.x, p.pos.y + 0.6, p.pos.z)
+            return true
+        }
+        const sp = latest?.players.find(p => p.pid === sub.id)
+        if (!sp) return false
+        out.set(sp.pos.x, sp.pos.y + 0.6, sp.pos.z)
+        return true
+    }
+
     let lastSpread = -1
-    let lastWp = ''
+    let lastWp = -1
+    /** One number per on-screen state (whole pixels, edge flag, angle in centiradians): no per-frame strings. */
+    function screenKey(p: DfScreenPoint): number {
+        return ((Math.round(p.x) * 8192 + Math.round(p.y)) * 2 + (p.onScreen ? 1 : 0)) * 1000 + Math.round(p.angle * 100) + 500
+    }
     function updateHudFast(): void {
         const root = opts.hudRoot()
         if (!root) return
@@ -1338,13 +2066,28 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 root.style.setProperty('--df-xhair', vis.toFixed(2))
             }
         }
-        root.style.setProperty('--df-yaw', (camera.rotation.y).toFixed(4))
+        // the damage arcs are the only reader of the camera yaw: skip the style write otherwise
+        if (hud.damage.length) root.style.setProperty('--df-yaw', (camera.rotation.y).toFixed(4))
+        // markers (last zombies, downed teammates), clamped to the screen edge like the waypoint
+        const PM = camera.projectionMatrix.elements
+        for (let i = 0; i < markerSubjects.length; i++) {
+            if (!markerTarget(markerSubjects[i]!, tmpV)) continue
+            tmpV.applyMatrix4(camera.matrixWorldInverse)
+            dfClampToScreen(tmpV.x, tmpV.y, tmpV.z, PM[0]!, PM[5]!, cssW, cssH, 48, screenPt)
+            const k = screenKey(screenPt)
+            if (k === lastMarkKeys[i]) continue
+            lastMarkKeys[i] = k
+            root.style.setProperty(`--df-mk${i}-x`, `${screenPt.x.toFixed(1)}px`)
+            root.style.setProperty(`--df-mk${i}-y`, `${screenPt.y.toFixed(1)}px`)
+            root.style.setProperty(`--df-mk${i}-on`, screenPt.onScreen ? '1' : '0')
+            root.style.setProperty(`--df-mk${i}-ang`, screenPt.angle.toFixed(3))
+        }
         // waypoint
         if (wpHas) {
             tmpV.copy(wpTarget).applyMatrix4(camera.matrixWorldInverse)
             const P = camera.projectionMatrix.elements
             dfClampToScreen(tmpV.x, tmpV.y, tmpV.z, P[0]!, P[5]!, cssW, cssH, 56, screenPt)
-            const k = `${screenPt.x | 0},${screenPt.y | 0},${screenPt.onScreen ? 1 : 0},${screenPt.angle.toFixed(2)}`
+            const k = screenKey(screenPt)
             if (k !== lastWp) {
                 lastWp = k
                 root.style.setProperty('--df-wp-x', `${screenPt.x.toFixed(1)}px`)
@@ -1362,9 +2105,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     })
 
     input.onGesture = () => audio.unlock()
+    input.onPress = onTriggerEvent
     input.onLockChange = (locked) => {
         hud.locked = locked
         wasLocked = locked
+        // solo: the pause menu (Escape) or a lost pointer lock (alt-tab) pauses the match; co-op keeps running
+        if (solo && spawned) sendPause(!locked)
         if (locked) audio.unlock()
         if (!locked && reviveTarget !== null) {
             reviveTarget = null
@@ -1479,11 +2225,34 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             use(id: string) {
                 net.send({ t: 'use', id })
             },
+            /** Artificial lag for testing the netcode: `ms` added to the round trip, up to `jitter` ms more per message. */
+            lag(ms = 80, jitter = 30) {
+                net.devLag = { ms: Math.max(0, ms), jitter: Math.max(0, jitter) }
+                return net.devLag
+            },
+            /** Netcode state: render delays, jitter, ping, pending predictions. */
+            netStats() {
+                return {
+                    rtt: Math.round(net.rtt),
+                    jitter: +buffer.jitter.toFixed(1),
+                    interpDelay: Math.round(interpDelay),
+                    zombieDelay: Math.round(zombieDelay),
+                    pendingPoints: pendingPoints.size,
+                    predictedDead: predictedDead.size,
+                    pendingBuys: pendingBuys.length,
+                    shots: shotSeq,
+                    mag: gun.mag,
+                    lag: { ...net.devLag }
+                }
+            },
             interactables: () => interactables.map(i => ({ id: i.id, kind: i.kind, pos: i.pos })),
             state() {
                 const info = renderer.info
                 return {
                     pos: { ...player.pos },
+                    sprinting: player.sprinting,
+                    ads: +viewmodel.adsBlend.toFixed(2),
+                    reloading: gun.reloading,
                     yaw: player.yaw,
                     pitch: player.pitch,
                     life,
@@ -1493,8 +2262,69 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                     world: latest?.world,
                     zombies: zList.map(z => ({ id: z.id, type: z.type, anim: z.anim, hp: z.hp, d: +Math.hypot(z.pos.x - player.pos.x, z.pos.z - player.pos.z).toFixed(1) })),
                     prompt: currentPrompt,
-                    hud: { ammo: { ...hud.ammo }, objective: { ...hud.objective }, prompt: hud.prompt, locked: hud.locked },
+                    hud: { ammo: { ...hud.ammo }, objective: { ...hud.objective }, prompt: hud.prompt, locked: hud.locked, hint: hud.hint, ammoHint: hud.ammoHint, lastZombies: hud.lastZombies, markers: hud.markers.map(m => ({ ...m })), facts: { ...hintFacts }, seenHints: [...hints.seen] },
                     gl: { calls: info.render.calls, triangles: info.render.triangles, geometries: info.memory.geometries, textures: info.memory.textures, programs: info.programs?.length, pr: rr.pixelRatio, buffer: [rr.bufferWidth, rr.bufferHeight] }
+                }
+            },
+            /**
+             * Profiles `frame()` for `seconds`: CPU work per frame (avg / p95 / max), the
+             * per-section split, the frame gaps the browser gave us (hitches), draw calls,
+             * shader programs compiled meanwhile and JS heap growth (allocation pressure).
+             */
+            async prof(seconds = 3) {
+                const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory
+                const heap0 = mem?.usedJSHeapSize ?? 0
+                let grown = 0
+                let gcs = 0
+                let prevHeap = heap0
+                const programs0 = renderer.info.programs?.length ?? 0
+                prof.sec.fill(0)
+                prof.total.length = 0
+                prof.gap.length = 0
+                prof.gpu.length = 0
+                prof.worstMs = 0
+                prof.frames = 0
+                prof.on = true
+                const t0 = performance.now()
+                await new Promise<void>((resolve) => {
+                    const iv = setInterval(() => {
+                        const h = mem?.usedJSHeapSize ?? 0
+                        if (h < prevHeap - 256 * 1024) gcs++
+                        else if (h > prevHeap) grown += h - prevHeap
+                        prevHeap = h
+                        if (performance.now() - t0 >= seconds * 1000) {
+                            clearInterval(iv)
+                            resolve()
+                        }
+                    }, 50)
+                })
+                prof.on = false
+                const n = Math.max(1, prof.frames)
+                const sorted = [...prof.total].sort((a, b) => a - b)
+                const gaps = [...prof.gap].sort((a, b) => a - b)
+                const q = (arr: number[], f: number) => +(arr[Math.min(arr.length - 1, Math.floor(arr.length * f))] ?? 0).toFixed(2)
+                const split: Record<string, number> = {}
+                const worst: Record<string, number> = {}
+                PROF_SECTIONS.forEach((k, i) => {
+                    split[k] = +(prof.sec[i]! / n).toFixed(3)
+                    if (prof.worst[i]! > 0.3) worst[k] = +prof.worst[i]!.toFixed(2)
+                })
+                const secs = (performance.now() - t0) / 1000
+                return {
+                    frames: prof.frames,
+                    fps: +(prof.frames / secs).toFixed(1),
+                    workMs: { avg: +(sorted.reduce((a, b) => a + b, 0) / n).toFixed(2), p50: q(sorted, 0.5), p95: q(sorted, 0.95), max: q(sorted, 1) },
+                    gpuMs: prof.gpu.length ? { p50: q([...prof.gpu].sort((a, b) => a - b), 0.5), p95: q([...prof.gpu].sort((a, b) => a - b), 0.95), max: q([...prof.gpu].sort((a, b) => a - b), 1) } : null,
+                    gapMs: { p50: q(gaps, 0.5), p95: q(gaps, 0.95), max: q(gaps, 1), over25: gaps.filter(g => g > 25).length },
+                    split,
+                    worst,
+                    calls: renderer.info.render.calls,
+                    tris: renderer.info.render.triangles,
+                    newPrograms: (renderer.info.programs?.length ?? 0) - programs0,
+                    allocMBperSec: mem ? +((grown / 1048576) / secs).toFixed(2) : null,
+                    gcs,
+                    zombies: zList.length,
+                    pr: rr.pixelRatio
                 }
             },
             /** Count draw calls over the whole frame (all passes) instead of the last pass. */
@@ -1558,7 +2388,37 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             fx.dispose()
             audio.dispose()
             envRt.dispose()
+            for (const m of warmMats) m.dispose()
             rr.dispose()
+        }
+    }
+}
+
+/** Dev-only GPU frame timer: one TIME_ELAPSED query per frame, results collected a few frames later. */
+function createGpuTimer(gl: WebGLRenderingContext | WebGL2RenderingContext): { begin(): void, end(out: number[]): void } | null {
+    if (!('createQuery' in gl)) return null
+    const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as { TIME_ELAPSED_EXT: number, GPU_DISJOINT_EXT: number } | null
+    if (!ext) return null
+    const g = gl as WebGL2RenderingContext
+    const pending: WebGLQuery[] = []
+    let active: WebGLQuery | null = null
+    return {
+        begin() {
+            if (active) return
+            active = g.createQuery()
+            if (active) g.beginQuery(ext.TIME_ELAPSED_EXT, active)
+        },
+        end(out) {
+            if (active) {
+                g.endQuery(ext.TIME_ELAPSED_EXT)
+                pending.push(active)
+                active = null
+            }
+            while (pending.length && g.getQueryParameter(pending[0]!, g.QUERY_RESULT_AVAILABLE)) {
+                const q = pending.shift()!
+                if (!g.getParameter(ext.GPU_DISJOINT_EXT)) out.push(Number(g.getQueryParameter(q, g.QUERY_RESULT)) / 1e6)
+                g.deleteQuery(q)
+            }
         }
     }
 }

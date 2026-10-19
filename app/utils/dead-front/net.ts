@@ -25,6 +25,35 @@ export class DfNet {
     private wanted = false
     private retryTimer: ReturnType<typeof setTimeout> | null = null
     private pingTimer: ReturnType<typeof setInterval> | null = null
+    /**
+     * Development only: artificial lag. `ms` is added to the round trip (half
+     * each way), `jitter` adds up to that many ms more per message and
+     * direction. Order is kept (it's a TCP socket). Set from `?lag=80,30` or
+     * `window.__df.lag(80, 30)`.
+     */
+    devLag = { ms: 0, jitter: 0 }
+    private lagSendAt = 0
+    private lagRecvAt = 0
+
+    constructor() {
+        if (import.meta.dev && typeof location !== 'undefined') {
+            const q = new URLSearchParams(location.search).get('lag')
+            if (q) {
+                const [ms, jitter] = q.split(',').map(Number)
+                this.devLag = { ms: Math.max(0, ms || 0), jitter: Math.max(0, jitter || 0) }
+            }
+        }
+    }
+
+    /** When a delayed message (dev lag) should go out / be handled, keeping order per direction. */
+    private lagAt(last: number): number {
+        const now = performance.now()
+        return Math.max(last, now + this.devLag.ms / 2 + Math.random() * this.devLag.jitter)
+    }
+
+    private get lagging(): boolean {
+        return import.meta.dev && (this.devLag.ms > 0 || this.devLag.jitter > 0)
+    }
 
     connect(): void {
         this.wanted = true
@@ -73,21 +102,32 @@ export class DfNet {
             // onclose follows and handles the retry
         }
         ws.onmessage = (e) => {
-            let msg: DfServerMsg
-            try {
-                msg = JSON.parse(String(e.data)) as DfServerMsg
-            } catch {
+            if (this.lagging) {
+                const at = this.lagRecvAt = this.lagAt(this.lagRecvAt)
+                setTimeout(() => {
+                    if (this.ws === ws) this.receive(e.data)
+                }, at - performance.now())
                 return
             }
-            if (msg.t === 'pong') this.onPong(msg.at)
-            const set = this.handlers.get(msg.t)
-            if (!set) return
-            for (const h of set) {
-                try {
-                    h(msg)
-                } catch (err) {
-                    console.error('[dead-front] handler failed', err)
-                }
+            this.receive(e.data)
+        }
+    }
+
+    private receive(data: unknown): void {
+        let msg: DfServerMsg
+        try {
+            msg = JSON.parse(String(data)) as DfServerMsg
+        } catch {
+            return
+        }
+        if (msg.t === 'pong') this.onPong(msg.at)
+        const set = this.handlers.get(msg.t)
+        if (!set) return
+        for (const h of set) {
+            try {
+                h(msg)
+            } catch (err) {
+                console.error('[dead-front] handler failed', err)
             }
         }
     }
@@ -121,7 +161,17 @@ export class DfNet {
     }
 
     send(msg: DfClientMsg): void {
-        if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg))
+        const ws = this.ws
+        if (ws?.readyState !== WebSocket.OPEN) return
+        if (this.lagging) {
+            const data = JSON.stringify(msg)
+            const at = this.lagSendAt = this.lagAt(this.lagSendAt)
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) ws.send(data)
+            }, at - performance.now())
+            return
+        }
+        ws.send(JSON.stringify(msg))
     }
 
     /** Subscribe; returns an unsubscribe function. */

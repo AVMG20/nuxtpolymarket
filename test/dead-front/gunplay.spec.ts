@@ -7,7 +7,7 @@ import { dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponId } from '#shared/utils/dead-front/types'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import * as THREE from 'three'
-import { DF_RECOIL, DfGunState, DfRecoil, dfAimDir, dfConeDir, dfShotInterval, dfSpread, dfSprintOutTime } from '../../app/utils/dead-front/engine/gun'
+import { DF_RECOIL, DF_RELOAD_SEATED, DfGunState, DfRecoil, dfAimDir, dfConeDir, dfShotInterval, dfSpread, dfSprintOutTime } from '../../app/utils/dead-front/engine/gun'
 import { DF_STEP, DfPlayerController } from '../../app/utils/dead-front/engine/player'
 import type { DfMoveIntent, DfMoveSpeeds } from '../../app/utils/dead-front/engine/player'
 
@@ -116,6 +116,27 @@ describe('fire timing', () => {
         const smg = gun('thompson', 0, 5)
         smg.startReload(0, 1)
         expect(smg.canFire(0.5, true)).toBe(false)
+    })
+
+    it('a reload cancelled early is dropped; once the magazine is seated it counts', () => {
+        const early = gun('thompson', 0, 5)
+        const t = early.startReload(0, 1)
+        expect(early.cancelReload(t * 0.5)).toBe(false)
+        expect(early.mag).toBe(5)
+        expect(early.reloading).toBe(false)
+
+        const late = gun('thompson', 0, 5)
+        const reserve = late.reserve
+        const t2 = late.startReload(0, 1)
+        expect(late.cancelReload(t2 * (DF_RELOAD_SEATED + 0.02))).toBe(true)
+        const size = dfWeaponStats('thompson', 0).magSize
+        expect(late.mag).toBe(size)
+        expect(late.reserve).toBe(reserve - (size - 5))
+        // a cancel without a clock (the last stand, the Pack-a-Punch) never adds ammo
+        const plain = gun('thompson', 0, 5)
+        plain.startReload(0, 1)
+        expect(plain.cancelReload()).toBe(false)
+        expect(plain.mag).toBe(5)
     })
 })
 
@@ -226,24 +247,64 @@ describe('movement', () => {
     const speeds: DfMoveSpeeds = { walk: DF_PLAYER.walkSpeed, sprint: DF_PLAYER.sprintSpeed, crouch: DF_PLAYER.crouchSpeed, ads: DF_PLAYER.adsSpeed, sprintDuration: 4 }
     const intent = (o: Partial<DfMoveIntent> = {}): DfMoveIntent => ({ fwd: 1, right: 0, sprint: false, crouch: false, jump: false, ads: 0, ...o })
 
-    it('climbs stairs with a smooth, never-dipping eye height', () => {
+    /** Walks the stairs with physics at 60 Hz and the camera rendered at `hz`, like the engine's loop. */
+    function walkStairs(hz: number, from: { x: number, y: number, z: number }, fwd: number, seconds: number) {
         const pc = new DfPlayerController()
-        pc.teleport({ x: 0, y: 0, z: 0 })
-        let prevEye = pc.pos.y + pc.eyeHeight() + pc.stepOffset
-        let maxRise = 0
-        let dips = 0
-        for (let i = 0; i < 60 * 3; i++) {
-            pc.step(DF_STEP, i * DF_STEP, intent(), world, speeds)
-            const eye = pc.pos.y + pc.eyeHeight() + pc.stepOffset
-            maxRise = Math.max(maxRise, eye - prevEye)
-            if (eye < prevEye - 1e-4) dips++
-            prevEye = eye
+        pc.teleport(from)
+        let acc = 0
+        let t = 0
+        const dt = 1 / hz
+        const eyes: number[] = []
+        for (let f = 0; f < seconds * hz; f++) {
+            acc += dt
+            t += dt
+            while (acc >= DF_STEP) {
+                pc.step(DF_STEP, t, intent({ fwd }), world, speeds)
+                acc -= DF_STEP
+            }
+            const a = acc / DF_STEP
+            const ry = pc.prev.y + (pc.pos.y - pc.prev.y) * a
+            const rx = pc.prev.x + (pc.pos.x - pc.prev.x) * a
+            const rz = pc.prev.z + (pc.pos.z - pc.prev.z) * a
+            eyes.push(pc.viewFloor(world, rx, ry, rz, dt) + pc.eyeHeight())
         }
-        expect(pc.pos.y).toBeCloseTo(3, 1)
-        expect(dips).toBe(0)
-        // no step pops: the eye rises at most ~6 cm per 60 Hz step (a raw step is 50 cm)
-        expect(maxRise).toBeLessThan(0.065)
-    })
+        return { pc, eyes }
+    }
+
+    function stats(eyes: number[], dt: number) {
+        let maxRise = 0
+        let maxDrop = 0
+        let maxAccel = 0
+        for (let i = 1; i < eyes.length; i++) {
+            const d = eyes[i]! - eyes[i - 1]!
+            maxRise = Math.max(maxRise, d)
+            maxDrop = Math.max(maxDrop, -d)
+            if (i > 1) maxAccel = Math.max(maxAccel, Math.abs(d - (eyes[i - 1]! - eyes[i - 2]!)) / (dt * dt))
+        }
+        return { maxRise, maxDrop, maxAccel }
+    }
+
+    for (const hz of [60, 144]) {
+        it(`climbs stairs with a smooth, never-dipping eye at ${hz} Hz`, () => {
+            const { pc, eyes } = walkStairs(hz, { x: 0, y: 0, z: 0 }, 1, 3)
+            expect(pc.pos.y).toBeCloseTo(3, 1)
+            const st = stats(eyes, 1 / hz)
+            expect(st.maxDrop).toBeLessThan(1e-3)
+            // no step pops: the eye moves at most about walking pace per frame (a raw step is 50 cm)
+            expect(st.maxRise).toBeLessThan((DF_PLAYER.walkSpeed * 1.2) / hz + 0.01)
+            // ends level with the top
+            expect(eyes[eyes.length - 1]!).toBeCloseTo(3 + DF_PLAYER.eyeHeight, 1)
+        })
+
+        it(`walks down stairs without pops at ${hz} Hz`, () => {
+            // start on the landing at the top facing down (+z is backwards: walk with fwd -1)
+            const { pc, eyes } = walkStairs(hz, { x: 0, y: 3, z: -8.5 }, -1, 3.5)
+            expect(pc.pos.y).toBeCloseTo(0, 1)
+            const st = stats(eyes, 1 / hz)
+            expect(st.maxRise).toBeLessThan(1e-3)
+            expect(st.maxDrop).toBeLessThan((DF_PLAYER.walkSpeed * 1.2) / hz + 0.01)
+        })
+    }
 
     it('walks off quickly but builds into a sprint', () => {
         const pc = new DfPlayerController()

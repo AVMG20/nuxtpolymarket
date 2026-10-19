@@ -120,16 +120,74 @@ describe('DfMatchSim shots', () => {
         expect(p.weapons[0]!.mag).toBe(stats.magSize)
     })
 
-    it('does not let a wall hide a claimed hit', () => {
+    it('takes the client\'s claim through geometry it saw open (client-authoritative)', () => {
         const map: DfMapDef = { ...MAP, solids: [...MAP.solids, { min: { x: -2, y: 0, z: 3 }, max: { x: 2, y: 3, z: 3.5 }, mat: 'stone' }] }
         const sim = new DfMatchSim([setup('u0')], { map, now: () => 0, startDelay: 1000 })
         const z = sim.debugSpawn('shambler', { x: 0, y: 0, z: 6 }, 1000)
         const aim = aimAt(sim, 0, { x: 0, y: 1.1, z: 6 })
         sim.fire(0, { origin: aim.origin, dirs: [aim.dir], hits: [{ z: z.id, zone: 'body', dist: aim.dist }] })
-        // With the shared physics in place the wall blocks the claim; skeleton physics has no raycast.
-        const blocked = z.hp === 1000
-        const hasRaycast = sim.world.solids.length > 1
-        expect(blocked || !hasRaycast).toBe(true)
+        expect(z.hp).toBeLessThan(1000)
+    })
+
+    it('rejects garbage claims: a zombie far off the ray or out of range', () => {
+        const { sim } = makeSim()
+        const near = sim.debugSpawn('shambler', { x: 6, y: 0, z: 6 }, 1000)
+        const far = sim.debugSpawn('shambler', { x: 0, y: 0, z: 39 }, 1000)
+        const aim = aimAt(sim, 0, { x: 0, y: 1.1, z: 6 })
+        sim.fire(0, { origin: aim.origin, dirs: [aim.dir], hits: [{ z: near.id, zone: 'head', dist: 6 }] })
+        expect(near.hp).toBe(1000)
+        const stats = dfWeaponStats('m1911', 0)
+        if (stats.maxRange < 30) {
+            sim['now'] = () => 5
+            sim.fire(0, { origin: aim.origin, dirs: [{ x: 0, y: 0, z: 1 }], hits: [{ z: far.id, zone: 'body', dist: 39 }] })
+            expect(far.hp).toBe(1000)
+        }
+    })
+
+    it('honours a kill claim on a sliver of health, not on a healthy zombie', () => {
+        const { sim, advance } = makeSim()
+        const stats = dfWeaponStats('m1911', 0)
+        const sliver = sim.debugSpawn('shambler', { x: 0, y: 0, z: 6 }, stats.damage * 1.3)
+        const aim = aimAt(sim, 0, { x: 0, y: 1.1, z: 6 })
+        sim.fire(0, { origin: aim.origin, dirs: [aim.dir], hits: [{ z: sliver.id, zone: 'body', dist: aim.dist, kill: true }], shot: 7 })
+        expect(sim.zombies).not.toContain(sliver)
+        const events = drain(sim)
+        expect(events.find(e => e.k === 'points' && e.p === 0)).toMatchObject({ shot: 7, amount: DF_POINTS.killBody })
+        advance(1)
+        const healthy = sim.debugSpawn('shambler', { x: 0, y: 0, z: 6 }, stats.damage * 5)
+        sim.fire(0, { origin: aim.origin, dirs: [aim.dir], hits: [{ z: healthy.id, zone: 'body', dist: aim.dist, kill: true }] })
+        expect(sim.zombies).toContain(healthy)
+    })
+
+    it('takes the client\'s magazine but never makes ammo out of nothing', () => {
+        const { sim, advance } = makeSim()
+        const p = sim.player(0)!
+        const w = p.weapons[0]!
+        const stats = dfWeaponStats('m1911', 0)
+        const total = w.mag + w.reserve
+        const shot = (mag: number) => {
+            advance(1)
+            return sim.fire(0, { origin: { x: 0, y: 1.62, z: 0 }, dirs: [{ x: 0, y: 0, z: 1 }], hits: [], mag })
+        }
+        expect(shot(stats.magSize - 1)).toBe(true)
+        expect(w.mag).toBe(stats.magSize - 1)
+        // client reloaded locally (no server timer): the magazine refills from the reserve
+        w.mag = 0
+        w.reserve = 5
+        expect(shot(stats.magSize - 1)).toBe(true)
+        expect(w.mag + w.reserve).toBe(4)
+        expect(w.reserve).toBe(0)
+        // with nothing left anywhere the shot is refused
+        w.mag = 0
+        w.reserve = 0
+        expect(shot(3)).toBe(false)
+        // a finished reload reported by the client
+        w.mag = 1
+        w.reserve = 50
+        sim.reload(0, stats.magSize)
+        expect(w.mag).toBe(stats.magSize)
+        expect(w.reserve).toBe(50 - (stats.magSize - 1))
+        expect(total).toBeGreaterThan(0)
     })
 })
 
@@ -173,7 +231,10 @@ describe('DfMatchSim interactions', () => {
             const p = sim.player(0)!
             p.points = 5000
             p.pos = { x: 0, y: 0, z: -3.5 }
+            // it starts outside the start zone; put it here for the test, and keep it from moving
+            sim.box.spot = 0
             sim.use(0, 'box-0')
+            sim['boxInternal'].willMove = false
             expect(p.points).toBe(5000 - DF_COSTS.box)
             expect(sim.box.state).toBe('rolling')
             for (let i = 0; i < 90 && sim.box.state === 'rolling'; i++) sim.step(0.05)
@@ -271,6 +332,27 @@ describe('DfMatchSim rounds and downs', () => {
         expect(sim.player(0)!.grenades).toBe(4)
     })
 
+    it('the last two walkers of a round break into a run', () => {
+        const { sim } = makeSim()
+        sim.startRound()
+        sim.startRound()
+        expect(sim.round).toBe(2)
+        sim.toSpawn = 0
+        const a = sim.debugSpawn('shambler', { x: 0, y: 0, z: 8 }, 1000)
+        const b = sim.debugSpawn('shambler', { x: 3, y: 0, z: 8 }, 1000)
+        const c = sim.debugSpawn('shambler', { x: -3, y: 0, z: 8 }, 1000)
+        for (const z of [a, b, c]) {
+            z.gait = 'walk'
+            z.speed = z.def.speeds.walk
+        }
+        sim.step(0.05)
+        expect([a, b, c].every(z => z.gait === 'walk')).toBe(true)
+        sim['killZombie'](c, sim.player(0)!, 'body', { weapon: 'm1911', credit: 'm1911' })
+        sim.step(0.05)
+        expect(a.gait).toBe('run')
+        expect(b.speed).toBeGreaterThanOrEqual(b.def.speeds.run)
+    })
+
     it('downs a player, lets a teammate revive, and ends when everyone is down', () => {
         const { sim } = makeSim(2)
         const a = sim.player(0)!
@@ -326,9 +408,11 @@ describe('DfMatchSim rounds and downs', () => {
             advance(0.05)
             sim.input(0, { seq: 2 + i, pos: { x: p.pos.x + 1.5, y: 0, z: 0 }, yaw: 0, pitch: 0, flags: 0 })
         }
-        // 1 s of input at 30 m/s claimed; the server allows sprint speed plus slack.
-        expect(p.pos.x).toBeLessThan(13)
-        expect(p.tp).toBeGreaterThan(tp)
+        // 1 s of input at 30 m/s claimed; the server allows sprint speed plus generous slack,
+        // quietly (no snap-back for a fast burst: movement is client-authoritative)
+        expect(p.pos.x).toBeLessThan(16)
+        expect(p.pos.x).toBeGreaterThan(9)
+        expect(p.tp).toBe(tp)
         expect(sim.ack(0)).toBe(21)
     })
 })

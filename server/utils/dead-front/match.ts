@@ -126,7 +126,9 @@ export class DfMatch {
                     break
                 case 'fire': sim.fire(p.pid, msg)
                     break
-                case 'reload': sim.reload(p.pid)
+                case 'reload': sim.reload(p.pid, typeof msg.mag === 'number' ? msg.mag : undefined)
+                    break
+                case 'pause': sim.pause(p.pid, msg.paused === true)
                     break
                 case 'swap': sim.swap(p.pid, msg.slot)
                     break
@@ -210,8 +212,8 @@ export class DfMatch {
     private tickOnce(): void {
         if (this.finished) return
         const sim = this.sim
-        // Nobody connected: hold the world still until someone returns or the grace runs out.
-        if (sim.connectedCount === 0) {
+        // Nobody connected, or the solo player paused: hold the world still.
+        if (sim.connectedCount === 0 || sim.paused) {
             this.lastTickAt = 0
             return
         }

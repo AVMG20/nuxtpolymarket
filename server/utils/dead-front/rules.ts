@@ -1,9 +1,7 @@
-import { DF_POINTS } from '#shared/utils/dead-front/constants'
 import { DF_ENEMIES } from '#shared/utils/dead-front/enemies'
 import type { DfEggState } from '#shared/utils/dead-front/protocol'
 import { dfBoxWeight } from '#shared/utils/dead-front/weapons'
-import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
-import type { DfEnemyType, DfHitZone, DfPlayerEffects, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
+import type { DfEnemyType, DfHitZone, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
 
 // Pure rules of the Dead Front simulation: shot validation geometry, damage
 // and points, the mystery box pool and the easter egg state machine. No
@@ -70,6 +68,19 @@ export function dfClaimPlausible(target: DfClaimTarget, origin: Vec3, dir: Vec3,
     return hit
 }
 
+/**
+ * Sanity bound for a client-authoritative hit claim (players are trusted
+ * friends): the ray only has to pass within a few metres of the server's
+ * zombie and inside the weapon's range, which rejects garbage (a zombie
+ * across the map, a ray pointing away) but never a real shot under lag.
+ */
+export function dfClaimSane(target: DfClaimTarget, origin: Vec3, dir: Vec3, maxRange: number): { t: number, miss: number } | null {
+    const def = DF_ENEMIES[target.type]
+    const hit = dfRayAxisApproach(origin, dir, target.pos, def.height, maxRange + 4)
+    if (hit.miss > def.radius + 2.5 + Math.max(0, target.speed) * 0.35) return null
+    return hit
+}
+
 /** Keeps a head claim only if the ray passed near the head; otherwise it counts as a body hit. */
 export function dfVerifyZone(target: DfClaimTarget, origin: Vec3, dir: Vec3, zone: DfHitZone): DfHitZone {
     if (zone !== 'head') return zone === 'limb' ? 'limb' : 'body'
@@ -81,31 +92,8 @@ export function dfVerifyZone(target: DfClaimTarget, origin: Vec3, dir: Vec3, zon
 
 // ---------------------------------------------------------------- damage and points
 
-/** Damage multiplier from distance: full up to `range`, easing to `minDamageMult` at `maxRange`. */
-export function dfFalloff(stats: Pick<DfWeaponStats, 'range' | 'maxRange' | 'minDamageMult'>, dist: number): number {
-    if (dist <= stats.range) return 1
-    if (dist >= stats.maxRange || stats.maxRange <= stats.range) return stats.minDamageMult
-    const k = (dist - stats.range) / (stats.maxRange - stats.range)
-    return 1 + (stats.minDamageMult - 1) * k
-}
-
-/** One bullet's damage against a zone, with perk effects. */
-export function dfBulletDamage(stats: DfWeaponStats, effects: DfPlayerEffects, zone: DfHitZone, dist: number, downed: boolean): number {
-    const zoneMult = zone === 'head' ? stats.headMult * effects.headshotMult : zone === 'limb' ? stats.limbMult : 1
-    const doubleTap = 1 + 0.3 * Math.max(0, effects.doubleTapBullets)
-    return stats.damage * zoneMult * dfFalloff(stats, dist) * effects.damageMult * (downed ? effects.lastStandDamageMult : 1) * doubleTap
-}
-
-/** Points a lethal hit pays in total (the classic 60 / 100 / 130). */
-export function dfKillPoints(zone: DfHitZone, melee: boolean): number {
-    if (melee) return DF_POINTS.killMelee
-    return zone === 'head' ? DF_POINTS.killHead : DF_POINTS.killBody
-}
-
-/** Points after the perk multiplier and double points. */
-export function dfScalePoints(base: number, pointsMult: number, doublePoints: boolean): number {
-    return Math.round(base * pointsMult * (doublePoints ? 2 : 1))
-}
+// Shared with the client's prediction (shared/utils/dead-front/combat.ts).
+export { dfBulletDamage, dfFalloff, dfKillClaimHonoured, dfKillPoints, dfScalePoints } from '#shared/utils/dead-front/combat'
 
 // ---------------------------------------------------------------- mystery box
 
@@ -134,13 +122,17 @@ export type DfEggAction
         | { kind: 'fuse', id: string }
         | { kind: 'install' }
         | { kind: 'soul', needed: number }
+        /** A lightning-rod switch thrown; the first one starts the clock (`time` seconds). */
+        | { kind: 'rod', id: string, time: number }
+        /** The rod clock ran out: every rod resets. */
+        | { kind: 'rodsReset' }
         | { kind: 'claim', pid: number }
 
 /**
  * Advances the guided easter egg. Mutates `egg`; `stepChanged` tells the
  * caller to emit an `egg` event, `progressed` that the action counted.
  */
-export function dfEggAdvance(egg: DfEggState, action: DfEggAction, fuseIds: readonly string[]): { progressed: boolean, stepChanged: boolean } {
+export function dfEggAdvance(egg: DfEggState, action: DfEggAction, fuseIds: readonly string[], rodIds: readonly string[] = []): { progressed: boolean, stepChanged: boolean } {
     const before = egg.step
     let progressed = false
     const allFuses = () => fuseIds.every(id => egg.fusesFound.includes(id))
@@ -170,7 +162,26 @@ export function dfEggAdvance(egg: DfEggState, action: DfEggAction, fuseIds: read
                 egg.chargeNeeded = action.needed
                 egg.charge = Math.min(action.needed, egg.charge + 1)
                 progressed = true
-                if (egg.charge >= action.needed) egg.step = 'claim'
+                // a map without lightning rods goes straight to the pedestal
+                if (egg.charge >= action.needed) egg.step = rodIds.length ? 'rods' : 'claim'
+            }
+            break
+        case 'rod':
+            if (egg.step === 'rods' && rodIds.includes(action.id) && !egg.rodsOn.includes(action.id)) {
+                egg.rodsOn.push(action.id)
+                if (egg.rodsOn.length === 1) egg.rodTimer = action.time
+                progressed = true
+                if (rodIds.every(id => egg.rodsOn.includes(id))) {
+                    egg.step = 'claim'
+                    egg.rodTimer = 0
+                }
+            }
+            break
+        case 'rodsReset':
+            if (egg.step === 'rods' && egg.rodsOn.length) {
+                egg.rodsOn.length = 0
+                egg.rodTimer = 0
+                progressed = true
             }
             break
         case 'claim':
@@ -182,6 +193,19 @@ export function dfEggAdvance(egg: DfEggState, action: DfEggAction, fuseIds: read
             break
     }
     return { progressed, stepChanged: egg.step !== before }
+}
+
+/**
+ * Runs the lightning-rod clock for `dt` seconds. Returns the rods that reset
+ * when it ran out (the step stays `rods`, so the squad can try again).
+ */
+export function dfEggTick(egg: DfEggState, dt: number, fuseIds: readonly string[], rodIds: readonly string[]): string[] {
+    if (egg.step !== 'rods' || egg.rodTimer <= 0) return []
+    egg.rodTimer = Math.max(0, egg.rodTimer - dt)
+    if (egg.rodTimer > 0) return []
+    const reset = [...egg.rodsOn]
+    dfEggAdvance(egg, { kind: 'rodsReset' }, fuseIds, rodIds)
+    return reset
 }
 
 function clamp(v: number, lo: number, hi: number): number {

@@ -88,6 +88,10 @@ export interface DfHudState {
         text: string
         fuses: string | null
         charge: number | null
+        /** "x/3" lightning rods thrown during the `rods` step, else null. */
+        rods?: string | null
+        /** Seconds left on the rod clock once the first rod is thrown, else null. */
+        rodTimer?: number | null
         label: string
         distance: number
         hasTarget: boolean
@@ -113,6 +117,35 @@ export interface DfHudState {
     swapKey: number
     /** Squad event feed (top right): downs, revives, doors, power. Filled by the game view from snapshot events. */
     feed: DfHudFeedItem[]
+    /**
+     * First-match coaching line (`hints.ts`): "Hold F at a broken window to rebuild it" plus
+     * a sub line. One at a time; `key` bumps per hint. The text starts with "Hold/Press X" like
+     * a prompt, so the same keycap parsing applies. Null when there's nothing to teach.
+     */
+    hint: { key: number, text: string, sub: string } | null
+    /** Short line under the crosshair about the magazine: 'Press R to reload', 'Low ammo', 'No ammo' (null: nothing). */
+    ammoHint: string | null
+    /** Zombies left when the round is down to its last few (1-3) and nothing more spawns; 0 otherwise. */
+    lastZombies: number
+    /**
+     * Off-screen-aware markers (up to DF_HUD_MARKERS): the last zombies of a round and downed
+     * teammates. Marker i is positioned every frame through CSS variables on the HUD root:
+     * --df-mk{i}-x / --df-mk{i}-y (px), --df-mk{i}-on (1 on screen, 0 clamped to the edge) and
+     * --df-mk{i}-ang (radians toward it when clamped), like the objective waypoint.
+     */
+    markers: DfHudMarker[]
+}
+
+export const DF_HUD_MARKERS = 4
+
+export interface DfHudMarker {
+    /** Stable per subject ('z12', 'p3') for v-for keys. */
+    key: string
+    kind: 'zombie' | 'revive'
+    /** Teammate name for revive markers, '' for zombies. */
+    label: string
+    /** Metres away (rounded). */
+    distance: number
 }
 
 export type DfHudFeedTone = 'red' | 'green' | 'gold' | 'blue' | 'pale'
@@ -170,8 +203,17 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
             return line('blue', null, 'The power is on')
         case 'fuse':
             return line('blue', ev.p, 'found a Tesla fuse')
+        case 'rod':
+            // a reset sends one event per rod, counting down: one line for the last
+            if (!ev.on) return (ev.n ?? 0) === 0 ? line('red', null, 'The rods lost their charge') : null
+            return line('blue', null, ev.n !== undefined ? `Lightning rod thrown (${ev.n}/3)` : 'Lightning rod thrown')
         case 'pap':
             return line('gold', ev.p, `packed the ${c.weaponName(ev.weapon)}`)
+        case 'box':
+            return ev.what === 'move' ? line('pale', null, 'The mystery box moved') : null
+        case 'papReturn':
+            // only the owner hears about it: the offer ran out and the machine handed the weapon back
+            return ev.p === c.me ? line('gold', null, `Pack-a-Punch returned your ${c.weaponName(ev.weapon)}`) : null
         case 'powerup':
             return line('gold', ev.p, `grabbed ${c.powerupName(ev.kind)}`)
         case 'buy': {
@@ -223,7 +265,7 @@ export function dfCreateHudState(): DfHudState {
         powerups: [],
         announce: null,
         prompt: null,
-        objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, label: '', distance: 0, hasTarget: false },
+        objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, rods: null, rodTimer: null, label: '', distance: 0, hasTarget: false },
         hitmarker: { key: 0, kind: 'hit' },
         killKey: 0,
         damage: [],
@@ -241,6 +283,10 @@ export function dfCreateHudState(): DfHudState {
         gameOver: false,
         perkPulse: { id: null, key: 0 },
         swapKey: 0,
-        feed: []
+        feed: [],
+        hint: null,
+        ammoHint: null,
+        lastZombies: 0,
+        markers: []
     }
 }

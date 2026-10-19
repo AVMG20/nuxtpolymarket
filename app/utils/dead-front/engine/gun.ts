@@ -130,6 +130,9 @@ export function dfConeDir(d: { x: number, y: number, z: number }, spread: number
 
 export type DfGunEvent = 'none' | 'shell' | 'done'
 
+/** Fraction of a magazine reload after which the new magazine is seated (a cancel keeps it). */
+export const DF_RELOAD_SEATED = 0.8
+
 export class DfGunState {
     id: DfHeldWeapon['id'] = 'm1911'
     pap = 0
@@ -144,6 +147,8 @@ export class DfGunState {
     /** Reload in progress. */
     reloading = false
     reloadEnd = 0
+    /** When the running magazine reload started (for the late-cancel window). */
+    reloadStart = 0
     /** Per-shell reload: time the next shell goes in. */
     nextShell = 0
     shellMode = false
@@ -280,13 +285,33 @@ export class DfGunState {
         }
         this.shellMode = false
         const t = (this.mag === 0 ? s.reloadEmptyTime : s.reloadTime) / k
+        this.reloadStart = now
         this.reloadEnd = now + t
         return t
     }
 
-    cancelReload(): void {
+    /**
+     * Interrupts a reload (sprint, swap, knife). A magazine already seated (the
+     * last fifth of the animation) counts: the rounds go in, as in a classic
+     * reload cancel. Returns true when that moved ammo, so the caller can report
+     * the new magazine. Without `now` the reload is simply dropped.
+     */
+    cancelReload(now?: number): boolean {
+        const s = this.stats
+        let seated = false
+        if (this.reloading && !this.shellMode && s && now !== undefined) {
+            const dur = Math.max(0.01, this.reloadEnd - this.reloadStart)
+            if (now >= this.reloadStart + dur * DF_RELOAD_SEATED) {
+                const take = Math.min(s.magSize - this.mag, this.reserve)
+                this.mag += take
+                this.reserve -= take
+                this.lastAction = now
+                seated = take > 0
+            }
+        }
         this.reloading = false
         this.shellMode = false
+        return seated
     }
 
     /** Advances reloads; returns what happened this step. */
@@ -387,7 +412,8 @@ export class DfRecoil {
         // past the cap the kick turns into a little shake instead of more climb
         this.targetPitch += Math.min(up, room + up * 0.15)
         const sway = auto ? Math.sin(n * 0.9 + 0.6) * 0.75 : 0
-        const side = (sway + (jitter - 0.5) * (auto ? 0.5 : 1)) * p.side + p.drift * (auto ? 1 : 0)
+        // autos walk a fixed sway with only a little noise, so the pattern can be learned
+        const side = (sway + (jitter - 0.5) * (auto ? 0.3 : 1)) * p.side + p.drift * (auto ? 1 : 0)
         this.targetYaw += side * Math.max(0, amount)
         // keep the sideways wander bounded
         const yawCap = p.cap * 0.6

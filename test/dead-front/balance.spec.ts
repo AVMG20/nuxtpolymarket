@@ -132,7 +132,7 @@ describe('balance (headless bots)', () => {
             door: Math.min(...DF_MAP.doors.map(d => d.cost)),
             box: DF_COSTS.box,
             perk: Math.min(...Object.values(DF_PERKS).map(p => p.cost)),
-            pap: DF_COSTS.papFirst
+            pap: DF_COSTS.pap[0]
         }
         const table: string[] = []
         const results: Record<number, RoundLine[]> = {}
