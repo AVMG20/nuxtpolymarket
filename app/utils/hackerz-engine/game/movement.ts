@@ -6,7 +6,7 @@ import { nearestOnNetwork, tracePassesNear, type DataNetwork, type LinePoint, ty
 import { ENEMY_PACE, SAPPER_SPEED, THEIR_GROUND_SPEED, turnToward } from '../rig-motion'
 import { RED } from '../scene'
 import type { EnemyEntity } from '../types'
-import { type RouteGoal, _v, _w, CROWD_GAP, LANE_SLACK, YAW_DOWN } from './tuning'
+import { _v, _w, CROWD_GAP, LANE_SLACK, YAW_DOWN, type RouteGoal } from './tuning'
 import { enemyWorld, footprint, sinkInto } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -338,7 +338,7 @@ export class Movement {
         let budget = enemy.speed * this.game.hacking.chipBuff(enemy) * this.game.pushSpeed * boost * dt
         // A skirmisher halts at the edge of blue ground rather than step into it.
         // One already standing in blue (the ground changed under it) carries on.
-        const keepOut = this.game.keepsOutOfBlue(enemy) && this.game.territory.zoneOf(enemy.u, enemy.d) !== 'held'
+        const keepOut = this.game.squads.keepsOutOfBlue(enemy) && this.game.territory.zoneOf(enemy.u, enemy.d) !== 'held'
         // A boosted rider leaves a thin red trail, so the fast lane reads as one.
         if (boost > 1 && Math.random() < dt * 14) {
             this.game.particles.emit(enemyWorld(enemy, 3, _v), _w.set(0, 0.4, 0), RED, { size: 0.16, life: 0.35, gravity: 0 })
@@ -426,7 +426,7 @@ export class Movement {
         const step = Math.min(room, enemy.speed * this.game.hacking.chipBuff(enemy) * this.game.pushSpeed * this.groundSpeed(enemy)
             * (enemy.burrowMs > 0 ? 1.8 : 1) * (enemy.def.kind === 'bomber' ? SAPPER_SPEED : 1) * dt)
         // Flying skirmishers hold at the edge of blue ground too.
-        if (this.game.keepsOutOfBlue(enemy) && this.game.territory.zoneOf(enemy.u, enemy.d) !== 'held'
+        if (this.game.squads.keepsOutOfBlue(enemy) && this.game.territory.zoneOf(enemy.u, enemy.d) !== 'held'
             && this.game.territory.zoneOf(enemy.u, enemy.d - step) === 'held') return { moved: 0, arrived: false }
         enemy.d -= step
         return { moved: step, arrived: false }

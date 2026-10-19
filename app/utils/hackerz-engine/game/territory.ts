@@ -197,7 +197,7 @@ export class Territory {
             if (this.game.running) {
                 this.game.overlay.floatText(fieldToWorld(target.u, target.d, 4, _v), 'LIGHTS OUT', RED, 1.5)
                 this.game.sysLog.darkZone(this.darkZones.indexOf(slot))
-                this.game.sendShieldBearers()
+                this.game.squads.sendShieldBearers()
             }
         }
         this.darkZones.forEach((zone, i) => {
@@ -283,7 +283,7 @@ export class Territory {
         const live = this.game.running && !this.game.purging && enemy.burrowMs <= 0
         const inRed = live && this.zoneOf(enemy.u, enemy.d) === 'theirs'
         // Sheltering behind a shield bearer heals as red ground does, wherever the wall stands.
-        const sheltered = live && !inRed && this.game.isSheltered(enemy)
+        const sheltered = live && !inRed && this.game.squads.isSheltered(enemy)
         if (!inRed && enemy.redShield) {
             this.setRedShield(enemy, false)
             // Not a break, just out of reach: it comes back quickly in red.

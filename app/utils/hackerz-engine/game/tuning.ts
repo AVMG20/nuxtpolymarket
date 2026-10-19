@@ -118,3 +118,6 @@ export interface RouteGoal {
     /** Arrived early: true once the unit is close enough to do its job from where it stands. */
     near?: (u: number, d: number) => boolean
 }
+
+/** Hackers get to work within this far of a node — a column over still counts. */
+export const HACK_REACH = 125
