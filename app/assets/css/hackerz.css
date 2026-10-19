@@ -1,0 +1,248 @@
+/* Hackerz — the uplink, the Mainframe lobby and the database: a neon console
+   over the board, in the same cyan-on-black language as the game itself.
+   Nothing here animates in a loop: no blinking, no flicker. */
+
+.hz-console {
+    --hz-cyan: 34, 211, 238;
+    --hz-lime: 163, 230, 53;
+    --hz-amber: 251, 191, 36;
+    --hz-cut: 12px;
+    background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(var(--hz-cyan), 0.10), transparent 70%),
+        linear-gradient(rgba(var(--hz-cyan), 0.045) 1px, transparent 1px) 0 0 / 100% 28px,
+        linear-gradient(90deg, rgba(var(--hz-cyan), 0.045) 1px, transparent 1px) 0 0 / 28px 100%,
+        rgba(2, 6, 12, 0.95);
+}
+
+/* A console laid over another one (the database) must not let it show through. */
+.hz-console--solid { background-color: rgb(2, 6, 12); }
+
+/* Faint scanlines laid over the whole console. */
+.hz-console::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px);
+}
+
+.hz-title {
+    --glow: #22d3ee;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    color: #e6fbff;
+    text-shadow: 1px 0 rgba(244, 63, 94, 0.55), -1px 0 rgba(34, 211, 238, 0.55), 0 0 14px var(--glow);
+}
+
+.hz-prompt {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: rgba(var(--hz-lime), 0.6);
+}
+
+.hz-label {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    color: rgba(var(--hz-cyan), 0.5);
+}
+
+/* Tabs: slanted chips with a lit underside when on. */
+.hz-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.9rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255, 255, 255, 0.45);
+    background: rgba(var(--hz-cyan), 0.04);
+    clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    transition: color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+.hz-tab:hover { color: rgba(255, 255, 255, 0.8); background: rgba(var(--hz-cyan), 0.09); }
+.hz-tab--on {
+    color: #a5f3fc;
+    background: rgba(var(--hz-cyan), 0.16);
+    box-shadow: inset 0 -2px 0 rgb(var(--hz-cyan)), 0 6px 18px -10px rgb(var(--hz-cyan));
+}
+
+/* Cards: notched corners, a thin lit frame, a glow when there is something to buy. */
+.hz-card {
+    position: relative;
+    text-align: left;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid rgba(var(--hz-cyan), 0.14);
+    background: linear-gradient(135deg, rgba(8, 22, 36, 0.92), rgba(3, 8, 15, 0.94));
+    clip-path: polygon(0 0, calc(100% - var(--hz-cut)) 0, 100% var(--hz-cut), 100% 100%, var(--hz-cut) 100%, 0 calc(100% - var(--hz-cut)));
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, opacity 0.15s;
+}
+/* The notch's own edge, so the cut corner reads as a bevel rather than a crop. */
+.hz-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: calc(var(--hz-cut) * 1.42);
+    height: 1px;
+    background: currentColor;
+    opacity: 0.35;
+    transform-origin: right top;
+    transform: rotate(45deg) translateX(1px);
+    color: rgb(var(--hz-cyan));
+}
+.hz-card--buy {
+    border-color: rgba(var(--hz-lime), 0.45);
+    box-shadow: inset 0 0 22px -12px rgba(var(--hz-lime), 0.6);
+    cursor: pointer;
+}
+.hz-card--buy:hover {
+    border-color: rgba(var(--hz-lime), 0.8);
+    background: linear-gradient(135deg, rgba(20, 40, 14, 0.92), rgba(5, 12, 6, 0.94));
+}
+.hz-card--gold { border-color: rgba(var(--hz-amber), 0.45); box-shadow: inset 0 0 22px -12px rgba(var(--hz-amber), 0.6); cursor: pointer; }
+.hz-card--gold:hover { border-color: rgba(var(--hz-amber), 0.85); background: linear-gradient(135deg, rgba(40, 30, 8, 0.92), rgba(12, 9, 3, 0.94)); }
+.hz-card--gold::before { color: rgb(var(--hz-amber)); }
+.hz-card--warn { border-color: rgba(var(--hz-amber), 0.45); box-shadow: inset 0 0 30px -14px rgba(var(--hz-amber), 0.7); }
+.hz-card--warn::before { color: rgb(var(--hz-amber)); }
+.hz-card--active {
+    border-color: rgb(var(--hz-cyan));
+    background: linear-gradient(135deg, rgba(8, 48, 62, 0.92), rgba(3, 14, 22, 0.94));
+    box-shadow: inset 0 0 26px -10px rgba(var(--hz-cyan), 0.75);
+}
+.hz-card--active::before { opacity: 1; }
+.hz-card--owned { border-color: rgba(var(--hz-cyan), 0.3); cursor: pointer; }
+.hz-card--owned:hover { border-color: rgba(var(--hz-cyan), 0.6); }
+.hz-card--locked { opacity: 0.42; filter: saturate(0.4); cursor: not-allowed; }
+.hz-card--off { opacity: 0.6; cursor: default; }
+
+/*
+ * A Mainframe card blooms when hovered. The card's notch is a clip-path, which
+ * clips its own outer shadow, so the bloom is a drop-shadow on a wrapper: it
+ * follows the notched outline. What cannot be bought only glows faintly.
+ */
+.hz-bloom { transition: filter 0.2s; }
+.hz-bloom:hover {
+    filter: drop-shadow(0 0 5px rgba(var(--hz-amber), 0.75)) drop-shadow(0 0 18px rgba(var(--hz-amber), 0.4));
+}
+/* The light sits at the rim: the middle of the card stays dark behind the text. */
+.hz-bloom:hover > .hz-card {
+    border-color: rgb(var(--hz-amber));
+    background: linear-gradient(135deg, rgba(14, 18, 24, 0.96), rgba(4, 6, 10, 0.97));
+    box-shadow: inset 0 0 14px -4px rgba(var(--hz-amber), 0.8);
+}
+.hz-bloom:hover > .hz-card::before { opacity: 1; }
+/* A maxed or out-of-reach card is dimmed at rest, but lights up fully when hovered. */
+.hz-bloom:hover > .hz-card--off, .hz-bloom:hover > .hz-card--locked { opacity: 1; filter: none; }
+.hz-bloom--dim:hover {
+    filter: drop-shadow(0 0 5px rgba(var(--hz-cyan), 0.7)) drop-shadow(0 0 18px rgba(var(--hz-cyan), 0.35));
+}
+.hz-bloom--dim:hover > .hz-card {
+    border-color: rgba(var(--hz-cyan), 0.85);
+    box-shadow: inset 0 0 14px -4px rgba(var(--hz-cyan), 0.7);
+}
+/* Hovered, the card lights up from behind: its text goes near-white and glows, the gold blooms gold. */
+.hz-glow-text, .hz-glow-gold, .hz-bloom .hz-pip { transition: color 0.2s, text-shadow 0.2s, filter 0.2s, box-shadow 0.2s; }
+/*
+ * Legibility first: the letters stay crisp and full white, with a dark edge
+ * hugging them and only a tight halo behind. A wide white glow smears small
+ * text into the lit card.
+ */
+.hz-bloom:hover .hz-glow-text {
+    color: rgb(255, 255, 255);
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.9), 0 0 6px rgba(var(--hz-cyan), 0.75), 0 0 14px rgba(var(--hz-cyan), 0.35);
+}
+.hz-bloom:hover .hz-glow-gold {
+    color: rgb(254, 240, 170);
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.9), 0 0 6px rgba(var(--hz-amber), 0.95), 0 0 14px rgba(var(--hz-amber), 0.55);
+}
+.hz-bloom:hover svg.hz-glow-gold, .hz-bloom:hover span.hz-glow-gold.iconify {
+    filter: drop-shadow(0 0 3px rgba(var(--hz-amber), 1)) drop-shadow(0 0 8px rgba(var(--hz-amber), 0.6));
+}
+.hz-bloom:hover .hz-pip--gold {
+    background: #fde68a;
+    box-shadow: 0 0 5px rgba(var(--hz-amber), 1), 0 0 12px rgba(var(--hz-amber), 0.75);
+}
+
+/* Cost readout. */
+.hz-cost {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    opacity: 0.9;
+}
+
+/* Level pips as little power cells. */
+.hz-pip {
+    width: 0.55rem;
+    height: 0.4rem;
+    background: rgba(255, 255, 255, 0.12);
+    clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%);
+}
+.hz-pip--on { background: #67e8f9; box-shadow: 0 0 6px rgba(var(--hz-cyan), 0.9); }
+.hz-pip--gold { background: #fbbf24; box-shadow: 0 0 6px rgba(var(--hz-amber), 0.9); }
+.hz-pip--lime { background: #bef264; box-shadow: 0 0 6px rgba(var(--hz-lime), 0.9); }
+
+/* A mount row in the turret rack. */
+.hz-row {
+    border: 1px solid rgba(var(--hz-cyan), 0.12);
+    background: rgba(3, 10, 18, 0.85);
+    clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+
+/* Database. */
+.hz-index {
+    --accent: #22d3ee;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    border-left: 2px solid transparent;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.hz-index:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+.hz-index--on { color: #fff; background: rgba(var(--hz-cyan), 0.08); border-left-color: var(--accent); }
+
+.hz-badge {
+    --accent: #22d3ee;
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    flex-shrink: 0;
+    border: 1px solid var(--accent);
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 22px -6px var(--accent), inset 0 0 18px -8px var(--accent);
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+/* The database's turntable. */
+.hz-viewer {
+    border: 1px solid rgba(var(--hz-cyan), 0.18);
+    background:
+        radial-gradient(ellipse 70% 55% at 50% 70%, rgba(var(--hz-cyan), 0.12), transparent 70%),
+        rgba(2, 8, 14, 0.9);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+
+.hz-stat {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid rgba(var(--hz-cyan), 0.12);
+    background: rgba(3, 10, 18, 0.8);
+}
+
+.hz-tip {
+    padding: 0.6rem 0.8rem;
+    border-left: 2px solid rgba(var(--hz-lime), 0.7);
+    background: rgba(var(--hz-lime), 0.06);
+}

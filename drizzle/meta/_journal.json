@@ -435,6 +435,13 @@
       "when": 1792315625928,
       "tag": "0061_dead_front_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792400944027,
+      "tag": "0062_tricky_norman_osborn",
+      "breakpoints": true
     }
   ]
 }
