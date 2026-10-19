@@ -47,10 +47,16 @@ Code prefix: `Df` / `df` / `DF_`.
   weapon, raises damage/mag/reserve and changes the camo glow. The M1911 at
   tier 1+ becomes twin grenade-launcher pistols.
 - **Mystery box**: 950, rolls a box weapon incl. the **X-Ray** (brass ray
-  pistol firing green bolts with splash). Moves after some rolls.
+  pistol firing green bolts with splash). Never starts in the start zone;
+  every roll has a flat 10% chance (`DF_BOX_MOVE_CHANCE`) to end with the box
+  moving to another spot instead (the roll is refunded, the squad feed says
+  so).
 - **Wunderweapon** (easter egg only, guided by the HUD): restore power →
   collect 3 Tesla fuses → install them in the Arc Generator → kill zombies
-  near it to charge it → claim the **wunderweapon** (chain-lightning arc
+  near it to charge it → throw the 3 lightning-rod switches before the clock
+  runs out (60 s solo, 45 s co-op from the first throw; a timeout resets them
+  with `rod` events, `on: false`, and the squad tries again) → claim the
+  **wunderweapon** (chain-lightning arc
   rifle) from the pedestal. Steps in `DF_EGG_STEPS`; the HUD shows the step
   text and a waypoint.
 - **Perks** (cap 4): Ironhide (health), Quickhand (reload), Twinfire (fire
@@ -61,16 +67,94 @@ Code prefix: `Df` / `df` / `DF_`.
 
 ## Netcode
 
-- Client-authoritative movement at 20 Hz (`in`), server clamps speed/teleports
-  and collides against the map.
-- Shots: client runs the shared hit test (`dfZombieHitTest` + `dfRaycast`
-  occlusion) and claims hits; the server validates against its own zombie
-  positions (lenient tolerance for latency), fire rate (token bucket on rpm),
-  magazine and range, then computes damage/points itself from
-  `dfWeaponStats` + effects. Projectile weapons (grenades, PaP pistol, X-Ray
-  bolts) and the wunderweapon arc are simulated by the server.
-- Snapshots at 20 Hz (`DfSnapshot`) with events; clients interpolate remote
-  entities `DF_INTERP_DELAY_MS` behind.
+Players are trusted friends, so the local player's actions are
+client-authoritative and feel instant; the server keeps only sanity bounds.
+
+- Movement: the client reports its position at 20 Hz (`in`). The server takes
+  it whenever the body fits there and the move is within a generous speed
+  budget; it only slides a move that ends inside geometry and snaps the client
+  back (`tp`) when that leaves it more than 1.5 m off, or on a teleport-sized
+  jump. The client eases a divergence over 1.5 m and never rubber-bands.
+- Shots: the client runs the shared hit test and claims hits with zone and
+  distance. The server checks only sanity (the ray passes within a few metres
+  of its zombie, inside the weapon's range; fire rate within a lenient token
+  bucket) and computes damage/points from `dfWeaponStats` + effects
+  (`shared/utils/dead-front/combat.ts`, shared with the client).
+- Prediction: the client applies the same damage rules to the newest
+  snapshot health (`hp` is sent to 3 decimals) minus its own unconfirmed
+  damage. A lethal hit is claimed with `kill: true`; the zombie drops on that
+  frame (hidden from interpolation, death played locally) and the server's
+  kill echo is skipped. The server honours a kill claim that leaves a sliver
+  (`dfKillClaimHonoured`), so predicted kills agree; one the server refuses is
+  undone after a round trip (`DfZombieView.unkill`). Each `fire` / `melee`
+  carries a `shot` id and the shooter's `points` event echoes it: predicted
+  points pop at once and the echo only shows a difference.
+- Ammo, reload and swap are client-driven: `fire` carries the magazine after
+  the shot and `{ t: 'reload', mag }` reports a finished reload. The server
+  moves rounds between reserve and magazine to match (never creating ammo).
+- Buys: doors, perks, wall-buys, the box and Pack-a-Punch take the points off
+  and play the buy sound at once; a bought door opens and stops blocking at
+  once. The server's `buy` event settles it, a missing one rolls it back.
+- Projectile weapons (grenades, PaP pistol, X-Ray bolts) and the wunderweapon
+  arc are simulated by the server.
+- Snapshots at 20 Hz (`DfSnapshot`) with events. Remote players interpolate
+  `DF_INTERP_DELAY_MS` behind (adaptive to jitter). Zombies and view events run
+  on a shorter delay (`DfSnapBuffer.zombieDelay`, about one tick): past the
+  newest snapshot zombies dead-reckon along `DfZombieSnap.vel`, and
+  `DfZombieSmoother` blends corrections in and springs the height separately.
+- Stairs: the server sends a zombie's shown height (`viewY`), a ramp over the
+  steps (`dfRampHeight`) eased at walking pace instead of the physics'
+  instant step-up. The camera rides the same kind of ramp through a critically
+  damped spring (`DfPlayerController.viewFloor`).
+- Solo pause: losing pointer lock (the pause menu, alt-tab) sends
+  `{ t: 'pause', paused }`; the match stops stepping and sending snapshots
+  until resumed (ignored in co-op, cleared on reconnect).
+- Input: mouse look is raw (no smoothing) and applied the frame it arrives. A
+  trigger pull fires on the `mousedown` event itself (`DfInput.onPress`): the
+  hit test, prediction and `fire` message leave at once, the next frame only
+  draws them. The loop paces motion with the rAF timestamp.
+- Gun feel (CoD rules): ADS and sprint, whichever was pressed last wins while
+  both are held; firing or reloading drops a sprint (with the class's
+  sprint-out before the shot); a fresh sprint press, a swap or the knife
+  cancels a reload, keeping the magazine once it is seated (the last fifth,
+  `DF_RELOAD_SEATED`) and reporting it with `{ t: 'reload', mag }`.
+- Shaders: the engine compiles every program at spawn (`warmUp`: both scenes,
+  every weapon model plain and packed, one of each projectile) into the
+  composer's linear target, so the first flash, explosion or camo never
+  hitches.
+- Dev: `window.__df.prof(seconds)` profiles `frame()` (CPU work per section,
+  GPU time via EXT_disjoint_timer_query, frame gaps, programs compiled
+  meanwhile).
+- Dev: `?lag=80,30` or `window.__df.lag(80, 30)` adds 80 ms to the round trip
+  plus up to 30 ms jitter per message; `window.__df.netStats()` shows the
+  delays and pending predictions.
+
+## Coaching and clarity
+
+- First-match hints (`engine/hints.ts`, `hud.hint`): "Hold F at a broken
+  window to rebuild it", "Press V to knife", "Buy a weapon off the wall",
+  "Open doors with points", "Find the power", "Perk machines need the
+  power", each once per browser (`localStorage` `df-hints-v1`), one at a time
+  with a gap, taken down as soon as the player does the thing. A downed
+  teammate is always called out ("Hold F next to Bea to revive").
+- `hud.ammoHint` under the crosshair: "Press R to reload", "Low ammo", "No
+  ammo".
+- Prompts say why a buy fails ("Chapel Nave · Need 250 more points",
+  "Requires power").
+- Last zombies: when nothing is left to spawn and 3 or fewer remain,
+  `hud.lastZombies` counts them, `DfZombieView.highlight(ids)` makes them easy
+  to spot, and `hud.markers` (with downed teammates) are placed every frame
+  through `--df-mk{i}-x/y/on/ang` like the objective waypoint. From round 2 the
+  last two walkers break into a run so a round never stalls on a straggler.
+
+## Pack-a-Punch
+
+Tiers cost `DF_COSTS.pap` (5,000, 15,000, 30,000; `dfPapCost`). A weapon in
+the machine keeps its slot reserved (`DfHeldWeapon.away`), so slots never
+shift. Taking it puts it back in that slot; if the offer runs out the machine
+returns it there automatically with full ammo (`papReturn` event, HUD feed
+line). The offer waits for an owner who bled out or dropped. New weapons go
+before the wunderweapon, which always rides last.
 
 ## Files and ownership
 
@@ -139,7 +223,7 @@ view only reacts to its own kinds so nothing is drawn twice:
 | Events | Handled by |
 | --- | --- |
 | `hit`, `kill`, `zhit` gore, `gas` (bloater cloud) | zombie view (map agent) |
-| `door`, `plank`, `box`, `pap` (machine), `power`, `fuse`, `soul`, `egg`, `perk` (machine jingle) | world view (map agent) |
+| `door`, `plank`, `box`, `pap` (machine), `power`, `fuse`, `rod`, `soul`, `egg`, `perk` (machine jingle) | world view (map agent) |
 | `explode`, `arc` | projectile view (weapons agent) |
 | `shot` (remote tracer + sound), `points`, `round`, `roundEnd`, `down`, `revived`, `bleedout`, `respawn`, `powerup`, `buy`, `chat`, hitmarkers, damage feedback | engine (engine agent) |
 
@@ -193,3 +277,30 @@ Zombie models are built to the sizes in `DF_ENEMIES` (`height`, `radius`,
 `test/dead-front/balance.spec.ts` plays bot squads (1, 2, 4 players) for ten
 rounds on the real map and prints points earned against costs per round
 (`bunx vitest run test/dead-front/balance --reporter=verbose --silent=false`).
+
+## World presentation
+
+- **Power**: the surge spreads out from the switch (`dfPowerDelay`, ~26 m/s):
+  lamps, perk machines and the press stutter on as it reaches them.
+- **Perk machines** (`world/interact/perks.ts`): each shows its perk's bottle
+  (the same silhouettes as the HUD sprite, `world/perk-bottles.ts`) on a lit
+  sign and on top; chasing marquee bulbs, steam, and a bottle that drops into
+  the tray on purchase. Machines and the press add virtual fixtures to the
+  pooled lights (`world/lights.ts`).
+- **Mystery box** (`world/interact/box.ts`): a camera-facing column of light
+  over every spot that widens with distance, motes, a light spill from the
+  open crate. Box spots: one in the start zone plus one each in the farm,
+  cemetery and ramparts. Moving: it rattles, lifts off glowing and bursts
+  into bits; at the new spot the beam strikes down and the crate drops in.
+- **Lightning rods** (`world/interact/rods.ts`, `map.egg.rods`): three masts
+  with knife switches (one on the rampart walk). They glow and tick during the
+  `rods` step, crackle with sky bolts when thrown, and when all three are live
+  arcs leap to the generator and on to the pedestal.
+- **Atmosphere** (`world/atmosphere.ts`): ground mist masked to open ground
+  (roofed cells from the voxel grid stay clear), drifting ash and embers
+  around the camera. A new round bleeds the sky red for a few seconds; shell
+  flashes on the horizon warm the scene.
+- **Zombies**: outfits per type (`dfZombieOutfitCount`): kepi, Adrian, Brodie
+  and Stahlhelm infantry and a villager for shamblers, a bandaged ghoul, a
+  gas-hooded bloater, plus a per-zombie tint. Corpses slide along the shot and
+  topple that way; explosive gibs throw whole limbs that tumble and bleed.
