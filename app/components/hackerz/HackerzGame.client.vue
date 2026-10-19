@@ -171,9 +171,10 @@ const savedAt = ref<Date | null>(null)
 /**
  * Freezes the run. Only ever called from the uplink, which is the one moment the
  * game has no wave in flight and is therefore the one moment worth storing.
+ * True once the save has reached the server.
  */
 async function saveRun() {
-  if (phase.value !== 'shop' || !game) return
+  if (phase.value !== 'shop' || !game) return false
   saveState.value = 'saving'
   const save: HackerzRunSave = {
     version: HACKERZ_SAVE_VERSION,
@@ -194,9 +195,12 @@ async function saveRun() {
     revision.value = result.revision
     savedAt.value = new Date(result.updatedAt)
     saveState.value = 'saved'
-  } catch {
+    return true
+  } catch (error) {
     saveState.value = 'error'
-    pushNotice('Could not reach the uplink — progress is not saved.', 'bad')
+    const reason = (error as { statusMessage?: string }).statusMessage ?? 'Could not reach the uplink'
+    pushNotice(`${reason} — progress is not saved.`, 'bad')
+    return false
   }
 }
 
@@ -755,8 +759,39 @@ async function onWaveEnd(summary: HackerzWaveSummary) {
   // save, so accumulating here is what keeps the two in step across a resume.
   totalKills.value += summary.kills
   phase.value = 'shop'
+  if (summary.victory) {
+    victoryPending.value = true
+    await claimVictory()
+    return
+  }
   await saveRun()
-  if (summary.victory) await settleRun('victory')
+}
+
+/** The last wave is won, but not banked until its save reaches the server. */
+const victoryPending = ref(false)
+const VICTORY_SAVE_ATTEMPTS = 3
+const VICTORY_RETRY_MS = 1000
+
+/**
+ * Banks a won run. The server settles from the stored save, so settling after
+ * the final save failed would pay out the save before it: no victory, and the
+ * last wave's coins lost. The save is tried a few times first; if it still
+ * fails the run stays at the uplink, where Claim victory tries again.
+ */
+async function claimVictory() {
+  for (let attempt = 0; attempt < VICTORY_SAVE_ATTEMPTS; attempt++) {
+    if (attempt) await sleep(VICTORY_RETRY_MS * attempt)
+    if (await saveRun()) {
+      victoryPending.value = false
+      await settleRun('victory')
+      return
+    }
+  }
+  toast.add({
+    title: 'Victory not banked yet',
+    description: 'The final save did not reach the server. Claim the victory from the uplink once you are back online.',
+    color: 'warning'
+  })
 }
 
 /**
@@ -1609,6 +1644,17 @@ async function toggleFullscreen() {
               {{ Math.round(missingHp) }} HP · {{ repairCost }}
             </UButton>
             <UButton
+              v-if="victoryPending"
+              size="lg"
+              color="primary"
+              icon="i-lucide-trophy"
+              :loading="busy || saveState === 'saving'"
+              @click="claimVictory"
+            >
+              Claim victory
+            </UButton>
+            <UButton
+              v-else
               size="lg"
               :color="isFinalWave || nextIsBoss ? 'error' : 'primary'"
               trailing-icon="i-lucide-chevron-right"
