@@ -14,7 +14,14 @@ Code prefix: `Df` / `df` / `DF_`.
 - **Lobby / party**: one socket per tab. A player sees the open lobbies (the
   site has ~10 players, so no private lobbies, no matchmaking): create one,
   join one, ready up, host starts. Solo = create and start alone. A lobby that
-  is playing shows its round in the list but can't be joined.
+  is playing shows its round in the list but can't be joined. A member whose
+  socket drops keeps their place for `DF_LOBBY_GRACE_MS` (shown as
+  reconnecting; the leader can start without them, and while the host is
+  away the next member leads). A server restart loses the
+  hub: a client that comes back to `{ lobby: null }` after a drop sends
+  `{ t: 'rejoin', id, host }`, which rebuilds the lobby under its old id and
+  gives the old host the lead back. A match in progress is lost with the
+  restart and the client returns to the lobby.
 - **Loadout (pre-game)**: start weapon (any *unlocked* `startable` weapon) and
   attachments per weapon (unlocked by weapon level). Weapons unlock
   permanently by being *found* in a match: bought off a wall, taken from the
@@ -39,11 +46,12 @@ Code prefix: `Df` / `df` / `DF_`.
   in the chancel), Cemetery (power in the crypt, the pedestal) and the
   Ramparts (generator in the bailey, a wall walk at y = 3 reached by two wide
   stairs). 4 buyable doors close the ring, 12 boarded windows, wall-buys, 6
-  perk machines, 3 box spots, power switch. Power powers perks + PaP. The
+  perk machines, 3 box spots, power switch, 2 electric traps. Power powers
+  perks, PaP and the traps. The
   layout is authored on a 0.5 m voxel grid (`shared/utils/dead-front/map-world.ts`)
   and compiled in `map.ts` to greedy-merged collision boxes and a nav graph;
   the client greedy-meshes the same grid (`app/utils/dead-front/voxel/`).
-- **Pack-a-Punch**: 3 tiers (5000 then 2500 each). Each tier renames the
+- **Pack-a-Punch**: 3 tiers (5,000 / 15,000 / 30,000). Each tier renames the
   weapon, raises damage/mag/reserve and changes the camo glow. The M1911 at
   tier 1+ becomes twin grenade-launcher pistols.
 - **Mystery box**: 950, rolls a box weapon incl. the **X-Ray** (brass ray
@@ -59,9 +67,19 @@ Code prefix: `Df` / `df` / `DF_`.
   **wunderweapon** (chain-lightning arc
   rifle) from the pedestal. Steps in `DF_EGG_STEPS`; the HUD shows the step
   text and a waypoint.
+- **Electric traps** (`shared/utils/dead-front/map-traps.ts`, rules in
+  `specials.ts`): a lever beside the Churchyard Passage and the Cemetery Gate.
+  1000 points with the power on fries every zombie in the passage for 25 s
+  (50 points each to the buyer; players only get stung), then 60 s cooldown.
 - **Perks** (cap 4): Ironhide (health), Quickhand (reload), Twinfire (fire
   rate), Second Wind (revive, self-revive solo), Fleetfoot (move/sprint),
   Steady Eye (aim/headshots). Effects only through `DfPlayerEffects`.
+- **Gas rounds** (`specials.ts`): every few rounds a smaller, faster pack of
+  gas-masked ghouls; the client rolls mustard fog over `world.special.pockets`
+  and the player coughs standing in it (`dfGasDepth`). It never hurts.
+- **Crawlers**: a leg shot can take a zombie's legs (`dfCrawlChance`); it
+  drops onto its stumps and drags itself on its arms, with the low
+  `crawlHitTest` hitbox.
 - **Power-ups** (drops on kill): max ammo, double points, insta-kill, nuke,
   carpenter.
 
@@ -106,6 +124,13 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   steps (`dfRampHeight`) eased at walking pace instead of the physics'
   instant step-up. The camera rides the same kind of ramp through a critically
   damped spring (`DfPlayerController.viewFloor`).
+- Lag: every `in` carries the client's `rtt`. A zombie swipe whose windup ends
+  waits `rtt + 50 ms` (capped at 0.3 s) before it lands, so a step back made on
+  the player's screen has reached the server. A player whose movement reports
+  stopped arriving for `DF_STALE_INPUT` (a lag spike, up to 3 s) can't be hit
+  by zombies (not again within 10 s of their last stall), and a solo match
+  holds still until their reports resume (`DfMatchSim.soloStalled`; a
+  reconnected client isn't stalled before its first report).
 - Solo pause: losing pointer lock (the pause menu, alt-tab) sends
   `{ t: 'pause', paused }`; the match stops stepping and sending snapshots
   until resumed (ignored in co-op, cleared on reconnect).
@@ -137,6 +162,11 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   power", each once per browser (`localStorage` `df-hints-v1`), one at a time
   with a gap, taken down as soon as the player does the thing. A downed
   teammate is always called out ("Hold F next to Bea to revive").
+- Hit points: every own hit floats its points ("+10", kills "+60" / "+100" /
+  "+130") up off the zombie where it was hit (`hud.hitPops`, positioned per
+  frame through `--df-hp{i}-x/y/on`), besides the classic popups at the score.
+- In-match chat: T or Enter opens a box over the chat feed (`DfInput.typing`
+  keeps the keys out of the game), Enter sends `{ t: 'chat' }`.
 - `hud.ammoHint` under the crosshair: "Press R to reload", "Low ammo", "No
   ammo".
 - Prompts say why a buy fails ("Chapel Nave · Need 250 more points",
@@ -249,8 +279,8 @@ tension bed follows `audio.setTension(alive / 18)`. In dev,
 ## Wall-buys and the box
 
 Wall-buys on the map: `kar98k`, `mp18`, `m1897`, `thompson` (the weapons
-agent sets `wallCost`/`ammoCost` for exactly these). Box only: `c96`, `bar`,
-`lewis`, `xray` (plus the wall weapons). `m1911` is the default start weapon;
+agent sets `wallCost`/`ammoCost` for exactly these). Box only: `c96`, `ppsh`,
+`bar`, `lewis`, `xray` (plus the wall weapons). `m1911` is the default start weapon;
 `wunder` comes only from the easter egg.
 
 ## Zombie dimensions
@@ -296,6 +326,12 @@ rounds on the real map and prints points earned against costs per round
   with knife switches (one on the rampart walk). They glow and tick during the
   `rods` step, crackle with sky bolts when thrown, and when all three are live
   arcs leap to the generator and on to the pedestal.
+- **Electric traps** (`world/interact/traps.ts`, `map.traps`): a slate switch
+  panel with a knife switch and a status lamp (dark without power, green
+  ready, red cooling down, flashing while live), coils on the wall faces
+  either side of the passage joined by a wire overhead. Live, the wire glows,
+  arcs leap between the coils, a pooled light stutters over the passage and
+  each kill takes a bolt from the nearest coil. Sounds: `DF_SPECIAL_SND.trap*`.
 - **Atmosphere** (`world/atmosphere.ts`): ground mist masked to open ground
   (roofed cells from the voxel grid stay clear), drifting ash and embers
   around the camera. A new round bleeds the sky red for a few seconds; shell
