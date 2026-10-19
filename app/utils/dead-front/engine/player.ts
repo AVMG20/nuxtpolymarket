@@ -13,7 +13,7 @@ const CRAWL_SPEED = 0.85
 const GROUND_ACCEL = 55
 const GROUND_DECEL = 58
 /** Gaining speed past walking pace (into a sprint) is softer, so the sprint has weight. */
-const SPRINT_ACCEL = 22
+const SPRINT_ACCEL = 25
 const AIR_ACCEL = 7
 /** Extra gravity on the way down. */
 const FALL_GRAVITY = 1.4

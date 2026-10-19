@@ -33,22 +33,22 @@ export const DF_ENEMIES: Record<DfEnemyType, DfEnemyDef> = {
     shambler: {
         type: 'shambler', name: 'Shambler', minRound: 1, healthMult: 1, damage: 50, attackRange: 1.15, attackCooldown: 1.1,
         radius: 0.35, height: 1.8, headY: 1.62, headR: 0.17,
-        speeds: { walk: 1.15, run: 3.0, sprint: 4.7 }, windup: 0.5, tearTime: 1.15
+        speeds: { walk: 1.27, run: 3.3, sprint: 5.2 }, windup: 0.5, tearTime: 1.15
     },
     ghoul: {
         type: 'ghoul', name: 'Ghoul', minRound: 5, healthMult: 0.7, damage: 40, attackRange: 1.25, attackCooldown: 0.75,
         radius: 0.32, height: 1.7, headY: 1.5, headR: 0.16,
-        speeds: { walk: 2.2, run: 4.4, sprint: 5.4 }, windup: 0.32, tearTime: 0.8
+        speeds: { walk: 2.4, run: 4.85, sprint: 5.95 }, windup: 0.32, tearTime: 0.8
     },
     brute: {
         type: 'brute', name: 'Ironclad Brute', minRound: 8, healthMult: 4, damage: 90, attackRange: 1.6, attackCooldown: 1.8,
         radius: 0.55, height: 2.3, headY: 2.05, headR: 0.22,
-        speeds: { walk: 1.35, run: 2.5, sprint: 3.4 }, windup: 0.75, tearTime: 0.7, helmet: 0.6
+        speeds: { walk: 1.5, run: 2.75, sprint: 3.75 }, windup: 0.75, tearTime: 0.7, helmet: 0.6
     },
     bloater: {
         type: 'bloater', name: 'Bloater', minRound: 12, healthMult: 1.8, damage: 40, attackRange: 1.25, attackCooldown: 1.4,
         radius: 0.5, height: 1.9, headY: 1.65, headR: 0.18,
-        speeds: { walk: 1.25, run: 1.9, sprint: 2.4 }, windup: 0.5, tearTime: 1.2
+        speeds: { walk: 1.4, run: 2.1, sprint: 2.65 }, windup: 0.5, tearTime: 1.2
     }
 }
 
