@@ -65,6 +65,7 @@ import {
 } from './game/bodies'
 import { Crowd } from './game/crowd'
 import { Combat } from './game/combat'
+import { WhiteHats } from './game/white-hats'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -540,6 +541,7 @@ export class HackerzGame {
     readonly territory = new Territory(this)
     readonly crowd = new Crowd(this)
     readonly combat = new Combat(this)
+    readonly whiteHats = new WhiteHats(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -721,7 +723,7 @@ export class HackerzGame {
         const u = best.reduce((sum, e) => sum + e.u, 0) / best.length
         const d = best.reduce((sum, e) => sum + e.d, 0) / best.length
         const lead = best.reduce((top, e) => e.d < top.d ? e : top)
-        const convert = best.filter(e => this.turnable(e)).sort((a, b) => b.maxHp - a.maxHp)[0] ?? null
+        const convert = best.filter(e => this.whiteHats.turnable(e)).sort((a, b) => b.maxHp - a.maxHp)[0] ?? null
         return { u, d, size: best.length, lead, convert }
     }
 
@@ -1062,7 +1064,7 @@ export class HackerzGame {
         }
         if (id === 'whitehat') {
             const pick = this.enemies
-                .filter(e => this.turnable(e))
+                .filter(e => this.whiteHats.turnable(e))
                 .sort((a, b) => Math.hypot(a.u - u, a.d - d) - Math.hypot(b.u - u, b.d - d))[0]
             this.useWhiteHat(pick ?? null)
             return
@@ -1597,121 +1599,21 @@ export class HackerzGame {
     private useWhiteHat(picked: EnemyEntity | null) {
         const loadout = this.loadout
         if (!loadout || !this.running || this.purging || this.paused || this.stock.whitehat <= 0) return
-        if (!picked || !this.turnable(picked)) {
+        if (!picked || !this.whiteHats.turnable(picked)) {
             this.callbacks.onNotice(picked?.def.boss ? 'A boss cannot be turned.' : 'Click a hostile to turn it.', 'info')
             return
         }
         const turned = [picked]
         const others = this.enemies
-            .filter(e => e !== picked && this.turnable(e))
+            .filter(e => e !== picked && this.whiteHats.turnable(e))
             .sort((a, b) => Math.hypot(a.u - picked.u, a.d - picked.d) - Math.hypot(b.u - picked.u, b.d - picked.d))
         turned.push(...others.slice(0, loadout.whitehatTargets - 1))
-        for (const enemy of turned) this.turnEnemy(enemy)
+        for (const enemy of turned) this.whiteHats.turnEnemy(enemy)
         this.stock.whitehat--
         this.callbacks.onDeploy?.('whitehat', this.stock.whitehat)
         this.sysLog.whiteHat(turned.length)
         this.callbacks.onSound?.('coin-pickup')
         this.arm(null)
-    }
-
-    /** A hostile a White Hat can take: not a boss, not a copy, not one already ours, not one out of reach. */
-    private turnable(enemy: EnemyEntity) {
-        return !enemy.def.boss && !enemy.decoy && !enemy.turned && enemy.hp > 0 && !this.combat.untargetable(enemy)
-    }
-
-    /** It switches sides: drops whatever job it had, and is marked white. */
-    private turnEnemy(enemy: EnemyEntity) {
-        enemy.turned = true
-        if (enemy.hacking) this.stopHacking(enemy)
-        // Every job it had for them is dropped: no more guarding, escorting or shield-bearing.
-        enemy.escorting = null
-        enemy.defending = null
-        enemy.bearer = false
-        enemy.parked = null
-        enemy.healing = null
-        if (this.target === enemy) this.target = null
-        const halo = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2),
-            new THREE.MeshBasicMaterial({ color: hdr(0xffffff, 2), toneMapped: false, transparent: true, opacity: 0.8, depthWrite: false }))
-        halo.scale.setScalar(Math.max(0.6, enemy.rig.height * 0.4))
-        halo.position.y = 0.05
-        enemy.rig.root.add(halo)
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-        this.particles.burst(at, 0xffffff, 24, 8, { size: 0.26, life: 0.6 })
-        this.transient?.ring(at, 0xffffff, 3, 0.4)
-        this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'WHITE HAT', 0xffffff, 1.1)
-    }
-
-    /** What a turned unit, or a hostile it is brawling with, hits for: its own heft, not its wall damage. */
-    private brawlHit(enemy: EnemyEntity) {
-        return enemy.maxHp * 0.12 + enemy.damage * 3
-    }
-
-    /** The hostile a turned unit goes for: the nearest one it can reach. */
-    private turnedFoe(enemy: EnemyEntity) {
-        let best: EnemyEntity | null = null
-        let bestDistance = Infinity
-        for (const other of this.enemies) {
-            if (other === enemy || other.turned || other.hp <= 0 || other.burrowMs > 0) continue
-            // A turned unit on foot cannot reach a flyer.
-            if (hackerzIsAirborne(other.def) && !hackerzIsAirborne(enemy.def)) continue
-            const distance = Math.hypot(other.u - enemy.u, other.d - enemy.d)
-            if (distance < bestDistance) {
-                best = other
-                bestDistance = distance
-            }
-        }
-        return best
-    }
-
-    /** A turned unit's move: after the nearest hostile, and a blow every attack beat once it is there. */
-    private turnedStep(enemy: EnemyEntity, dt: number, dtMs: number) {
-        const foe = this.turnedFoe(enemy)
-        if (!foe) return { moved: 0, arrived: false }
-        const du = foe.u - enemy.u
-        const dd = foe.d - enemy.d
-        const dist = Math.hypot(du, dd)
-        const reach = enemy.radius + foe.radius + 10
-        let moved = 0
-        if (dist > reach) {
-            moved = Math.min(dist - reach, enemy.speed * this.pushSpeed * dt)
-            enemy.u += du / dist * moved
-            enemy.d += dd / dist * moved
-            enemy.yaw = Math.atan2(du, -dd)
-        } else {
-            enemy.attackTimer -= dtMs
-            if (enemy.attackTimer <= 0) {
-                enemy.attackTimer = enemy.def.attackMs
-                enemy.strike = 1
-                this.combat.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, true)
-                const at = enemyWorld(foe, foe.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-                this.particles.burst(at, 0xffffff, 8, 6, { size: 0.22, life: 0.3 })
-            }
-        }
-        return { moved, arrived: false }
-    }
-
-    /**
-     * A hostile with a turned unit in its face fights it instead of pressing on:
-     * stands, and hits it every attack beat. Null when none is close enough.
-     */
-    private brawlStep(enemy: EnemyEntity, dtMs: number) {
-        if (enemy.turned || enemy.def.boss) return null
-        let foe: EnemyEntity | null = null
-        for (const other of this.enemies) {
-            if (!other.turned || other.hp <= 0) continue
-            if (Math.hypot(other.u - enemy.u, other.d - enemy.d) <= enemy.radius + other.radius + 12) {
-                foe = other
-                break
-            }
-        }
-        if (!foe) return null
-        enemy.attackTimer -= dtMs
-        if (enemy.attackTimer <= 0) {
-            enemy.attackTimer = enemy.def.attackMs
-            enemy.strike = 1
-            this.combat.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, false)
-        }
-        return { moved: 0, arrived: false }
     }
 
     /** A Power Surge laid on the grid at (u, d). */
@@ -2903,8 +2805,8 @@ export class HackerzGame {
             // A turned unit hunts hostiles; a hostile with one in its face fights
             // it; a healer flies its own rounds; everyone else gets on with it.
             const mending = enemy.turned
-                ? (live ? this.turnedStep(enemy, dt, dtMs) : { moved: 0, arrived: false })
-                : (live ? this.brawlStep(enemy, dtMs) : null)
+                ? (live ? this.whiteHats.turnedStep(enemy, dt, dtMs) : { moved: 0, arrived: false })
+                : (live ? this.whiteHats.brawlStep(enemy, dtMs) : null)
                     ?? (enemy.def.heal && !enemy.kamikaze && live ? this.healers.healerStep(enemy, dt, dtMs) : null)
             const step = mending ?? (enemy.demoPath
                 ? this.puppetStep(enemy, goal, hold, dt)
@@ -4951,7 +4853,7 @@ export class HackerzGame {
         }
     }
 
-    private stopHacking(enemy: EnemyEntity) {
+    stopHacking(enemy: EnemyEntity) {
         enemy.hacking = false
         this.terminals?.close(enemy)
     }
