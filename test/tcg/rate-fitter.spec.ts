@@ -27,6 +27,14 @@ function pool(prefix: string, count: number, fields: Partial<FitPrinting>): FitP
     }))
 }
 
+/** Every tier's authored rate within `pct` of its published one. */
+function expectRatesWithin(fit: FitResult, pct: number, include: (label: string) => boolean = () => true) {
+    const off = fit.diagnostics
+        .filter(d => include(d.label) && Math.abs(d.deltaPct) > pct)
+        .map(d => `${d.label} ${d.deltaPct.toFixed(1)}%`)
+    expect(off).toEqual([])
+}
+
 // --- Prismatic Evolutions fixture (19 tiers, schema doc reference values) ---
 
 const prismaticTemplate: RateTemplate = {
@@ -614,26 +622,31 @@ describe('fitSet — Black & White (bw1, fractional Common + shared energy slot)
     ]
     const fit = fitSet(template, printings)
 
-    it('reclassifies Common 4.7 as guaranteed and orders slots physically', () => {
+    it('reclassifies Common 4.7 as 4 guaranteed slots, its 0.7 sharing the chase', () => {
         expect(fit.sheets.map(s => s.name)).toEqual(['common', 'uncommon', 'reverse', 'chase'])
         expect(fit.slots).toEqual([
-            { sheetName: 'common', count: 5 },
+            { sheetName: 'common', count: 4 },
             { sheetName: 'uncommon', count: 3 },
             { sheetName: 'reverse', count: 1 },
-            { sheetName: 'chase', count: 1 }
+            { sheetName: 'chase', count: 2 }
         ])
         expect(fit.slots.reduce((a, s) => a + s.count, 0)).toBe(10)
+        expect(fit.sheets.find(s => s.name === 'chase')!.mults.some(([id]) => id.startsWith('bw-c-'))).toBe(true)
+    })
+
+    it('lands every tier within 3% of the table (rounding Common to 5 left the hits 25% short)', () => {
+        expectRatesWithin(fit, 3)
     })
 
     it('folds fractional energy into the chase pool with no energy sheet', () => {
         const chase = fit.sheets.find(s => s.name === 'chase')!
         expect(fit.sheets.some(s => s.name === 'energy')).toBe(false)
-        expect(chase.packSlots).toBe(1)
+        expect(chase.packSlots).toBe(2)
         expect(chase.mults.some(([id]) => id.startsWith('bw-nrg-'))).toBe(true)
         expect(chase.mults.some(([id]) => id.startsWith('bw-r-'))).toBe(true)
     })
 
-    it('does not warn about the slot total (5+3+1+1 = 10 = cardsPerPack)', () => {
+    it('does not warn about the slot total (4+3+1+2 = 10 = cardsPerPack)', () => {
         expect(fit.warnings.some(w => w.includes('cardsPerPack'))).toBe(false)
     })
 
@@ -677,15 +690,19 @@ describe('fitSet — Evolutions (xy12, everything scraped as hit)', () => {
     ]
     const fit = fitSet(template, printings)
 
-    it('splits fractional Common/Uncommon out into guaranteed tiers', () => {
+    it('splits fractional Common/Uncommon into guaranteed slots plus a shared chase', () => {
         expect(fit.sheets.map(s => s.name)).toEqual(['common', 'uncommon', 'reverse', 'chase'])
         expect(fit.slots).toEqual([
-            { sheetName: 'common', count: 5 },
-            { sheetName: 'uncommon', count: 3 },
+            { sheetName: 'common', count: 4 },
+            { sheetName: 'uncommon', count: 2 },
             { sheetName: 'reverse', count: 1 },
-            { sheetName: 'chase', count: 1 }
+            { sheetName: 'chase', count: 3 }
         ])
         expect(fit.slots.reduce((a, s) => a + s.count, 0)).toBe(10)
+    })
+
+    it('lands every hit tier within 3% of the table (one chase slot left them 35% short)', () => {
+        expectRatesWithin(fit, 3, label => !label.startsWith('Reverse '))
     })
 
     it('folds the 0.37/pack energy into the chase pool', () => {
@@ -732,6 +749,149 @@ describe('fitSet — Celebrations (cel25, 4-card packs, no reverse or energy row
     })
 })
 
+describe('fitSet — 30th Celebration (me55, Common 2.7 shares slots with the hits)', () => {
+    const template = eraTemplate('me55', 6, [
+        tier('RGB Secret Rare', 'hit', 0.000246, 3),
+        tier('Futuristic Rare', 'hit', 0.010101, 2),
+        tier('Special Illustration Rare', 'hit', 0.052632, 10),
+        tier('Classic Collection', 'hit', 0.104167, 30),
+        tier('Illustration Rare', 'hit', 0.192308, 18),
+        tier('Double Rare', 'hit', 0.25, 12),
+        tier('Pikachu Rare', 'guaranteed', 1, 30),
+        tier('Rare', 'hit', 0.666667, 18),
+        tier('Common', 'hit', 2.7, 68),
+        tier('Energy (Holo)', 'energy', 1, 8)
+    ])
+    const printings: FitPrinting[] = [
+        ...pool('me-rgb', 3, { rarity: 'RGB Secret Rare', rarityCode: 'RGB', finish: 'holo' }),
+        ...pool('me-fur', 2, { rarity: 'Futuristic Rare', rarityCode: 'FUR', finish: 'holo' }),
+        ...pool('me-sir', 10, { rarity: 'Special Illustration Rare', rarityCode: 'SIR', finish: 'holo' }),
+        ...pool('me-cc', 30, { rarity: 'Classic Collection', rarityCode: 'CC', finish: 'holo' }),
+        ...pool('me-ir', 18, { rarity: 'Illustration Rare', rarityCode: 'IR', finish: 'holo' }),
+        ...pool('me-2r', 12, { rarity: '2R', rarityCode: '2R', finish: 'holo' }),
+        ...pool('me-pkr', 30, { rarity: 'Pikachu Rare', rarityCode: 'PKR', finish: 'holo' }),
+        ...pool('me-r', 18, { rarity: 'Rare', rarityCode: 'R', finish: 'holo' }),
+        ...pool('me-c', 68, { rarity: 'Common', rarityCode: 'C', finish: 'holo' }),
+        ...pool('me-nrg', 8, { category: 'Energy', name: 'Basic {G} Energy', rarityCode: 'TCGLFBE' })
+    ]
+    const fit = fitSet(template, printings)
+
+    it('gives Common 2 slots and the chase 2, filling 6 cards', () => {
+        expect(fit.slots).toEqual([
+            { sheetName: 'energy', count: 1 },
+            { sheetName: 'common', count: 2 },
+            { sheetName: 'pikachu-rare', count: 1 },
+            { sheetName: 'chase', count: 2 }
+        ])
+        expect(fit.warnings).toEqual([])
+    })
+
+    it('lands every tier within 5% of the table, the 1-in-4,065 RGB Mews included', () => {
+        expectRatesWithin(fit, 5)
+    })
+
+    it('grows the chase sheet past the default 4,000 positions for the RGB tier', () => {
+        const chase = fit.sheets.find(s => s.name === 'chase')!
+        expect(chase.layout.length).toBeGreaterThan(4000)
+        expect(chase.layout.length).toBeLessThanOrEqual(25_000)
+    })
+
+    it('every sheet passes the window constraint', () => {
+        expectWindowClean(fit.sheets)
+    })
+})
+
+describe('fitSet — 30th Celebration with its declared slot layout', () => {
+    const base = eraTemplate('me55', 6, [
+        tier('RGB Secret Rare', 'hit', 0.000246, 3),
+        tier('Futuristic Rare', 'hit', 0.010101, 2),
+        tier('Special Illustration Rare', 'hit', 0.052632, 10),
+        tier('Classic Collection', 'hit', 0.104167, 30),
+        tier('Illustration Rare', 'hit', 0.192308, 18),
+        tier('Double Rare', 'hit', 0.25, 12),
+        tier('Pikachu Rare', 'guaranteed', 1, 30),
+        tier('Rare', 'hit', 0.666667, 18),
+        tier('Common', 'hit', 2.7, 68),
+        tier('Energy (Holo)', 'energy', 1, 8)
+    ])
+    // As served by the sidecar from pokemonplaatjes' slot-layouts.json.
+    const template: RateTemplate = {
+        ...base,
+        slots: [
+            { name: 'common-or-hit', tiers: ['Illustration Rare', 'Classic Collection'], fill: 'Common' },
+            { name: 'rare', tiers: ['Double Rare', 'Special Illustration Rare', 'Futuristic Rare', 'RGB Secret Rare'], fill: 'Rare' },
+            { name: 'pikachu', tiers: ['Pikachu Rare'] }
+        ]
+    }
+    const printings: FitPrinting[] = [
+        ...pool('me-rgb', 3, { rarity: 'RGB Secret Rare', rarityCode: 'RGB', finish: 'holo' }),
+        ...pool('me-fur', 2, { rarity: 'Futuristic Rare', rarityCode: 'FUR', finish: 'holo' }),
+        ...pool('me-sir', 10, { rarity: 'Special Illustration Rare', rarityCode: 'SIR', finish: 'holo' }),
+        ...pool('me-cc', 30, { rarity: 'Classic Collection', rarityCode: 'CC', finish: 'holo' }),
+        ...pool('me-ir', 18, { rarity: 'Illustration Rare', rarityCode: 'IR', finish: 'holo' }),
+        ...pool('me-2r', 12, { rarity: '2R', rarityCode: '2R', finish: 'holo' }),
+        ...pool('me-pkr', 30, { rarity: 'Pikachu Rare', rarityCode: 'PKR', finish: 'holo' }),
+        ...pool('me-r', 18, { rarity: 'Rare', rarityCode: 'R', finish: 'holo' }),
+        ...pool('me-c', 68, { rarity: 'Common', rarityCode: 'C', finish: 'holo' }),
+        ...pool('me-nrg', 8, { category: 'Energy', name: 'Basic {G} Energy', rarityCode: 'TCGLFBE' })
+    ]
+    const fit = fitSet(template, printings)
+    const prefixesOf = (name: string) => [...new Set(fit.sheets.find(s => s.name === name)!.mults.map(([id]) => id.replace(/-\d+$/, '')))].sort()
+
+    it('lays the pack out as it is printed, Pikachu last', () => {
+        expect(fit.slots).toEqual([
+            { sheetName: 'energy', count: 1 },
+            { sheetName: 'common', count: 2 },
+            { sheetName: 'common-or-hit', count: 1 },
+            { sheetName: 'rare', count: 1 },
+            { sheetName: 'pikachu', count: 1 }
+        ])
+        expect(fit.warnings).toEqual([])
+    })
+
+    it('keeps each hit in the slot it can really occupy', () => {
+        expect(prefixesOf('common-or-hit')).toEqual(['me-c', 'me-cc', 'me-ir'])
+        expect(prefixesOf('rare')).toEqual(['me-2r', 'me-fur', 'me-r', 'me-rgb', 'me-sir'])
+    })
+
+    it('lands every hit tier within 5% of the table; Rare and Common absorb the slack', () => {
+        expectRatesWithin(fit, 5, label => label !== 'Rare')
+        // The rare slot's tiers sum to 0.98 published; a Rare fills the rest.
+        const rare = fit.diagnostics.find(d => d.label === 'Rare')!
+        expect(rare.authoredPerPack).toBeGreaterThan(0.666667)
+        expect(rare.authoredPerPack).toBeLessThan(0.7)
+    })
+
+    it('every sheet passes the window constraint', () => {
+        expectWindowClean(fit.sheets)
+    })
+
+    it('nets god packs out of the slots holding the recipe tiers', () => {
+        const god = applyGodConfig(fit, template, printings, 100_000, 2000)
+        expect(god.feasible).toBe(true)
+        expect(god.godSlots).toEqual([
+            { sheetName: 'energy', count: 1 },
+            { sheetName: 'god-illustration-rare', count: 4 },
+            { sheetName: 'god-special-illustration-rare', count: 1 }
+        ])
+        // IR supply comes off the common-or-hit sheet and SIR off the rare
+        // sheet; total supply of each is unchanged.
+        const supply = (sheets: FitSheetSpec[], name: string, prefix: string, packs: number) => {
+            const sheet = sheets.find(s => s.name === name)!
+            const M = sheet.mults.reduce((a, [, m]) => a + m, 0)
+            const t = sheet.mults.filter(([id]) => id.startsWith(prefix + '-')).reduce((a, [, m]) => a + m, 0)
+            return packs * sheet.packSlots * t / M
+        }
+        const G = god.G
+        const irBefore = supply(fit.sheets, 'common-or-hit', 'me-ir', 100_000)
+        const irAfter = supply(god.adjustedSheets, 'common-or-hit', 'me-ir', 100_000 - G) + G * 4
+        expect(Math.abs(irAfter / irBefore - 1)).toBeLessThan(0.01)
+        const sirBefore = supply(fit.sheets, 'rare', 'me-sir', 100_000)
+        const sirAfter = supply(god.adjustedSheets, 'rare', 'me-sir', 100_000 - G) + G
+        expect(Math.abs(sirAfter / sirBefore - 1)).toBeLessThan(0.01)
+    })
+})
+
 describe('fitSet — guaranteed threshold and sanity warning', () => {
     it('keeps perPack 1.4 as a hit row but promotes 1.5 to guaranteed', () => {
         const template = eraTemplate('thresh', 4, [
@@ -744,10 +904,13 @@ describe('fitSet — guaranteed threshold and sanity warning', () => {
         ]
         const fit = fitSet(template, printings)
         expect(fit.sheets.map(s => s.name)).toEqual(['alpha-rare', 'chase'])
+        // Alpha's 0.5 shares the chase with Beta's 1.4: 1 + 2 slots, where
+        // rounding Alpha to 2 would have squeezed Beta into a single slot.
         expect(fit.slots).toEqual([
-            { sheetName: 'alpha-rare', count: 2 },
-            { sheetName: 'chase', count: 1 }
+            { sheetName: 'alpha-rare', count: 1 },
+            { sheetName: 'chase', count: 2 }
         ])
+        expect(fit.diagnostics.map(d => d.label)).toEqual(['Alpha Rare', 'Beta Rare'])
     })
 
     it('warns (never blocks) when the slot total misses cardsPerPack', () => {

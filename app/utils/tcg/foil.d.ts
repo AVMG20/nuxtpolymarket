@@ -43,6 +43,8 @@ export declare function resolve(opts: {
     face?: string
     pattern?: string
     etch?: boolean
+    /** Demo only: a flat 'rrggbb' face in place of the card, to design a layer alone. */
+    isolate?: string | null
 }): ResolvedCard
 
 export declare const ART_WINDOW: ArtWindow

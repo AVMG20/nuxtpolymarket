@@ -352,8 +352,7 @@ export async function deleteSet(setId: string): Promise<{
 
 // ─── Buy ──────────────────────────────────────────────────────────────────────
 
-function cutsCapacityOf(sheet: SheetRow): number {
-    const M = sheet.layout.length
+function cutsCapacityOf(M: number, sheet: Pick<SheetRow, 'impressions' | 'packSlots'>): number {
     return Math.floor(M * (sheet.impressions ?? 0) / sheet.packSlots)
 }
 
@@ -445,17 +444,25 @@ export async function buyPackIn(tx: Tx, setId: string, userId: string, bundleId:
 
     const cuts: { sheetId: string, seq: number, cut: number }[] = []
     for (const slot of template.slots) {
+        // Only the layout's length: a chase sheet can run to 25,000 positions
+        // (~1 MB of ids), and every slot of every purchase comes through here.
         const [drawn] = await tx.update(tcgSheet)
             .set({ cursor: sql`${tcgSheet.cursor} + 1` })
             .where(and(eq(tcgSheet.id, slot.sheetId), lt(tcgSheet.cursor, tcgSheet.cursorLimit)))
-            .returning()
+            .returning({
+                id: tcgSheet.id,
+                cursor: tcgSheet.cursor,
+                impressions: tcgSheet.impressions,
+                packSlots: tcgSheet.packSlots,
+                layoutLength: sql<number>`jsonb_array_length(${tcgSheet.layout})`
+            })
         if (!drawn) {
             // A sheet exhausted before the set sold out is an invariant
             // breach — roll the whole purchase back.
             throw createError({ statusCode: 500, statusMessage: 'Sheet exhausted before sellout' })
         }
         const seq = drawn.cursor - 1
-        const cut = feistelPermute(seq, cutsCapacityOf(drawn), deriveKey(set.secretKey, `sheet:${drawn.id}`))
+        const cut = feistelPermute(seq, cutsCapacityOf(Number(drawn.layoutLength), drawn), deriveKey(set.secretKey, `sheet:${drawn.id}`))
         cuts.push({ sheetId: drawn.id, seq, cut })
     }
 

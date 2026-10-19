@@ -30,9 +30,13 @@ function altRecord(prefix: string): PlaatjesCard {
     }
 }
 
+// The import first reads the /pull-rates index for a set's subsets, so that
+// one URL answers with an index naming none; everything else is the cards.
 function stubCards(items: PlaatjesCard[]) {
     const page = { total: items.length, page: 1, limit: 500, returned: items.length, items }
-    Object.assign(globalThis, { $fetch: async () => page })
+    Object.assign(globalThis, {
+        $fetch: async (url: string) => (url.endsWith('/pull-rates') ? { sets: [] } : page)
+    })
 }
 
 const realFetch = (globalThis as { $fetch?: unknown }).$fetch
