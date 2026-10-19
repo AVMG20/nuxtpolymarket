@@ -19,8 +19,8 @@ import {
 import type { HackerzGame } from './hackerz-engine/hackerz-game'
 import type { EnemyEntity } from './hackerz-engine/types'
 
-// Auto-play for HACKERZ, played by Laya on this machine: `laya_server.py`, the
-// same local Laya API Shapezz and Pirate Raid auto-play use (`runtimeConfig.public.layaUrl`). A few times a second mid-wave the board is described to
+// Auto-play for HACKERZ, played by Laya on this machine: `laya_server.py`, at
+// `runtimeConfig.public.layaUrl`. A few times a second mid-wave the board is described to
 // Laya and it names the hostile to shoot and any ability to fire; this class
 // carries that out through the engine. Between waves it asks Laya what to buy,
 // one purchase at a time. Laya makes the calls, except the two it was shown
@@ -29,8 +29,8 @@ import type { EnemyEntity } from './hackerz-engine/types'
 // is fired at blind. While Laya is down the rail holds fire and the uplink waits.
 
 export interface HackerzAutopilotStatus {
-    /** The last question reached Laya. */
-    online: boolean
+    /** Whether the last question reached Laya; null before the first one is asked. */
+    online: boolean | null
     /** What auto-play is doing, for the HUD. */
     line: string
 }
@@ -41,6 +41,8 @@ const LAYA_TIMEOUT_MS = 1500
 const OFFLINE_RETRY_MS = 1500
 /** A gun swap costs a moment's reload, so which gun to hold is asked at most this often. */
 const GUN_ASK_MS = 3000
+/** What the HUD says while Laya does not answer. */
+const OFFLINE_LINE = 'Laya offline: start laya_server.py'
 /** At most one deployable this often, so a wave's stock is not spent in one go. */
 const DEPLOY_ASK_MS = 4000
 
@@ -71,7 +73,7 @@ export class HackerzAutopilot {
     private timer: ReturnType<typeof setInterval> | null = null
     private retryAt = 0
     private target: EnemyEntity | null = null
-    private status: HackerzAutopilotStatus = { online: false, line: 'Waiting for Laya' }
+    private status: HackerzAutopilotStatus = { online: null, line: 'Waiting for Laya' }
 
     constructor(
         private game: HackerzGame,
@@ -200,7 +202,7 @@ export class HackerzAutopilot {
     private offline() {
         this.retryAt = performance.now() + OFFLINE_RETRY_MS
         this.game.autopilotAim(null)
-        this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
+        this.setStatus({ online: false, line: OFFLINE_LINE })
     }
 
     /**
@@ -223,7 +225,7 @@ export class HackerzAutopilot {
             answers = null
         }
         if (!answers) {
-            this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
+            this.setStatus({ online: false, line: OFFLINE_LINE })
             return { online: false, pick: null }
         }
         const pick = hackerzLayaShopPick(offers, answers)
@@ -248,7 +250,7 @@ export class HackerzAutopilot {
             answers = null
         }
         if (!answers) {
-            this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
+            this.setStatus({ online: false, line: OFFLINE_LINE })
             return null
         }
         const take = hackerzLayaBonusPick(answers)

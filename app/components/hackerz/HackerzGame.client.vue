@@ -603,9 +603,20 @@ function toggleAutopilot(on: boolean) {
   }
   layaLog.value = []
   pushLaya(`laya --play ${difficulty.value.name.toLowerCase()} --url ${layaUrl}`)
+  // Warned once per outage: the terminal line alone is easy to miss, and is
+  // not shown at all on a phone.
+  let layaDown = false
   autopilot = new HackerzAutopilot(game, layaUrl, (status) => {
     autopilotLine.value = status.line
-    pushLaya(status.line, !status.online)
+    pushLaya(status.line, status.online === false)
+    if (status.online === false && !layaDown) {
+      toast.add({
+        title: 'Laya is not running',
+        description: `Nothing answers at ${layaUrl}. Start laya_server.py; auto-play waits until she is up.`,
+        color: 'warning'
+      })
+    }
+    if (status.online !== null) layaDown = !status.online
   }, {
     guns: () => weaponRows.value.filter(row => row.owned).map(row => ({
       id: row.def.id,
