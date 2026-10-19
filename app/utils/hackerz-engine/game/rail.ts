@@ -92,6 +92,15 @@ export class Rail {
         }
     }
 
+    /** Puts a gun on the rail with a full magazine, ready to fire. Its reload is the caller's. */
+    load(weapon: HackerzWeaponRuntime) {
+        this.weapon = weapon
+        this.ammoRack?.setColour(weapon.hex)
+        this.magSize = Math.round(weapon.magazine)
+        this.mag = this.magSize
+        this.fireTimer = 0
+    }
+
     /**
      * Where the rail is pointing this frame: the locked target, else the spot a
      * lag spike left it firing at (while the button stays down), else the cursor.

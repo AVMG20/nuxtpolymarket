@@ -261,14 +261,14 @@ export class HackerzGame {
 
     /** Drops one enemy of a type onto the field: for tests, the demo boards and the debug menu. */
     debugSpawn(id: HackerzEnemyId, u?: number, d?: number) {
-        this.spawner.spawn(hackerzEnemy(id))
-        const enemy = this.enemies[this.enemies.length - 1]
-        if (!enemy) return
+        const enemy = this.spawner.spawn(hackerzEnemy(id))
+        if (!enemy) return null
         if (u !== undefined) enemy.u = u
         if (d !== undefined) enemy.d = d
         if (this.movement.ridesNetwork(enemy)) this.movement.attachToNetwork(enemy)
         enemy.age = 1
         placeEnemy(enemy)
+        return enemy
     }
 
     // ─── Auto-play ───────────────────────────────────────────────────────────
@@ -391,9 +391,6 @@ export class HackerzGame {
         const { loadout } = config
         this.clearField()
         this.sysLog.reset()
-        this.loadout = loadout
-        this.rail.weapon = loadout.weapon
-        this.rail.ammoRack?.setColour(loadout.weapon.hex)
         this.wave = 0
         this.waveElapsed = 0
         this.scoring.totalKills = config.kills ?? 0
@@ -409,20 +406,29 @@ export class HackerzGame {
         this.running = false
         this.bastion.wallMaxHp = loadout.wallMaxHp
         this.bastion.wallHp = clamp(config.wallHp ?? loadout.wallMaxHp, 1, loadout.wallMaxHp)
+        this.applyLoadout(loadout)
+        this.bastion.emitWall()
+        this.rail.emitAmmo()
+        return true
+    }
+
+    /**
+     * Arms the bastion with a loadout: the gun with a full magazine, the ICE
+     * Barrier at full strength, the abilities charged and the mounts built.
+     * The wall's own health is the caller's: a run sets it, a wave heals it.
+     */
+    private applyLoadout(loadout: HackerzLoadout) {
+        this.loadout = loadout
+        this.rail.load(loadout.weapon)
+        this.rail.reloadTimer = 0
+        this.rail.tarpitDrain = 0
         this.bastion.shieldMax = loadout.shieldMax
         this.bastion.shield = loadout.shieldMax
         this.abilities.pulseCharge = loadout.pulseCooldownMs
         this.abilities.overclockCharge = loadout.overclockCooldownMs
         this.abilities.overclockLeft = 0
-        this.rail.magSize = Math.round(loadout.weapon.magazine)
-        this.rail.mag = this.rail.magSize
-        this.rail.reloadTimer = 0
-        this.rail.tarpitDrain = 0
         this.slots = loadout.slots
         this.battery.syncTurrets()
-        this.bastion.emitWall()
-        this.rail.emitAmmo()
-        return true
     }
 
     /**
@@ -461,24 +467,10 @@ export class HackerzGame {
         this.linePulses?.clear()
         this.deployer.arm(null)
         const previousMax = this.bastion.wallMaxHp
-        this.loadout = loadout
-        this.rail.weapon = loadout.weapon
-        this.rail.ammoRack?.setColour(loadout.weapon.hex)
         this.bastion.wallMaxHp = loadout.wallMaxHp
         if (loadout.wallMaxHp > previousMax) this.bastion.wallHp += loadout.wallMaxHp - previousMax
         this.bastion.wallHp = clamp(this.bastion.wallHp, 1, this.bastion.wallMaxHp)
-        this.bastion.shieldMax = loadout.shieldMax
-        this.bastion.shield = loadout.shieldMax
-        this.rail.magSize = Math.round(loadout.weapon.magazine)
-        this.rail.mag = this.rail.magSize
-        this.rail.reloadTimer = 0
-        this.rail.tarpitDrain = 0
-        this.rail.fireTimer = 0
-        this.abilities.pulseCharge = loadout.pulseCooldownMs
-        this.abilities.overclockCharge = loadout.overclockCooldownMs
-        this.abilities.overclockLeft = 0
-        this.slots = loadout.slots
-        this.battery.syncTurrets()
+        this.applyLoadout(loadout)
         for (const mount of this.battery.turrets) if (mount.frozenMs > 0) this.battery.thaw(mount)
 
         this.wave = wave
@@ -523,12 +515,8 @@ export class HackerzGame {
     swapWeapon(weapon: HackerzWeaponRuntime) {
         if (!this.loadout) return
         this.loadout = { ...this.loadout, weapon }
-        this.rail.weapon = weapon
-        this.rail.ammoRack?.setColour(weapon.hex)
-        this.rail.magSize = Math.round(weapon.magazine)
-        this.rail.mag = this.rail.magSize
+        this.rail.load(weapon)
         this.rail.reloadTimer = this.running ? Math.min(600, weapon.reloadMs) : 0
-        this.rail.fireTimer = 0
         this.callbacks.onWeapon(weapon.id)
         this.rail.emitAmmo()
         this.callbacks.onSound?.('weapon-swap')

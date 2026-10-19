@@ -102,8 +102,7 @@ export class Squads {
         if (!wanted || !this.frontierChips().length) return
         if (this.game.enemies.filter(e => e.bearer).length >= wanted) return
         this.bearerTimer = BEARER_RESPAWN_MS
-        this.game.spawner.spawn(hackerzEnemy(BEARER_ID), true)
-        const bearer = this.game.enemies[this.game.enemies.length - 1]
+        const bearer = this.game.spawner.spawn(hackerzEnemy(BEARER_ID), true)
         if (!bearer) return
         bearer.bearer = true
         bearer.targetChip = this.leastGuardedFrontier()
@@ -180,8 +179,7 @@ export class Squads {
                 }
                 if (this.escortTimer > 0) return
                 this.escortTimer = ESCORT_RESPAWN_MS
-                this.game.spawner.spawn(hackerzEnemy(ESCORT_ID), true)
-                const fresh = this.game.enemies[this.game.enemies.length - 1]
+                const fresh = this.game.spawner.spawn(hackerzEnemy(ESCORT_ID), true)
                 if (fresh) fresh.escorting = hacker
                 return
             }

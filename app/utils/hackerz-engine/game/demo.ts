@@ -98,8 +98,7 @@ export class DemoDirector {
      */
     demoSpawnFree(id: HackerzEnemyId, u: number, d: number) {
         if (!this.game.demo) return
-        this.game.debugSpawn(id, u, d)
-        const enemy = this.game.enemies[this.game.enemies.length - 1]
+        const enemy = this.game.debugSpawn(id, u, d)
         if (enemy) this.demoSettle(enemy)
     }
 
@@ -255,8 +254,7 @@ export class DemoDirector {
         if (!this.game.demo || !start) return
         // Set down where it stands, as a hatching spiderling is: it resolves out
         // of the dark on the spot, and the portal shows nothing of it.
-        this.game.spawner.spawn(hackerzEnemy(id), false, 1, start)
-        const enemy = this.game.enemies[this.game.enemies.length - 1]
+        const enemy = this.game.spawner.spawn(hackerzEnemy(id), false, 1, start)
         if (!enemy) return
         enemy.route = null
         enemy.demoPath = path.slice(1).map(point => ({ ...point }))

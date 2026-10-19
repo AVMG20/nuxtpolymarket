@@ -1,10 +1,11 @@
+import { randomWeighted } from '#shared/utils/random'
 import { randomFloat } from '../rng'
 import {
     HACKERZ_BONUS_MS, HACKERZ_BOSS_EVERY, HACKERZ_HACKER_ID, hackerzHackerField, HACKERZ_SPIDER_INJECT_MS,
     HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_SPAWN_WINDOW_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzCoinValue,
     hackerzDamageMultiplier, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp,
     hackerzIsAirborne, hackerzIsBossWave, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool,
-    type HackerzEnemyDefinition
+    type HackerzEnemyDefinition, type HackerzLoadout
 } from '#shared/utils/gamelogic/hackerz'
 import { BULLET_RADIUS, FIELD_DEPTH, FIELD_HALF_WIDTH, MODEL_HEIGHT_SCALE, SPAWN_SPREAD } from '../constants'
 import { clamp, randRange } from '../math'
@@ -60,6 +61,20 @@ const HACKER_BURST_GAP_MS = 150
 /** PACKET LOSS: the round's health against what the player's battery can clear in it, and the most extra units it adds. */
 const PACKET_LOSS_OVERKILL = 2
 const PACKET_LOSS_SWARM_CAP = 120
+
+/**
+ * A unit's health on this wave: its rules health, scaled by the wave and by
+ * the difficulty (a hard one phases in over the run, see
+ * `HACKERZ_DIFFICULTY_FULL_WAVE`).
+ */
+function waveHealth(def: HackerzEnemyDefinition, wave: number, difficulty: HackerzLoadout['difficulty']) {
+    return def.hp * hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave)
+}
+
+/** One unit out of `pool`, as likely as its spawn weight on this wave makes it. */
+function rollSpawn(pool: HackerzEnemyDefinition[], wave: number) {
+    return randomWeighted(pool, def => hackerzSpawnWeight(def, wave), randomFloat)
+}
 
 /**
  * What comes through the portal: the wave's schedule, the hackers and
@@ -118,16 +133,7 @@ export class Spawner {
         while (budget > 0 && guard-- > 0) {
             const affordable = pool.filter(def => def.cost <= budget)
             if (!affordable.length) break
-            const totalWeight = affordable.reduce((sum, def) => sum + hackerzSpawnWeight(def, wave), 0)
-            let roll = randomFloat() * totalWeight
-            let chosen = affordable[affordable.length - 1] as HackerzEnemyDefinition
-            for (const def of affordable) {
-                roll -= hackerzSpawnWeight(def, wave)
-                if (roll <= 0) {
-                    chosen = def
-                    break
-                }
-            }
+            const chosen = rollSpawn(affordable, wave)
             picks.push(chosen)
             budget -= chosen.cost
         }
@@ -177,21 +183,12 @@ export class Spawner {
         const needed = this.firepower() * (FINAL_PUSH_MS / 1000) * DDOS_SURGE_OVERKILL
         const start = this.game.waveMs - FINAL_PUSH_MS
         const end = this.game.waveMs - 1500
-        const totalWeight = pool.reduce((sum, def) => sum + hackerzSpawnWeight(def, wave), 0)
         const surge: ScheduledSpawn[] = []
         let health = 0
         while (health < needed && surge.length < DDOS_SURGE_CAP) {
-            let roll = randomFloat() * totalWeight
-            let def = pool[pool.length - 1]!
-            for (const candidate of pool) {
-                roll -= hackerzSpawnWeight(candidate, wave)
-                if (roll <= 0) {
-                    def = candidate
-                    break
-                }
-            }
-            // As `spawn` sizes it: wave and difficulty scaling, halved for the flood.
-            health += def.hp * hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave) * 0.5
+            const def = rollSpawn(pool, wave)
+            // As `spawn` sizes it: halved for the flood.
+            health += waveHealth(def, wave, difficulty) * 0.5
             surge.push({ atMs: start + randomFloat() * (end - start), def })
         }
         // At the cap the units get tougher instead of more numerous, so even a
@@ -213,24 +210,15 @@ export class Spawner {
         const difficulty = this.game.loadout?.difficulty
         const light = pool.filter(def => !this.isHeavy(def))
         if (!difficulty || !light.length) return []
-        const health = (def: HackerzEnemyDefinition) => def.hp * hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave)
+        const health = (def: HackerzEnemyDefinition) => waveHealth(def, wave, difficulty)
         const at = () => randomFloat() * window
         const swarm: ScheduledSpawn[] = picks.filter(def => !this.isHeavy(def)).map(def => ({ atMs: at(), def }))
         const total = [...picks, ...swarm.map(s => s.def)].reduce((sum, def) => sum + health(def), 0)
         const needed = this.firepower() * (1 - PACKET_LOSS) * (window / 1000) * PACKET_LOSS_OVERKILL
-        const totalWeight = light.reduce((sum, def) => sum + hackerzSpawnWeight(def, wave), 0)
         const added: ScheduledSpawn[] = []
         let addedHealth = 0
         while (total + addedHealth < needed && added.length < PACKET_LOSS_SWARM_CAP) {
-            let roll = randomFloat() * totalWeight
-            let def = light[light.length - 1]!
-            for (const candidate of light) {
-                roll -= hackerzSpawnWeight(candidate, wave)
-                if (roll <= 0) {
-                    def = candidate
-                    break
-                }
-            }
+            const def = rollSpawn(light, wave)
             addedHealth += health(def)
             added.push({ atMs: at(), def })
         }
@@ -303,11 +291,11 @@ export class Spawner {
      * Brings a unit onto the field. `at` sets it down mid-field instead (a
      * spiderling hatching): it takes the nearest line from there, and the
      * portal shows nothing of it. `reinforcement` is a top-up hacker: half
-     * the credits, and no coins.
+     * the credits, and no coins. Returns the unit, or null with no run on.
      */
     spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1, at: { u: number, d: number } | null = null) {
         const loadout = this.game.loadout
-        if (!loadout) return
+        if (!loadout) return null
         const difficulty = loadout.difficulty
         // Flyers pick any lane over the board; ground units come out of one of
         // the portal's sockets and are put on a trace below.
@@ -320,8 +308,7 @@ export class Spawner {
         const rig = buildRig(def.id, def.hex, height, { shrouded: true })
         this.game.fieldRoot.add(rig.root)
 
-        // A hard difficulty phases in over the run (see `HACKERZ_DIFFICULTY_FULL_WAVE`).
-        const maxHp = def.hp * hackerzHpMultiplier(this.game.wave) * hackerzWaveEnemyHp(difficulty, this.game.wave) * (this.game.bonus === 'ddos' ? 0.5 : 1) * hpScale
+        const maxHp = waveHealth(def, this.game.wave, difficulty) * (this.game.bonus === 'ddos' ? 0.5 : 1) * hpScale
         const bounty = def.bounty * hackerzBountyMultiplier(this.game.wave) * (this.game.bonus === 'ddos' ? 0.6 : 1)
             * (reinforcement ? HACKERZ_REINFORCEMENT_BOUNTY : 1)
 
@@ -423,5 +410,6 @@ export class Spawner {
             this.game.overlay.banner(def.name, RED, 'kernel-level intrusion')
             this.game.addShake(10)
         }
+        return enemy
     }
 }
