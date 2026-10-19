@@ -92,7 +92,7 @@ export class Rootkit {
     private hatchSpider(u: number, d: number) {
         if (this.spiderCount() >= HACKERZ_SPIDER_CAP) return
         // A reinforcement: half bounty and no coins, so the brood is never a farm.
-        this.game.spawn(hackerzEnemy('spiderling'), true, 1, { u, d })
+        this.game.spawner.spawn(hackerzEnemy('spiderling'), true, 1, { u, d })
     }
 
     /**

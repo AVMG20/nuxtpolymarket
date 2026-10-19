@@ -7,7 +7,7 @@ import { clamp, randRange } from '../math'
 import type { PathChip } from '../path-chips'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { HACK_REACH, PER_WORLD, _v, _w, CROWD_GAP, MUZZLE_D } from './tuning'
+import { PER_WORLD, _v, _w, CROWD_GAP, MUZZLE_D, HACK_REACH } from './tuning'
 import { enemyWorld, footprint } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -100,7 +100,7 @@ export class Squads {
         if (!wanted || !this.frontierChips().length) return
         if (this.game.enemies.filter(e => e.bearer).length >= wanted) return
         this.bearerTimer = BEARER_RESPAWN_MS
-        this.game.spawn(hackerzEnemy(BEARER_ID), true)
+        this.game.spawner.spawn(hackerzEnemy(BEARER_ID), true)
         const bearer = this.game.enemies[this.game.enemies.length - 1]
         if (!bearer) return
         bearer.bearer = true
@@ -133,7 +133,7 @@ export class Squads {
             }
             if (!pick) continue
             pick.defending = chip
-            this.game.sight('defender')
+            this.game.spawner.sight('defender')
         }
     }
 
@@ -158,7 +158,7 @@ export class Squads {
             if (hacker.def.id !== HACKERZ_HACKER_ID || hacker.decoy) continue
             const want = wanted(hacker)
             let guards = this.game.enemies.filter(e => e.escorting === hacker).length
-            if (guards > 0) this.game.sight('bodyguard')
+            if (guards > 0) this.game.spawner.sight('bodyguard')
             while (guards < want) {
                 // A hacker pushing past the gate drags one of the node
                 // defenders along as its shield before it drafts anyone else.
@@ -178,7 +178,7 @@ export class Squads {
                 }
                 if (this.escortTimer > 0) return
                 this.escortTimer = ESCORT_RESPAWN_MS
-                this.game.spawn(hackerzEnemy(ESCORT_ID), true)
+                this.game.spawner.spawn(hackerzEnemy(ESCORT_ID), true)
                 const fresh = this.game.enemies[this.game.enemies.length - 1]
                 if (fresh) fresh.escorting = hacker
                 return

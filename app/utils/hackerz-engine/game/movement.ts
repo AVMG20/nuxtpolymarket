@@ -127,7 +127,7 @@ export class Movement {
         // Packet loss keeps the light units on the lines: the lag is the threat
         // there, not a charge. The heavies are too big for the corners and go straight.
         return !hackerzIsAirborne(enemy.def) && enemy.burrowMs <= 0 && !enemy.demoPath
-            && (!this.allNodesTaken || (this.game.bonus === 'packetloss' && !this.game.isHeavy(enemy.def)))
+            && (!this.allNodesTaken || (this.game.bonus === 'packetloss' && !this.game.spawner.isHeavy(enemy.def)))
     }
 
     /** Whether a rider stands on the segment of its route it thinks it is on. */

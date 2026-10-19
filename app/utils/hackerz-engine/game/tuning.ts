@@ -1,5 +1,7 @@
 import * as THREE from 'three'
-import type { HackerzDamageType, HackerzWeaponRuntime } from '#shared/utils/gamelogic/hackerz'
+import type {
+    HackerzDamageType, HackerzEnemyDefinition, HackerzEnemyId, HackerzWeaponRuntime
+} from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, FIELD_SCALE, FENCE_HEIGHT, GUN_Z, WALL_HEIGHT } from '../constants'
 
 /** Field units per world unit, for heights that only exist for rendering. */
@@ -121,3 +123,18 @@ export interface RouteGoal {
 
 /** Hackers get to work within this far of a node — a column over still counts. */
 export const HACK_REACH = 125
+
+/** A unit's size on the board, in the rules' height units. */
+export function unitSize(def: HackerzEnemyDefinition) {
+    return def.height * (UNIT_DISPLAY_SCALE[def.id] ?? 1)
+}
+
+/** The last stretch of a wave: everything drops what it is doing and charges the fence. */
+export const FINAL_PUSH_MS = 12_000
+
+/**
+ * Units drawn smaller than their height in the rules says: ROOTKIT's legs
+ * spread far wider than it is tall, so at full size it straddled half the
+ * fence. Its body, hitbox, standoff, stride and spacing all shrink together.
+ */
+export const UNIT_DISPLAY_SCALE: Partial<Record<HackerzEnemyId, number>> = { titan: 0.55 }
