@@ -129,6 +129,10 @@ export interface EnemyEntity {
     turned: boolean
     /** A healer's patient, or null; and a healer gone kamikaze, the last of its wave, diving the fence to go off. */
     healing: EnemyEntity | null
+    /** Ms until a healer looks again for someone hurt worse than its patient. */
+    healRetargetMs: number
+    /** Its ground footprint at the yaw and body it was last worked out for (see `footprint`). */
+    foot?: { yaw: number, box: THREE.Box3, u: number, d: number }
     kamikaze: boolean
     /** A carried shield's health left (the Warden's), and the bubble that flashes when it takes a hit. */
     guard: number
@@ -264,6 +268,10 @@ export interface TurretMount {
     frozenMs: number
     /** The ice block shown while frozen. */
     ice: THREE.Mesh | null
+    /** What it is shooting, kept until it drops out so the field is not searched every frame. */
+    target: EnemyEntity | null
+    /** Ms until it looks again for something it would rather shoot. */
+    retargetMs: number
 }
 
 export interface HackerzWaveSummary {

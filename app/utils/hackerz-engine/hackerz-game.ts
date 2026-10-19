@@ -167,6 +167,8 @@ const HEAL_REACH = 70
 const HEAL_HOVER_D = 30
 const HEAL_ESCORT_U = 40
 const HEAL_CONVERGE = 0.35
+/** How often a healer with a patient looks again for one hurt worse. */
+const HEAL_RETARGET_MS = 500
 
 /** A pile of leaked allocations at the foot of the fence, and what each of its blocks drains a second. */
 interface LeakPile {
@@ -215,6 +217,8 @@ const ZAP_MAX = 170
 const ZAP_COOLDOWN_MS = 2600
 /** Half the width of a turret's own lane, in field units: mounts sit about twice this apart. */
 const TURRET_LANE = 75
+/** How often a turret holding a target looks again for one it would rather shoot. */
+const TURRET_RETARGET_MS = 400
 /**
  * DDoS surge: the final push adds enough cheap units to outlast the player's
  * firepower — this many seconds of their damage per second, times this much
@@ -779,12 +783,7 @@ export class HackerzGame {
      * nothing on the ground.
      */
     private autopilotPack() {
-        const ground = this.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.untouchable(e))
-        let best: EnemyEntity[] = []
-        for (const enemy of ground) {
-            const group = ground.filter(o => Math.hypot(o.u - enemy.u, o.d - enemy.d) <= AUTOPILOT_PACK_RADIUS)
-            if (group.length > best.length) best = group
-        }
+        const best = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.untouchable(e)))
         if (!best.length) return null
         const u = best.reduce((sum, e) => sum + e.u, 0) / best.length
         const d = best.reduce((sum, e) => sum + e.d, 0) / best.length
@@ -836,13 +835,8 @@ export class HackerzGame {
      * round passes through it. True when it is firing.
      */
     autopilotBlindFire() {
-        const hidden = this.enemies.filter(e => e.hp > 0 && !e.turned && !this.untouchable(e) && this.inTheDark(e))
-        if (!hidden.length) return false
-        let pack: EnemyEntity[] = []
-        for (const enemy of hidden) {
-            const group = hidden.filter(o => Math.hypot(o.u - enemy.u, o.d - enemy.d) <= AUTOPILOT_PACK_RADIUS)
-            if (group.length > pack.length) pack = group
-        }
+        const pack = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !this.untouchable(e) && this.inTheDark(e)))
+        if (!pack.length) return false
         const n = pack.length
         this.target = null
         this.lockSpot = {
@@ -1333,11 +1327,9 @@ export class HackerzGame {
      */
     private roundHits(bullet: BulletEntity, enemy: EnemyEntity) {
         if (this.untouchable(enemy)) return false
-        const box = enemy.rig.box
         // A rider turned onto a rung lies across the lane rather than along it.
         const sideways = Math.abs(Math.sin(enemy.yaw)) > 0.7
-        const across = Math.max(-box.min.x, box.max.x) * PER_WORLD
-        const along = Math.max(-box.min.z, box.max.z) * PER_WORLD
+        const { x: across, z: along } = halfExtents(enemy.rig.box)
         const halfU = sideways ? along : across
         const halfD = sideways ? across : along
         const reach = Math.max(enemy.radius, halfU + BULLET_RADIUS)
@@ -1943,7 +1935,9 @@ export class HackerzGame {
                     kick: 0,
                     heading: Math.PI,
                     frozenMs: 0,
-                    ice: null
+                    ice: null,
+                    target: null,
+                    retargetMs: 0
                 })
             }
         }
@@ -2768,9 +2762,7 @@ export class HackerzGame {
      * turn in).
      */
     private parkingRow(enemy: EnemyEntity) {
-        const box = enemy.rig.box
-        const halfX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD
-        const halfZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        const { x: halfX, z: halfZ } = halfExtents(enemy.rig.box)
         // Half its extent at its widest, mid-turn.
         const swing = Math.SQRT1_2 * (halfX + halfZ)
         return { spacing: swing + halfX + CROWD_GAP * 2, lane: halfZ + swing + CROWD_GAP * 3 }
@@ -3143,6 +3135,7 @@ export class HackerzGame {
             heaveDrain: 0,
             carry: null,
             healing: null,
+            healRetargetMs: 0,
             kamikaze: false,
             turned: false,
             guard: def.guard ? maxHp * def.guard : 0,
@@ -3825,6 +3818,8 @@ export class HackerzGame {
         const decoy: EnemyEntity = {
             ...real,
             rig,
+            // Its own footprint memo: sharing the original's would let one overwrite the other's.
+            foot: undefined,
             route: null,
             redShield: false,
             recovering: false,
@@ -3930,9 +3925,8 @@ export class HackerzGame {
             e.u = u
             e.d = d
         }
-        const movers = new Set(moves.map(([e]) => e))
         const ok = moves.every(([e], k) => !this.enemies.some((o) => {
-            if (movers.has(o) || !this.solidPair(e, o)) return false
+            if (moves.some(([m]) => m === o) || !this.solidPair(e, o)) return false
             const now = this.sinkInto(e, e.u, e.d, o)
             return now > 0.5 && now > this.sinkInto(e, was[k]![0], was[k]![1], o) + 0.01
         }))
@@ -4036,8 +4030,8 @@ export class HackerzGame {
 
     /** How much of a body there is to push with: its footprint's area, from its model. */
     private bulk(enemy: EnemyEntity) {
-        const box = enemy.rig.box
-        return Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * Math.max(Math.abs(box.min.z), Math.abs(box.max.z))
+        const half = halfExtents(enemy.rig.box)
+        return half.x * half.z
     }
 
     /** A body this much bigger than the one in its way barges it aside instead of waiting. */
@@ -4106,7 +4100,16 @@ export class HackerzGame {
         // One hacking or guarding a chip walks through everyone, and everyone through it.
         if (this.permeable(enemy)) return
         const rides = this.ridesNetwork(enemy)
-        const others = this.enemies.filter(o => this.solidPair(enemy, o))
+        // Only bodies it could touch this tick: every spot tried below (the
+        // move, a sidestep, a back-off) lies within twice the move of where
+        // it started, and no footprint, however turned, reaches past x + z.
+        const self = halfExtents(enemy.rig.box)
+        const range = self.x + self.z + 2 * Math.hypot(toU - fromU, toD - fromD) + 1
+        const others = this.enemies.filter((o) => {
+            const half = halfExtents(o.rig.box)
+            const near = range + half.x + half.z
+            return Math.abs(o.u - fromU) <= near && Math.abs(o.d - fromD) <= near && this.solidPair(enemy, o)
+        })
         // How deep it sank into any other body before this tick, at its old spot and heading.
         const toYaw = enemy.yaw
         enemy.yaw = fromYaw
@@ -4201,11 +4204,18 @@ export class HackerzGame {
      */
     private footprint(enemy: EnemyEntity) {
         const box = enemy.rig.box
-        const halfX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD
-        const halfZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        // Collision asks for every pair every tick, so it is kept until the
+        // unit turns (or changes body) rather than worked out each time.
+        const foot = enemy.foot ??= { yaw: NaN, box, u: 0, d: 0 }
+        if (foot.yaw === enemy.yaw && foot.box === box) return foot
+        const half = halfExtents(box)
         const c = Math.abs(Math.cos(enemy.yaw))
         const s = Math.abs(Math.sin(enemy.yaw))
-        return { u: c * halfX + s * halfZ, d: s * halfX + c * halfZ }
+        foot.yaw = enemy.yaw
+        foot.box = box
+        foot.u = c * half.x + s * half.z
+        foot.d = s * half.x + c * half.z
+        return foot
     }
 
     /**
@@ -4468,28 +4478,31 @@ export class HackerzGame {
      * heal every tick once in reach. With nobody hurt it shadows the front of
      * the push. Null once only healers are left: then it goes kamikaze, diving
      * the fence like any flyer, to go off there.
+     *
+     * A healer sticks with its patient until it is mended or gone, and only
+     * now and then looks for one hurt worse, so the field is not searched
+     * every frame.
      */
     private healerStep(enemy: EnemyEntity, dt: number, dtMs: number) {
-        const others = this.enemies.filter(e => !e.def.heal && !e.turned)
-        if (!others.length) {
+        enemy.healRetargetMs -= dtMs
+        let patient = enemy.healing && this.needsHealing(enemy.healing) ? enemy.healing : null
+        if (enemy.healRetargetMs <= 0 || (enemy.healing && !patient)) {
+            enemy.healRetargetMs = HEAL_RETARGET_MS
+            patient = this.pickPatient(enemy)
+        }
+        let lead = patient
+        if (!lead) {
+            for (const e of this.enemies) {
+                if (e.def.heal || e.turned) continue
+                if (!lead || e.d < lead.d) lead = e
+            }
+        }
+        if (!lead) {
             enemy.kamikaze = true
             enemy.healing = null
             return null
         }
-        let patient: EnemyEntity | null = null
-        let best = -Infinity
-        for (const e of others) {
-            if (e.hp >= e.maxHp || e.burrowMs > 0) continue
-            const crew = this.enemies.filter(h => h !== enemy && h.healing === e).length
-            const score = (1 - e.hp / e.maxHp) + crew * HEAL_CONVERGE + (e === enemy.healing ? 0.15 : 0)
-                - Math.hypot(e.u - enemy.u, e.d - enemy.d) / 3000
-            if (score > best) {
-                best = score
-                patient = e
-            }
-        }
         enemy.healing = patient
-        const lead = patient ?? others.reduce((a, e) => e.d < a.d ? e : a)
         const goalU = lead.u + (patient ? 0 : HEAL_ESCORT_U * Math.sign(enemy.u - lead.u || 1))
         const goalD = lead.d + HEAL_HOVER_D
         const du = goalU - enemy.u
@@ -4510,6 +4523,35 @@ export class HackerzGame {
             }
         }
         return { moved, arrived: false }
+    }
+
+    /** Whether a hostile is one a healer can work on: hurt, above ground, and still on its side. */
+    private needsHealing(e: EnemyEntity) {
+        return !e.def.heal && !e.turned && e.hp < e.maxHp && e.burrowMs <= 0
+    }
+
+    /**
+     * The worst-hurt hostile, weighted toward one other healers already work
+     * on (so they converge) and toward the one this healer has, and against
+     * distance.
+     */
+    private pickPatient(enemy: EnemyEntity) {
+        const crews = new Map<EnemyEntity, number>()
+        for (const h of this.enemies) {
+            if (h !== enemy && h.healing) crews.set(h.healing, (crews.get(h.healing) ?? 0) + 1)
+        }
+        let patient: EnemyEntity | null = null
+        let best = -Infinity
+        for (const e of this.enemies) {
+            if (!this.needsHealing(e)) continue
+            const score = (1 - e.hp / e.maxHp) + (crews.get(e) ?? 0) * HEAL_CONVERGE + (e === enemy.healing ? 0.15 : 0)
+                - Math.hypot(e.u - enemy.u, e.d - enemy.d) / 3000
+            if (score > best) {
+                best = score
+                patient = e
+            }
+        }
+        return patient
     }
 
     private healBeam(healer: EnemyEntity, patient: EnemyEntity) {
@@ -4736,6 +4778,12 @@ export class HackerzGame {
         const enemy = this.enemies[index]
         if (!enemy) return
         if (this.target === enemy) this.target = null
+        for (const mount of this.turrets) {
+            if (mount.target === enemy) mount.target = null
+        }
+        for (const other of this.enemies) {
+            if (other.healing === enemy) other.healing = null
+        }
         this.terminals?.close(enemy)
         // A block still in its hands goes down with it.
         enemy.carry?.dispose()
@@ -5276,7 +5324,7 @@ export class HackerzGame {
                 if (mount.frozenMs <= 0) this.thaw(mount)
                 continue
             }
-            const target = this.pickTurretTarget(mount)
+            const target = this.turretTarget(mount, dtMs)
             // Turrets aim at what they can see — during a packet-loss spike,
             // the stale picture rather than where the unit really is.
             const seen = target ? this.seenAt(target) : null
@@ -5338,18 +5386,35 @@ export class HackerzGame {
      */
     private pickTurretTarget(mount: TurretMount) {
         let best: EnemyEntity | null = null
-        let bestKey: number[] | null = null
+        let bestHacker = 0
+        let bestTier = 0
         for (const enemy of this.enemies) {
             if (enemy.d > mount.runtime.range || this.untargetable(enemy)) continue
+            const hacker = enemy.def.id === HACKERZ_HACKER_ID ? 1 : 0
             const off = Math.abs(enemy.u - mount.u)
             const tier = off <= TURRET_LANE ? 0 : off <= TURRET_LANE * 3 ? 1 : 2
-            const key = [enemy.def.id === HACKERZ_HACKER_ID ? 1 : 0, tier, -enemy.maxHp, enemy.d]
-            if (!bestKey || isBefore(key, bestKey)) {
-                bestKey = key
-                best = enemy
-            }
+            if (best && (hacker > bestHacker || (hacker === bestHacker && (tier > bestTier
+                || (tier === bestTier && (enemy.maxHp < best.maxHp
+                    || (enemy.maxHp === best.maxHp && enemy.d >= best.d))))))) continue
+            best = enemy
+            bestHacker = hacker
+            bestTier = tier
         }
         return best
+    }
+
+    /**
+     * A turret keeps shooting what it picked until that drops out of range or
+     * out of sight, and only now and then looks again for something better —
+     * the full search above runs a few times a second, not every frame.
+     */
+    private turretTarget(mount: TurretMount, dtMs: number) {
+        mount.retargetMs -= dtMs
+        const kept = mount.target
+        if (kept && mount.retargetMs > 0 && kept.d <= mount.runtime.range && !this.untargetable(kept)) return kept
+        mount.target = this.pickTurretTarget(mount)
+        mount.retargetMs = TURRET_RETARGET_MS
+        return mount.target
     }
 
     // ─── Enemy projectiles ───────────────────────────────────────────────────
@@ -6615,10 +6680,43 @@ function swell(current: number, goal: number, dt: number) {
         : Math.max(goal, current - ISLAND_FLOW * 0.6 * dt)
 }
 
-/** Whether sort key `a` comes before `b`: compared field by field, lowest first. */
-function isBefore(a: number[], b: number[]) {
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return a[i]! < b[i]!
+/**
+ * The units within `AUTOPILOT_PACK_RADIUS` of whichever of them has the most
+ * neighbours: the densest pack. Empty when there are none.
+ */
+function densestGroup(units: EnemyEntity[]) {
+    let centre: EnemyEntity | null = null
+    let most = 0
+    for (const unit of units) {
+        let count = 0
+        for (const other of units) {
+            if (Math.hypot(other.u - unit.u, other.d - unit.d) <= AUTOPILOT_PACK_RADIUS) count++
+        }
+        if (count > most) {
+            most = count
+            centre = unit
+        }
     }
-    return false
+    if (!centre) return []
+    const at = centre
+    return units.filter(o => Math.hypot(o.u - at.u, o.d - at.d) <= AUTOPILOT_PACK_RADIUS)
+}
+
+const halves = new WeakMap<THREE.Box3, { x: number, z: number }>()
+
+/**
+ * A model's half extents on the ground, in field units: across (`x`) and
+ * along (`z`) its own axes. A rig's box is fixed once built, so each is
+ * worked out once.
+ */
+function halfExtents(box: THREE.Box3) {
+    let half = halves.get(box)
+    if (!half) {
+        half = {
+            x: Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD,
+            z: Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        }
+        halves.set(box, half)
+    }
+    return half
 }
