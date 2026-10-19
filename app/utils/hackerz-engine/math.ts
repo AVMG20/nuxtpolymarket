@@ -4,6 +4,14 @@ import { segPointDist } from '../firewall-engine/math'
 // `randRange` is cosmetic only: outcomes roll through `./rng`.
 export { clamp, randRange, segPointDist } from '../firewall-engine/math'
 
+/** The middle of a set of field points (not empty). */
+export function centroid(points: readonly { u: number, d: number }[]) {
+    return {
+        u: points.reduce((sum, p) => sum + p.u, 0) / points.length,
+        d: points.reduce((sum, p) => sum + p.d, 0) / points.length
+    }
+}
+
 /** Shortest distance between segments (a→b) and (c→d): zero where they cross. */
 export function segSegDist(
     ax: number, ay: number, bx: number, by: number,
