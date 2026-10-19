@@ -12,7 +12,7 @@ import { buildRig } from '../models'
 import { MOTION } from '../rig-motion'
 import { RED, fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { unitSize, FINAL_PUSH_MS, _v, PACKET_LOSS } from './tuning'
+import { _v, PACKET_LOSS, unitSize, FINAL_PUSH_MS } from './tuning'
 import { placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 

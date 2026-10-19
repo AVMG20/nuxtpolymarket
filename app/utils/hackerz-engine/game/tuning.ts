@@ -138,3 +138,5 @@ export const FINAL_PUSH_MS = 12_000
  * fence. Its body, hitbox, standoff, stride and spacing all shrink together.
  */
 export const UNIT_DISPLAY_SCALE: Partial<Record<HackerzEnemyId, number>> = { titan: 0.55 }
+
+export const PING_REVEAL_MS = 2600
