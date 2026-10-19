@@ -29,30 +29,30 @@ import type { EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
 import {
     PER_WORLD, _v, _w, BLACKOUT_LIGHT_D, LONGBORE_FLARE, RAIL_TRACK, FINAL_PUSH_MS, PING_REVEAL_MS
 } from './game/tuning'
+import { placeEnemy } from './game/bodies'
+import { Territory } from './game/territory'
+import { Movement } from './game/movement'
+import { Crowd } from './game/crowd'
+import { PacketLoss } from './game/packet-loss'
+import { Spawner } from './game/spawner'
+import { EnemyAi } from './game/enemy-ai'
+import { Squads } from './game/squads'
+import { Hacking } from './game/hacking'
+import { Assault } from './game/assault'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
-import { Scoring } from './game/scoring'
-import { Bastion } from './game/bastion'
-import { PacketLoss } from './game/packet-loss'
-import { Territory } from './game/territory'
-import { placeEnemy } from './game/bodies'
-import { Crowd } from './game/crowd'
-import { Combat } from './game/combat'
 import { WhiteHats } from './game/white-hats'
-import { Assault } from './game/assault'
 import { Rootkit } from './game/rootkit'
 import { BlackIce } from './game/black-ice'
 import { ZeroDay } from './game/zero-day'
-import { Turrets } from './game/turrets'
-import { Projectiles } from './game/projectiles'
 import { Rail } from './game/rail'
+import { Projectiles } from './game/projectiles'
+import { Turrets } from './game/turrets'
 import { Abilities } from './game/abilities'
 import { Deployer } from './game/deployer'
-import { Hacking } from './game/hacking'
-import { Movement } from './game/movement'
-import { Squads } from './game/squads'
-import { Spawner } from './game/spawner'
-import { EnemyAi } from './game/enemy-ai'
+import { Combat } from './game/combat'
+import { Bastion } from './game/bastion'
+import { Scoring } from './game/scoring'
 import { Input } from './game/input'
 import { DemoDirector } from './game/demo'
 import { AutopilotBridge } from './game/autopilot'
@@ -63,6 +63,16 @@ const FINAL_PUSH_SPEED = 1.35
 /** How fast a health bar's trail drains after a hit, in bar-lengths a second. */
 const HP_TRAIL_DRAIN = 0.9
 
+/**
+ * The Hackerz engine: it owns the scene, the clock and the run, and runs the
+ * game's systems (see `./game`) in a fixed order every frame. Each system
+ * owns its own part of the game; what several of them share — the hostiles
+ * on the field, the run's state, the effects — lives here.
+ *
+ * Only the methods without a system behind them, and the delegates kept for
+ * them, are the engine's API: the page, the demo scripts and auto-play call
+ * those. The public fields are the systems' shared state, not an API.
+ */
 export class HackerzGame {
     view: HackerzScene | null = null
     callbacks: HackerzCallbacks
@@ -122,33 +132,37 @@ export class HackerzGame {
     /** The picture's clock: drives every shader animation, and stands still during a packet-loss spike. */
     visualTime = 0
 
-    /** A Database demo board (see `mountDemo`), the spot its camera is held on, and whether it cuts there. */
+    /** A Database demo board (see `mountDemo` and `DemoDirector`): a quiet board a script drives. */
     demo = false
 
     // ── Systems: each owns its part of the game (see ./game) ──
+    // The board
+    readonly territory = new Territory(this)
+    readonly movement = new Movement(this)
+    readonly crowd = new Crowd(this)
+    readonly lag = new PacketLoss(this)
+    // The hostiles
+    readonly spawner = new Spawner(this)
+    readonly enemyAi = new EnemyAi(this)
+    readonly squads = new Squads(this)
+    readonly hacking = new Hacking(this)
+    readonly assault = new Assault(this)
     readonly healers = new Healers(this)
     readonly memory = new Leaks(this)
-    readonly scoring = new Scoring(this)
-    readonly bastion = new Bastion(this)
-    readonly lag = new PacketLoss(this)
-    readonly territory = new Territory(this)
-    readonly crowd = new Crowd(this)
-    readonly combat = new Combat(this)
     readonly whiteHats = new WhiteHats(this)
-    readonly assault = new Assault(this)
     readonly rootkit = new Rootkit(this)
     readonly blackIce = new BlackIce(this)
     readonly zeroDay = new ZeroDay(this)
-    readonly battery = new Turrets(this)
-    readonly projectiles = new Projectiles(this)
+    // The firewall
     readonly rail = new Rail(this)
+    readonly projectiles = new Projectiles(this)
+    readonly battery = new Turrets(this)
     readonly abilities = new Abilities(this)
     readonly deployer = new Deployer(this)
-    readonly hacking = new Hacking(this)
-    readonly movement = new Movement(this)
-    readonly squads = new Squads(this)
-    readonly spawner = new Spawner(this)
-    readonly enemyAi = new EnemyAi(this)
+    readonly combat = new Combat(this)
+    readonly bastion = new Bastion(this)
+    readonly scoring = new Scoring(this)
+    // Who is playing
     readonly input = new Input(this)
     readonly demoDirector = new DemoDirector(this)
     readonly autopilot = new AutopilotBridge(this)
@@ -529,7 +543,7 @@ export class HackerzGame {
         return this.deployer.arm(id)
     }
 
-    // ─── Consumables: Portscan, Cosmic Blip, White Hat, Power Surge ──────────
+    // ─── Between waves ───────────────────────────────────────────────────────
 
     /** Uplink purchase — patches the wall back to full between waves. */
     repairWall() {
@@ -557,6 +571,10 @@ export class HackerzGame {
 
     // ─── Main loop ───────────────────────────────────────────────────────────
 
+    /**
+     * One frame: the board's systems in their fixed order, then the picture.
+     * The animation loop drives it, and a demo board on its own fixed step.
+     */
     tick(rawMs: number) {
         const view = this.view
         if (this.destroyed || !view) return
@@ -662,8 +680,9 @@ export class HackerzGame {
         this.shake = this.shake > 0.005 ? Math.max(0, this.shake - this.shake * SHAKE_DECAY * dt) : 0
     }
 
-    // ─── Shield bearers ──────────────────────────────────────────────────────
+    // ─── Picture ─────────────────────────────────────────────────────────────
 
+    /** Jolts the camera, in proportion to `amount`. */
     addShake(amount: number) {
         // The old engine shook in pixels; this one shakes in world units. A lag
         // spike shows nothing landing, so nothing shakes.
@@ -693,30 +712,30 @@ export class HackerzGame {
                 width: enemy.def.boss ? 90 : clamp(enemy.def.height * 0.6, 22, 50)
             })
         }
-        let reticle = null
-        if (this.rail.target) {
-            const height = this.rail.target.rig.height * PER_WORLD
-            const pos = this.lag.seenWorld(this.rail.target, height * 0.5, new THREE.Vector3())
-            const top = view.project(this.lag.seenWorld(this.rail.target, height, _w), { x: 0, y: 0 })
-            const mid = view.project(pos, { x: 0, y: 0 })
-            const size = top && mid ? clamp(Math.abs(top.y - mid.y) + 6, 12, 70) : 16
-            reticle = { pos, size, color: '#22d3ee' }
-        }
+        const target = this.rail.target
+        const reticle = target ? { ...this.bracket(view, target, 6, 70), color: '#22d3ee' } : null
         // Radar contacts: a bracket on everything the ping lit, fading with it.
         const markers = []
         for (const enemy of this.enemies) {
             if (enemy.revealMs <= 0) continue
-            const height = enemy.rig.height * PER_WORLD
-            const pos = this.lag.seenWorld(enemy, height * 0.5, new THREE.Vector3())
-            const top = view.project(this.lag.seenWorld(enemy, height, _w), { x: 0, y: 0 })
-            const mid = view.project(pos, { x: 0, y: 0 })
-            const size = top && mid ? clamp(Math.abs(top.y - mid.y) + 8, 12, 80) : 16
-            markers.push({ pos, size, alpha: enemy.revealMs / PING_REVEAL_MS, cloaked: !!enemy.def.cloaked })
+            markers.push({ ...this.bracket(view, enemy, 8, 80), alpha: enemy.revealMs / PING_REVEAL_MS, cloaked: !!enemy.def.cloaked })
         }
         this.overlay.draw(
             view.overlayCtx, view.width, view.height, this.paused ? 0 : dt,
             (p, out) => view.project(p, out), tags, reticle, this.visualTime / 1000, markers
         )
+    }
+
+    /**
+     * A bracket round a unit where it is seen: its middle, and how big the
+     * bracket is on screen — the unit's height plus `pad`, at most `max`.
+     */
+    private bracket(view: HackerzScene, enemy: EnemyEntity, pad: number, max: number) {
+        const height = enemy.rig.height * PER_WORLD
+        const pos = this.lag.seenWorld(enemy, height * 0.5, new THREE.Vector3())
+        const top = view.project(this.lag.seenWorld(enemy, height, _w), { x: 0, y: 0 })
+        const mid = view.project(pos, { x: 0, y: 0 })
+        return { pos, size: top && mid ? clamp(Math.abs(top.y - mid.y) + pad, 12, max) : 16 }
     }
 
     // ─── Wave end ────────────────────────────────────────────────────────────
@@ -787,13 +806,7 @@ export class HackerzGame {
 
         // Anything left (a boss knocked past the sweep's reach, say) goes too.
         while (this.enemies.length) this.combat.killEnemy(this.enemies.length - 1, HACKERZ_PURGE_BOUNTY)
-        for (const spit of this.projectiles.spits) spit.mesh.removeFromParent()
-        this.projectiles.spits = []
-        this.memory.clearLeaks(false)
-        this.rootkit.infected.clear()
-        this.blackIce.clearIce()
-        this.deployer.surges = []
-        this.abilities.portscanLeft = 0
+        this.clearHazards()
         // Coins still mid-flight belong to the wave that dropped them.
         this.scoring.flushCoins()
 
@@ -869,10 +882,11 @@ export class HackerzGame {
 
     // ─── Housekeeping ────────────────────────────────────────────────────────
 
-    clearField() {
-        while (this.enemies.length) this.combat.removeEnemy(this.enemies.length - 1)
-        for (const bullet of this.projectiles.bullets) bullet.mesh.removeFromParent()
-        this.projectiles.bullets = []
+    /**
+     * What a wave leaves lying about once it is over: spit in flight, leaked
+     * memory, infected nodes, black ice, Power Surges and a running Portscan.
+     */
+    private clearHazards() {
         for (const spit of this.projectiles.spits) spit.mesh.removeFromParent()
         this.projectiles.spits = []
         this.memory.clearLeaks(false)
@@ -880,6 +894,13 @@ export class HackerzGame {
         this.blackIce.clearIce()
         this.deployer.surges = []
         this.abilities.portscanLeft = 0
+    }
+
+    clearField() {
+        while (this.enemies.length) this.combat.removeEnemy(this.enemies.length - 1)
+        for (const bullet of this.projectiles.bullets) bullet.mesh.removeFromParent()
+        this.projectiles.bullets = []
+        this.clearHazards()
         // Dropped without banking: a cleared field is a run that is restarting.
         for (const coin of this.scoring.coins) coin.mesh.removeFromParent()
         this.scoring.coins = []
