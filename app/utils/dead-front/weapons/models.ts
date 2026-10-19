@@ -3,7 +3,7 @@ import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
 import type { DfAttachmentChoice, DfWeaponId } from '#shared/utils/dead-front/types'
 import { dfHash3 } from '#shared/utils/dead-front/voxel'
 import { DfVoxModel, mixHex, scaleHex } from '../voxel/model'
-import { dfOwnedGlowMat, dfPapMat, dfReticleTexture, dfTickPap, dfWeaponMat } from './materials'
+import { dfDotTexture, dfOwnedGlowMat, dfPapMat, dfReticleTexture, dfTickPap, dfWeaponMat } from './materials'
 import { DF_XRAY_SCHEMES } from './xray'
 import type { DfVoxMaterial } from '../voxel/material'
 
@@ -93,7 +93,15 @@ class Gun {
     /** Free cells ahead of the muzzle (k < 0) for cans, launchers and compensators. */
     readonly ko = 14
 
-    constructor(readonly s: number, readonly L: number, readonly H: number, readonly W: number) {
+    /** Grid height in cells, including the `jo` rows below j = 0. */
+    readonly H: number
+
+    /**
+     * `jo` rows of headroom below j = 0: parts that hang under the gun (extended
+     * magazines) author at negative j and still land on the grid.
+     */
+    constructor(readonly s: number, readonly L: number, h: number, readonly W: number, readonly jo = 0) {
+        this.H = h + jo
         this.cur = this.part('main')
         this.ci = Math.floor(W / 2)
     }
@@ -146,6 +154,7 @@ class Gun {
 
     /** An ellipse section along k: half-widths rx (across) and ry (up) around (cj, ci + di). */
     oval(k0: number, k1: number, cj: number, rx: number, ry: number, hex: number, di = 0, glow = 0): this {
+        cj += this.jo
         const f = this.col(hex, glow)
         const cx = this.ci + 0.5 + di
         const cy = cj + 0.5
@@ -180,18 +189,19 @@ class Gun {
     /** Box [k0, k1) x [j0, j1), `w` wide centred (plus `di` offset). */
     box(k0: number, k1: number, j0: number, j1: number, w: number, hex: number, di = 0, glow = 0): this {
         const i0 = this.ci - Math.floor((w - 1) / 2) + di
-        this.cur.box(i0, j0, k0 + this.ko, i0 + w, j1, k1 + this.ko, this.col(hex, glow))
+        this.cur.box(i0, j0 + this.jo, k0 + this.ko, i0 + w, j1 + this.jo, k1 + this.ko, this.col(hex, glow))
         return this
     }
 
     /** Box with explicit i range. */
     boxI(k0: number, k1: number, j0: number, j1: number, i0: number, i1: number, hex: number, glow = 0): this {
-        this.cur.box(i0, j0, k0 + this.ko, i1, j1, k1 + this.ko, this.col(hex, glow))
+        this.cur.box(i0, j0 + this.jo, k0 + this.ko, i1, j1 + this.jo, k1 + this.ko, this.col(hex, glow))
         return this
     }
 
     /** A round rod along k with radius r (cells) around (cj, ci + di). */
     rod(k0: number, k1: number, cj: number, r: number, hex: number, di = 0, glow = 0): this {
+        cj += this.jo
         const f = this.col(hex, glow)
         const cx = this.ci + 0.5 + di
         const cy = cj + 0.5
@@ -205,6 +215,7 @@ class Gun {
 
     /** A ring (disc minus hole) across the bore at k, radius r1 outer, r0 inner. */
     ring(k0: number, k1: number, cj: number, r0: number, r1: number, hex: number, di = 0, glow = 0): this {
+        cj += this.jo
         const f = this.col(hex, glow)
         const cx = this.ci + 0.5 + di
         const cy = cj + 0.5
@@ -219,7 +230,7 @@ class Gun {
 
     /** Clears a box (all models). */
     cut(k0: number, k1: number, j0: number, j1: number, i0: number, i1: number): this {
-        this.cur.box(i0, j0, k0 + this.ko, i1, j1, k1 + this.ko, 0)
+        this.cur.box(i0, j0 + this.jo, k0 + this.ko, i1, j1 + this.jo, k1 + this.ko, 0)
         return this
     }
 
@@ -245,6 +256,8 @@ interface Spec {
     reload: DfReloadStyle
     long: boolean
     scoped?: { j: number, k0: number, k1: number }
+    /** A red dot sight: the window's centre row j, its front glass k0 and the rear edge k1 the eye looks from. */
+    dot?: { j: number, k0: number, k1: number }
     /** Rotation axes for the bolt / pan groups (voxel coords j, k) when they turn. */
     boltAxis?: [number, number]
     panAxis?: [number, number]
@@ -264,6 +277,30 @@ function scope(g: Gun, k0: number, k1: number, j: number): void {
     for (const k of [k0 + 6, k1 - 7]) g.box(k, k + 2, j - 4, j - 1, 1, STEEL)
 }
 
+/**
+ * An open reflex red dot on the receiver top (row `jBase`), 5 cells wide: a base
+ * plate, two walls that taper toward the eye, a hood over the front glass and
+ * a screw on each wall. The window between the walls stays clear so
+ * the aimed view is a clean frame with the dot (a lens quad) in the middle.
+ */
+function redDot(g: Gun, k0: number, k1: number, jBase: number): { j: number, k0: number, k1: number } {
+    const h = 4
+    g.box(k0, k1, jBase, jBase + 1, 5, BLACK)
+    for (let k = k0; k < k1; k++) {
+        const top = jBase + 1 + Math.max(2, h - Math.floor((k - k0) / 2))
+        g.boxI(k, k + 1, jBase + 1, top, g.ci - 2, g.ci - 1, BLACK)
+        g.boxI(k, k + 1, jBase + 1, top, g.ci + 2, g.ci + 3, BLACK)
+    }
+    // Hood over the front glass, with bright trim on the lens rim.
+    g.box(k0, k0 + 1, jBase + h, jBase + h + 1, 5, BLACK)
+    g.boxI(k0, k0 + 1, jBase + 1, jBase + h, g.ci - 2, g.ci - 1, STEEL_HI)
+    g.boxI(k0, k0 + 1, jBase + 1, jBase + h, g.ci + 2, g.ci + 3, STEEL_HI)
+    // A screw on each wall.
+    g.boxI(k1 - 3, k1 - 2, jBase + 2, jBase + 3, g.ci - 2, g.ci - 1, STEEL_HI)
+    g.boxI(k1 - 3, k1 - 2, jBase + 2, jBase + 3, g.ci + 2, g.ci + 3, STEEL_HI)
+    return { j: jBase + h / 2, k0, k1 }
+}
+
 /** A Maxim silencer can ahead of the muzzle: returns how many cells it adds. */
 function maxim(g: Gun, kMuzzle: number, bore: number): void {
     g.rod(kMuzzle - 12, kMuzzle, bore, 1.6, BLACK)
@@ -278,7 +315,8 @@ function cutts(g: Gun, kMuzzle: number, bore: number): void {
 function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
     switch (id) {
         case 'm1911': {
-            const g = new Gun(VOX, 22, 16, 5)
+            const g = new Gun(VOX, 22, 18, 5, 5)
+            const dotSight = has(att, 'optic', 'reddot')
             const ext = has(att, 'magazine', 'extended')
             const grips = has(att, 'stock', 'grips')
             // Frame, trigger guard and a raked grip with walnut panels.
@@ -306,18 +344,19 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (let k = 14; k < 19; k += 2) g.box(k, k + 1, 11, 12, 3, BLACK)
             g.box(0, 1, 10, 11, 1, BLACK)
             g.box(1, 2, 12, 13, 1, STEEL_HI)
-            g.box(17, 18, 12, 13, 1, STEEL_HI, -1).box(17, 18, 12, 13, 1, STEEL_HI, 1)
+            if (!dotSight) g.box(17, 18, 12, 13, 1, STEEL_HI, -1).box(17, 18, 12, 13, 1, STEEL_HI, 1)
             g.box(10, 13, 10, 11, 1, BLACK, 1)
             g.part('mag')
             g.box(14, 18, ext ? -4 : 0, 8, 1, STEEL)
             g.box(13, 19, ext ? -5 : -1, ext ? -4 : 0, 3, BLACK)
             g.part('main')
-            if (has(att, 'optic', 'peep')) g.box(16, 19, 12, 14, 3, STEEL).cut(17, 18, 13, 14, g.ci, g.ci + 1)
+            const dot = dotSight ? redDot(g, 9, 18, 12) : undefined
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 10)
-            return { gun: g, grip: [15, 4], bore: 10, front: 1, sight: [17, 13], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [12, 11], reload: 'mag', long: false }
+            if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 10)
+            return { gun: g, grip: [15, 4], bore: 10, front: 1, sight: [17, 13], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [12, 11], reload: 'mag', long: false, dot }
         }
         case 'c96': {
-            const g = new Gun(VOX, 28, 17, 5)
+            const g = new Gun(VOX, 28, 20, 5, 2)
             const box = has(att, 'magazine', 'box')
             const holster = has(att, 'stock', 'holster')
             g.rod(0, 11, 12, 0.6, STEEL)
@@ -341,12 +380,15 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.part('main')
             if (holster) g.slope(24, 28, k => 2 + (k - 24) * 0.5, k => 9 - (k - 24) * 0.2, 3, WOOD_L)
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 12)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 12)
             if (has(att, 'optic', 'tangent')) g.box(15, 18, 14, 16, 3, STEEL_HI).cut(16, 17, 15, 16, g.ci, g.ci + 1)
-            return { gun: g, grip: [22, 5], bore: 12, front: 1, sight: [16, 15], eyeRelief: 0.32, left: [-0.025, -0.02, -0.03], eject: [19, 13], reload: box ? 'mag' : 'stripper', long: false }
+            const dot = has(att, 'optic', 'reddot') ? redDot(g, 11, 20, 14) : undefined
+            return { gun: g, grip: [22, 5], bore: 12, front: 1, sight: [16, 15], eyeRelief: 0.32, left: [-0.025, -0.02, -0.03], eject: [19, 13], reload: box ? 'mag' : 'stripper', long: false, dot }
         }
         case 'm1897': {
             const sawn = has(att, 'stock', 'sawn')
             const tube = has(att, 'magazine', 'tube')
+            const dotSight = has(att, 'optic', 'reddot')
             const g = new Gun(VOX, 82, 22, 5)
             const k0 = sawn ? 22 : 0
             g.rod(k0, 50, 13, 1, STEEL)
@@ -367,9 +409,11 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             }
             if (!sawn) g.box(k0 + 3, k0 + 6, 9, 10, 1, STEEL).box(k0 + 3, k0 + 4, 10, 11, 1, STEEL)
             g.box(46, 60, 8, 15, 3, STEEL)
-            g.box(51, 54, 15, 16, 3, STEEL)
-            g.box(52, 53, 16, 17, 1, STEEL_HI)
-            g.boxI(52, 53, 16, 18, g.ci - 1, g.ci, STEEL_HI).boxI(52, 53, 16, 18, g.ci + 1, g.ci + 2, STEEL_HI)
+            if (!dotSight) {
+                g.box(51, 54, 15, 16, 3, STEEL)
+                g.box(52, 53, 16, 17, 1, STEEL_HI)
+                g.boxI(52, 53, 16, 18, g.ci - 1, g.ci, STEEL_HI).boxI(52, 53, 16, 18, g.ci + 1, g.ci + 2, STEEL_HI)
+            }
             g.box(54, 61, 6, 8, 1, STEEL).box(56, 57, 7, 9, 1, BLACK)
             if (sawn) g.slope(60, 68, k => 1 + (68 - k) * 0.6, () => 10, 3, WOOD)
             else g.slope(60, 82, k => 7 - (k - 60) * 0.3, k => 12 - (k - 60) * 0.08, 3, WOOD).box(81, 82, 0, 11, 3, BLACK).swivel(74, 3)
@@ -378,12 +422,13 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (let k = sawn ? 31 : 25; k < (sawn ? 42 : 38); k += 2) g.box(k, k + 1, 8, 9, 3, WOOD_D)
             g.part('main')
             if (has(att, 'muzzle', 'choke')) g.ring(k0 - 2, k0, 13, 0, 1.6, STEEL_HI)
-            return { gun: g, grip: [62, 8], bore: 13, front: k0 + 1, sight: [52, 17], eyeRelief: 0.3, left: [-0.012, 0.0, sawn ? -0.29 : -0.4], eject: [55, 13], reload: 'shell', long: true }
+            const dot = dotSight ? redDot(g, 46, 55, 15) : undefined
+            return { gun: g, grip: [62, 8], bore: 13, front: k0 + 1, sight: [52, 17], eyeRelief: 0.3, left: [-0.012, 0.0, sawn ? -0.29 : -0.4], eject: [55, 13], reload: 'shell', long: true, dot }
         }
         case 'kar98k': {
             const sc = has(att, 'optic', 'scope')
             const light = has(att, 'stock', 'light')
-            const g = new Gun(VOX, 90, 24, 7)
+            const g = new Gun(VOX, 90, 24, 7, 4)
             g.rod(0, 46, 10, 0.8, STEEL)
             g.box(1, 3, 11, 14, 1, STEEL_HI)
             // Front sight ears, nose cap and cleaning rod.
@@ -423,6 +468,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
         }
         case 'thompson': {
             const drum = has(att, 'magazine', 'drum')
+            const dotSight = has(att, 'optic', 'reddot')
             const g = new Gun(VOX, 76, 30, drum ? 9 : 5)
             g.rod(0, 28, 16, 1, STEEL)
             for (let k = 4; k < 22; k += 2) g.ring(k, k + 1, 16, 0, 2.1, STEEL)
@@ -430,7 +476,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.box(26, 54, 13, 20, 3, STEEL)
             g.box(27, 53, 16, 17, 3, STEEL_HI).box(28, 52, 16, 17, 1, STEEL)
             g.rivets([30, 50], 18, 3, STEEL_HI)
-            g.box(46, 47, 20, 22, 3, STEEL_HI).cut(46, 47, 21, 22, g.ci, g.ci + 1)
+            if (!dotSight) g.box(46, 47, 20, 22, 3, STEEL_HI).cut(46, 47, 21, 22, g.ci, g.ci + 1)
             // Vertical foregrip, rear grip, stock.
             g.slope(14, 20, k => 6 + (20 - k) * 0.4, () => 14, 3, WOOD)
             g.box(14, 20, 13, 15, 3, STEEL)
@@ -456,9 +502,11 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             }
             g.part('main')
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 16)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 16)
             if (has(att, 'optic', 'lyman')) g.box(45, 48, 20, 24, 3, STEEL_HI).cut(46, 47, 22, 24, g.ci, g.ci + 1)
+            const dot = dotSight ? redDot(g, 45, 54, 20) : undefined
             if (has(att, 'stock', 'light')) for (const k of [60, 67]) g.cut(k, k + 4, 6, 12, 0, g.W)
-            return { gun: g, grip: [47, 9], bore: 16, front: 1, sight: [46, 21], eyeRelief: 0.26, left: [-0.012, -0.04, -0.33], eject: [38, 19], reload: 'mag', long: true }
+            return { gun: g, grip: [47, 9], bore: 16, front: 1, sight: [46, 21], eyeRelief: 0.26, left: [-0.012, -0.04, -0.33], eject: [38, 19], reload: 'mag', long: true, dot }
         }
         case 'mp18': {
             const snail = has(att, 'magazine', 'snail')
@@ -491,14 +539,14 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             }
             g.part('main')
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 15)
-            if (has(att, 'optic', 'peep')) g.box(48, 51, 18, 20, 3, STEEL).cut(49, 50, 19, 20, g.ci, g.ci + 1)
+            const dot = has(att, 'optic', 'reddot') ? redDot(g, 44, 53, 18) : undefined
             if (has(att, 'stock', 'light')) for (const k of [62, 69]) g.cut(k, k + 4, 6, 10, 0, g.W)
-            return { gun: g, grip: [52, 9], bore: 15, front: 1, sight: [38, 19], eyeRelief: 0.31, left: [-0.015, 0.005, -0.27], eject: [44, 16], reload: 'side', long: true }
+            return { gun: g, grip: [52, 9], bore: 15, front: 1, sight: [38, 19], eyeRelief: 0.31, left: [-0.015, 0.005, -0.27], eject: [44, 16], reload: 'side', long: true, dot }
         }
         case 'bar': {
             const sc = has(att, 'optic', 'scope')
             const cut = has(att, 'stock', 'cut') || has(att, 'stock', 'light')
-            const g = new Gun(VOX, 98, 26, 5)
+            const g = new Gun(VOX, 98, 26, 5, 7)
             g.rod(0, 40, 13, 0.8, STEEL)
             g.rod(12, 38, 11, 0.6, STEEL)
             g.box(0, 3, 12, 15, 3, STEEL)
@@ -507,7 +555,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (const k of [14, 26]) g.ring(k, k + 1, 11, 0, 1.4, STEEL_HI)
             g.swivel(36, 9)
             g.box(48, 66, 8, 15, 3, PARK)
-            g.box(63, 66, 15, 17, 3, STEEL_HI).cut(63, 66, 16, 17, g.ci, g.ci + 1)
+            if (!has(att, 'optic', 'reddot')) g.box(63, 66, 15, 17, 3, STEEL_HI).cut(63, 66, 16, 17, g.ci, g.ci + 1)
             g.box(60, 67, 5, 8, 1, STEEL).box(63, 64, 6, 9, 1, BLACK)
             g.slope(66, 74, k => 6 + (k - 66) * 0.1, () => 13, 3, WOOD)
             if (cut) g.slope(74, 86, k => 7 - (k - 74) * 0.2, () => 13, 3, WOOD).box(85, 86, 4, 13, 3, STEEL)
@@ -520,9 +568,11 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.part('main')
             if (sc) scope(g, 48, 70, 18)
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 13)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 13)
+            const dot = has(att, 'optic', 'reddot') ? redDot(g, 52, 61, 15) : undefined
             return {
                 gun: g, grip: [68, 9], bore: 13, front: 2, sight: sc ? [62, 18.5] : [64, 17], eyeRelief: sc ? 0.07 : 0.24, left: [-0.02, -0.025, -0.42], eject: [56, 13],
-                reload: 'mag', long: true, scoped: sc ? { j: 18, k0: 48, k1: 70 } : undefined
+                reload: 'mag', long: true, scoped: sc ? { j: 18, k0: 48, k1: 70 } : undefined, dot
             }
         }
         case 'lewis': {
@@ -595,7 +645,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
                         // the outermost filled cell of this row on this side
                         for (let d = 5; d >= 0; d--) {
                             const i = g.ci + side * d
-                            if (g.cur.get(i, j, k + g.ko)) {
+                            if (g.cur.get(i, j + g.jo, k + g.ko)) {
                                 const hot = j === 12
                                 g.boxI(k, k + 1, j, j + 1, i, i + 1, hot ? S.core : S.glass, hot ? 1 : 0.3)
                                 break
@@ -791,11 +841,11 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
         if (tier > 0 && !glowMat) me.onBeforeRender = dfTickPap
         return me
     }
-    const gripPivot: [number, number, number] = [gi, gj, gk + ko]
+    const gripPivot: [number, number, number] = [gi, gj + g.jo, gk + ko]
     const main = meshOf('main', gripPivot)
     if (main) root.add(main)
     const sub = (name: PartName, axis?: [number, number]): THREE.Object3D | null => {
-        const pivot: [number, number, number] = axis ? [gi, axis[0], axis[1] + ko] : gripPivot
+        const pivot: [number, number, number] = axis ? [gi, axis[0] + g.jo, axis[1] + ko] : gripPivot
         const me = meshOf(name, pivot)
         if (!me) return null
         const grp = new THREE.Group()
@@ -822,7 +872,16 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
     toGun(gi, spec.bore + 0.5, muzzleK, muzzle.position)
     root.add(muzzle)
     let lens: THREE.Mesh | null = null
-    if (spec.scoped) {
+    if (spec.dot) {
+        // The red dot floats in the front glass; it only shows while aiming.
+        const dm = new THREE.MeshBasicMaterial({ map: dfDotTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })
+        dm.userData.dfOwned = true
+        lens = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 0.03), dm)
+        toGun(gi, spec.dot.j + 0.5, spec.dot.k0 + 0.5, lens.position)
+        lens.visible = false
+        lens.renderOrder = 5
+        root.add(lens)
+    } else if (spec.scoped) {
         const lm = new THREE.MeshBasicMaterial({ map: dfReticleTexture(), transparent: true, depthWrite: false, toneMapped: false })
         lm.userData.dfOwned = true
         lens = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.05), lm)
@@ -846,11 +905,12 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
                 }
             }
         }
-        return top + 1
+        return top + 1 - g.jo
     }
     const rearK = spec.sight[0]
-    const sightRear = spec.scoped ? toGun(gi, spec.scoped.j + 0.5, spec.scoped.k1) : toGun(gi, topAt(rearK, true), rearK + 0.5)
-    const sightFront = spec.scoped ? toGun(gi, spec.scoped.j + 0.5, spec.scoped.k0) : toGun(gi, topAt(spec.front, false), spec.front + 0.5)
+    const opt = spec.scoped ?? spec.dot
+    const sightRear = opt ? toGun(gi, opt.j + 0.5, opt.k1) : toGun(gi, topAt(rearK, true), rearK + 0.5)
+    const sightFront = opt ? toGun(gi, opt.j + 0.5, opt.k0) : toGun(gi, topAt(spec.front, false), spec.front + 0.5)
     const r: DfGunRig = {
         id,
         root,
