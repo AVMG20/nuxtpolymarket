@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { OpenedPackResult, SealedPackSummary } from '#shared/types/tcg'
+import type { OpenedPackResult, SealedPackSummary, TcgBundleSummary } from '#shared/types/tcg'
 import { wrapUrl } from '~/utils/tcg/wrap'
 
 const toast = useToast()
@@ -21,14 +21,48 @@ const { data, pending, refresh } = useApiState('/api/tcg/packs', 'tcg-packs')
 
 const packs = computed(() => data.value?.packs ?? [])
 const bundles = computed(() => data.value?.bundles ?? [])
+const opened = computed(() => data.value?.opened ?? [])
 
-const loosePacks = computed(() => packs.value.filter(p => !p.bundleId))
-const looseSealed = computed(() => loosePacks.value.filter(p => p.state === 'sealed'))
-const looseOpened = computed(() => loosePacks.value.filter(p => p.state === 'opened'))
+interface PackStack {
+  key: string
+  setId: string
+  /** Sealed packs in pack-number order; the first one opens next. */
+  packs: SealedPackSummary[]
+  bundle?: TcgBundleSummary
+}
 
-const expandedBundle = ref<string | null>(null)
-function bundlePacks(bundleId: string) {
-  return packs.value.filter(p => p.bundleId === bundleId)
+// Sealed packs stack per bundle, then loose ones per set: a stack of identical
+// boosters reads better than a grid of identical cards.
+const stacks = computed<PackStack[]>(() => {
+  const result: PackStack[] = []
+  for (const bundle of bundles.value) {
+    const bundled = packs.value.filter(p => p.bundleId === bundle.id)
+    if (bundled.length) result.push({ key: bundle.id, setId: bundle.setId, packs: bundled, bundle })
+  }
+  const loose = new Map<string, PackStack>()
+  for (const pack of packs.value) {
+    if (pack.bundleId) continue
+    let stack = loose.get(pack.setId)
+    if (!stack) {
+      stack = { key: pack.setId, setId: pack.setId, packs: [] }
+      loose.set(pack.setId, stack)
+      result.push(stack)
+    }
+    stack.packs.push(pack)
+  }
+  return result
+})
+
+const finishedBundles = computed(() => bundles.value.filter(b => b.sealedCount === 0))
+const openedTotal = computed(() =>
+  opened.value.reduce((sum, row) => sum + row.count, 0)
+  + finishedBundles.value.reduce((sum, b) => sum + b.openedCount, 0))
+const showHistory = ref(false)
+
+function packRange(stack: PackStack) {
+  const first = stack.packs[0]!.packIndex + 1
+  const last = stack.packs[stack.packs.length - 1]!.packIndex + 1
+  return first === last ? `#${first}` : `#${first}–#${last}`
 }
 
 function setName(setId: string) {
@@ -96,120 +130,65 @@ async function onCeremonyClose() {
 
 <template>
   <div class="mx-auto w-full max-w-4xl space-y-4 p-4">
-    <!-- Bundles -->
-    <template v-if="bundles.length">
-      <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
-        Bundles
-      </h2>
-      <UCard
-        v-for="bundle in bundles"
-        :key="bundle.id"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-3">
-            <UIcon
-              name="i-lucide-gift"
-              class="size-5 text-primary"
-            />
-            <div>
-              <p class="font-medium text-highlighted">
-                {{ setName(bundle.setId) }} bundle
-              </p>
-              <p class="text-xs text-muted">
-                Week of {{ bundle.weekKey }} · {{ bundle.sealedCount }} sealed · {{ bundle.openedCount }} opened
-              </p>
-            </div>
-          </div>
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            :icon="expandedBundle === bundle.id ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-            @click="expandedBundle = expandedBundle === bundle.id ? null : bundle.id"
-          >
-            {{ expandedBundle === bundle.id ? 'Hide packs' : 'Show packs' }}
-          </UButton>
-        </div>
-
-        <div
-          v-if="expandedBundle === bundle.id"
-          class="mt-3 grid gap-2 border-t border-default pt-3 sm:grid-cols-2 md:grid-cols-3"
-        >
-          <div
-            v-for="pack in bundlePacks(bundle.id)"
-            :key="pack.id"
-            class="flex items-center justify-between gap-2 rounded-md bg-elevated px-3 py-2"
-          >
-            <span class="text-sm tabular-nums text-highlighted">Pack #{{ pack.packIndex + 1 }}</span>
-            <UButton
-              v-if="pack.state === 'sealed'"
-              size="xs"
-              icon="i-lucide-package-open"
-              :loading="opening === pack.id"
-              :disabled="!!opening"
-              @click="openPack(pack)"
-            >
-              Open
-            </UButton>
-            <UBadge
-              v-else
-              color="neutral"
-              variant="subtle"
-              size="sm"
-            >
-              Opened
-            </UBadge>
-          </div>
-        </div>
-      </UCard>
-    </template>
-
-    <!-- Loose sealed packs -->
     <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
       Sealed packs
     </h2>
     <div
-      v-if="looseSealed.length"
-      class="grid gap-3 sm:grid-cols-2 md:grid-cols-3"
+      v-if="stacks.length"
+      class="grid gap-3 sm:grid-cols-2"
     >
       <UCard
-        v-for="pack in looseSealed"
-        :key="pack.id"
+        v-for="stack in stacks"
+        :key="stack.key"
       >
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3">
+          <div class="relative shrink-0">
             <img
-              v-if="packArt(pack.setId)"
-              :src="packArt(pack.setId)!"
-              :alt="`${setName(pack.setId)} booster pack`"
-              class="h-16 w-auto shrink-0 drop-shadow"
+              v-if="packArt(stack.setId)"
+              :src="packArt(stack.setId)!"
+              :alt="`${setName(stack.setId)} booster pack`"
+              class="h-20 w-auto drop-shadow"
               @error="hideBrokenArt"
             >
-            <div>
-              <p class="text-sm font-medium text-highlighted">
-                {{ setName(pack.setId) }}
-              </p>
-              <p class="text-xs tabular-nums text-muted">
-                Pack #{{ pack.packIndex + 1 }}
-              </p>
-            </div>
+            <UBadge
+              v-if="stack.packs.length > 1"
+              size="sm"
+              class="absolute -right-2 -top-2 tabular-nums"
+            >
+              ×{{ stack.packs.length }}
+            </UBadge>
           </div>
-          <div class="flex gap-1.5">
+          <div class="min-w-0 flex-1">
+            <p class="truncate font-medium text-highlighted">
+              {{ setName(stack.setId) }}<template v-if="stack.bundle"> bundle</template>
+            </p>
+            <p class="truncate text-xs tabular-nums text-muted">
+              <template v-if="stack.bundle">
+                {{ stack.packs.length }} of {{ stack.packs.length + stack.bundle.openedCount }} left · week of {{ stack.bundle.weekKey }}
+              </template>
+              <template v-else>
+                {{ stack.packs.length }} sealed · {{ packRange(stack) }}
+              </template>
+            </p>
+          </div>
+          <div class="flex shrink-0 gap-1.5">
             <UButton
               size="sm"
               icon="i-lucide-package-open"
-              :loading="opening === pack.id"
+              :loading="opening === stack.packs[0]!.id"
               :disabled="!!opening"
-              @click="openPack(pack)"
+              @click="openPack(stack.packs[0]!)"
             >
               Open
             </UButton>
             <UButton
+              v-if="!stack.bundle"
               size="sm"
               color="neutral"
               variant="subtle"
               icon="i-lucide-gavel"
-              @click="auctionPackId = pack.id"
+              aria-label="Auction a pack"
+              @click="auctionPackId = stack.packs[0]!.id"
             />
           </div>
         </div>
@@ -221,28 +200,52 @@ async function onCeremonyClose() {
       </p>
     </UCard>
 
-    <!-- Opened packs (compact) -->
-    <template v-if="looseOpened.length">
-      <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
-        Opened packs
-      </h2>
-      <UCard>
+    <!-- History: opened loose packs per set and fully opened bundles -->
+    <template v-if="openedTotal">
+      <UButton
+        variant="link"
+        color="neutral"
+        class="px-0"
+        :trailing-icon="showHistory ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+        @click="showHistory = !showHistory"
+      >
+        {{ formatNumber(openedTotal, false) }} packs opened
+      </UButton>
+      <UCard v-if="showHistory">
         <ul class="divide-y divide-default">
           <li
-            v-for="pack in looseOpened"
-            :key="pack.id"
+            v-for="row in opened"
+            :key="row.setId"
             class="flex items-center justify-between gap-2 py-1.5 text-sm"
           >
-            <span class="text-muted">{{ setName(pack.setId) }} · Pack #{{ pack.packIndex + 1 }}</span>
-            <UBadge
-              v-if="pack.isGod"
-              color="warning"
-              variant="subtle"
-              size="sm"
-              icon="i-lucide-sparkles"
-            >
-              God pack
-            </UBadge>
+            <span class="text-highlighted">{{ setName(row.setId) }}</span>
+            <span class="flex items-center gap-2">
+              <UBadge
+                v-if="row.godCount"
+                color="warning"
+                variant="subtle"
+                size="sm"
+                icon="i-lucide-sparkles"
+              >
+                {{ row.godCount > 1 ? `${row.godCount} god packs` : 'God pack' }}
+              </UBadge>
+              <span class="tabular-nums text-muted">{{ formatNumber(row.count, false) }} packs</span>
+            </span>
+          </li>
+          <li
+            v-for="bundle in finishedBundles"
+            :key="bundle.id"
+            class="flex items-center justify-between gap-2 py-1.5 text-sm"
+          >
+            <span class="flex items-center gap-1.5 text-highlighted">
+              <UIcon
+                name="i-lucide-gift"
+                class="size-3.5 text-muted"
+              />
+              {{ setName(bundle.setId) }} bundle
+              <span class="text-xs text-muted">· week of {{ bundle.weekKey }}</span>
+            </span>
+            <span class="tabular-nums text-muted">{{ bundle.openedCount }} packs</span>
           </li>
         </ul>
       </UCard>

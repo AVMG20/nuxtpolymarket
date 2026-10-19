@@ -171,6 +171,14 @@ export interface SealedPackSummary {
     createdAt: string
 }
 
+/** The owner's opened loose packs of one set, rolled up. */
+export interface TcgOpenedPackSummary {
+    setId: string
+    count: number
+    godCount: number
+    lastOpenedAt: string | null
+}
+
 /** One claimed Friday bundle with pack counts derived from the owner's packs. */
 export interface TcgBundleSummary {
     id: string
