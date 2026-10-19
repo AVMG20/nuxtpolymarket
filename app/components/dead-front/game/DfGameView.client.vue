@@ -8,6 +8,21 @@
 
         <DfHud :hud="hud" />
 
+        <!-- squad chat: T or Enter to talk, Enter sends, Escape drops it -->
+        <form v-if="chatOpen" class="df-chat-box absolute" @submit.prevent="sendChat">
+            <span class="df-chat-label">Say</span>
+            <input
+                ref="chatInput"
+                v-model="chatText"
+                class="df-chat-input"
+                maxlength="200"
+                autocomplete="off"
+                spellcheck="false"
+                @keydown.esc.prevent="closeChat"
+                @blur="closeChat"
+            >
+        </form>
+
         <!-- click to take your post -->
         <Transition name="df-fade">
             <div
@@ -72,8 +87,9 @@ const keys = [
     { keys: ['F'], what: 'use' },
     { keys: ['V'], what: 'knife' },
     { keys: ['G'], what: 'grenade' },
-    { keys: ['1', '2'], what: 'swap' },
-    { keys: ['Tab'], what: 'ledger' }
+    { keys: ['1', '2', 'Wheel'], what: 'swap' },
+    { keys: ['Tab'], what: 'ledger' },
+    { keys: ['T'], what: 'chat' }
 ]
 
 const props = defineProps<{
@@ -116,6 +132,42 @@ function leave(): void {
     emit('leave')
 }
 
+// In-match chat: the box takes the keyboard while the pointer stays locked.
+const chatOpen = ref(false)
+const chatText = ref('')
+const chatInput = ref<HTMLInputElement | null>(null)
+
+function openChat(): void {
+    chatOpen.value = true
+    chatText.value = ''
+    engine?.setTyping(true)
+    nextTick(() => chatInput.value?.focus())
+}
+
+function closeChat(): void {
+    if (!chatOpen.value) return
+    chatOpen.value = false
+    engine?.setTyping(false)
+}
+
+function sendChat(): void {
+    const text = chatText.value.trim()
+    if (text) props.net.send({ t: 'chat', text })
+    closeChat()
+}
+
+function onKeyDown(e: KeyboardEvent): void {
+    if (chatOpen.value || !hud.locked || e.repeat) return
+    if (e.code !== 'KeyT' && e.code !== 'Enter') return
+    // keep the key itself out of the box
+    e.preventDefault()
+    openChat()
+}
+
+watch(() => hud.locked, (locked) => {
+    if (!locked) closeChat()
+})
+
 function onSettings(s: DfSettings): void {
     settings.value = s
     dfSaveSettings(s)
@@ -129,6 +181,7 @@ const feedCtx: DfHudFeedContext = {
     name: pid => feedPlayers.find(p => p.pid === pid)?.name ?? 'A soldier',
     color: pid => dfPlayerColor(pid),
     doorLabel: id => DF_MAP.doors.find(d => d.id === id)?.label ?? null,
+    trapLabel: id => DF_MAP.traps?.find(t => t.id === id)?.label ?? null,
     weaponName: id => DF_WEAPONS[id as keyof typeof DF_WEAPONS]?.name ?? 'weapon',
     powerupName: kind => DF_POWERUP_NAMES[kind] ?? 'a power-up'
 }
@@ -143,6 +196,7 @@ const offSnap = props.net.on('snap', (m) => {
 const feedTimer = setInterval(() => dfHudPruneFeed(hud.feed, performance.now()), 500)
 
 onMounted(() => {
+    window.addEventListener('keydown', onKeyDown)
     if (!canvasEl.value) return
     try {
         engine = createDfEngine({
@@ -161,6 +215,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onKeyDown)
     offSnap()
     clearInterval(feedTimer)
     engine?.dispose()
@@ -169,6 +224,37 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.df-chat-box {
+    left: clamp(12px, 1.6vw, 28px);
+    bottom: calc(38% - 2.6rem);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: min(24rem, 60vw);
+    padding: 0.3rem 0.55rem;
+    background: var(--df-hud-bg);
+    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+}
+
+.df-chat-label {
+    font-family: var(--df-font-stencil);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #ffb45c;
+}
+
+.df-chat-input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--df-font-type);
+    font-size: 0.85rem;
+    color: #f1e8cf;
+    background: transparent;
+    border: 0;
+    outline: none;
+}
+
 .df-game {
     font-family: var(--df-font-serif);
     color: var(--df-chalk);

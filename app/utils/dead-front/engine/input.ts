@@ -1,14 +1,22 @@
 // Keyboard / mouse / pointer-lock input for the game view. Keys are tracked
 // by `KeyboardEvent.code` so layouts don't matter for WASD.
 
+/** Wheel events closer together than this belong to one scroll (one weapon step). */
+const WHEEL_GESTURE_GAP_MS = 140
+
 export class DfInput {
     readonly down = new Set<string>()
     private readonly pressedSet = new Set<string>()
     private readonly releasedSet = new Set<string>()
     mouseX = 0
     mouseY = 0
+    /** Weapon-cycle steps from the scroll wheel this frame: one per scroll gesture, signed. */
     wheel = 0
+    /** When the last wheel event arrived (ms): a gap of `WHEEL_GESTURE_GAP_MS` starts a new gesture. */
+    private wheelAt = -Infinity
     locked = false
+    /** The chat box has the keyboard: keys are not game input. */
+    typing = false
     onLockChange: ((locked: boolean) => void) | null = null
     /** Development hook: a faked lock ignores real pointer-lock changes. */
     private devLocked = false
@@ -31,7 +39,7 @@ export class DfInput {
         }
         on(window, 'keydown', (e: KeyboardEvent) => {
             this.onGesture?.()
-            if (!this.locked) return
+            if (!this.locked || this.typing) return
             // keep the browser from scrolling / opening find etc. while playing
             if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'Quote' || e.code === 'Slash' || (e.ctrlKey && e.code === 'KeyW')) e.preventDefault()
             if (e.repeat) return
@@ -64,8 +72,12 @@ export class DfInput {
             this.down.delete(code)
         })
         on(window, 'wheel', (e: WheelEvent) => {
-            if (!this.locked) return
-            this.wheel += Math.sign(e.deltaY)
+            if (!this.locked || Math.abs(e.deltaY) < 1) return
+            // a notch with smooth scrolling, or a trackpad flick and its inertia, fires a burst
+            // of events: count the burst once so it moves one weapon, not back and forth
+            const fresh = e.timeStamp - this.wheelAt > WHEEL_GESTURE_GAP_MS
+            this.wheelAt = e.timeStamp
+            if (fresh) this.wheel += Math.sign(e.deltaY)
         }, { passive: true })
         on(window, 'contextmenu', (e: Event) => {
             if (this.locked) e.preventDefault()
@@ -143,6 +155,11 @@ export class DfInput {
     devLook(dx: number, dy: number): void {
         this.mouseX += dx
         this.mouseY += dy
+    }
+
+    setTyping(on: boolean): void {
+        this.typing = on
+        if (on) this.clear()
     }
 
     unlock(): void {

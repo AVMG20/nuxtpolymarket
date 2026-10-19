@@ -29,7 +29,7 @@ import { createDfFx } from './fx'
 import { DfGunState, DfRecoil, dfAimDir, dfConeDir, dfSpread } from './gun'
 import { DfHintTracker, dfAmmoHint, dfLoadHintsSeen, dfSaveHintsSeen } from './hints'
 import type { DfHintFacts } from './hints'
-import { DF_HUD_MARKERS } from './hud'
+import { DF_HUD_HIT_POPS, DF_HUD_MARKERS } from './hud'
 import type { DfHudState } from './hud'
 import { DfInput } from './input'
 import { DfSnapBuffer, DfZombieSmoother, dfInterpPlayer, dfInterpZombies, dfNewInterpPlayer, dfNewSample, dfWrapAngle } from './interp'
@@ -47,7 +47,7 @@ import { dfVerticalFov } from './settings'
 import type { DfSettings } from './settings'
 import { DF_SND, registerDfEngineSounds } from './sounds'
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
-import { DF_STREAK_TITLES } from '#shared/utils/dead-front/specials'
+import { DF_STREAK_TITLES, dfGasDepth } from '#shared/utils/dead-front/specials'
 
 // The Dead Front client engine: owns the renderer, the loop, input and the
 // local player, interpolates the server's snapshots, routes events to the
@@ -69,6 +69,8 @@ export interface DfEngine {
     /** Request pointer lock (from a click). */
     lock(): void
     unlock(): void
+    /** Chat box open: the keyboard types instead of playing (held keys are let go). */
+    setTyping(on: boolean): void
     applySettings(s: DfSettings): void
     dispose(): void
 }
@@ -222,6 +224,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** Kill punch 0..1: a quick FOV squeeze on kills (more on headshots). */
     let killPunch = 0
     let damagePulse = 0
+    /** Gas rounds: the next fog puff in a pocket and the next cough while standing in one. */
+    let gasPuffIn = 0
+    let coughIn = 0
     let downBlend = 0
     let gradeFlash = 0
     let heartbeatAt = 0
@@ -269,6 +274,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     const markPos = new THREE.Vector3()
 
     let popupId = 0
+    /** World anchor per hit-pop slot (the hit point the number rises from). */
+    const hitPopAt = Array.from({ length: DF_HUD_HIT_POPS }, () => new THREE.Vector3())
+    let hitPopSeq = 0
     let damageId = 0
     let chatId = 0
     let hudTimer = 0
@@ -433,8 +441,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             // perks -> effects
             const pk = p.perks.join(',')
             if (pk !== perksKey || !spawned) {
+                // going down strips the perks, but the Last Stand mod bought with Second Wind still counts while downed
+                const lastStand = p.life === 'down' && life !== 'down' && perksKey.split(',').includes('secondwind') ? effects.lastStandDamageMult : 1
                 perksKey = pk
                 computeEffects(p.perks)
+                effects.lastStandDamageMult = Math.max(effects.lastStandDamageMult, lastStand)
             }
             if (!spawned) {
                 spawned = true
@@ -620,6 +631,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function popup(amount: number, gold: boolean): void {
         hud.popups.push({ id: ++popupId, pid: me, amount, gold, dx: Math.random() * 2 - 1, born: time })
         if (hud.popups.length > 16) hud.popups.shift()
+    }
+
+    /** Floats a hit's points up off the zombie, at the point it was hit. */
+    function hitPop(at: Vec3, amount: number, kind: 'hit' | 'kill' | 'head'): void {
+        if (amount <= 0) return
+        const slot = hitPopSeq++ % DF_HUD_HIT_POPS
+        const i = hud.hitPops.findIndex(p => p.slot === slot)
+        if (i >= 0) hud.hitPops.splice(i, 1)
+        hitPopAt[slot]!.set(at.x, at.y, at.z)
+        hud.hitPops.push({ id: ++popupId, slot, amount, kind, gold: (latest?.world.double ?? 0) > 0, dx: Math.random() * 2 - 1, born: time })
     }
 
     // ---------------------------------------------------------------- hit / kill prediction
@@ -881,6 +902,35 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (hit && Math.abs(hit.dist - d) < 0.35) surfaceFx(hit.point, hit.normal, hit.mat)
     }
 
+    /** A gas round's pockets roll with mustard fog, and standing in one makes you cough. */
+    function updateGas(dt: number): void {
+        const sp = latest?.world.special
+        const pockets = sp?.kind === 'gas' ? sp.pockets : null
+        if (!pockets?.length) {
+            coughIn = 0
+            return
+        }
+        gasPuffIn -= dt
+        while (gasPuffIn <= 0) {
+            gasPuffIn += 0.12
+            const g = pockets[Math.floor(Math.random() * pockets.length)]!
+            const a = Math.random() * Math.PI * 2
+            const r = Math.sqrt(Math.random()) * g.r * 0.85
+            fx.burst('gas', { x: g.x + Math.cos(a) * r, y: g.y + 0.1, z: g.z + Math.sin(a) * r }, { count: 2, scale: 0.9 })
+        }
+        const depth = life === 'alive' ? dfGasDepth(pockets, player.pos) : 0
+        if (depth < 0.2) {
+            // the first cough comes soon after stepping in
+            coughIn = Math.min(coughIn, 0.5)
+            return
+        }
+        coughIn -= dt
+        if (coughIn <= 0) {
+            coughIn = 2.8 + Math.random() * 2.4
+            audio.play(DF_SPECIAL_SND.cough, { volume: 0.45 + depth * 0.4 })
+        }
+    }
+
     // ---------------------------------------------------------------- shooting
     function fire(now: number): void {
         const s = stats
@@ -943,17 +993,30 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const shot = ++shotSeq
         let base = 0
         let killed = false
-        for (const h of hits) {
+        // one number per zombie per shot (a shotgun's pellets add up), at its first hit
+        const pops = new Map<number, { at: Vec3, amount: number, kind: 'hit' | 'kill' | 'head' }>()
+        for (let i = 0; i < hits.length; i++) {
+            const h = hits[i]!
             const z = zList.find(q => q.id === h.z)
             if (!z) continue
             const r = predictHit(z, dfBulletDamage(s, effects, h.zone, h.dist, life === 'down'), h.zone, shot, false)
-            base += scalePoints(r.points)
+            const pts = scalePoints(r.points)
+            base += pts
             if (r.kill) {
                 h.kill = true
                 killed = true
             }
+            const pop = pops.get(h.z)
+            const kind = r.kill ? (h.zone === 'head' ? 'head' : 'kill') : 'hit'
+            if (pop) {
+                pop.amount += pts
+                if (r.kill) pop.kind = kind
+            } else {
+                pops.set(h.z, { at: localHits[i]!.pos, amount: pts, kind })
+            }
         }
         predictPoints(shot, base)
+        for (const pop of pops.values()) hitPop(pop.at, pop.amount, pop.kind)
         net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits, shot, mag: Math.max(0, gun.mag - 1) })
         // the zombie flinches (and bleeds) on this frame, not a round trip later; the server's echo is skipped
         for (let i = 0; i < localHits.length; i++) {
@@ -1061,6 +1124,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const shot = ++shotSeq
         const r = predictHit(best, DF_MELEE.damage * effects.meleeMult, zone, shot, true)
         predictPoints(shot, scalePoints(r.points))
+        hitPop({ x: best.pos.x, y: best.pos.y + 1.3, z: best.pos.z }, scalePoints(r.points), r.kill ? 'kill' : 'hit')
         net.send({ t: 'melee', z: best.id, zone, shot, kill: r.kill || undefined })
         predictedHitAt = time
         if (!r.kill) {
@@ -1489,7 +1553,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             histPos[i * 3] = player.pos.x
             histPos[i * 3 + 1] = player.pos.y
             histPos[i * 3 + 2] = player.pos.z
-            net.send({ t: 'in', seq, pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, yaw: player.yaw, pitch: player.pitch, flags })
+            net.send({ t: 'in', seq, pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, yaw: player.yaw, pitch: player.pitch, flags, rtt: Math.round(net.rtt) })
         }
 
         // ---- interpolation
@@ -1588,6 +1652,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         // feedback: low health, downed, damage
         updateFeedback(dt, now)
+        updateGas(dt)
 
         fx.resize(rr.bufferHeight, rr.pixelRatio)
         fx.update(dt, now)
@@ -1808,6 +1873,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         })
         // popups expire
         while (hud.popups.length && time - hud.popups[0]!.born > 1.3) hud.popups.shift()
+        while (hud.hitPops.length && time - hud.hitPops[0]!.born > 1.1) hud.hitPops.shift()
         while (hud.damage.length && time - hud.damage[0]!.born > 1.6) hud.damage.shift()
         while (hud.chat.length && time - hud.chat[0]!.born > 10) hud.chat.shift()
 
@@ -2081,6 +2147,15 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             root.style.setProperty(`--df-mk${i}-y`, `${screenPt.y.toFixed(1)}px`)
             root.style.setProperty(`--df-mk${i}-on`, screenPt.onScreen ? '1' : '0')
             root.style.setProperty(`--df-mk${i}-ang`, screenPt.angle.toFixed(3))
+        }
+        // hit points float over the zombie they came from
+        for (const pop of hud.hitPops) {
+            tmpV.copy(hitPopAt[pop.slot]!).applyMatrix4(camera.matrixWorldInverse)
+            const front = tmpV.z < -0.05
+            const iz = front ? 1 / -tmpV.z : 0
+            root.style.setProperty(`--df-hp${pop.slot}-x`, `${((tmpV.x * PM[0]! * iz * 0.5 + 0.5) * cssW).toFixed(1)}px`)
+            root.style.setProperty(`--df-hp${pop.slot}-y`, `${((-tmpV.y * PM[5]! * iz * 0.5 + 0.5) * cssH).toFixed(1)}px`)
+            root.style.setProperty(`--df-hp${pop.slot}-on`, front ? '1' : '0')
         }
         // waypoint
         if (wpHas) {
@@ -2361,6 +2436,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         },
         unlock() {
             input.unlock()
+        },
+        setTyping(on) {
+            input.setTyping(on)
         },
         applySettings(s) {
             settings = { ...s }

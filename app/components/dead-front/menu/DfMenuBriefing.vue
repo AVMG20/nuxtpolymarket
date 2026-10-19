@@ -125,6 +125,7 @@ const controls = [
     { keys: ['G'], what: 'Grenade' },
     { keys: ['F'], what: 'Use · hold to rebuild or revive' },
     { keys: ['Tab'], what: 'Scoreboard' },
+    { keys: ['T'], what: 'Squad chat' },
     { keys: ['Esc'], what: 'Pause' }
 ]
 

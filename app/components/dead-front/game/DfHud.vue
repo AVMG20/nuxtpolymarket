@@ -76,6 +76,9 @@
                 </div>
             </Transition>
         </div>
+        <!-- points floating off the zombies we hit -->
+        <DfHudHitPops v-if="hud.hitPops.length" :pops="hud.hitPops" />
+
         <!-- markers: the last zombies and downed teammates -->
         <DfHudMarkers v-if="hud.markers.length" :markers="hud.markers" />
 
@@ -206,6 +209,7 @@ import type { DfHudState } from '~/utils/dead-front/engine/hud'
 import { dfDrawPowerupIcon } from '~/utils/dead-front/engine/powerups'
 import DfHudAmmo from './DfHudAmmo.vue'
 import DfHudFeed from './DfHudFeed.vue'
+import DfHudHitPops from './DfHudHitPops.vue'
 import DfHudMarkers from './DfHudMarkers.vue'
 import DfHudObjective from './DfHudObjective.vue'
 import DfHudPerks from './DfHudPerks.vue'

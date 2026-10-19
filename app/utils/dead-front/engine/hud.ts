@@ -31,6 +31,25 @@ export interface DfHudPopup {
     born: number
 }
 
+/**
+ * A hit's points floating up off the zombie that paid them (own hits only). Slot i
+ * is placed every frame through --df-hp{i}-x / --df-hp{i}-y (px) and --df-hp{i}-on
+ * (1 in front of the camera, 0 behind) on the HUD root.
+ */
+export interface DfHudHitPop {
+    id: number
+    slot: number
+    amount: number
+    kind: 'hit' | 'kill' | 'head'
+    gold: boolean
+    /** -1..1 horizontal drift. */
+    dx: number
+    born: number
+}
+
+/** Hit pops on screen at once (the oldest is replaced). */
+export const DF_HUD_HIT_POPS = 12
+
 export interface DfHudPerk {
     id: DfPerkId
     name: string
@@ -60,6 +79,7 @@ export interface DfHudState {
     zombiesLeft: number
     players: DfHudPlayer[]
     popups: DfHudPopup[]
+    hitPops: DfHudHitPop[]
     ammo: {
         weapon: DfWeaponId | null
         name: string
@@ -172,6 +192,8 @@ export interface DfHudFeedContext {
     name(pid: number): string
     color(pid: number): string
     doorLabel(id: string): string | null
+    /** "Churchyard Passage" for a trap id. */
+    trapLabel?(id: string): string | null
     weaponName(id: string): string
     powerupName(kind: DfPowerupKind): string
 }
@@ -221,6 +243,10 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
                 const label = c.doorLabel(ev.what.slice(5))
                 return line('pale', ev.p, label ? `opened the ${label}` : 'opened a door')
             }
+            if (ev.what.startsWith('trap:')) {
+                const label = c.trapLabel?.(ev.what.slice(5))
+                return line('pale', ev.p, label ? `threw the ${label} trap` : 'threw an electric trap')
+            }
             if (ev.what === 'weapon:wunder') return line('gold', ev.p, 'claimed the wonder weapon')
             return null
         }
@@ -252,6 +278,7 @@ export function dfCreateHudState(): DfHudState {
         zombiesLeft: 0,
         players: [],
         popups: [],
+        hitPops: [],
         ammo: { weapon: null, name: '', mag: 0, magSize: 0, reserve: 0, pap: 0, reloading: false, infinite: false },
         grenades: 0,
         perks: [],
