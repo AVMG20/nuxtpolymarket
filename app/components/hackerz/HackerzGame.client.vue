@@ -17,6 +17,8 @@ import {
   type HackerzTurretId, type HackerzUpgradeId, type HackerzWeaponId
 } from '#shared/utils/gamelogic/hackerz'
 
+import { claimHackerzVictory, hackerzSaveOutcome, type HackerzSaveOutcome } from '~/utils/hackerz-victory'
+
 type Phase = 'loading' | 'lobby' | 'wave' | 'shop' | 'over' | 'won'
 
 const { user, fetchSession } = useAuth()
@@ -171,10 +173,10 @@ const savedAt = ref<Date | null>(null)
 /**
  * Freezes the run. Only ever called from the uplink, which is the one moment the
  * game has no wave in flight and is therefore the one moment worth storing.
- * True once the save has reached the server.
+ * Says what became of the save (see `hackerzSaveOutcome`).
  */
-async function saveRun() {
-  if (phase.value !== 'shop' || !game) return false
+async function saveRun(): Promise<HackerzSaveOutcome> {
+  if (phase.value !== 'shop' || !game) return 'rejected'
   saveState.value = 'saving'
   const save: HackerzRunSave = {
     version: HACKERZ_SAVE_VERSION,
@@ -195,12 +197,12 @@ async function saveRun() {
     revision.value = result.revision
     savedAt.value = new Date(result.updatedAt)
     saveState.value = 'saved'
-    return true
+    return 'saved'
   } catch (error) {
     saveState.value = 'error'
     const reason = (error as { statusMessage?: string }).statusMessage ?? 'Could not reach the uplink'
     pushNotice(`${reason} — progress is not saved.`, 'bad')
-    return false
+    return hackerzSaveOutcome(error)
   }
 }
 
@@ -769,29 +771,48 @@ async function onWaveEnd(summary: HackerzWaveSummary) {
 
 /** The last wave is won, but not banked until its save reaches the server. */
 const victoryPending = ref(false)
-const VICTORY_SAVE_ATTEMPTS = 3
-const VICTORY_RETRY_MS = 1000
+
+/** Why a won run could not be banked, by how the claim ended. */
+const VICTORY_LOST: Record<'ended' | 'conflict' | 'rejected', string> = {
+  ended: 'This run was already settled, in another tab or session.',
+  conflict: 'The run was saved from another tab or session in the meantime. Resume it from the lobby.',
+  rejected: 'The uplink refused the final save.'
+}
 
 /**
- * Banks a won run. The server settles from the stored save, so settling after
- * the final save failed would pay out the save before it: no victory, and the
- * last wave's coins lost. The save is tried a few times first; if it still
- * fails the run stays at the uplink, where Claim victory tries again.
+ * Banks a won run: saves it, and only then settles it (see
+ * `claimHackerzVictory`). A save the uplink never answered leaves the run at
+ * the uplink, where Claim victory tries again; one it can never accept ends
+ * the claim, and the lobby shows the run as the server holds it.
  */
 async function claimVictory() {
-  for (let attempt = 0; attempt < VICTORY_SAVE_ATTEMPTS; attempt++) {
-    if (attempt) await sleep(VICTORY_RETRY_MS * attempt)
-    if (await saveRun()) {
-      victoryPending.value = false
-      await settleRun('victory')
-      return
-    }
+  const result = await claimHackerzVictory({
+    save: saveRun,
+    stored: async () => {
+      await refreshState()
+      const run = account.value?.activeRun
+      return run?.save && run.revision !== null ? { wave: run.save.wave, revision: run.revision } : null
+    },
+    adopt: (stored) => { revision.value = stored },
+    settle: () => settleRun('victory'),
+    wait: sleep
+  }, HACKERZ_MAX_WAVE)
+  if (result === 'settled') {
+    victoryPending.value = false
+    return
   }
-  toast.add({
-    title: 'Victory not banked yet',
-    description: 'The final save did not reach the server. Claim the victory from the uplink once you are back online.',
-    color: 'warning'
-  })
+  if (result === 'pending') {
+    toast.add({
+      title: 'Victory not banked yet',
+      description: 'The final save did not reach the server. Claim the victory from the uplink once you are back online.',
+      color: 'warning'
+    })
+    return
+  }
+  victoryPending.value = false
+  toast.add({ title: 'Could not bank the victory', description: VICTORY_LOST[result], color: 'error' })
+  await refreshState()
+  phase.value = 'lobby'
 }
 
 /**
