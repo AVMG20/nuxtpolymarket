@@ -15,8 +15,7 @@ import {
 } from '#shared/utils/gamelogic/hackerz'
 import {
     BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, MODEL_HEIGHT_SCALE,
-    PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, SPAWN_SPREAD, SPIKE_BAND,
-    GUN_Z, WALL_HEIGHT
+    PICK_SLACK_PX, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, SPAWN_SPREAD, SPIKE_BAND, GUN_Z, WALL_HEIGHT
 } from './constants'
 import { clamp, randRange, segPointDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -42,8 +41,8 @@ import { LaneProps } from './lane-props'
 import { Overlay, ParticleSystem, TransientFx, hexCss, type HealthTag } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
 import {
-    RAIL_TRACK, PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK,
-    MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE
+    PING_COOLDOWN_MS, PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP,
+    LANE_SLACK, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE, RAIL_TRACK
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -64,6 +63,7 @@ import { ZeroDay } from './game/zero-day'
 import { Turrets } from './game/turrets'
 import { Projectiles } from './game/projectiles'
 import { Rail } from './game/rail'
+import { Abilities } from './game/abilities'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -100,9 +100,6 @@ function unitSize(def: HackerzEnemyDefinition) {
     return def.height * (UNIT_DISPLAY_SCALE[def.id] ?? 1)
 }
 
-/** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
-const PING_COOLDOWN_MS = 3500
-const PING_SPEED = 1500
 const PING_REVEAL_MS = 2600
 
 /**
@@ -319,7 +316,7 @@ export class HackerzGame {
     private mounted = false
     /** A wave is live: enemies spawn, the clock runs, input fires. */
     running = false
-    private paused = false
+    paused = false
     /** The end-of-wave sweep is playing; input is dead but the field still ticks. */
     purging = false
     gameOver = false
@@ -363,17 +360,8 @@ export class HackerzGame {
     /** Armed by Z/X/C: the next left click places it instead of firing. */
     private armed: HackerzDeployableId | null = null
 
-    // ── Weapon ──
-    private pulseCharge = 0
-    private overclockCharge = 0
-    overclockLeft = 0
-    private pingCharge = PING_COOLDOWN_MS
-
     // ── Entities ──
     enemies: EnemyEntity[] = []
-    /** A Portscan's sweep left (ms), and the countdown to its next ping once the contacts fade. */
-    private portscanLeft = 0
-    private rescanMs = 0
     /** Power Surges on the grid: where, how long left, and the countdowns to the next arc and the next ring. */
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
 
@@ -422,6 +410,7 @@ export class HackerzGame {
     readonly battery = new Turrets(this)
     readonly projectiles = new Projectiles(this)
     readonly rail = new Rail(this)
+    readonly abilities = new Abilities(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -577,9 +566,9 @@ export class HackerzGame {
                 near: hostile.filter(e => e.d < AUTOPILOT_NEAR).length,
                 hidden: hostile.filter(e => this.combat.inTheDark(e) || (!!e.def.cloaked && !e.decloaked && e.revealMs <= 0)).length,
                 total: hostile.length,
-                pulseReady: !!loadout?.pulseUnlocked && this.pulseCharge >= loadout.pulseCooldownMs,
-                pingReady: this.pingCharge >= PING_COOLDOWN_MS,
-                overclockReady: !!loadout?.overclockUnlocked && this.overclockLeft <= 0 && this.overclockCharge >= loadout.overclockCooldownMs
+                pulseReady: !!loadout?.pulseUnlocked && this.abilities.pulseCharge >= loadout.pulseCooldownMs,
+                pingReady: this.abilities.pingCharge >= PING_COOLDOWN_MS,
+                overclockReady: !!loadout?.overclockUnlocked && this.abilities.overclockLeft <= 0 && this.abilities.overclockCharge >= loadout.overclockCooldownMs
             }
         }
     }
@@ -665,9 +654,9 @@ export class HackerzGame {
 
     /** Auto-play fires an ability; each does nothing when it is not ready. */
     autopilotAbility(id: 'pulse' | 'ping' | 'overclock') {
-        if (id === 'pulse') this.firePulse()
-        else if (id === 'ping') this.firePing()
-        else this.fireOverclock()
+        if (id === 'pulse') this.abilities.firePulse()
+        else if (id === 'ping') this.abilities.firePing()
+        else this.abilities.fireOverclock()
     }
 
     /** Advances the simulation by hand, in frames of `frameMs`. For a test harness only. */
@@ -722,14 +711,14 @@ export class HackerzGame {
         const loadout = this.loadout
         if (!this.demo || !loadout) return
         if (id === 'pulse') {
-            this.pulseCharge = loadout.pulseCooldownMs
-            this.firePulse()
+            this.abilities.pulseCharge = loadout.pulseCooldownMs
+            this.abilities.firePulse()
         } else if (id === 'overclock') {
-            this.overclockLeft = 0
-            this.overclockCharge = loadout.overclockCooldownMs
-            this.fireOverclock()
+            this.abilities.overclockLeft = 0
+            this.abilities.overclockCharge = loadout.overclockCooldownMs
+            this.abilities.fireOverclock()
         } else {
-            this.firePing(true)
+            this.abilities.firePing(true)
         }
     }
 
@@ -790,7 +779,7 @@ export class HackerzGame {
             this.bastion.shieldHit = 0
             this.scoring.chain = 0
             this.scoring.totalKills = 0
-            this.pingCharge = PING_COOLDOWN_MS
+            this.abilities.pingCharge = PING_COOLDOWN_MS
             // Dark zones fade in and out: one lit in the last scene must not still be fading here.
             for (const zone of this.territory.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
             this.territory.darkness = 0
@@ -993,7 +982,7 @@ export class HackerzGame {
             if (event.button === 2) {
                 // Right click puts an armed deployable away; otherwise it pings.
                 if (this.armed) this.arm(null)
-                else this.firePing()
+                else this.abilities.firePing()
                 return
             }
             if (event.button !== 0) return
@@ -1051,9 +1040,9 @@ export class HackerzGame {
                 // Space scrolls the page by default, which is fatal for a key
                 // the player mashes under pressure.
                 if (this.running) event.preventDefault()
-                this.firePulse()
+                this.abilities.firePulse()
             }
-            if (key === 'q') this.fireOverclock()
+            if (key === 'q') this.abilities.fireOverclock()
         }
 
         canvas.addEventListener('pointermove', onPointerMove)
@@ -1167,9 +1156,9 @@ export class HackerzGame {
         this.bastion.wallHp = clamp(config.wallHp ?? loadout.wallMaxHp, 1, loadout.wallMaxHp)
         this.bastion.shieldMax = loadout.shieldMax
         this.bastion.shield = loadout.shieldMax
-        this.pulseCharge = loadout.pulseCooldownMs
-        this.overclockCharge = loadout.overclockCooldownMs
-        this.overclockLeft = 0
+        this.abilities.pulseCharge = loadout.pulseCooldownMs
+        this.abilities.overclockCharge = loadout.overclockCooldownMs
+        this.abilities.overclockLeft = 0
         this.rail.magSize = Math.round(loadout.weapon.magazine)
         this.rail.mag = this.rail.magSize
         this.rail.reloadTimer = 0
@@ -1230,9 +1219,9 @@ export class HackerzGame {
         this.rail.reloadTimer = 0
         this.rail.tarpitDrain = 0
         this.rail.fireTimer = 0
-        this.pulseCharge = loadout.pulseCooldownMs
-        this.overclockCharge = loadout.overclockCooldownMs
-        this.overclockLeft = 0
+        this.abilities.pulseCharge = loadout.pulseCooldownMs
+        this.abilities.overclockCharge = loadout.overclockCooldownMs
+        this.abilities.overclockLeft = 0
         this.slots = loadout.slots
         this.battery.syncTurrets()
         for (const mount of this.battery.turrets) if (mount.frozenMs > 0) this.battery.thaw(mount)
@@ -1266,8 +1255,8 @@ export class HackerzGame {
         }
         this.bastion.emitWall()
         this.rail.emitAmmo()
-        this.emitPulse()
-        this.emitOverclock()
+        this.abilities.emitPulse()
+        this.abilities.emitOverclock()
         this.callbacks.onSound?.('wave-start')
         return true
     }
@@ -1396,9 +1385,9 @@ export class HackerzGame {
             return
         }
         if (id === 'portscan') {
-            this.portscanLeft = loadout.portscanMs
-            this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
-            this.firePing(true)
+            this.abilities.portscanLeft = loadout.portscanMs
+            this.abilities.rescanMs = HACKERZ_PORTSCAN_REPING_MS
+            this.abilities.firePing(true)
             this.sysLog.deploy(id, null)
         } else if (id === 'blip') {
             if (!this.cosmicBlip(loadout.blipNodes)) return
@@ -1406,25 +1395,6 @@ export class HackerzGame {
         this.stock[id]--
         this.callbacks.onDeploy?.(id, this.stock[id])
         this.callbacks.onSound?.('weapon-swap')
-    }
-
-    /**
-     * The Portscan keeps the radar sweeping: whenever the last contacts have
-     * faded, it pings again a moment later, until it runs out.
-     */
-    private updatePortscan(dtMs: number) {
-        if (this.portscanLeft <= 0) return
-        this.portscanLeft = Math.max(0, this.portscanLeft - dtMs)
-        if (this.portscanLeft <= 0) return
-        const lit = this.enemies.some(e => e.revealMs > 0 || e.pingDelay >= 0)
-        if (lit) {
-            this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
-            return
-        }
-        this.rescanMs -= dtMs
-        if (this.rescanMs > 0) return
-        this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
-        this.firePing(true)
     }
 
     /** A Cosmic Blip: `count` hacked nodes, picked at random, flipped straight back to us. False when there are none. */
@@ -1793,7 +1763,7 @@ export class HackerzGame {
                 this.maintainDefenders()
                 this.rootkit.hatchInfected(dtMs)
                 this.rail.updateWeapon(dtMs)
-                this.updateAbilities(dtMs)
+                this.abilities.updateAbilities(dtMs)
                 if (!this.finalPush && this.waveElapsed >= this.waveMs - FINAL_PUSH_MS) this.beginFinalPush()
                 if (this.waveElapsed >= this.waveMs) this.beginPurge()
             }
@@ -2837,120 +2807,6 @@ export class HackerzGame {
         }
     }
 
-    // ─── Player weapon ───────────────────────────────────────────────────────
-
-    get overclockRate() {
-        return this.loadout?.overclockMultiplier ?? 1
-    }
-
-    // ─── Abilities ───────────────────────────────────────────────────────────
-
-    /**
-     * Right click: a radar ring sweeps out from the rail and lights every contact
-     * as the wavefront reaches it; the highlight fades as the wave moves on.
-     * `free`: a Portscan's own sweep, which neither needs nor spends the radar's charge.
-     */
-    private firePing(free = false) {
-        if (!this.running || this.purging || this.paused || (!free && this.pingCharge < PING_COOLDOWN_MS)) return
-        if (!free) {
-            this.pingCharge = 0
-            this.emitPing()
-        }
-        const reach = (FIELD_DEPTH + 300) * FIELD_SCALE
-        this.transient?.ring(fieldToWorld(RAIL_U, MUZZLE_D, 0.15, _v), LIME, reach, reach / (PING_SPEED * FIELD_SCALE), 1.6)
-        for (const enemy of this.enemies) {
-            enemy.pingDelay = Math.hypot(enemy.u - RAIL_U, enemy.d - MUZZLE_D) / PING_SPEED * 1000
-        }
-        this.sysLog.ping(this.enemies.length)
-        this.callbacks.onSound?.('weapon-swap')
-    }
-
-    private emitPing() {
-        this.callbacks.onPing?.(this.pingCharge, PING_COOLDOWN_MS)
-    }
-
-    private updateAbilities(dtMs: number) {
-        const loadout = this.loadout
-        if (!loadout) return
-        this.updatePortscan(dtMs)
-
-        if (this.pingCharge < PING_COOLDOWN_MS) {
-            // In a BLACKOUT the radar is the only light, so it recharges twice as fast.
-            this.pingCharge = Math.min(PING_COOLDOWN_MS, this.pingCharge + dtMs * (this.bonus === 'blackout' ? 2 : 1))
-            this.emitPing()
-        }
-
-        if (loadout.pulseUnlocked) {
-            this.pulseCharge = Math.min(loadout.pulseCooldownMs, this.pulseCharge + dtMs)
-            this.emitPulse()
-        }
-        if (loadout.overclockUnlocked) {
-            if (this.overclockLeft > 0) {
-                this.overclockLeft = Math.max(0, this.overclockLeft - dtMs)
-            } else {
-                this.overclockCharge = Math.min(loadout.overclockCooldownMs, this.overclockCharge + dtMs)
-            }
-            this.emitOverclock()
-        }
-    }
-
-    private firePulse() {
-        const loadout = this.loadout
-        if (!loadout?.pulseUnlocked || !this.running || this.purging || this.paused) return
-        if (this.pulseCharge < loadout.pulseCooldownMs) return
-        this.pulseCharge = 0
-        this.emitPulse()
-        this.callbacks.onSound?.('ability-pulse')
-
-        this.transient?.ring(fieldToWorld(0, 0, 0.2, _v), CYAN, PULSE_RADIUS * FIELD_SCALE, 0.7, 3)
-        this.view?.flash(0x22d3ee, 0.4)
-        this.addShake(16)
-
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const enemy = this.enemies[i] as EnemyEntity
-            const falloff = clamp(1 - enemy.d / PULSE_RADIUS, 0.25, 1)
-            // The pulse is kinetic: it is the panic button, and the thing you
-            // panic about is a plated wave already inside the trap band.
-            this.combat.damageEnemy(enemy, loadout.pulseDamage * falloff, 'kinetic', true, true, false)
-            enemy.pushVd += PULSE_KNOCKBACK * falloff * (enemy.def.boss ? 0.25 : 1)
-            if (enemy.hp <= 0) this.combat.killEnemy(i, 1)
-        }
-        // The hacked nodes nearest the wall wash back toward us, the front one
-        // whole. A defender throws itself in the way: the wash breaks on its
-        // node, and it does not survive it.
-        const defenderOf = (chip: PathChip) => this.enemies.findIndex(enemy => enemy.defending === chip && enemy.hp > 0)
-        const wash = this.pathChips?.icePulse(chip => defenderOf(chip) >= 0)
-        for (const chip of wash?.reclaimed ?? []) {
-            this.pulseFromChip(chip)
-            this.chipReclaimed(chip)
-        }
-        if (wash?.brokeOn) {
-            const at = fieldToWorld(wash.brokeOn.u, wash.brokeOn.d, 0.4, new THREE.Vector3())
-            this.transient?.ring(at, CYAN, 7, 0.6)
-            this.particles.burst(at, 0xe0f2fe, 40, 12, { size: 0.3, life: 0.8 })
-            for (let i = defenderOf(wash.brokeOn); i >= 0; i = defenderOf(wash.brokeOn)) {
-                const defender = this.enemies[i] as EnemyEntity
-                defender.hp = 0
-                this.combat.killEnemy(i, 1)
-            }
-        }
-        this.callbacks.onNotice('ICE pulse discharged.', 'info')
-    }
-
-    /** Q — a burst of fire rate across the rail and every mounted turret. */
-    private fireOverclock() {
-        const loadout = this.loadout
-        if (!loadout?.overclockUnlocked || !this.running || this.purging || this.paused) return
-        if (this.overclockLeft > 0 || this.overclockCharge < loadout.overclockCooldownMs) return
-        this.overclockCharge = 0
-        this.overclockLeft = loadout.overclockMs
-        this.emitOverclock()
-        this.callbacks.onSound?.('ability-overclock')
-        this.view?.flash(0xf97316, 0.28)
-        this.overlay.banner('OVERCLOCK', AMBER)
-        this.callbacks.onNotice('Overclock engaged.', 'good')
-    }
-
     // ─── Path nodes ──────────────────────────────────────────────────────────
 
     /** ×1.25 on speed and damage for a hostile inside a hacked node's aura. */
@@ -3617,7 +3473,7 @@ export class HackerzGame {
     }
 
     /** A hacked node came back to us: it pays, and shows it. */
-    private chipReclaimed(chip: PathChip) {
+    chipReclaimed(chip: PathChip) {
         const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
         const reward = 15 + this.wave * 8
         this.scoring.waveCredits += reward
@@ -3635,7 +3491,7 @@ export class HackerzGame {
      * and out. A pulse that still has strength when it reaches the next node
      * fans out once more from there.
      */
-    private pulseFromChip(chip: PathChip) {
+    pulseFromChip(chip: PathChip) {
         const pulses = this.linePulses
         if (!pulses) return
         const nodes = this.network.nodes
@@ -3722,7 +3578,7 @@ export class HackerzGame {
         this.running = false
         this.purging = false
         this.finalPush = false
-        this.overclockLeft = 0
+        this.abilities.overclockLeft = 0
         this.arm(null)
         // Unspent hardware does not carry over: it was placed for this fight.
         this.deployables?.clear()
@@ -3736,7 +3592,7 @@ export class HackerzGame {
         this.rootkit.infected.clear()
         this.blackIce.clearIce()
         this.surges = []
-        this.portscanLeft = 0
+        this.abilities.portscanLeft = 0
         // Coins still mid-flight belong to the wave that dropped them.
         this.scoring.flushCoins()
 
@@ -3822,7 +3678,7 @@ export class HackerzGame {
         this.rootkit.infected.clear()
         this.blackIce.clearIce()
         this.surges = []
-        this.portscanLeft = 0
+        this.abilities.portscanLeft = 0
         // Dropped without banking: a cleared field is a run that is restarting.
         for (const coin of this.scoring.coins) coin.mesh.removeFromParent()
         this.scoring.coins = []
@@ -3845,18 +3701,6 @@ export class HackerzGame {
         this.rail.holding = false
         this.shake = 0
         this.bastion.wallFlash = 0
-    }
-
-    private emitPulse() {
-        this.callbacks.onPulse(this.pulseCharge, this.loadout?.pulseCooldownMs ?? 1)
-    }
-
-    private emitOverclock() {
-        this.callbacks.onOverclock(
-            this.overclockCharge,
-            this.loadout?.overclockCooldownMs ?? 1,
-            this.overclockLeft
-        )
     }
 }
 

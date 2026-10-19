@@ -8,7 +8,7 @@ import { MOTION, easeRailKick, railKickFor, turnToward } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { AmmoRack } from '../ammo-rack'
 import type { EnemyEntity } from '../types'
-import { RAIL_TRACK, PER_WORLD, LEAK_D, _v, _w, MUZZLE_Y, type ShotSpec, MUZZLE_D } from './tuning'
+import { PER_WORLD, LEAK_D, _v, _w, MUZZLE_Y, type ShotSpec, MUZZLE_D, RAIL_TRACK } from './tuning'
 import { enemyCentreY } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -148,7 +148,7 @@ export class Rail {
                 this.queuedShot = false
                 // Every reclaimed node on the path feeds the rail: +10% fire rate each.
                 const nodes = 1 + 0.1 * (this.game.pathChips?.owned ?? 0)
-                this.fireTimer = weapon.fireIntervalMs / (this.game.overclockLeft > 0 ? this.game.overclockRate : 1) / nodes
+                this.fireTimer = weapon.fireIntervalMs / (this.game.abilities.overclockLeft > 0 ? this.game.abilities.overclockRate : 1) / nodes
             } else {
                 this.beginReload()
             }
@@ -192,7 +192,7 @@ export class Rail {
         const angle = this.straightShot ? 0 : Math.atan2(aim.u - from, aimD - MUZZLE_D)
 
         const crit = randomChance(loadout.critChance)
-        const overclocked = this.game.overclockLeft > 0
+        const overclocked = this.game.abilities.overclockLeft > 0
         const spec: ShotSpec = {
             damage: weapon.damage * (crit ? loadout.critMultiplier : 1) * (overclocked ? 1.25 : 1),
             pierce: weapon.pierce,

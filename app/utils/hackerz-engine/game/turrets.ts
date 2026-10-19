@@ -89,7 +89,7 @@ export class Turrets {
 
     /** `frozen`: a packet-loss spike — the turrets still fire, but are not seen to move. */
     updateTurrets(dtMs: number, frozen = false) {
-        const overclocked = this.game.overclockLeft > 0
+        const overclocked = this.game.abilities.overclockLeft > 0
         const dt = frozen ? 0 : dtMs / 1000
         for (const mount of this.turrets) {
             if (mount.frozenMs > 0) {
@@ -111,7 +111,7 @@ export class Turrets {
             if (!frozen) mount.kick = easeTurretKick(mount.rig, mount.kick, dtMs)
 
             if (!this.game.running || this.game.purging) continue
-            mount.cooldown -= dtMs * (overclocked ? this.game.overclockRate : 1)
+            mount.cooldown -= dtMs * (overclocked ? this.game.abilities.overclockRate : 1)
             if (!target || !seen || mount.cooldown > 0) continue
             mount.cooldown = mount.runtime.intervalMs
 

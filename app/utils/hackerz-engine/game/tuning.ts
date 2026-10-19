@@ -101,3 +101,6 @@ export const LONGBORE_FLARE = 0xc084fc
  * cursor sweeping the lane.
  */
 export const RAIL_TRACK = FIELD_HALF_WIDTH - 20
+
+/** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
+export const PING_COOLDOWN_MS = 3500
