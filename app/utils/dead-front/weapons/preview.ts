@@ -57,6 +57,15 @@ export function dfViewmodelBench(width = 1920, height = 1080): DfViewmodelBench 
     const rim = new THREE.DirectionalLight(0x9fb4ff, 0.7)
     rim.position.set(1.4, 0.4, -1.2)
     vmScene.add(rim)
+    // A neutral studio rig for the world-model view (the viewmodel's own lights hide with it).
+    const studio = new THREE.Group()
+    const sKey = new THREE.DirectionalLight(0xfff1dc, 1.6)
+    sKey.position.set(0.5, 1, 1)
+    const sFill = new THREE.DirectionalLight(0xb8c8ff, 0.6)
+    sFill.position.set(-1, 0.2, 0.6)
+    studio.add(sKey, sFill, new THREE.AmbientLight(0xa0a8b8, 0.5))
+    studio.visible = false
+    vmScene.add(studio)
     const noop = () => {}
     const fx: DfFx = { burst: noop, tracer: noop, lightning: noop, decal: noop, flash: noop, shake: noop }
     const audio: DfAudio = { ctx: null, register: noop, play: noop, loop: noop, stopLoop: noop }
@@ -109,6 +118,7 @@ export function dfViewmodelBench(width = 1920, height = 1080): DfViewmodelBench 
             if (shown) disposeDfWeaponModel(shown)
             shown = null
             vm.root.visible = !id
+            studio.visible = !!id
             if (!id) return
             shown = buildDfWeaponModelImpl(id, pap)
             const box = new THREE.Box3().setFromObject(shown)
@@ -131,6 +141,93 @@ export function dfViewmodelBench(width = 1920, height = 1080): DfViewmodelBench 
             renderer.dispose()
             canvas.remove()
             dot.remove()
+        }
+    }
+}
+
+export interface DfBoltBench {
+    /** Fires an X-Ray bolt of a PaP tier across the view; `at` 0..1 is where it is when the frame is taken. */
+    bolt(tier: number, at?: number): string
+    /** The bolt's impact on a wall facing the camera, `after` seconds in. */
+    impact(tier: number, after?: number): string
+    readonly scene: THREE.Scene
+    dispose(): void
+}
+
+/** Development-only bench for the X-Ray bolt, its trail and its impact (renders without the game). */
+export async function dfBoltBench(width = 1280, height = 720): Promise<DfBoltBench> {
+    const { createDfFx } = await import('../engine/fx')
+    const { createDfProjectileViewImpl } = await import('./projectiles')
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    Object.assign(canvas.style, { position: 'fixed', left: '0', top: '0', width: `${Math.floor(width / 2)}px`, height: `${Math.floor(height / 2)}px`, zIndex: '99999' })
+    document.body.appendChild(canvas)
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true })
+    renderer.setSize(width, height, false)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0x0d1016)
+    scene.add(new THREE.HemisphereLight(0x5a6478, 0x1a1410, 0.6))
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0x6a6258 })
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(12, 0.2, 12), wallMat)
+    floor.position.y = -0.1
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(12, 4, 0.3), wallMat)
+    wall.position.set(0, 2, -3)
+    scene.add(floor, wall)
+    const camera = new THREE.PerspectiveCamera(60, width / height, 0.05, 100)
+    camera.position.set(0, 1.5, 2.5)
+    camera.lookAt(0, 1.3, -2)
+    scene.add(camera)
+    const fx = createDfFx(scene, camera, 'high')
+    fx.resize(height, 1)
+    const noop = () => {}
+    const audio: DfAudio = { ctx: null, register: noop, play: noop, loop: noop, stopLoop: noop }
+    const vmScene = new THREE.Scene()
+    const ctx: DfRenderContext = { renderer, scene, camera, vmScene, vmCamera: camera, fx, audio, quality: 'high' }
+    const pv = createDfProjectileViewImpl(ctx)
+    let t = 0
+    let id = 1
+    const step = (list: { id: number, kind: 'xray-bolt', pos: { x: number, y: number, z: number }, vel: { x: number, y: number, z: number }, tier: number }[]) => {
+        t += 1 / 60
+        pv.update(1 / 60, list)
+        fx.update(1 / 60, t)
+    }
+    return {
+        scene,
+        bolt(tier, at = 0.6) {
+            const n = id++
+            const from = new THREE.Vector3(-4, 1.2, -1.5)
+            const vel = new THREE.Vector3(14, 0.4, -1)
+            const frames = Math.round(at * 40)
+            for (let f = 0; f <= frames; f++) {
+                const p = from.clone().addScaledVector(vel, f / 60)
+                step([{ id: n, kind: 'xray-bolt', pos: p, vel, tier }])
+            }
+            renderer.render(scene, camera)
+            const url = canvas.toDataURL('image/png')
+            for (let f = 0; f < 90; f++) step([])
+            return url
+        },
+        impact(tier, after = 0.06) {
+            const n = id++
+            const end = new THREE.Vector3(0.3, 1.3, -2.77)
+            const vel = new THREE.Vector3(0, 0, -50)
+            step([{ id: n, kind: 'xray-bolt', pos: end.clone().addScaledVector(vel, -1 / 60), vel, tier }])
+            step([])
+            pv.onEvent({ k: 'explode', pos: end, radius: 2.2 + tier * 0.5, kind: 'xray' })
+            for (let f = 0; f < Math.round(after * 60); f++) step([])
+            renderer.render(scene, camera)
+            const url = canvas.toDataURL('image/png')
+            for (let f = 0; f < 90; f++) step([])
+            return url
+        },
+        dispose() {
+            pv.dispose()
+            fx.dispose()
+            renderer.dispose()
+            canvas.remove()
         }
     }
 }

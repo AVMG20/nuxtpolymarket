@@ -9,7 +9,7 @@ import type { DfAttachmentChoice, DfAttachmentId, DfAttachmentSlot, DfWeaponClas
 //
 //   1. Base: the weapon's tier-0 stats (`BASE`).
 //   2. Pack-a-Punch (pap 1..3): every tier first applies the generic scaling
-//      (`PAP_SCALE`: damage, magazine, reserve, reload, recoil), then the
+//      (`PAP_SCALE`: damage, magazine, reserve, reload, recoil, rate, range), then the
 //      weapon's own tier overrides (`PAP_OVERRIDES`) are assigned as absolute
 //      values. Overrides are cumulative: tier 2 starts from tier 1's overrides.
 //   3. Attachments: every chosen attachment's `mods` are folded in. For the
@@ -331,13 +331,20 @@ const BASE: Record<DfWeaponId, DfBaseStats> = {
     }
 }
 
-/** Generic per-tier scaling (index = tier), applied before the weapon's own overrides. */
+/**
+ * Generic per-tier scaling (index = tier), applied before the weapon's own
+ * overrides. PaP costs climb steeply (5k, 15k, 30k), so every tier is a step
+ * a player feels: much harder hits, deeper magazines and reserves, quicker
+ * reloads, softer recoil, more reach and (tiers 2 and 3) a faster cycle.
+ */
 const PAP_SCALE = {
-    damage: [1, 2.2, 3.4, 5],
-    magSize: [1, 1.5, 1.75, 2],
-    reserve: [1, 1.6, 2, 2.5],
-    reload: [1, 0.95, 0.9, 0.85],
-    recoil: [1, 0.9, 0.82, 0.75]
+    damage: [1, 2.2, 3.8, 6],
+    magSize: [1, 1.5, 1.8, 2.1],
+    reserve: [1, 1.6, 2.2, 2.9],
+    reload: [1, 0.92, 0.84, 0.75],
+    recoil: [1, 0.88, 0.76, 0.65],
+    rpm: [1, 1, 1.06, 1.12],
+    range: [1, 1.15, 1.3, 1.45]
 } as const
 
 /** Absolute per-tier overrides [tier1, tier2, tier3], cumulative. */
@@ -349,22 +356,23 @@ const PAP_OVERRIDES: Partial<Record<DfWeaponId, [Partial<DfBaseStats>, Partial<D
             reloadTime: 2, reloadEmptyTime: 2.4, range: 40, maxRange: 60, minDamageMult: 1, hipSpread: 0.02, adsSpread: 0.01,
             adsZoom: 1.1, recoil: 0.04, splashRadius: 3, splashDamage: 600, projectileSpeed: 36
         },
-        { damage: 300, magSize: 8, reserve: 72, splashRadius: 3.3, splashDamage: 1100, projectileSpeed: 38 },
-        { damage: 500, magSize: 10, reserve: 100, rpm: 340, splashRadius: 3.6, splashDamage: 1900, projectileSpeed: 40 }
+        { damage: 320, magSize: 8, reserve: 80, rpm: 320, splashRadius: 3.4, splashDamage: 1300, projectileSpeed: 39 },
+        { damage: 600, magSize: 12, reserve: 120, rpm: 360, splashRadius: 3.9, splashDamage: 2600, projectileSpeed: 42 }
     ],
-    // Tier 1+: Schnellfeuer conversion, full auto.
-    c96: [{ fireMode: 'auto', rpm: 720 }, { rpm: 780 }, { rpm: 840, penetration: 2 }],
-    m1897: [{ pellets: 10 }, { pellets: 10, maxRange: 24 }, { fireMode: 'semi', rpm: 140, pellets: 12 }],
-    kar98k: [{ penetration: 3 }, { penetration: 4 }, { penetration: 5, rpm: 70 }],
-    thompson: [{}, { rpm: 750 }, { rpm: 820, penetration: 1 }],
-    mp18: [{}, { rpm: 600 }, { rpm: 660, penetration: 1 }],
-    bar: [{}, { penetration: 2 }, { penetration: 2, rpm: 520 }],
-    lewis: [{}, { penetration: 2 }, { penetration: 3, rpm: 620 }],
-    // Bigger, hotter bolts every tier.
+    // Tier 1+: Schnellfeuer conversion, full auto; later tiers punch through the horde.
+    c96: [{ fireMode: 'auto', rpm: 720 }, { rpm: 800, penetration: 2 }, { rpm: 880, penetration: 3 }],
+    // More pellets and reach, then a self-loading pump at tier 3.
+    m1897: [{ pellets: 10 }, { pellets: 11, rpm: 95, maxRange: 26 }, { fireMode: 'semi', rpm: 150, pellets: 13, maxRange: 30 }],
+    kar98k: [{ penetration: 3 }, { penetration: 4, rpm: 60 }, { penetration: 6, rpm: 75 }],
+    thompson: [{}, { rpm: 760, penetration: 1 }, { rpm: 840, penetration: 2 }],
+    mp18: [{}, { rpm: 600, penetration: 1 }, { rpm: 680, penetration: 2 }],
+    bar: [{ penetration: 2 }, { penetration: 2, rpm: 490 }, { penetration: 3, rpm: 540 }],
+    lewis: [{ penetration: 2 }, { penetration: 2, rpm: 600 }, { penetration: 3, rpm: 660 }],
+    // Bigger, hotter, faster bolts every tier (and a new colour: blue, crimson, gold).
     xray: [
         { damage: 900, splashRadius: 2.8, splashDamage: 1500, magSize: 40, reserve: 200, projectileSpeed: 62 },
-        { damage: 1500, splashRadius: 3.2, splashDamage: 2500, magSize: 40, reserve: 280, projectileSpeed: 66 },
-        { damage: 2400, splashRadius: 3.8, splashDamage: 4000, magSize: 50, reserve: 350, projectileSpeed: 70, rpm: 220 }
+        { damage: 1600, splashRadius: 3.3, splashDamage: 2800, magSize: 45, reserve: 300, projectileSpeed: 68, rpm: 205 },
+        { damage: 2800, splashRadius: 3.9, splashDamage: 4800, magSize: 55, reserve: 400, projectileSpeed: 74, rpm: 230 }
     ],
     // More chain jumps every tier; tier 2+ ends the chain in a shock blast.
     wunder: [
@@ -397,6 +405,9 @@ export function dfWeaponStats(id: DfWeaponId, pap: number, attachments: DfAttach
         s.perRoundReload *= PAP_SCALE.reload[tier]!
         s.recoil *= PAP_SCALE.recoil[tier]!
         s.splashDamage *= PAP_SCALE.damage[tier]!
+        s.rpm *= PAP_SCALE.rpm[tier]!
+        s.range *= PAP_SCALE.range[tier]!
+        s.maxRange *= PAP_SCALE.range[tier]!
         const over = PAP_OVERRIDES[id]
         if (over) for (let t = 0; t < tier; t++) Object.assign(s, over[t])
     }

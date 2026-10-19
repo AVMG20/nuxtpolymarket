@@ -109,3 +109,32 @@ describe('levels and sanitising', () => {
         expect(dfSanitizeAttachments('xray', 5, { optic: 'thompson-lyman' })).toEqual({})
     })
 })
+
+describe('Pack-a-Punch tiers', () => {
+    /** Sustained damage per second: every pellet plus the splash of each shot. */
+    const dps = (id: (typeof DF_WEAPON_IDS)[number], t: number) => {
+        const s = dfWeaponStats(id, t)
+        return (s.damage * s.pellets + s.splashDamage) * s.rpm / 60
+    }
+    const ammo = (id: (typeof DF_WEAPON_IDS)[number], t: number) => {
+        const s = dfWeaponStats(id, t)
+        return s.magSize + s.reserve
+    }
+
+    it('makes every tier strictly better: damage per second and total ammo', () => {
+        for (const id of DF_WEAPON_IDS) {
+            for (let t = 1; t <= 3; t++) {
+                expect(dps(id, t), `${id} dps ${t - 1} -> ${t}`).toBeGreaterThan(dps(id, t - 1))
+                if (id !== 'm1911' || t > 1) expect(ammo(id, t), `${id} ammo ${t - 1} -> ${t}`).toBeGreaterThan(ammo(id, t - 1))
+            }
+        }
+    })
+
+    it('makes tiers 2 and 3 big, noticeable steps', () => {
+        for (const id of DF_WEAPON_IDS) {
+            expect(dps(id, 2) / dps(id, 1), id).toBeGreaterThan(1.5)
+            expect(dps(id, 3) / dps(id, 2), id).toBeGreaterThan(1.4)
+            expect(ammo(id, 3) / ammo(id, 1), id).toBeGreaterThan(1.3)
+        }
+    })
+})

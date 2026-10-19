@@ -186,13 +186,15 @@ const launcher: DfSynth = (ctx, out, o) => {
     }
 }
 
-/** X-Ray: a bright, glassy ray zap with a sub kick (never shrill: tops out around 3 kHz). */
+/**
+ * X-Ray: a bright, glassy ray zap over a thick saturated buzz, a sub kick and
+ * the valves' hum dying away (never shrill: tops out around 3 kHz).
+ */
 function xray(pap: boolean): DfSynth {
     return (ctx, out, o) => {
         const r = rtOf(ctx, out, o, 0.03)
         const { t } = r
-        const lvl = pap ? 0.75 : 0.65
-        const bus = gainNode(ctx, lvl, out)
+        const bus = gainNode(ctx, pap ? 0.72 : 0.64, out)
         // FM "pew": the modulation collapses as the pitch falls, so it starts gritty and ends pure.
         const g = gainNode(ctx, 0, bus)
         const car = oscNode(ctx, 'sine', 1500 * r.rate, t, 0.3, g)
@@ -202,12 +204,27 @@ function xray(pap: boolean): DfSynth {
         mod.frequency.exponentialRampToValueAtTime(240 * 1.5 * r.rate, t + 0.22)
         modG.gain.setValueAtTime(1800, t)
         modG.gain.exponentialRampToValueAtTime(20, t + 0.16)
-        decayEnv(g.gain, t, 0.5, 0.002, 0.24)
+        decayEnv(g.gain, t, 0.42, 0.002, 0.24)
         // Wobble of the bolt leaving.
         const wob = gainNode(ctx, 40, car.detune)
         oscNode(ctx, 'sine', 28, t, 0.3, wob)
-        thump({ ...r, out: bus }, 160, 60, 0.12, 0.6)
-        noiseBurst({ ...r, out: bus }, { kind: 'white', type: 'bandpass', freq: 2600, freqEnd: 1200, q: 1.6, gain: 0.14, dur: 0.08 })
+        // Body: two detuned saws diving through a closing lowpass, softly saturated.
+        const zg = gainNode(ctx, 0, bus)
+        const lp = filterNode(ctx, 'lowpass', 3000 * r.rate, 3, shaperNode(ctx, 1.6, zg))
+        for (const d of [-14, 11]) {
+            const saw = oscNode(ctx, 'sawtooth', 640 * r.rate, t, 0.26, lp)
+            saw.detune.value = d
+            saw.frequency.exponentialRampToValueAtTime(95 * r.rate, t + 0.2)
+        }
+        lp.frequency.setValueAtTime(3000 * r.rate, t)
+        lp.frequency.exponentialRampToValueAtTime(260 * r.rate, t + 0.2)
+        decayEnv(zg.gain, t, 0.17, 0.002, 0.22)
+        thump({ ...r, out: bus }, 170, 48, 0.16, 0.75)
+        noiseBurst({ ...r, out: bus }, { kind: 'white', type: 'bandpass', freq: 2600, freqEnd: 1100, q: 1.6, gain: 0.14, dur: 0.08 })
+        // The valves: a low hum that swells a touch and fades.
+        const hg = gainNode(ctx, 0, bus)
+        oscNode(ctx, 'square', 100 * r.rate, t, 0.5, filterNode(ctx, 'lowpass', 520, 0.8, hg))
+        decayEnv(hg.gain, t + 0.02, 0.05, 0.03, 0.42)
         if (pap) {
             fmBell(at({ ...r, out: bus }, 0.02), { freq: 1318, dur: 0.4, gain: 0.07, ratio: 2.01, index: 0.8 })
             fmBell(at({ ...r, out: bus }, 0.05), { freq: 1976, dur: 0.35, gain: 0.05, ratio: 2.01, index: 0.6 })
@@ -348,9 +365,12 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         noiseSwell(p, { kind: 'brown', type: 'lowpass', freq: 420, freqEnd: 60, q: 0.6, gain: 0.4, dur: 2.2, peakAt: 0.05 })
         clickTrain(at(p, 0.25), scatter(14, 0.9, 1.3), { freq: 1700, q: 1.2, gain: 0.08, len: 0.012, jitter: 0.6 })
     })
-    // X-Ray bolt hitting: a green splash, a falling glassy pop and fizz.
+    // X-Ray bolt hitting: a deep whump, a falling glassy pop, fizz and a crackling sizzle.
     r(DF_WSND.xrayHit, (p) => {
         thump(p, 520, 90, 0.18, 0.55)
+        thump(p, 150, 36, 0.32, 0.6)
+        crackle(at(p, 0.03), 0.4, 0.1, 70)
+        noiseSwell(p, { kind: 'brown', type: 'lowpass', freq: 700, freqEnd: 120, q: 0.6, gain: 0.22, dur: 0.6, peakAt: 0.04 })
         fmBell(p, { freq: 880, dur: 0.3, gain: 0.12, ratio: 1.5, index: 2, bite: 0.08 })
         noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: 2000, freqEnd: 600, q: 1.4, gain: 0.3, dur: 0.25 })
         clickTrain(at(p, 0.04), scatter(10, 0.3, 1.4), { freq: 2400, q: 1.5, gain: 0.08, len: 0.006, jitter: 0.6 })

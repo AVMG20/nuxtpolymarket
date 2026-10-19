@@ -4,6 +4,7 @@ import type { DfAttachmentChoice, DfWeaponId } from '#shared/utils/dead-front/ty
 import { dfHash3 } from '#shared/utils/dead-front/voxel'
 import { DfVoxModel, mixHex, scaleHex } from '../voxel/model'
 import { dfOwnedGlowMat, dfPapMat, dfReticleTexture, dfTickPap, dfWeaponMat } from './materials'
+import { DF_XRAY_SCHEMES } from './xray'
 import type { DfVoxMaterial } from '../voxel/material'
 
 // Voxel 1900s weapons. Each gun is authored on its own voxel grid (k runs from
@@ -46,19 +47,41 @@ export interface DfGunRig {
 const VOX = 0.011
 
 // ---------------------------------------------------------------- palette
-const STEEL = 0x4e545c
-const STEEL_HI = 0x6f757d
-const PARK = 0x4f544e
-const BLACK = 0x34363a
+/** Blued steel: a cool blue-black with lighter worn edges. */
+const STEEL = 0x434b58
+const STEEL_HI = 0x6c7584
+/** Parkerised (phosphate) steel, a dull green-grey. */
+const PARK = 0x4c5249
+const BLACK = 0x2e3036
 const WOOD = 0x8a5634
 const WOOD_D = 0x6a4128
 const WOOD_L = 0xa06c40
-const BRASS = 0xb38b3b
-const COPPER = 0x9c5a2a
+const BRASS = 0xc0953f
+const COPPER = 0xa65f2c
 const IVORY = 0xe6dec6
 const LEATHER = 0x4e3220
-const METALS = new Set([STEEL, STEEL_HI, PARK, BLACK, scaleHex(STEEL, 1.1), scaleHex(STEEL, 0.9)])
-const WOODS = new Set([WOOD, WOOD_D, WOOD_L, scaleHex(WOOD, 1.1), scaleHex(WOOD, 0.88), scaleHex(WOOD_D, 1.12), scaleHex(WOOD_L, 0.9)])
+const BAKELITE = 0x6a2c1c
+
+// Every colour a gun paints with has a finish. The finish drives the per-voxel
+// shading (wood grain, blued steel, polished brass), the bevel pass (lit top
+// edges, shadowed undersides) and the Pack-a-Punch recolour.
+type Finish = 'metal' | 'wood' | 'brass' | 'other'
+const FINISH = new Map<number, Finish>()
+/** Bevelled colours: +1 a lit top edge, -1 a shadowed underside. */
+const EDGE = new Map<number, number>()
+for (const h of [STEEL, STEEL_HI, PARK, BLACK]) FINISH.set(h, 'metal')
+for (const h of [WOOD, WOOD_D, WOOD_L, BAKELITE]) FINISH.set(h, 'wood')
+for (const h of [BRASS, COPPER]) FINISH.set(h, 'brass')
+/** The base palette colour a shade was derived from. */
+const ROOT = new Map<number, number>()
+const finishOf = (hex: number): Finish => FINISH.get(hex) ?? 'other'
+/** A derived colour that keeps its source's finish. */
+function derive(hex: number, from: number, edge = 0): number {
+    if (!FINISH.has(hex)) FINISH.set(hex, finishOf(from))
+    if (!ROOT.has(hex) && hex !== from) ROOT.set(hex, ROOT.get(from) ?? from)
+    if (edge && !EDGE.has(hex)) EDGE.set(hex, edge)
+    return hex
+}
 
 type PartName = 'main' | 'slide' | 'bolt' | 'pump' | 'mag' | 'pan'
 
@@ -82,26 +105,76 @@ class Gun {
         return m
     }
 
-    /** Fill for a colour: steel and wood get subtle per-voxel shades. */
+    /**
+     * Fill for a colour by its finish: wood gets long grain streaks that flow
+     * along the stock, blued steel a subtle long-grained sheen with rare worn
+     * flecks, brass two close polished tones.
+     */
     col(hex: number, glow = 0): (i: number, j: number, k: number) => number {
         const m = this.cur
         if (glow) return () => m.c(hex, glow)
-        if (WOODS.has(hex)) {
-            const a = m.c(scaleHex(hex, 1.1))
-            const b = m.c(hex)
-            const c = m.c(scaleHex(hex, 0.88))
+        const f = finishOf(hex)
+        const sh = (k: number) => m.c(derive(scaleHex(hex, k), hex))
+        if (f === 'wood') {
+            const pal = [sh(1.13), sh(1), sh(0.87), sh(0.74)]
+            const wave = (hex % 7) * 0.9
             return (i, j, k) => {
-                const h = dfHash3(i, j >> 1, k >> 2, 3)
-                return h < 0.3 ? a : h < 0.8 ? b : c
+                // Grain: bands along k that wander up and down a cell, changing tone every few cells.
+                const band = j * 2 + Math.round(Math.sin(k * 0.14 + i * 0.8 + wave) * 1.3)
+                if (dfHash3(i, j, k, 13) < 0.006) return pal[3]!
+                const h = dfHash3(band, 7, k >> 3, 11)
+                return h < 0.28 ? pal[0]! : h < 0.74 ? pal[1]! : pal[2]!
             }
         }
-        if (hex === STEEL) {
-            const a = m.c(scaleHex(hex, 1.1))
+        if (f === 'metal') {
+            const a = sh(1.08)
             const b = m.c(hex)
-            return (i, j, k) => (dfHash3(i, j, k >> 1, 5) < 0.35 ? a : b)
+            const wear = sh(1.35)
+            return (i, j, k) => {
+                if (dfHash3(i, j, k, 17) < 0.008) return wear
+                return dfHash3(i, j, k >> 2, 5) < 0.3 ? a : b
+            }
+        }
+        if (f === 'brass') {
+            const a = sh(1.1)
+            const b = m.c(hex)
+            return (i, j, k) => (dfHash3(i, j >> 1, k >> 1, 9) < 0.35 ? a : b)
         }
         const v = m.c(hex)
         return () => v
+    }
+
+    /** An ellipse section along k: half-widths rx (across) and ry (up) around (cj, ci + di). */
+    oval(k0: number, k1: number, cj: number, rx: number, ry: number, hex: number, di = 0, glow = 0): this {
+        const f = this.col(hex, glow)
+        const cx = this.ci + 0.5 + di
+        const cy = cj + 0.5
+        for (let j = Math.floor(cy - ry); j <= Math.ceil(cy + ry); j++) {
+            for (let i = Math.floor(cx - rx); i <= Math.ceil(cx + rx); i++) {
+                const u = (i + 0.5 - cx) / rx
+                const v = (j + 0.5 - cy) / ry
+                if (u * u + v * v <= 1.02) this.cur.box(i, j, k0 + this.ko, i + 1, j + 1, k1 + this.ko, f)
+            }
+        }
+        return this
+    }
+
+    /** A sling swivel: a small steel loop hanging below (j0 is the surface it hangs from). */
+    swivel(k: number, j0: number): this {
+        this.box(k, k + 1, j0 - 1, j0, 1, STEEL)
+        this.box(k - 1, k + 2, j0 - 3, j0 - 2, 1, STEEL_HI)
+        this.box(k - 1, k, j0 - 2, j0 - 1, 1, STEEL_HI).box(k + 1, k + 2, j0 - 2, j0 - 1, 1, STEEL_HI)
+        return this
+    }
+
+    /** Rivet / screw heads: single bright voxels on both flanks at (k, j), just outside a w-wide body. */
+    rivets(ks: number[], j: number, w: number, hex = STEEL_HI): this {
+        const half = Math.floor((w - 1) / 2)
+        for (const k of ks) {
+            this.boxI(k, k + 1, j, j + 1, this.ci - half - 1, this.ci - half, hex)
+            this.boxI(k, k + 1, j, j + 1, this.ci + half + 1, this.ci + half + 2, hex)
+        }
+        return this
     }
 
     /** Box [k0, k1) x [j0, j1), `w` wide centred (plus `di` offset). */
@@ -211,12 +284,23 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             // Frame, trigger guard and a raked grip with walnut panels.
             g.box(2, 18, 8, 9, 3, STEEL)
             g.box(6, 12, 5, 6, 1, STEEL).box(6, 7, 5, 8, 1, STEEL).box(9, 10, 6, 8, 1, BLACK)
+            const panel = grips ? WOOD_L : WOOD_D
+            const check = derive(scaleHex(panel, 0.84), panel)
             for (let j = 0; j < 8; j++) {
                 const k0 = 12 + Math.round((8 - j) * 0.3)
                 g.box(k0, k0 + 6, j, j + 1, 3, STEEL)
-                g.box(k0 + 1, k0 + 5, j, j + 1, 1, grips ? WOOD_L : WOOD_D, -1).box(k0 + 1, k0 + 5, j, j + 1, 1, grips ? WOOD_L : WOOD_D, 1)
+                // Diamond-checkered walnut panels with a screw near the top and the bottom.
+                for (let k = k0 + 1; k < k0 + 5; k++) {
+                    const screw = (j === 1 || j === 6) && k === k0 + 3
+                    const hex = screw ? STEEL_HI : ((j + k) & 1) ? panel : check
+                    g.box(k, k + 1, j, j + 1, 1, hex, -1).box(k, k + 1, j, j + 1, 1, hex, 1)
+                }
             }
-            g.box(18, 19, 9, 11, 1, STEEL)
+            // Beavertail tang, spur hammer, thumb safety and slide stop.
+            g.box(18, 20, 8, 9, 3, STEEL)
+            g.box(18, 19, 9, 11, 1, STEEL).box(19, 20, 10, 12, 1, STEEL_HI)
+            g.boxI(15, 17, 9, 10, g.ci - 2, g.ci - 1, STEEL_HI)
+            g.boxI(7, 10, 8, 9, g.ci - 2, g.ci - 1, STEEL_HI)
             g.part('slide')
             g.box(0, 19, 9, 12, 3, STEEL)
             for (let k = 14; k < 19; k += 2) g.box(k, k + 1, 11, 12, 3, BLACK)
@@ -267,18 +351,34 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             const k0 = sawn ? 22 : 0
             g.rod(k0, 50, 13, 1, STEEL)
             g.rod(sawn ? k0 : tube ? 2 : 8, 46, 11, 0.8, STEEL_HI)
-            g.box(k0 + 1, k0 + 2, 14, 15, 1, has(att, 'optic', 'bead') ? IVORY : BRASS)
+            // Bead on a short post, so it rides above the heat shield.
+            g.box(k0 + 1, k0 + 2, 14, 16, 1, STEEL).box(k0 + 1, k0 + 2, 16, 17, 1, has(att, 'optic', 'bead') ? IVORY : BRASS)
+            // The trench gun's ventilated heat shield over the barrel, clamped at both ends.
+            const s0 = Math.max(k0 + 4, 4)
+            for (let k = s0; k < 34; k++) {
+                for (let j = 13; j < 16; j++) {
+                    for (let i = 0; i < g.W; i++) {
+                        const d = Math.hypot(i + 0.5 - (g.ci + 0.5), j + 0.5 - 13.5)
+                        if (d < 1.3 || d > 2.3) continue
+                        const vent = k % 3 === 0 && k > s0 && k < 33 && (j === 15 || (j === 14 && i !== g.ci))
+                        if (!vent) g.boxI(k, k + 1, j, j + 1, i, i + 1, k === s0 || k === 33 ? STEEL_HI : STEEL)
+                    }
+                }
+            }
+            if (!sawn) g.box(k0 + 3, k0 + 6, 9, 10, 1, STEEL).box(k0 + 3, k0 + 4, 10, 11, 1, STEEL)
             g.box(46, 60, 8, 15, 3, STEEL)
-            g.box(52, 53, 15, 16, 1, STEEL_HI)
+            g.box(51, 54, 15, 16, 3, STEEL)
+            g.box(52, 53, 16, 17, 1, STEEL_HI)
+            g.boxI(52, 53, 16, 18, g.ci - 1, g.ci, STEEL_HI).boxI(52, 53, 16, 18, g.ci + 1, g.ci + 2, STEEL_HI)
             g.box(54, 61, 6, 8, 1, STEEL).box(56, 57, 7, 9, 1, BLACK)
             if (sawn) g.slope(60, 68, k => 1 + (68 - k) * 0.6, () => 10, 3, WOOD)
-            else g.slope(60, 82, k => 7 - (k - 60) * 0.3, k => 12 - (k - 60) * 0.08, 3, WOOD).box(81, 82, 0, 11, 3, BLACK)
+            else g.slope(60, 82, k => 7 - (k - 60) * 0.3, k => 12 - (k - 60) * 0.08, 3, WOOD).box(81, 82, 0, 11, 3, BLACK).swivel(74, 3)
             g.part('pump')
             g.box(sawn ? 30 : 24, sawn ? 42 : 38, 8, 12, 3, WOOD)
             for (let k = sawn ? 31 : 25; k < (sawn ? 42 : 38); k += 2) g.box(k, k + 1, 8, 9, 3, WOOD_D)
             g.part('main')
             if (has(att, 'muzzle', 'choke')) g.ring(k0 - 2, k0, 13, 0, 1.6, STEEL_HI)
-            return { gun: g, grip: [62, 8], bore: 13, front: k0 + 1, sight: [52, 16], eyeRelief: 0.3, left: [-0.012, 0.0, sawn ? -0.29 : -0.4], eject: [55, 13], reload: 'shell', long: true }
+            return { gun: g, grip: [62, 8], bore: 13, front: k0 + 1, sight: [52, 17], eyeRelief: 0.3, left: [-0.012, 0.0, sawn ? -0.29 : -0.4], eject: [55, 13], reload: 'shell', long: true }
         }
         case 'kar98k': {
             const sc = has(att, 'optic', 'scope')
@@ -286,6 +386,10 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             const g = new Gun(VOX, 90, 24, 7)
             g.rod(0, 46, 10, 0.8, STEEL)
             g.box(1, 3, 11, 14, 1, STEEL_HI)
+            // Front sight ears, nose cap and cleaning rod.
+            g.boxI(1, 3, 10, 14, g.ci - 2, g.ci - 1, STEEL).boxI(1, 3, 10, 14, g.ci + 2, g.ci + 3, STEEL)
+            g.box(3, 14, 8, 9, 1, STEEL_HI)
+            g.box(12, 14, 6, 10, 3, STEEL)
             // Fore-end, handguard and bands.
             g.box(14, 50, 6, 10, 3, WOOD)
             g.box(26, 44, 11, 12, 3, WOOD_D)
@@ -300,6 +404,8 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
                 for (const k of [72, 79]) g.cut(k, k + 4, 4, 7, 0, 7)
             }
             g.box(89, 90, 0, 10, 3, STEEL)
+            g.swivel(30, 6).swivel(76, 3)
+            g.rivets([70, 82], 7, 3, STEEL_HI)
             g.part('bolt')
             g.box(48, 60, 11, 13, 1, STEEL_HI)
             g.box(57, 59, 10, 11, 3, STEEL_HI, 1).box(57, 59, 9, 11, 1, STEEL_HI, 3)
@@ -322,6 +428,8 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (let k = 4; k < 22; k += 2) g.ring(k, k + 1, 16, 0, 2.1, STEEL)
             g.box(1, 2, 18, 21, 1, STEEL_HI)
             g.box(26, 54, 13, 20, 3, STEEL)
+            g.box(27, 53, 16, 17, 3, STEEL_HI).box(28, 52, 16, 17, 1, STEEL)
+            g.rivets([30, 50], 18, 3, STEEL_HI)
             g.box(46, 47, 20, 22, 3, STEEL_HI).cut(46, 47, 21, 22, g.ci, g.ci + 1)
             // Vertical foregrip, rear grip, stock.
             g.slope(14, 20, k => 6 + (20 - k) * 0.4, () => 14, 3, WOOD)
@@ -330,6 +438,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.box(41, 48, 10, 12, 1, STEEL).box(44, 45, 11, 13, 1, BLACK)
             g.slope(54, 76, k => 8 - (k - 54) * 0.25, () => 17, 3, WOOD)
             g.box(75, 76, 2, 17, 3, BLACK)
+            g.swivel(70, 4)
             g.part('bolt')
             g.box(36, 41, 20, 22, 1, STEEL_HI)
             g.part('mag')
@@ -342,6 +451,8 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
                 }
             } else {
                 g.box(32, 37, 2, 13, 3, BLACK)
+                for (const j of [4, 7, 10]) g.box(32, 37, j, j + 1, 3, derive(scaleHex(BLACK, 1.3), BLACK))
+                g.box(31, 38, 1, 2, 3, STEEL)
             }
             g.part('main')
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 16)
@@ -362,6 +473,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.slope(46, 56, k => 5 + (k - 46) * 0.1, () => 13, 3, WOOD)
             g.slope(56, 78, k => 6 - (k - 56) * 0.22, k => 13 - (k - 56) * 0.04, 3, WOOD)
             g.box(77, 78, 1, 13, 3, STEEL)
+            g.swivel(66, 4).rivets([60], 9, 3, STEEL_HI)
             g.box(46, 52, 8, 10, 1, STEEL).box(49, 50, 9, 11, 1, BLACK)
             g.part('bolt')
             g.box(42, 46, 16, 17, 1, STEEL_HI, 3)
@@ -392,6 +504,8 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.box(0, 3, 12, 15, 3, STEEL)
             g.box(2, 3, 15, 17, 1, STEEL_HI)
             g.box(30, 50, 9, 15, 3, WOOD)
+            for (const k of [14, 26]) g.ring(k, k + 1, 11, 0, 1.4, STEEL_HI)
+            g.swivel(36, 9)
             g.box(48, 66, 8, 15, 3, PARK)
             g.box(63, 66, 15, 17, 3, STEEL_HI).cut(63, 66, 16, 17, g.ci, g.ci + 1)
             g.box(60, 67, 5, 8, 1, STEEL).box(63, 64, 6, 9, 1, BLACK)
@@ -402,6 +516,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.box(54, 58, 12, 14, 1, STEEL_HI, 2)
             g.part('mag')
             g.box(52, 58, has(att, 'magazine', '40') ? -6 : 1, 8, 3, BLACK)
+            for (const j of [2, 5]) g.box(52, 58, j, j + 1, 3, derive(scaleHex(BLACK, 1.3), BLACK))
             g.part('main')
             if (sc) scope(g, 48, 70, 18)
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 13)
@@ -438,7 +553,9 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (let k = 58 - r; k < 58 + r; k++) {
                 for (let i = 0; i < 25; i++) {
                     const d = Math.hypot(k + 0.5 - 58, i + 0.5 - (g.ci + 0.5))
-                    if (d < r) g.boxI(k, k + 1, 17, big ? 20 : 19, i, i + 1, d < 2 ? STEEL_HI : d > r - 1.2 ? STEEL : BLACK)
+                    // Hub, rim and the pan's pressed radial ribs.
+                    const spoke = d > 2.5 && Math.abs(Math.sin(4 * Math.atan2(k + 0.5 - 58, i + 0.5 - (g.ci + 0.5)))) < 0.16
+                    if (d < r) g.boxI(k, k + 1, 17, big ? 20 : 19, i, i + 1, d < 2 ? STEEL_HI : d > r - 1.2 ? STEEL : spoke ? PARK : BLACK)
                 }
             }
             g.part('main')
@@ -446,25 +563,78 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             return { gun: g, grip: [73, 8], bore: 13, front: 4, sight: [68, 21], eyeRelief: 0.28, left: [-0.03, -0.035, -0.3], eject: [62, 12], reload: 'top', long: true, panAxis: [17, 58] }
         }
         case 'xray': {
-            const g = new Gun(VOX, 24, 17, 7)
-            g.ring(0, 1, 10, 0, 3, BRASS)
-            g.ring(0, 1, 10, 0, 1.6, 0x5dff7a, 0, 1)
-            g.rod(1, 11, 10, 1.2, COPPER)
-            for (const k of [3, 6, 9]) g.ring(k, k + 1, 10, 1, 2.1, BRASS)
-            g.box(1, 2, 13, 15, 1, BRASS)
-            g.box(10, 20, 8, 13, 3, BRASS)
-            g.box(4, 11, 13, 14, 1, 0x5dff7a, 0, 1)
-            g.box(19, 20, 13, 15, 1, BRASS)
-            for (let j = 0; j < 8; j++) {
-                const k0 = 15 + Math.round((8 - j) * 0.3)
-                g.box(k0, k0 + 5, j, j + 1, 3, WOOD_D)
+            // A 1906 laboratory ray pistol: a flared brass emitter dish with a white-hot needle,
+            // a copper barrel under polished cooling fins, a rounded art-deco brass body with a
+            // glowing core chamber behind glass windows, two vacuum tubes standing on its
+            // shoulders, a raked bakelite grip and a glass charge capsule on the left flank.
+            const S = DF_XRAY_SCHEMES[0]
+            const g = new Gun(VOX, 30, 23, 11)
+            const B = 12
+            // Emitter dish, rim to back, the core glowing in its bowl and the needle ahead.
+            g.ring(0, 1, B, 4.1, 5.2, BRASS)
+            g.ring(1, 2, B, 3.1, 4.6, BRASS)
+            g.ring(2, 3, B, 2, 3.8, BRASS)
+            g.ring(3, 4, B, 0, 3, COPPER)
+            g.rod(1, 3, B, 2, S.core, 0, 0.8)
+            g.rod(-2, 3, B, 0.6, S.hot, 0, 1)
+            // The front sight: a glowing bead on the rim.
+            g.box(0, 1, 18, 19, 1, S.hot, 0, 1)
+            // Barrel, cooling fins and a collar.
+            g.rod(4, 14, B, 1.5, COPPER)
+            for (const k of [5, 7, 9, 11]) g.ring(k, k + 1, B, 1.5, 3.3, BRASS)
+            g.ring(13, 14, B, 1.5, 3.6, COPPER)
+            // The body: an art-deco teardrop, banded in copper, with a keel fin underneath.
+            const prof = [3.1, 3.6, 4, 4.2, 4.2, 4.2, 4.2, 4.2, 4.1, 3.9, 3.6, 3.2, 2.7]
+            prof.forEach((r, n) => g.oval(14 + n, 15 + n, B, r * 0.8, r, BRASS))
+            g.oval(15, 16, B, 3.6 * 0.8 + 0.4, 3.6 + 0.4, COPPER).oval(24, 25, B, 3.6 * 0.8 + 0.3, 3.6 + 0.3, COPPER)
+            g.slope(13, 18, k => 6 + (18 - k) * 0.3, () => 9, 1, BRASS)
+            // Core chamber windows on both flanks: glass slots with a hot core streak.
+            for (let k = 17; k < 23; k++) {
+                for (let j = 11; j < 14; j++) {
+                    for (const side of [-1, 1]) {
+                        // the outermost filled cell of this row on this side
+                        for (let d = 5; d >= 0; d--) {
+                            const i = g.ci + side * d
+                            if (g.cur.get(i, j, k + g.ko)) {
+                                const hot = j === 12
+                                g.boxI(k, k + 1, j, j + 1, i, i + 1, hot ? S.core : S.glass, hot ? 1 : 0.3)
+                                break
+                            }
+                        }
+                    }
+                }
             }
-            g.box(12, 16, 5, 6, 1, BRASS).box(14, 15, 6, 8, 1, BLACK)
+            // Vacuum tubes on the shoulders: copper sockets, glass bulbs, glowing filaments.
+            for (const di of [-3, 2]) {
+                g.boxI(18, 21, 15, 16, g.ci + di, g.ci + di + 2, COPPER)
+                g.boxI(18, 20, 16, 20, g.ci + di, g.ci + di + 2, S.glass, 0.45)
+                g.boxI(18, 20, 16, 18, g.ci + di, g.ci + di + 2, S.core, 0.9)
+                g.boxI(18, 20, 20, 21, g.ci + di, g.ci + di + 2, BRASS)
+            }
+            // Tail cap with a glowing charge ring, and the rear sight.
+            g.oval(27, 28, B, 2.2 * 0.8, 2.2, COPPER)
+            g.ring(28, 29, B, 0, 1.5, BRASS).box(28, 29, B, B + 1, 1, S.core, 0, 0.5)
+            g.box(29, 30, 12, 13, 1, BRASS)
+            g.box(25, 27, 14, 18, 3, BRASS)
+            g.boxI(25, 27, 18, 19, g.ci - 1, g.ci, BRASS).boxI(25, 27, 18, 19, g.ci + 1, g.ci + 2, BRASS)
+            // Trigger guard and trigger.
+            g.box(15, 23, 4, 5, 1, BRASS).box(15, 16, 4, 9, 1, BRASS)
+            g.box(19, 20, 5, 8, 1, BLACK)
+            // Raked bakelite grip with finger grooves, brass medallions and butt cap.
+            const gk = (j: number) => 21 + Math.round((10 - j) * 0.35)
+            for (let j = 1; j < 10; j++) {
+                g.box(gk(j), gk(j) + 5, j, j + 1, 5, BAKELITE)
+                if (j === 3 || j === 6) g.box(gk(j), gk(j) + 1, j, j + 1, 5, derive(scaleHex(BAKELITE, 0.7), BAKELITE))
+                if (j === 6) g.rivets([gk(j) + 2], j, 5, BRASS)
+            }
+            g.box(gk(0), gk(0) + 5, 0, 1, 5, BRASS)
+            // The charge capsule (the reload swaps it out to the left).
             g.part('mag')
-            g.boxI(6, 13, 7, 9, 0, 2, 0x5dff7a, 0.9)
-            g.boxI(5, 6, 7, 9, 0, 2, BRASS).boxI(13, 14, 7, 9, 0, 2, BRASS)
+            g.boxI(15, 22, 6, 9, g.ci - 5, g.ci - 3, S.glass, 0.3)
+            g.boxI(15, 22, 7, 8, g.ci - 5, g.ci - 4, S.core, 1)
+            for (const k of [14, 18, 22]) g.boxI(k, k + 1, 5, 10, g.ci - 5, g.ci - 2, BRASS)
             g.part('main')
-            return { gun: g, grip: [18, 4], bore: 10, front: 1, sight: [19, 15], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [12, 11], reload: 'capsule', long: false, glow: true }
+            return { gun: g, grip: [25, 5], bore: B, front: 0, sight: [26, 17], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [18, 12], reload: 'capsule', long: false, glow: true }
         }
         case 'wunder': {
             // The Voltigeur: a brass-and-blued-steel rifle with copper Tesla coils that flare
@@ -524,20 +694,67 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
     }
 }
 
-/** Pack-a-Punch: steel takes the tier colour with a glowing stripe pattern; wood darkens toward it. */
+const lum = (hex: number) => 0.3 * ((hex >> 16) & 255) + 0.59 * ((hex >> 8) & 255) + 0.11 * (hex & 255) + 1
+
+/**
+ * The finishing pass: lit top edges (bright worn steel, polished brass, sunlit
+ * wood) and shadowed undersides, so every part reads as a solid, machined shape.
+ */
+function bevel(m: DfVoxModel): void {
+    m.recolor((c, glow, i, j, k) => {
+        if (glow) return null
+        const f = finishOf(c)
+        if (f === 'other' || EDGE.has(c)) return null
+        if (!m.get(i, j + 1, k)) {
+            const hi = f === 'metal' ? scaleHex(c, 1.3) : f === 'brass' ? mixHex(scaleHex(c, 1.18), 0xfff2c8, 0.32) : scaleHex(c, 1.1)
+            return [derive(hi, c, 1), 0]
+        }
+        if (!m.get(i, j - 1, k)) return [derive(scaleHex(c, f === 'wood' ? 0.84 : 0.76), c, -1), 0]
+        return null
+    })
+}
+
+/**
+ * Pack-a-Punch camo: the steel goes deep and tier-tinted with a wavy
+ * damascus pattern and glowing edge trim, the wood turns to dark ebony and the
+ * brass takes a warm sheen of the tier colour. The trim and lattice pulse.
+ */
 function papRecolor(m: DfVoxModel, tier: number, glowToo = false): void {
     const hex = Number.parseInt(DF_PAP_COLORS[Math.max(1, Math.min(3, tier)) - 1]!.slice(1), 16)
-    const dark = scaleHex(hex, 0.32)
+    const dark = scaleHex(hex, 0.22)
+    const trim = mixHex(hex, 0xffffff, 0.12)
     m.recolor((c, glow, i, j, k) => {
         if (glow) return glowToo ? [mixHex(hex, c, 0.4), glow] : null
-        if (METALS.has(c) || c === STEEL || c === STEEL_HI) {
-            const stripe = ((k + j * 2 + i) % 9 === 0) || ((k * 3 + j) % 17 === 0)
-            if (stripe) return [mixHex(hex, 0xffffff, 0.2), 0.9]
-            return [mixHex(scaleHex(c, 1.2), dark, 0.55), 0]
+        const f = finishOf(c)
+        const e = EDGE.get(c) ?? 0
+        if (f === 'metal') {
+            if (e > 0) return [trim, 0.4]
+            // Damascus: wavy folded bands of two tones running down the steel.
+            const base = mixHex(scaleHex(c, 0.8), dark, 0.62)
+            const band = Math.floor((j * 1.5 + Math.sin(k * 0.45 + i * 0.7) * 1.6 + 64) / 2) & 1
+            return [band ? mixHex(base, hex, 0.24) : base, band ? 0.06 : 0]
         }
-        if (WOODS.has(c)) return [mixHex(c, dark, 0.45), 0]
-        if (c === BRASS) return [mixHex(c, hex, 0.35), 0.15]
+        if (f === 'wood') return [mixHex(mixHex(c, 0x1a1216, 0.6), hex, e > 0 ? 0.18 : 0.08), 0]
+        if (f === 'brass') return [mixHex(c, trim, 0.35), e > 0 ? 0.3 : 0.1]
         return null
+    })
+}
+
+/** X-Ray Pack-a-Punch: a whole new colour scheme per tier (core, glass, body, trim, grip). */
+function xrayRecolor(m: DfVoxModel, tier: number): void {
+    const s0 = DF_XRAY_SCHEMES[0]
+    const s = DF_XRAY_SCHEMES[Math.max(1, Math.min(3, tier))]!
+    const glowMap = new Map([[s0.core, s.core], [s0.hot, s.hot], [s0.glass, s.glass]])
+    const solidMap = new Map([[BRASS, s.body], [COPPER, s.trim], [BAKELITE, s.grip]])
+    m.recolor((c, glow) => {
+        if (glow) {
+            const n = glowMap.get(c)
+            return n === undefined ? null : [n, glow]
+        }
+        const root = ROOT.get(c) ?? c
+        const to = solidMap.get(root)
+        if (to === undefined) return null
+        return [scaleHex(to, Math.min(1.6, lum(c) / lum(root))), EDGE.get(c) === 1 && tier === 3 ? 0.12 : 0]
     })
 }
 
@@ -563,7 +780,11 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
     const meshOf = (name: PartName, pivot: [number, number, number]): THREE.Mesh | null => {
         const m = g.models[name]
         if (!m || !m.vox.count()) return null
-        if (tier > 0) papRecolor(m, tier, id === 'wunder')
+        bevel(m)
+        if (tier > 0) {
+            if (id === 'xray') xrayRecolor(m, tier)
+            else papRecolor(m, tier, id === 'wunder')
+        }
         const geo = m.mesh(s, pivot, { aoMin: 0.55 })
         if (!geo) return null
         const me = new THREE.Mesh(geo, mat)
@@ -597,7 +818,7 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
     const pan = sub('pan', spec.panAxis)
     const mag = pan ?? sub('mag')
     const muzzle = new THREE.Object3D()
-    const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : id === 'm1911' && tier > 0 ? -2 : 0
+    const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : (id === 'm1911' && tier > 0) || id === 'xray' ? -2 : 0
     toGun(gi, spec.bore + 0.5, muzzleK, muzzle.position)
     root.add(muzzle)
     let lens: THREE.Mesh | null = null

@@ -5,6 +5,15 @@ import { DfVoxModel } from '../voxel/model'
 import { dfWeaponMat } from './materials'
 import { dfBuildGunRig, disposeDfWeaponModel, type DfGunRig } from './models'
 import { DF_WSND } from './sounds'
+import { dfXrayScheme } from './xray'
+
+/** Muzzle flash colour for a weapon at a PaP tier (the X-Ray flashes in its tier's own colour). */
+export function dfMuzzleFlashColor(id: DfViewmodelWeapon['id'], pap: number): number {
+    if (id === 'xray') return dfXrayScheme(pap).core
+    if (id === 'wunder') return 0x8ab8ff
+    if (pap > 0) return Number.parseInt((DF_PAP_COLORS[Math.min(3, pap) - 1] ?? '#ffd0a0').slice(1), 16)
+    return 0xffd0a0
+}
 
 // First-person viewmodel, kept deliberately simple: one voxel gun tucked into
 // the lower-right corner at a slight inward angle, a single small glove on the
@@ -37,6 +46,47 @@ class Crit {
         this.v = (this.v - w * t) * e
         return this.x
     }
+}
+
+/** Under-damped spring: a kick that settles with a small overshoot (zeta < 1). */
+class Spring {
+    x = 0
+    v = 0
+    constructor(public omega: number, public zeta: number) {}
+    step(dt: number): number {
+        // Semi-implicit Euler in fixed sub-steps: stable for any frame time we clamp to.
+        const n = Math.max(1, Math.ceil(dt / 0.004))
+        const h = dt / n
+        for (let i = 0; i < n; i++) {
+            this.v += (-2 * this.zeta * this.omega * this.v - this.omega * this.omega * this.x) * h
+            this.x += this.v * h
+        }
+        return this.x
+    }
+}
+
+/** Per-class shot feel: muzzle flash shape and the viewmodel's kick. */
+interface ShotFeel {
+    /** Flash star size, cone length and side-prong size (relative). */
+    star: number
+    cone: number
+    prongs: number
+    /** Seconds the flash stays up. */
+    flash: number
+    /** Kick: push back, muzzle flip, roll and the random yaw. */
+    back: number
+    flip: number
+    roll: number
+    yaw: number
+}
+
+const FEEL: Record<string, ShotFeel> = {
+    pistol: { star: 0.85, cone: 0.9, prongs: 0.5, flash: 0.035, back: 1, flip: 1.5, roll: 0.5, yaw: 1 },
+    smg: { star: 0.95, cone: 1.1, prongs: 0.7, flash: 0.03, back: 0.75, flip: 0.7, roll: 0.35, yaw: 1.3 },
+    rifle: { star: 1.25, cone: 1.7, prongs: 0.9, flash: 0.045, back: 1.5, flip: 1.2, roll: 0.6, yaw: 0.8 },
+    shotgun: { star: 1.8, cone: 1.3, prongs: 1.2, flash: 0.06, back: 1.9, flip: 1.4, roll: 1, yaw: 0.8 },
+    lmg: { star: 1.3, cone: 1.4, prongs: 1, flash: 0.035, back: 0.9, flip: 0.6, roll: 0.4, yaw: 1.4 },
+    special: { star: 1.1, cone: 0.7, prongs: 0, flash: 0.05, back: 1.1, flip: 1, roll: 0.3, yaw: 0.5 }
 }
 
 interface Clip {
@@ -77,7 +127,7 @@ function knifeModel(): DfVoxModel {
 }
 
 /** A blocky muzzle flash: a star of glowing voxels facing the eye and a short cone. */
-function flashModels(): { star: THREE.BufferGeometry, cone: THREE.BufferGeometry } {
+function flashModels(): { star: THREE.BufferGeometry, cone: THREE.BufferGeometry, prongs: THREE.BufferGeometry } {
     const st = new DfVoxModel(9, 9, 1)
     const hot = st.c(0xffffff, 1)
     const warm = st.c(0xffc070, 1)
@@ -93,7 +143,15 @@ function flashModels(): { star: THREE.BufferGeometry, cone: THREE.BufferGeometry
         const r = k < 2 ? 2 : k < 5 ? 1 : 0
         cn.box(2 - r, 2 - r, k, 3 + r, 3 + r, k + 1, k < 3 ? c1 : c2)
     }
-    return { star: st.mesh(1 / 9, [4.5, 4.5, 0.5])!, cone: cn.mesh(1 / 7, [2.5, 2.5, 7])! }
+    // Side prongs: four short spikes splaying sideways from the muzzle (a cross of hot voxels).
+    const pr = new DfVoxModel(11, 11, 3)
+    const p1 = pr.c(0xffd090, 1)
+    for (let t = 0; t < 11; t++) {
+        if (Math.abs(t - 5) < 2) continue
+        const far = Math.abs(t - 5) > 3
+        pr.set(t, 5, far ? 2 : 1, p1).set(5, t, far ? 2 : 1, p1)
+    }
+    return { star: st.mesh(1 / 9, [4.5, 4.5, 0.5])!, cone: cn.mesh(1 / 7, [2.5, 2.5, 7])!, prongs: pr.mesh(1 / 11, [5.5, 5.5, 3])! }
 }
 
 const tmpV = new THREE.Vector3()
@@ -153,23 +211,28 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     // Muzzle flash: additive voxel sprites, shown for a couple of frames.
     const flashMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xffd8a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
     const fm = flashModels()
-    geos.push(fm.star, fm.cone)
+    geos.push(fm.star, fm.cone, fm.prongs)
     const flash = new THREE.Group()
     const star = new THREE.Mesh(fm.star, flashMat)
     const cone = new THREE.Mesh(fm.cone, flashMat)
-    flash.add(star, cone)
+    const prongs = new THREE.Mesh(fm.prongs, flashMat)
+    flash.add(star, cone, prongs)
     flash.visible = false
     root.add(flash)
     let flashT = 0
 
     // Pooled casings: small voxel brass and red shotgun hulls.
+    // Brass with a bright shoulder; rifle cases are long and necked, pistol cases short.
     const cm = new DfVoxModel(2, 5, 2)
-    cm.box(0, 0, 0, 2, 5, 2, cm.c(0xc9a046)).box(0, 0, 0, 2, 1, 2, cm.c(0x8a6a2a))
-    const caseG = cm.mesh(0.0048, [1, 2.5, 1])!
+    cm.box(0, 0, 0, 2, 5, 2, cm.c(0xd6ad52, 0.12)).box(0, 0, 0, 2, 1, 2, cm.c(0x8a6a2a)).box(0, 4, 0, 2, 5, 2, cm.c(0xf0cf78, 0.2))
+    const caseG = cm.mesh(0.0058, [1, 2.5, 1])!
+    const rm = new DfVoxModel(3, 11, 3)
+    rm.box(0, 0, 0, 3, 8, 3, rm.c(0xd6ad52, 0.12)).box(0, 0, 0, 3, 1, 3, rm.c(0x8a6a2a)).box(1, 8, 1, 2, 11, 2, rm.c(0xf0cf78, 0.2)).box(0, 7, 0, 3, 8, 3, rm.c(0xf0cf78, 0.2))
+    const rifleCaseG = rm.mesh(0.0042, [1.5, 5.5, 1.5])!
     const hm = new DfVoxModel(3, 8, 3)
     hm.box(0, 0, 0, 3, 8, 3, hm.c(0xa8302a)).box(0, 0, 0, 3, 2, 3, hm.c(0xc9a046))
     const hullG = hm.mesh(0.0065, [1.5, 4, 1.5])!
-    geos.push(caseG, hullG)
+    geos.push(caseG, hullG, rifleCaseG)
     const casings: Casing[] = []
     for (let i = 0; i < 16; i++) {
         const m = new THREE.Mesh(caseG, mat)
@@ -212,9 +275,11 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     const swayY = new Crit(14)
     const lookX = new Crit(20)
     const lookY = new Crit(20)
-    const kickZ = new Crit(40)
-    const kickP = new Crit(36)
+    const kickZ = new Spring(42, 0.62)
+    const kickP = new Spring(34, 0.5)
     const kickYaw = new Crit(30)
+    const kickRoll = new Spring(30, 0.55)
+    let feel: ShotFeel = FEEL.pistol!
     const land = new Crit(14)
     const lower = new Crit(16)
     const aimPos = new THREE.Vector3()
@@ -250,6 +315,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             stats = null
         }
         current = w
+        feel = FEEL[DF_WEAPONS[w.id]?.class ?? 'pistol'] ?? FEEL.pistol!
         shotsSinceReload = 0
         clip = null
         shellGrace = -1
@@ -272,20 +338,18 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         if (!current || current.id === 'xray' || current.id === 'wunder' || (current.id === 'm1911' && current.pap > 0)) return
         const c = casings[caseNext]!
         caseNext = (caseNext + 1) % casings.length
-        c.mesh.geometry = current.id === 'm1897' ? hullG : caseG
+        const cls = DF_WEAPONS[current.id]?.class
+        c.mesh.geometry = current.id === 'm1897' ? hullG : cls === 'rifle' || cls === 'lmg' ? rifleCaseG : caseG
         r.root.updateWorldMatrix(true, false)
         c.mesh.position.copy(r.eject).applyMatrix4(r.root.matrixWorld)
         root.worldToLocal(c.mesh.position)
-        c.vel.set(0.9 + Math.random() * 0.5, 1.2 + Math.random() * 0.5, 0.25 + Math.random() * 0.3)
+        // Up and out to the right (in camera space), a little back, tumbling end over end.
+        c.vel.set(1 + Math.random() * 0.6, 1.3 + Math.random() * 0.6, 0.3 + Math.random() * 0.3)
         if (r.root.scale.x < 0) c.vel.x *= -1
-        c.spin.set(Math.random() * 20, Math.random() * 20, Math.random() * 20)
-        c.life = 0.6
+        c.spin.set(14 + Math.random() * 14, Math.random() * 6, 10 + Math.random() * 14)
+        c.mesh.rotation.set(0, 0, Math.PI / 2)
+        c.life = 0.7
         c.mesh.visible = true
-    }
-
-    function papColor(): THREE.Color {
-        const t = current?.pap ?? 0
-        return new THREE.Color(t > 0 ? DF_PAP_COLORS[t - 1] : '#ffd8a0')
     }
 
     function muzzleObj(): THREE.Object3D | null {
@@ -326,25 +390,34 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             clip = null
             shellGrace = -1
             if (dual) side = 1 - side
+            // A sharp kick back and up that settles with a little overshoot, per weapon class.
             const k = Math.min(0.08, stats.recoil) * (1 - clamp01(ads.x) * 0.45)
-            kickZ.v += 1.4 + k * 26
-            kickP.v += 3 + k * 110
-            kickYaw.v += (Math.random() - 0.5) * (1.5 + k * 40)
+            const fk = feel
+            kickZ.v += (1.4 + k * 26) * fk.back * 30
+            kickP.v += (3 + k * 110) * fk.flip * 26
+            kickRoll.v += (Math.random() < 0.5 ? -1 : 1) * (0.6 + k * 20) * fk.roll * 26
+            kickYaw.v += (Math.random() - 0.5) * (1.5 + k * 40) * fk.yaw * 20
             play(DF_WSND.fire(current.id, current.pap, suppressed()))
             const r = dual && side === 1 && rigL ? rigL : rig
             if (current.id !== 'kar98k' && current.id !== 'm1897') ejectCasing(r)
             if (rig.pan && stats.magSize > 0) panAngle += (Math.PI * 2) / stats.magSize
             glowPulse = 1
             if (!suppressed()) {
+                // Per class: a small crisp star for pistols, a long tongue for rifles, a wide
+                // bloom for the shotgun, side prongs on the automatics; random turn each shot.
+                const fk = feel
                 flash.visible = true
-                flashT = 0.04
-                const big = current.id === 'm1897' ? 1.7 : rig.long ? 1.25 : 0.9
-                const s = (0.06 + Math.random() * 0.025) * big
+                flashT = fk.flash
+                const s = (0.055 + Math.random() * 0.025) * fk.star
                 star.scale.set(s, s, s)
                 star.rotation.z = Math.floor(Math.random() * 4) * (Math.PI / 4)
-                cone.scale.set(s * 0.5, s * 0.5, s * (1.2 + Math.random() * 0.6))
+                cone.scale.set(s * 0.5, s * 0.5, s * fk.cone * (1.1 + Math.random() * 0.6))
                 cone.rotation.z = Math.floor(Math.random() * 2) * (Math.PI / 4)
-                flashMat.color.copy(current.pap > 0 ? papColor() : current.id === 'xray' ? new THREE.Color(0x60ff80) : current.id === 'wunder' ? new THREE.Color(0x8ab8ff) : new THREE.Color(0xffd0a0)).multiplyScalar(2.6)
+                const ps = s * fk.prongs * (0.8 + Math.random() * 0.5)
+                prongs.visible = ps > 0
+                prongs.scale.set(ps * 1.3, ps * 1.3, ps)
+                prongs.rotation.z = Math.random() < 0.5 ? 0 : Math.PI / 4
+                flashMat.color.set(dfMuzzleFlashColor(current.id, current.pap)).multiplyScalar(2.6)
             }
             if (muzzleObj()) {
                 api.muzzleWorld(ctx.camera, tmpV)
@@ -517,6 +590,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         kickZ.step(dt)
         kickP.step(dt)
         kickYaw.step(dt)
+        kickRoll.step(dt)
         land.step(dt)
 
         // ---- base pose: tucked low-right with a slight inward cant; ADS levels the sight line on the axis
@@ -542,7 +616,8 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         pos.y += swayY.x * 0.006 * sw
         pos.z += kickZ.x * 0.01
         rot.x += kickP.x * 0.01
-        rot.y += kickYaw.x * 0.008
+        rot.y += kickYaw.x * 0.02
+        rot.z += kickRoll.x * 0.04 * (1 - a * 0.7)
         const sp = clamp01(sprint.x)
         rot.y += sp * (pistol ? 0.3 : 0.42)
         rot.x += sp * (pistol ? -0.35 : -0.16)
@@ -657,7 +732,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 // The Voltigeur breathes slowly and crackles (cosmetic flicker) after a shot.
                 const live = g.id === 'wunder'
                     ? 1.25 + Math.sin(time * 2.2) * 0.25 + glowPulse * (1.6 + Math.random() * 1.4) + (Math.random() < 0.02 ? 0.35 : 0)
-                    : 1.4 + glowPulse * 2 + Math.sin(time * 9) * 0.15
+                    : 1.3 + Math.sin(time * 2.6) * 0.18 + Math.sin(time * 17) * 0.04 + glowPulse * 2.4
                 g.glow.userData.uGlow.value = Math.max(0.2, live - drain)
             }
             if (g.lens) g.lens.visible = a > 0.6

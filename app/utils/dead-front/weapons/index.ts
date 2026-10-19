@@ -11,6 +11,9 @@ import { createDfViewmodelImpl } from './viewmodel'
 export { disposeDfWeaponModel } from './models'
 export { disposeDfWeaponMaterials } from './materials'
 export { DF_WSND } from './sounds'
+/** Muzzle-flash light colour for a weapon at a PaP tier (the X-Ray uses its tier's colour scheme). */
+export { dfMuzzleFlashColor } from './viewmodel'
+export { dfXrayScheme } from './xray'
 
 export function createDfViewmodel(ctx: DfRenderContext): DfViewmodel {
     return createDfViewmodelImpl(ctx)
