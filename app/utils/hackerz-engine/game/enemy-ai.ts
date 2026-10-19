@@ -13,7 +13,7 @@ import {
 import { AMBER, CYAN } from '../scene'
 import type { EnemyEntity } from '../types'
 import {
-    PING_REVEAL_MS, PER_WORLD, _v, _w, ZONE_TICK_MS, GLITCH_FADE_MS, HACK_TEAM, type RouteGoal, HACK_REACH, unitSize
+    PER_WORLD, _v, _w, ZONE_TICK_MS, GLITCH_FADE_MS, HACK_TEAM, type RouteGoal, HACK_REACH, unitSize, PING_REVEAL_MS
 } from './tuning'
 import { burrowing, enemyCentreY, enemyWorld, glitchOf, placeEnemy, underground } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
