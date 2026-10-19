@@ -5,11 +5,26 @@ export default defineNuxtConfig({
         '@sentry/nuxt/module'
     ],
 
+    // The whole site is a client-rendered SPA. Skipping SSR drops the Vite
+    // server build of every page and keeps the game engines out of the Nitro
+    // bundle, which roughly halves build time and memory.
+    ssr: false,
+
     devtools: {
         enabled: true
     },
 
     css: ['~/assets/css/main.css'],
+
+    icon: {
+        // Without SSR Nuxt Icon defaults to the public Iconify API; keep
+        // serving icons ourselves. Only lucide goes in the server bundle (the
+        // full simple-icons set is ~4.7 MB), and the client bundle carries
+        // every statically used icon so most never hit the endpoint.
+        provider: 'server',
+        serverBundle: { collections: ['lucide'] },
+        clientBundle: { scan: true }
+    },
 
     runtimeConfig: {
         authSecret: process.env.BETTER_AUTH_SECRET,
@@ -28,10 +43,7 @@ export default defineNuxtConfig({
             pokemonApiBase: 'http://127.0.0.1:8080'
         }
     },
-    // The casino and pirate raid are canvas-heavy, interactive experiences.
-    // Serving their route shells client-only avoids SSR work and keeps their
-    // game engines out of the server rendering path. Economy and account
-    // pages remain SSR-enabled.
+
     routeRules: {
         // The auto-scaling gem market became the player-driven exchange
         '/gem-market': { redirect: '/gem-exchange' },
@@ -39,24 +51,8 @@ export default defineNuxtConfig({
         '/miner': { redirect: '/polytown' },
         '/miner/**': { redirect: '/polytown' },
         // The crash game launched as Aviamasters and was renamed PolyMasters.
-        '/games/aviamasters': { redirect: '/games/polymasters' },
-        '/games/**': { ssr: false },
-        '/pirates/**': { ssr: false },
-        '/void': { ssr: false },
-        '/void/**': { ssr: false },
-        '/shapezz': { ssr: false },
-        '/shapezz/**': { ssr: false },
-        '/pathwarden': { ssr: false },
-        '/pathwarden/**': { ssr: false },
-        '/call-of-xeno': { ssr: false },
-// Canvas hack-and-slash — pure client-side simulation.
-        '/meadowbrawl': { ssr: false },
-        '/voxel-arena': { ssr: false },
-        '/dead-front': { ssr: false },
-        // WebGL foil renderer + admin-only tooling — no SSR value.
-        '/tcg-admin/**': { ssr: false }
+        '/games/aviamasters': { redirect: '/games/polymasters' }
     },
-
 
     // Sourcemaps are the single largest contributor to build memory here.
     // Disabling them drops the Nitro step's peak by ~0.8 GB, at the cost of
