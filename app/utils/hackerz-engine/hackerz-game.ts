@@ -6,14 +6,14 @@ import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
     HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
     HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
-    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SHIELD_DELAY_MS,
-    HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier,
-    hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier,
-    hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier,
-    hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave, hackerzNetworkEvent,
-    hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
-    type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
-    type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
+    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS,
+    HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue,
+    HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats,
+    hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne,
+    hackerzIsBossWave, hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight,
+    hackerzWavePool, type HackerzDamageType, type HackerzDeployableId, type HackerzDeployableStock,
+    type HackerzEnemyDefinition, type HackerzEnemyId, type HackerzEventId, type HackerzLoadout,
+    type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
@@ -56,6 +56,7 @@ import { PER_WORLD, LEAK_D, _v, _w } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
 import { Scoring } from './game/scoring'
+import { Bastion } from './game/bastion'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -456,7 +457,7 @@ const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACK
 const BOMB_CHIP_SNAP = 110
 
 export class HackerzGame {
-    private view: HackerzScene | null = null
+    view: HackerzScene | null = null
     callbacks: HackerzCallbacks
     particles = new ParticleSystem(5000)
     transient: TransientFx | null = null
@@ -488,10 +489,10 @@ export class HackerzGame {
     private paused = false
     /** The end-of-wave sweep is playing; input is dead but the field still ticks. */
     purging = false
-    private gameOver = false
+    gameOver = false
 
     // ── Run state ──
-    private loadout: HackerzLoadout | null = null
+    loadout: HackerzLoadout | null = null
     private weapon: HackerzWeaponRuntime | null = null
     private slots = 2
     private wave = 0
@@ -520,13 +521,9 @@ export class HackerzGame {
 
     // ── Bonus round ──
     /** The network event this round is, or null for an ordinary wave. */
-    private bonus: HackerzEventId | null = null
+    bonus: HackerzEventId | null = null
     /** Length of the round in flight: a wave, or the shorter bonus sprint. */
     private waveMs = HACKERZ_WAVE_MS
-    /** The wall as it stood before a bonus round, put back afterwards. */
-    private bonusStartHp = 0
-    private bonusStartShield = 0
-    private bonusFailed = false
     /** The run's node states, set aside while a bonus round plays on a fresh board. */
     private bonusChips: ReturnType<PathChips['snapshot']> | null = null
     /** BLACKOUT dimming, eased 0 → 1. */
@@ -546,15 +543,6 @@ export class HackerzGame {
     private stock: HackerzDeployableStock = hackerzEmptyStock()
     /** Armed by Z/X/C: the next left click places it instead of firing. */
     private armed: HackerzDeployableId | null = null
-
-    // ── Bastion state ──
-    private wallHp = 1000
-    private wallMaxHp = 1000
-    private shield = 0
-    private shieldMax = 0
-    private msSinceWallHit = 99_999
-    private wallFlash = 0
-    private shieldHit = 0
 
     // ── Weapon ──
     private mag = 10
@@ -614,7 +602,7 @@ export class HackerzGame {
     /** Hostile types and bonus rounds already reported this session (see `sight`). */
     private sighted = new Set<string>()
     /** A Database demo board (see `mountDemo`), the spot its camera is held on, and whether it cuts there. */
-    private demo = false
+    demo = false
     private demoFocus: { u: number, d: number } | null = null
     private demoSnap = true
     /** The demo's script, its seeded rolls, its clock, the next step due, and where its lines go. */
@@ -632,6 +620,7 @@ export class HackerzGame {
     readonly healers = new Healers(this)
     readonly memory = new Leaks(this)
     readonly scoring = new Scoring(this)
+    readonly bastion = new Bastion(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -771,7 +760,7 @@ export class HackerzGame {
             contacts,
             view: {
                 wave: this.wave,
-                wall: this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0,
+                wall: this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 0,
                 held: chips.filter(chip => chip.state === 'hacked').length,
                 nodes: chips.length,
                 contacts: picked.map((enemy, i) => ({
@@ -990,14 +979,14 @@ export class HackerzGame {
             this.waveMs = Infinity
             // A wave carries the wall's damage over; a demo loop starts whole,
             // and so do the guns on it: no reload or aim left from the last loop.
-            this.wallHp = this.wallMaxHp
-            this.shield = this.shieldMax
+            this.bastion.wallHp = this.bastion.wallMaxHp
+            this.bastion.shield = this.bastion.shieldMax
             // The rail, the barrier's regen clock and the kill chain start fresh too.
             this.railHeading = Math.PI
             this.railU = RAIL_U
             this.railKick = 0
-            this.msSinceWallHit = 99_999
-            this.shieldHit = 0
+            this.bastion.msSinceWallHit = 99_999
+            this.bastion.shieldHit = 0
             this.scoring.chain = 0
             this.scoring.totalKills = 0
             this.pingCharge = PING_COOLDOWN_MS
@@ -1393,10 +1382,10 @@ export class HackerzGame {
         this.gameOver = false
         this.purging = false
         this.running = false
-        this.wallMaxHp = loadout.wallMaxHp
-        this.wallHp = clamp(config.wallHp ?? loadout.wallMaxHp, 1, loadout.wallMaxHp)
-        this.shieldMax = loadout.shieldMax
-        this.shield = loadout.shieldMax
+        this.bastion.wallMaxHp = loadout.wallMaxHp
+        this.bastion.wallHp = clamp(config.wallHp ?? loadout.wallMaxHp, 1, loadout.wallMaxHp)
+        this.bastion.shieldMax = loadout.shieldMax
+        this.bastion.shield = loadout.shieldMax
         this.pulseCharge = loadout.pulseCooldownMs
         this.overclockCharge = loadout.overclockCooldownMs
         this.overclockLeft = 0
@@ -1406,7 +1395,7 @@ export class HackerzGame {
         this.tarpitDrain = 0
         this.slots = loadout.slots
         this.syncTurrets()
-        this.emitWall()
+        this.bastion.emitWall()
         this.emitAmmo()
         return true
     }
@@ -1441,20 +1430,20 @@ export class HackerzGame {
         this.sysLog.clock = 0
         this.sysLog.waveStart(wave, event)
         this.waveMs = event ? HACKERZ_BONUS_MS : HACKERZ_WAVE_MS
-        this.bonusFailed = false
+        this.bastion.bonusFailed = false
         this.stock = { ...loadout.deployables }
         this.deployables?.clear()
         this.linePulses?.clear()
         this.arm(null)
-        const previousMax = this.wallMaxHp
+        const previousMax = this.bastion.wallMaxHp
         this.loadout = loadout
         this.weapon = loadout.weapon
         this.ammoRack?.setColour(loadout.weapon.hex)
-        this.wallMaxHp = loadout.wallMaxHp
-        if (loadout.wallMaxHp > previousMax) this.wallHp += loadout.wallMaxHp - previousMax
-        this.wallHp = clamp(this.wallHp, 1, this.wallMaxHp)
-        this.shieldMax = loadout.shieldMax
-        this.shield = loadout.shieldMax
+        this.bastion.wallMaxHp = loadout.wallMaxHp
+        if (loadout.wallMaxHp > previousMax) this.bastion.wallHp += loadout.wallMaxHp - previousMax
+        this.bastion.wallHp = clamp(this.bastion.wallHp, 1, this.bastion.wallMaxHp)
+        this.bastion.shieldMax = loadout.shieldMax
+        this.bastion.shield = loadout.shieldMax
         this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
@@ -1479,8 +1468,8 @@ export class HackerzGame {
         this.paused = false
         this.target = null
         // A bonus round is a sandbox: whatever it does to the wall is undone.
-        this.bonusStartHp = this.wallHp
-        this.bonusStartShield = this.shield
+        this.bastion.bonusStartHp = this.bastion.wallHp
+        this.bastion.bonusStartShield = this.bastion.shield
 
         if (event) {
             const def = hackerzNetworkEvent(event)
@@ -1494,7 +1483,7 @@ export class HackerzGame {
                 `${this.schedule.length} hostiles queued`
             )
         }
-        this.emitWall()
+        this.bastion.emitWall()
         this.emitAmmo()
         this.emitPulse()
         this.emitOverclock()
@@ -1906,8 +1895,8 @@ export class HackerzGame {
 
     /** Uplink purchase — patches the wall back to full between waves. */
     repairWall() {
-        this.wallHp = this.wallMaxHp
-        this.emitWall()
+        this.bastion.wallHp = this.bastion.wallMaxHp
+        this.bastion.emitWall()
     }
 
     pause() {
@@ -1925,7 +1914,7 @@ export class HackerzGame {
 
     /** Current wall health, for a save written from the uplink. */
     get currentWallHp() {
-        return Math.round(this.wallHp)
+        return Math.round(this.bastion.wallHp)
     }
 
     // ─── Bastion assembly ────────────────────────────────────────────────────
@@ -2177,7 +2166,7 @@ export class HackerzGame {
             if (this.running && !this.purging) this.updateSurges(dtMs)
             this.updateTurrets(dtMs, frozen)
             this.scoring.updateCoins(frozen ? 0 : dtMs)
-            this.updateBastion(dt, dtMs)
+            this.bastion.updateBastion(dt, dtMs)
             this.memory.updateLeaks(dt, frozen ? 0 : dtMs)
             this.updateHackPulses(dt)
             this.pathChips?.update(seen)
@@ -2200,13 +2189,13 @@ export class HackerzGame {
 
         // The grid goes dark while the gun reloads: it has no power then.
         view.trapMaterial.uniforms.uLevel!.value = (this.loadout?.spikeDps ?? 0) > 0 && this.tarpitPowered ? 1 : 0
-        view.shieldMaterial.uniforms.uStrength!.value = this.shieldMax > 0 ? this.shield / this.shieldMax : 0
-        view.shieldMaterial.uniforms.uHit!.value = this.shieldHit
+        view.shieldMaterial.uniforms.uStrength!.value = this.bastion.shieldMax > 0 ? this.bastion.shield / this.bastion.shieldMax : 0
+        view.shieldMaterial.uniforms.uHit!.value = this.bastion.shieldHit
         // With every node theirs the ground right up to the deck and the barrier
         // lattice turn disputed orange, and the fence's own glow dims.
         this.overrun += ((this.allNodesTaken ? 1 : 0) - this.overrun) * Math.min(1, dt * 1.5)
         view.gate.value = this.overrun
-        view.setWallState(this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 1, this.wallFlash, this.overrun)
+        view.setWallState(this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 1, this.bastion.wallFlash, this.overrun)
 
         // BLACKOUT: the lights go down and the fog closes in, eased both ways.
         const dark = this.bonus === 'blackout' && this.running ? 1 : 0
@@ -2948,7 +2937,7 @@ export class HackerzGame {
         }
     }
 
-    private addShake(amount: number) {
+    addShake(amount: number) {
         // The old engine shook in pixels; this one shakes in world units. A lag
         // spike shows nothing landing, so nothing shakes.
         if (this.boardLagMs > 0) return
@@ -3568,7 +3557,7 @@ export class HackerzGame {
     private updateRootkit(enemy: EnemyEntity, dt: number, dtMs: number) {
         // It halts with its head against the ICE Barrier while that stands,
         // and against the fence itself once the barrier is down.
-        enemy.standoff = enemy.rig.box.max.z * PER_WORLD + 2 + (this.shield > 0 ? SHIELD_D : 0)
+        enemy.standoff = enemy.rig.box.max.z * PER_WORLD + 2 + (this.bastion.shield > 0 ? SHIELD_D : 0)
         if (enemy.riseMs > 0) enemy.riseMs = Math.max(0, enemy.riseMs - dtMs)
         if (enemy.burrowMs > 0) {
             const wasUp = !this.underground(enemy)
@@ -4303,7 +4292,7 @@ export class HackerzGame {
                 break
             }
             case 'bomber': {
-                this.damageWall(damage, enemy.u)
+                this.bastion.damageWall(damage, enemy.u)
                 // It goes up: the spikes are blown off the cage in every direction.
                 this.placeEnemy(enemy)
                 this.shrapnel?.burst(enemy.rig, enemy.def.hex)
@@ -4313,7 +4302,7 @@ export class HackerzGame {
                 this.particles.burst(at, enemy.def.hex, 30, 16, { size: 0.35, life: 0.7 })
                 this.addShake(14)
                 this.callbacks.onNotice(`A ${enemy.def.name} reached the wall.`, 'bad')
-                this.sysLog.sapperHit(Math.floor((enemy.u + FIELD_HALF_WIDTH) / 100) + 1, this.integrityPercent())
+                this.sysLog.sapperHit(Math.floor((enemy.u + FIELD_HALF_WIDTH) / 100) + 1, this.bastion.integrityPercent())
                 const index = this.enemies.indexOf(enemy)
                 if (index >= 0) this.removeEnemy(index)
                 break
@@ -4329,7 +4318,7 @@ export class HackerzGame {
                     enemy.decloaked = true
                     this.particles.burst(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), enemy.def.hex, 14, 6, { size: 0.24, life: 0.4 })
                 }
-                this.damageWall(damage, enemy.u)
+                this.bastion.damageWall(damage, enemy.u)
                 this.particles.burst(fieldToWorld(enemy.u, 4, FENCE_HEIGHT * 0.5, _v), enemy.def.hex, 5, 8, { size: 0.2, life: 0.3 })
                 // A unit with a melee weapon (the Warden's prod) jabs it home.
                 enemy.strike = 1
@@ -4403,7 +4392,7 @@ export class HackerzGame {
         const dealt = damage * enemy.drainPower
         // The fence (its ICE Barrier first), or the proxy wall standing in the way.
         if (proxy) this.deployables?.strike(proxy, dealt)
-        else this.damageWall(dealt, enemy.u, true)
+        else this.bastion.damageWall(dealt, enemy.u, true)
         const before = drainGrowth(enemy.drainPower)
         enemy.drainPower = Math.min(HACKERZ_SPIDER_MAX_DRAIN, enemy.drainPower * (1 + enemy.def.drain!))
         enemy.maxHp *= drainGrowth(enemy.drainPower) / before
@@ -5213,7 +5202,7 @@ export class HackerzGame {
             const landed = spit.d <= 0
             if (!landed && spit.y > -20) continue
             if (landed) {
-                this.damageWall(spit.damage, spit.u)
+                this.bastion.damageWall(spit.damage, spit.u)
                 const at = fieldToWorld(spit.u, 0, WALL_HIT_Y * FIELD_SCALE, _v)
                 this.particles.burst(at, spit.hex, spit.heavy ? 18 : 8, 10, { size: 0.28, life: 0.4 })
                 if (spit.heavy) {
@@ -6132,86 +6121,9 @@ export class HackerzGame {
 
     // ─── Exploit chain ───────────────────────────────────────────────────────
 
-    /** Wall health left, as a whole percentage. */
-    private integrityPercent() {
-        return this.wallMaxHp > 0 ? Math.round(100 * this.wallHp / this.wallMaxHp) : 100
-    }
-
-    /**
-     * `quiet` is a drain rather than a blow (a memory leak): it does not count as
-     * a leak, keep the barrier from recharging or break the chain, and it lands
-     * without the jolt and the alarm.
-     */
+    /** See `Bastion.damageWall`. */
     damageWall(amount: number, sourceU: number, quiet = false) {
-        if (this.gameOver) return
-        if (!quiet) {
-            this.msSinceWallHit = 0
-            this.scoring.breakChain()
-        }
-
-        let remaining = amount
-        if (this.shield > 0) {
-            const absorbed = Math.min(this.shield, remaining)
-            this.shield -= absorbed
-            remaining -= absorbed
-            // The barrier lights up where it was struck, which is the only thing
-            // that distinguishes a soaked hit from one the wall took.
-            this.shieldHit = Math.min(1, this.shieldHit + (absorbed > 40 ? 0.7 : 0.35))
-            this.particles.burst(fieldToWorld(sourceU, 26, 3, _v), 0x67e8f9, 6, 6, { size: 0.25, life: 0.3, gravity: 0 })
-            if (this.shield <= 0) {
-                this.view?.flash(0x67e8f9, 0.18)
-                this.callbacks.onNotice('ICE Barrier collapsed.', 'bad')
-            }
-        }
-        if (remaining > 0) {
-            this.wallHp = Math.max(0, this.wallHp - remaining)
-            this.wallFlash = Math.min(1, this.wallFlash + 0.15 + remaining / 220)
-            this.overlay.floatText(fieldToWorld(sourceU, 0, FENCE_HEIGHT + 1.2, _v), `-${Math.round(remaining)}`, RED, quiet ? 0.75 : 1)
-            this.particles.burst(fieldToWorld(sourceU, 2, FENCE_HEIGHT * 0.6, _v), RED, 4, 7, { size: 0.22, life: 0.35 })
-        }
-        this.emitWall()
-        if (!quiet) {
-            this.addShake(clamp(amount * 0.16, 1.5, 12))
-            this.callbacks.onSound?.('wall-hurt')
-            if (remaining > 0) this.sysLog.wallHit(this.integrityPercent())
-        }
-
-        if (this.bonus) {
-            // A bonus round can be lost, never the run: dropping under the line
-            // ends the round on the spot, and the sandbox gives the wall back.
-            this.wallHp = Math.max(1, this.wallHp)
-            if (!this.bonusFailed && this.wallMaxHp > 0 && this.wallHp / this.wallMaxHp < HACKERZ_BONUS_PASS_INTEGRITY) {
-                this.bonusFailed = true
-                this.overlay.banner('BONUS FAILED', RED, 'integrity under the line')
-                this.view?.flash(RED, 0.3)
-                if (this.running && !this.purging) this.beginPurge()
-            }
-            return
-        }
-        if (this.wallHp > 0) return
-        // A demo board's wall is only scenery.
-        if (this.demo) this.wallHp = this.wallMaxHp
-        else this.endRun()
-    }
-
-    private updateBastion(dt: number, dtMs: number) {
-        const loadout = this.loadout
-        if (!loadout) return
-
-        this.msSinceWallHit += dtMs
-        this.wallFlash = Math.max(0, this.wallFlash - dt * 2.4)
-        this.shieldHit = Math.max(0, this.shieldHit - dt * 2)
-
-        if (this.running && !this.purging) {
-            if (loadout.repairPerSec > 0 && this.wallHp < this.wallMaxHp) {
-                this.wallHp = Math.min(this.wallMaxHp, this.wallHp + loadout.repairPerSec * dt)
-                this.emitWall()
-            }
-            if (this.shieldMax > 0 && this.shield < this.shieldMax && this.msSinceWallHit > HACKERZ_SHIELD_DELAY_MS) {
-                this.shield = Math.min(this.shieldMax, this.shield + loadout.shieldRegenPerSec * dt)
-                this.emitWall()
-            }
-        }
+        return this.bastion.damageWall(amount, sourceU, quiet)
     }
 
     // ─── Wave end ────────────────────────────────────────────────────────────
@@ -6221,7 +6133,7 @@ export class HackerzGame {
      * takes everything it passes. Survivors still pay out, at a fraction — enough
      * that a wave you barely held is not also a wave you earned nothing from.
      */
-    private beginPurge() {
+    beginPurge() {
         if (this.purging) return
         this.sysLog.purge(this.enemies.length)
         // The sweep is a full garbage collection: every leaked block goes with it.
@@ -6296,10 +6208,10 @@ export class HackerzGame {
         let passed = false
         if (event) {
             // The sandbox: the wall goes back to how the round found it.
-            this.wallHp = this.bonusStartHp
-            this.shield = this.bonusStartShield
-            this.emitWall()
-            passed = !this.bonusFailed
+            this.bastion.wallHp = this.bastion.bonusStartHp
+            this.bastion.shield = this.bastion.bonusStartShield
+            this.bastion.emitWall()
+            passed = !this.bastion.bonusFailed
             if (passed && this.scoring.waveCredits > 0) {
                 const extra = this.scoring.waveCredits * (HACKERZ_BONUS_MULTIPLIER - 1)
                 this.scoring.waveCredits += extra
@@ -6314,7 +6226,7 @@ export class HackerzGame {
             this.bonusChips = null
             this.islands = []
         } else {
-            const integrity = this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0
+            const integrity = this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 0
             const clear = hackerzClearBonus(this.wave, integrity)
             this.scoring.waveCredits += clear
             this.callbacks.onCredits(clear, 'clear')
@@ -6333,8 +6245,8 @@ export class HackerzGame {
             kills: this.scoring.waveKills,
             credits: this.scoring.waveCredits,
             coins: this.scoring.waveCoins,
-            wallHp: Math.round(this.wallHp),
-            wallMaxHp: this.wallMaxHp,
+            wallHp: Math.round(this.bastion.wallHp),
+            wallMaxHp: this.bastion.wallMaxHp,
             victory,
             bonus: event,
             passed
@@ -6342,7 +6254,7 @@ export class HackerzGame {
         this.callbacks.onSound?.('wave-win')
     }
 
-    private endRun() {
+    endRun() {
         if (this.gameOver) return
         this.gameOver = true
         this.running = false
@@ -6396,11 +6308,7 @@ export class HackerzGame {
         this.target = null
         this.holding = false
         this.shake = 0
-        this.wallFlash = 0
-    }
-
-    private emitWall() {
-        this.callbacks.onWall(Math.round(this.wallHp), this.wallMaxHp, Math.round(this.shield), this.shieldMax)
+        this.bastion.wallFlash = 0
     }
 
     private emitAmmo() {

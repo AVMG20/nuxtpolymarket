@@ -85,7 +85,7 @@ export class Leaks {
             pile.stack.drained()
             const top = pile.stack.top(new THREE.Vector3())
             this.game.particles.emit(top, _w.set(0, 1.2, 1.4), pile.stack.hex, { size: 0.2, life: 0.4, gravity: 0 })
-            this.game.damageWall(pile.drains.reduce((sum, d) => sum + d, 0), pile.u, true)
+            this.game.bastion.damageWall(pile.drains.reduce((sum, d) => sum + d, 0), pile.u, true)
         }
     }
 
