@@ -45,19 +45,20 @@ import {
     burrowFrame, drainGrowth, gatherLegs, easeInject, easeStrike, fangTips, injectLands, hoverBob, muzzleOf,
     railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward, weaponTip
 } from './rig-motion'
-import { AMBER, CYAN, DARK_ZONES, FRONT_COLUMNS, HackerzScene, ISLANDS, LIME, RED, fieldToWorld } from './scene'
+import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
-import { LaneProps, zoneAt } from './lane-props'
+import { LaneProps } from './lane-props'
 import {
     Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, makeSpit, turretProjectile, type HealthTag
 } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
-import { PER_WORLD, LEAK_D, _v, _w } from './game/tuning'
+import { ZONE_TICK_MS, BLACKOUT_LIGHT_D, PER_WORLD, LEAK_D, _v, _w } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
 import { Scoring } from './game/scoring'
 import { Bastion } from './game/bastion'
 import { PacketLoss } from './game/packet-loss'
+import { Territory } from './game/territory'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -233,23 +234,8 @@ const YAW_DOWN = 0
 const YAW_RIGHT = Math.PI / 2
 const YAW_LEFT = -Math.PI / 2
 
-/** Held ground bites: a tick this often, of this share of max health plus a flat bite. */
-const ZONE_TICK_MS = 500
 const ZONE_TICK_SHARE = 0.025
 const ZONE_TICK_BOSS_SHARE = 0.006
-
-/** Their ground always covers the portal: the red line never pulls back past this. */
-const PORTAL_GROUND = FIELD_DEPTH - 30
-
-/**
- * Dark zones: this many hacked nodes, each within `DARK_LINK` of another, put
- * the lights out over themselves and this much ground around them.
- */
-const DARK_CLUSTER = 3
-
-/** Nodes are scattered at least ~250 apart, so "close" has to reach a little past that. */
-const DARK_LINK = 400
-const DARK_MARGIN = 140
 
 /**
  * Shield bearers: the Bulwark is the shield unit. A dark zone sends this many,
@@ -294,39 +280,15 @@ const SHELTER_RADIUS = 110
 const BEARER_PACE = 1
 const BEARER_RESPAWN_MS = 1500
 
-/** Island radii, field units: a node taken out of turn, and one being hacked away from the front. */
-const RED_ISLAND = 150
-const ORANGE_ISLAND = 170
-
-/** How fast an island swells, in field units of radius a second. */
-const ISLAND_FLOW = 160
-
-/** Red ground's gifts to anything standing in it: a one-hit shield, recharging, and a heal per tick. */
-const RED_SHIELD_RECHARGE_MS = 3000
-
 /** A weakling below this share of health holds in red to heal, until it is back above `RECOVERED`. */
 const RETREAT_BELOW = 0.5
 const RECOVERED = 0.9
-
-/** Units this close to a node they hold heal twice as fast, and stand guard over it. */
-const GUARD_RADIUS = 140
 
 /** A unit falls back at this share of its pace; healthier units this close in front of it hold to cover it. */
 const RETREAT_SPEED = 0.8
 const COVER_RADIUS = 170
 const COVER_HOLD_MS = 900
 const YAW_UP = Math.PI
-
-/** How soon a shield re-forms on a unit stepping back into red. */
-const RED_SHIELD_REFORM_MS = 500
-const RED_HEAL_SHARE = 0.02
-const RED_HEAL_BOSS_SHARE = 0.005
-
-/** How fast their red ground pours toward a node they have taken, in field units a second. */
-const RED_FLOW_SPEED = 150
-
-/** How fast disputed ground swarms out from their line, in field units a second. */
-const SWARM_SPEED = 260
 
 /** The colour of an electric prod's discharge. */
 const PROD_HEX = 0xbfe9ff
@@ -342,9 +304,6 @@ const HACK_PULSE_AMOUNT = 0.09
  */
 const HACK_EASE_FAR = 1.5
 const HACK_EASE_NEAR = 0.5
-
-/** BLACKOUT: hostiles further out than this are dark until a ping lights them. */
-const BLACKOUT_LIGHT_D = 260
 
 /** PACKET LOSS: the share of player rounds that never arrive. */
 const PACKET_LOSS = 0.25
@@ -462,7 +421,7 @@ export class HackerzGame {
     railRig: ModelRig | null = null
     private ammoRack: AmmoRack | null = null
     private laneProps: LaneProps | null = null
-    private pathChips: PathChips | null = null
+    pathChips: PathChips | null = null
     private terminals: HackTerminals | null = null
     /** The data lines ground hostiles ride. Rebuilt each run. */
     private network: DataNetwork = { nodes: [], traces: [] }
@@ -503,12 +462,6 @@ export class HackerzGame {
     private bearerTimer = 0
     private escortTimer = 0
     private distractTimer = 0
-    /** How far the ground behind the fence has turned orange (0–1), eased toward whether every node is theirs. */
-    private overrun = 0
-    /** Dark-zone slots over clusters of hacked nodes; field units, strength eased 0–1. */
-    private darkZones = Array.from({ length: DARK_ZONES }, () => ({ u: 0, d: 0, r: 0, strength: 0, on: false }))
-    /** Island radii per path node (outermost first), eased; field units. */
-    private islands: { red: number, orange: number }[] = []
 
     // ── Bonus round ──
     /** The network event this round is, or null for an ordinary wave. */
@@ -517,8 +470,6 @@ export class HackerzGame {
     private waveMs = HACKERZ_WAVE_MS
     /** The run's node states, set aside while a bonus round plays on a fresh board. */
     private bonusChips: ReturnType<PathChips['snapshot']> | null = null
-    /** BLACKOUT dimming, eased 0 → 1. */
-    private darkness = 0
 
     // ── Deployables ──
     private deployables: Deployables | null = null
@@ -586,7 +537,7 @@ export class HackerzGame {
 
     // ── Camera ──
     private shake = 0
-    private elapsedTotal = 0
+    elapsedTotal = 0
     /** The picture's clock: drives every shader animation, and stands still during a packet-loss spike. */
     private visualTime = 0
 
@@ -613,6 +564,7 @@ export class HackerzGame {
     readonly scoring = new Scoring(this)
     readonly bastion = new Bastion(this)
     readonly lag = new PacketLoss(this)
+    readonly territory = new Territory(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -963,7 +915,7 @@ export class HackerzGame {
             this.pathChips?.reset()
             this.network = buildNetwork(this.pathChips?.ordered ?? [])
             this.view?.setNetwork(this.network)
-            this.islands = []
+            this.territory.islands = []
             this.elapsedTotal = 0
             this.visualTime = 0
             this.startWave(1, loadout)
@@ -983,8 +935,8 @@ export class HackerzGame {
             this.scoring.totalKills = 0
             this.pingCharge = PING_COOLDOWN_MS
             // Dark zones fade in and out: one lit in the last scene must not still be fading here.
-            for (const zone of this.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
-            this.darkness = 0
+            for (const zone of this.territory.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
+            this.territory.darkness = 0
             // Their ground pours rather than jumps, so it is poured back out to the portal: no red left over.
             this.view?.redLine.fill(FIELD_DEPTH)
             this.view?.orangeLine.fill(FIELD_DEPTH)
@@ -1370,7 +1322,7 @@ export class HackerzGame {
         this.pathChips?.reset()
         this.network = buildNetwork(this.pathChips?.ordered ?? [])
         this.view?.setNetwork(this.network)
-        this.islands = []
+        this.territory.islands = []
         this.gameOver = false
         this.purging = false
         this.running = false
@@ -2172,7 +2124,7 @@ export class HackerzGame {
         this.terminals?.update(live ? seen : 0, view.camera)
         this.updateRail(frozen ? 0 : dt)
         this.updateCamera(dt)
-        this.updateTerritory(live ? seen : 0)
+        this.territory.updateTerritory(live ? seen : 0)
         const reload = this.reloadTimer > 0 && this.weapon ? 1 - this.reloadTimer / this.weapon.reloadMs : 1
         this.ammoRack?.update(live ? seen : 0, this.mag, this.magSize, reload)
         this.laneProps?.update(live ? seen : 0, view.redLine, view.orangeLine)
@@ -2185,21 +2137,21 @@ export class HackerzGame {
         view.shieldMaterial.uniforms.uHit!.value = this.bastion.shieldHit
         // With every node theirs the ground right up to the deck and the barrier
         // lattice turn disputed orange, and the fence's own glow dims.
-        this.overrun += ((this.allNodesTaken ? 1 : 0) - this.overrun) * Math.min(1, dt * 1.5)
-        view.gate.value = this.overrun
-        view.setWallState(this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 1, this.bastion.wallFlash, this.overrun)
+        this.territory.overrun += ((this.allNodesTaken ? 1 : 0) - this.territory.overrun) * Math.min(1, dt * 1.5)
+        view.gate.value = this.territory.overrun
+        view.setWallState(this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 1, this.bastion.wallFlash, this.territory.overrun)
 
         // BLACKOUT: the lights go down and the fog closes in, eased both ways.
         const dark = this.bonus === 'blackout' && this.running ? 1 : 0
-        this.darkness += (dark - this.darkness) * Math.min(1, dt * 1.2)
-        view.renderer.toneMappingExposure = 1.05 - 0.5 * this.darkness
+        this.territory.darkness += (dark - this.territory.darkness) * Math.min(1, dt * 1.2)
+        view.renderer.toneMappingExposure = 1.05 - 0.5 * this.territory.darkness
         // The hostiles' shroud follows the same dark: the zones, and the Blackout.
         shroud.dark.value = view.darkZones
-        shroud.blackout.value.set(this.darkness, -BLACKOUT_LIGHT_D * FIELD_SCALE)
+        shroud.blackout.value.set(this.territory.darkness, -BLACKOUT_LIGHT_D * FIELD_SCALE)
         const fog = view.scene.fog as THREE.Fog | null
         if (fog) {
-            fog.near = 45 - 27 * this.darkness
-            fog.far = 120 - 58 * this.darkness
+            fog.near = 45 - 27 * this.territory.darkness
+            fog.far = 120 - 58 * this.territory.darkness
         }
 
         if (this.demo) this.demoCamera(dt)
@@ -2215,144 +2167,10 @@ export class HackerzGame {
         this.shake = this.shake > 0.005 ? Math.max(0, this.shake - this.shake * SHAKE_DECAY * dt) : 0
     }
 
-    /**
-     * The territory follows the path nodes. Their ground runs from the portal
-     * down to the last node they hold in an unbroken run, and while a wave is
-     * on, disputed ground swarms out ahead of it to the next node they are
-     * going for — or, with nothing left to take, all the way to the fence.
-     * Each line reaches furthest at its node and trails back across the lane,
-     * so it points at what it is fighting over. Between waves the dispute
-     * draws back into their ground.
-     */
-    private updateTerritory(dt: number) {
-        const view = this.view
-        const chips = this.pathChips
-        if (!view || !chips) return
-        const ordered = chips.ordered
-        // The lines follow the unbroken run of nodes taken from the portal down;
-        // a node taken out of turn, or fought over away from the front, gets
-        // an island of its own instead.
-        let run = 0
-        while (run < ordered.length && ordered[run]!.state === 'hacked') run++
-        const connected = ordered.slice(0, run)
-        const next = ordered[run] ?? null
-        const disputed = this.running && !this.purging
-        // With every node gone the gate itself is disputed — unless the grid
-        // trap is live, which keeps the band in front of the fence theirs to fear.
-        const gateD = (this.loadout?.spikeDps ?? 0) > 0 ? SPIKE_BAND : -20
-        for (let c = 0; c < FRONT_COLUMNS; c++) {
-            const u = -FIELD_HALF_WIDTH + (c / (FRONT_COLUMNS - 1)) * FIELD_HALF_WIDTH * 2
-            const redTarget = Math.min(PORTAL_GROUND, ...connected.map(chip => chip.d - 60 + Math.abs(u - chip.u) * 0.3))
-            let orangeTarget = redTarget
-            if (disputed) {
-                // Disputed ground reaches just past the next node in line, and
-                // runs on to the gate once there is no node left.
-                orangeTarget = next
-                    ? Math.min(redTarget, next.d - 90 + Math.abs(u - next.u) * 0.3)
-                    : Math.min(redTarget, gateD)
-            }
-            // Both lines pour rather than jump: they advance at a capped creep
-            // that varies across the lane, like liquid finding its way, and
-            // ebb back more gently still.
-            const creep = 0.7 + 0.3 * Math.sin(c * 1.7 + this.elapsedTotal * 0.0011)
-            view.redLine[c] = this.flowToward(view.redLine[c]!, redTarget, RED_FLOW_SPEED * creep, dt)
-            view.orangeLine[c] = this.flowToward(view.orangeLine[c]!, orangeTarget, SWARM_SPEED * creep, dt)
-        }
-        // A little surface tension: each column is drawn toward its neighbours,
-        // so the edges round off and a front spreads sideways as it advances.
-        this.relaxLine(view.redLine, dt)
-        this.relaxLine(view.orangeLine, dt)
-        this.updateDarkZones(dt)
-        // Disputed ground never sits behind their own.
-        for (let c = 0; c < FRONT_COLUMNS; c++) view.orangeLine[c] = Math.min(view.orangeLine[c]!, view.redLine[c]!)
-
-        // Islands swell around isolated nodes like the lines pour: a red pool
-        // round a node they took out of turn, an orange one round a node
-        // being hacked away from the front. When the run reaches an island it
-        // drains as the main ground flows in over it.
-        for (let i = 0; i < ISLANDS; i++) {
-            const chip = ordered[i]
-            const island = this.islands[i] ??= { red: 0, orange: 0 }
-            const isolated = !!chip && i > run
-            const redGoal = chip && isolated && chip.state === 'hacked' ? RED_ISLAND : 0
-            const orangeGoal = chip && disputed && isolated && chip.state !== 'hacked' && chip.alert
-                ? ORANGE_ISLAND * (0.6 + 0.4 * chip.hack)
-                : 0
-            island.red = swell(island.red, redGoal, dt)
-            island.orange = swell(island.orange, orangeGoal, dt)
-            const at = chip ?? { u: 0, d: 0 }
-            view.redIslands[i]!.set(at.u * FIELD_SCALE, -at.d * FIELD_SCALE, island.red * FIELD_SCALE, 0)
-            view.orangeIslands[i]!.set(at.u * FIELD_SCALE, -at.d * FIELD_SCALE, island.orange * FIELD_SCALE, 0)
-        }
-    }
-
-    /**
-     * Three or more hacked nodes close together put the lights out around
-     * them: the ground goes dark, and anything inside can only be seen — and
-     * hit — while a radar ping lights it. Zones fade in and out; a new one is
-     * announced where it falls.
-     */
-    private updateDarkZones(dt: number) {
-        const view = this.view
-        const chips = this.pathChips
-        if (!view || !chips) return
-        // Group hacked nodes that sit within reach of one another. A bonus
-        // round's locked board is a sandbox and puts no lights out.
-        const hacked = chips.locked ? [] : chips.chips.filter(chip => chip.state === 'hacked')
-        const groups: PathChip[][] = []
-        const placed = new Set<PathChip>()
-        for (const seed of hacked) {
-            if (placed.has(seed)) continue
-            const group = [seed]
-            placed.add(seed)
-            for (let i = 0; i < group.length; i++) {
-                for (const other of hacked) {
-                    if (placed.has(other)) continue
-                    if (Math.hypot(other.u - group[i]!.u, other.d - group[i]!.d) > DARK_LINK) continue
-                    placed.add(other)
-                    group.push(other)
-                }
-            }
-            if (group.length >= DARK_CLUSTER) groups.push(group)
-        }
-        const targets = groups.slice(0, DARK_ZONES).map((group) => {
-            const u = group.reduce((sum, chip) => sum + chip.u, 0) / group.length
-            const d = group.reduce((sum, chip) => sum + chip.d, 0) / group.length
-            const r = Math.max(...group.map(chip => Math.hypot(chip.u - u, chip.d - d))) + DARK_MARGIN
-            return { u, d, r }
-        })
-        // Keep each zone in its slot as it shifts, so it fades rather than jumps.
-        const free = new Set(targets)
-        this.darkZones.forEach((zone, slot) => {
-            const match = [...free].find(t => Math.hypot(t.u - zone.u, t.d - zone.d) < 200)
-            if (match) {
-                free.delete(match)
-                Object.assign(zone, { u: match.u, d: match.d, r: match.r, on: true })
-            } else {
-                if (zone.on && this.running) this.sysLog.lightsBack(slot)
-                zone.on = false
-            }
-        })
-        for (const target of free) {
-            const slot = this.darkZones.find(zone => !zone.on && zone.strength < 0.05)
-            if (!slot) break
-            Object.assign(slot, { u: target.u, d: target.d, r: target.r, on: true })
-            if (this.running) {
-                this.overlay.floatText(fieldToWorld(target.u, target.d, 4, _v), 'LIGHTS OUT', RED, 1.5)
-                this.sysLog.darkZone(this.darkZones.indexOf(slot))
-                this.sendShieldBearers()
-            }
-        }
-        this.darkZones.forEach((zone, i) => {
-            zone.strength += ((zone.on ? 1 : 0) - zone.strength) * Math.min(1, dt * 1.2)
-            view.darkZones[i]!.set(zone.u * FIELD_SCALE, -zone.d * FIELD_SCALE, zone.r * FIELD_SCALE, zone.strength)
-        })
-    }
-
     // ─── Shield bearers ──────────────────────────────────────────────────────
 
     /** A dark zone calls up the shield wall; `maintainBearers` sends the bulwarks. */
-    private sendShieldBearers() {
+    sendShieldBearers() {
         this.bearerTimer = 0
         const front = this.frontierChips()[0]
         if (front) {
@@ -2371,7 +2189,7 @@ export class HackerzGame {
         this.bearerTimer -= dtMs
         // Nothing to shield on a locked board: its nodes cannot be taken back.
         if (this.bearerTimer > 0 || this.pathChips?.locked) return
-        const zones = this.darkZones.filter(zone => zone.on).length
+        const zones = this.territory.darkZones.filter(zone => zone.on).length
         const wanted = Math.min(BEARERS_MAX, zones * BEARERS_PER_ZONE)
         if (!wanted || !this.frontierChips().length) return
         if (this.enemies.filter(e => e.bearer).length >= wanted) return
@@ -2793,71 +2611,10 @@ export class HackerzGame {
     }
 
     /** Whether a unit stands close behind a shield bearer (portal side), in the cover of the wall. */
-    private isSheltered(enemy: EnemyEntity) {
+    isSheltered(enemy: EnemyEntity) {
         if (enemy.bearer) return false
         return this.enemies.some(other => other.bearer && other.d < enemy.d
             && Math.hypot(other.u - enemy.u, other.d - enemy.d) <= SHELTER_RADIUS)
-    }
-
-    /**
-     * How hidden a unit is, 0 seen to 1 unseen: the CPU twin of the shroud in
-     * its shader (`shroudAt` in models), for overlays that must not give it away.
-     */
-    private shroudOf(enemy: EnemyEntity) {
-        let k = 0
-        for (const zone of this.darkZones) {
-            if (zone.r <= 0 || zone.strength <= 0) continue
-            const distance = Math.hypot(enemy.u - zone.u, enemy.d - zone.d)
-            k = Math.max(k, zone.strength * (1 - THREE.MathUtils.smoothstep(distance, zone.r * 0.6, zone.r)))
-        }
-        const band = 2 / FIELD_SCALE
-        k = Math.max(k, this.darkness * THREE.MathUtils.smoothstep(enemy.d, BLACKOUT_LIGHT_D - band, BLACKOUT_LIGHT_D + band))
-        return k * (1 - enemy.rig.reveal.value)
-    }
-
-    /** Whether a point lies inside a dark zone that is mostly out. */
-    private inDarkZone(u: number, d: number) {
-        return this.darkZones.some(zone => zone.strength > 0.5 && Math.hypot(u - zone.u, d - zone.d) < zone.r * 0.85)
-    }
-
-    /**
-     * Which side holds a field point: the lines, then the islands on top —
-     * a red island is theirs, an orange one disputed unless it lies in red.
-     */
-    private zoneOf(u: number, d: number): 'held' | 'contested' | 'theirs' {
-        const view = this.view
-        if (!view || d < 0) return 'held'
-        const ordered = this.pathChips?.ordered ?? []
-        let orangeIsland = false
-        for (let i = 0; i < ISLANDS; i++) {
-            const chip = ordered[i]
-            const island = this.islands[i]
-            if (!chip || !island) continue
-            const distance = Math.hypot(u - chip.u, d - chip.d)
-            if (distance < island.red) return 'theirs'
-            if (distance < island.orange) orangeIsland = true
-        }
-        const line = zoneAt(view.redLine, view.orangeLine, u, d)
-        if (line === 'theirs') return 'theirs'
-        return orangeIsland ? 'contested' : line
-    }
-
-    /** Advances toward the fence at up to `speed` a second; recedes at a slower, easing pace. */
-    private flowToward(current: number, target: number, speed: number, dt: number) {
-        if (target < current) return Math.max(target, current - speed * dt)
-        return Math.min(target, current + Math.max(speed * 0.35 * dt, (target - current) * Math.min(1, dt * 0.9)))
-    }
-
-    /** Blends each column a little toward its neighbours' average. */
-    private relaxLine(line: number[], dt: number) {
-        const k = Math.min(0.5, dt * 2.5)
-        let previous = line[0]!
-        for (let c = 0; c < line.length; c++) {
-            const here = line[c]!
-            const next = line[c + 1] ?? here
-            line[c] = here + ((previous + next) / 2 - here) * k
-            previous = here
-        }
     }
 
     addShake(amount: number) {
@@ -2878,7 +2635,7 @@ export class HackerzGame {
             enemy.hpTrail = trail <= fraction ? fraction : Math.max(fraction, trail - dt * HP_TRAIL_DRAIN)
             // Only wounded enemies get a bar; a pip over every crawler is noise.
             // Nor does anything mostly lost in the dark: the bar would give it away.
-            if (enemy.hp >= enemy.maxHp || !enemy.rig.root.visible || this.shroudOf(enemy) > 0.6) continue
+            if (enemy.hp >= enemy.maxHp || !enemy.rig.root.visible || this.territory.shroudOf(enemy) > 0.6) continue
             tags.push({
                 // Overlays follow the picture, so a lag spike does not give a position away.
                 pos: this.lag.seenWorld(enemy, enemy.rig.height * PER_WORLD + 12, new THREE.Vector3()),
@@ -3318,7 +3075,7 @@ export class HackerzGame {
             // Behind a shield wall the ground's bite does not reach.
             // A unit still carrying its shield (a Warden) shrugs the ground off.
             // A demo unit does too, unless its scene is about the ground itself.
-            if (this.running && !this.purging && !enemy.turned && (!enemy.demoPath || this.demoScript?.ground) && this.inHeldGround(enemy) && !this.isSheltered(enemy) && enemy.guard <= 0) {
+            if (this.running && !this.purging && !enemy.turned && (!enemy.demoPath || this.demoScript?.ground) && this.territory.inHeldGround(enemy) && !this.isSheltered(enemy) && enemy.guard <= 0) {
                 enemy.zoneTick += dtMs
                 // Sappers are built to run the gauntlet: they only feel every second tick.
                 if (enemy.zoneTick >= ZONE_TICK_MS && enemy.def.kind === 'bomber' && ++enemy.zoneTicks % 2 === 1) {
@@ -3338,7 +3095,7 @@ export class HackerzGame {
             } else {
                 enemy.zoneTick = 0
             }
-            this.redGround(enemy, dtMs)
+            this.territory.redGround(enemy, dtMs)
 
             if (hackerzIsAirborne(enemy.def)) enemy.hover += dt * MOTION.hoverRate
             if (enemy.flashMs > 0) enemy.flashMs = Math.max(0, enemy.flashMs - dtMs)
@@ -4422,7 +4179,7 @@ export class HackerzGame {
         // Red ground's shield eats one whole hit and breaks, the sheen flaring
         // across the plating as it takes the impact.
         if (shieldable && enemy.redShield && amount > 0) {
-            this.setRedShield(enemy, false)
+            this.territory.setRedShield(enemy, false)
             enemy.rig.body.uniforms.uShieldHit!.value = 1
             const at = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
             this.particles.burst(at, 0xff3b3b, 14, 7, { size: 0.24, life: 0.35 })
@@ -5155,11 +4912,11 @@ export class HackerzGame {
     private inTheDark(enemy: EnemyEntity) {
         if (enemy.revealMs > 0) return false
         if (this.bonus === 'blackout' && this.running && enemy.d > BLACKOUT_LIGHT_D) return true
-        return this.inDarkZone(enemy.u, enemy.d)
+        return this.territory.inDarkZone(enemy.u, enemy.d)
     }
 
     /** Whether nothing can pick a unit out to aim at: untouchable, or unseen in the dark. */
-    private untargetable(enemy: EnemyEntity) {
+    untargetable(enemy: EnemyEntity) {
         return this.untouchable(enemy) || this.inTheDark(enemy)
     }
 
@@ -5331,7 +5088,7 @@ export class HackerzGame {
             else if (share < RETREAT_BELOW) enemy.recovering = true
             // With a shield wall up, the wounded make for cover behind it.
             if (enemy.recovering && this.shelterSpot(enemy)) return 'shelter'
-            if (enemy.recovering) return this.zoneOf(enemy.u, enemy.d) === 'theirs' ? 'recover' : 'retreat'
+            if (enemy.recovering) return this.territory.zoneOf(enemy.u, enemy.d) === 'theirs' ? 'recover' : 'retreat'
         }
         return enemy.coverMs > 0 ? 'cover' : 'advance'
     }
@@ -5718,7 +5475,7 @@ export class HackerzGame {
         let budget = enemy.speed * this.chipBuff(enemy) * this.pushSpeed * boost * dt
         // A skirmisher halts at the edge of blue ground rather than step into it.
         // One already standing in blue (the ground changed under it) carries on.
-        const keepOut = this.keepsOutOfBlue(enemy) && this.zoneOf(enemy.u, enemy.d) !== 'held'
+        const keepOut = this.keepsOutOfBlue(enemy) && this.territory.zoneOf(enemy.u, enemy.d) !== 'held'
         // A boosted rider leaves a thin red trail, so the fast lane reads as one.
         if (boost > 1 && Math.random() < dt * 14) {
             this.particles.emit(this.enemyWorld(enemy, 3, _v), _w.set(0, 0.4, 0), RED, { size: 0.16, life: 0.35, gravity: 0 })
@@ -5767,7 +5524,7 @@ export class HackerzGame {
             if (keepOut) {
                 const nu = across ? enemy.u + way * step : enemy.u
                 const nd = across ? enemy.d : enemy.d + way * step
-                if (this.zoneOf(nu, nd) === 'held') break
+                if (this.territory.zoneOf(nu, nd) === 'held') break
             }
             if (across) enemy.u += way * step
             else enemy.d += way * step
@@ -5806,8 +5563,8 @@ export class HackerzGame {
         const step = Math.min(room, enemy.speed * this.chipBuff(enemy) * this.pushSpeed * this.groundSpeed(enemy)
             * (enemy.burrowMs > 0 ? 1.8 : 1) * (enemy.def.kind === 'bomber' ? SAPPER_SPEED : 1) * dt)
         // Flying skirmishers hold at the edge of blue ground too.
-        if (this.keepsOutOfBlue(enemy) && this.zoneOf(enemy.u, enemy.d) !== 'held'
-            && this.zoneOf(enemy.u, enemy.d - step) === 'held') return { moved: 0, arrived: false }
+        if (this.keepsOutOfBlue(enemy) && this.territory.zoneOf(enemy.u, enemy.d) !== 'held'
+            && this.territory.zoneOf(enemy.u, enemy.d - step) === 'held') return { moved: 0, arrived: false }
         enemy.d -= step
         return { moved: step, arrived: false }
     }
@@ -5822,63 +5579,7 @@ export class HackerzGame {
         const surge = this.lag.lagCatchUpMs > 0 ? LAG_CATCH_UP_SPEED : 1
         const taken = this.pathChips?.chips.some(chip => chip.state === 'hacked')
         if (!taken || enemy.burrowMs > 0) return surge
-        return (this.zoneOf(enemy.u, enemy.d) === 'theirs' ? THEIR_GROUND_SPEED : 1) * surge
-    }
-
-    /** Whether a unit stands in the firewall's own blue ground. */
-    private inHeldGround(enemy: EnemyEntity) {
-        if (enemy.burrowMs > 0) return false
-        return this.zoneOf(enemy.u, enemy.d) === 'held'
-    }
-
-    /**
-     * Red ground looks after its own: anything standing in it grows a shield
-     * that eats the next hit (and comes back a few seconds after it pops), and
-     * heals a little every tick. Both belong to the ground: a unit that steps
-     * out of red loses its shield there and then.
-     */
-    private redGround(enemy: EnemyEntity, dtMs: number) {
-        const live = this.running && !this.purging && enemy.burrowMs <= 0
-        const inRed = live && this.zoneOf(enemy.u, enemy.d) === 'theirs'
-        // Sheltering behind a shield bearer heals as red ground does, wherever the wall stands.
-        const sheltered = live && !inRed && this.isSheltered(enemy)
-        if (!inRed && enemy.redShield) {
-            this.setRedShield(enemy, false)
-            // Not a break, just out of reach: it comes back quickly in red.
-            enemy.redShieldMs = RED_SHIELD_REFORM_MS
-        }
-        if (!inRed && !sheltered) {
-            enemy.healTick = 0
-            return
-        }
-        if (inRed && !enemy.redShield) {
-            enemy.redShieldMs -= dtMs
-            if (enemy.redShieldMs <= 0) this.setRedShield(enemy, true)
-        }
-        enemy.healTick += dtMs
-        if (enemy.healTick < ZONE_TICK_MS) return
-        enemy.healTick -= ZONE_TICK_MS
-        if (enemy.hp >= enemy.maxHp) return
-        // Gathered round a node they hold, it heals twice as fast — unless the
-        // board is locked: an untakeable node needs no guard.
-        const chips = this.pathChips
-        const guarding = !!chips && !chips.locked && chips.chips.some(chip => chip.state === 'hacked'
-            && Math.hypot(chip.u - enemy.u, chip.d - enemy.d) <= GUARD_RADIUS)
-        const share = (enemy.def.boss ? RED_HEAL_BOSS_SHARE : RED_HEAL_SHARE) * (guarding ? 2 : 1)
-        enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * share)
-        if (!this.untargetable(enemy)) {
-            this.particles.emit(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
-                { size: 0.2, life: 0.5, gravity: 0 })
-        }
-    }
-
-    /**
-     * The shield is a sheen on the unit's own plating (see the body shader's
-     * `uShield`), eased in and out each frame by `easeSheen` (rig-motion).
-     */
-    private setRedShield(enemy: EnemyEntity, on: boolean) {
-        enemy.redShield = on
-        if (!on) enemy.redShieldMs = RED_SHIELD_RECHARGE_MS
+        return (this.territory.zoneOf(enemy.u, enemy.d) === 'theirs' ? THEIR_GROUND_SPEED : 1) * surge
     }
 
     /** A unit in reach of a node hacks it: a terminal opens beside it and fires pulses into the node. */
@@ -5891,7 +5592,7 @@ export class HackerzGame {
             this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 40 + enemy.hackReach * 24, terminal.position)
             terminal.position.x += (enemy.u >= node.u ? 1 : -1) * 1.2
             // A terminal glowing in the dark would give its hacker away.
-            terminal.visible = enemy.rig.root.visible && this.shroudOf(enemy) < 0.5
+            terminal.visible = enemy.rig.root.visible && this.territory.shroudOf(enemy) < 0.5
         }
         enemy.pulseTimer -= dtMs
         if (enemy.pulseTimer <= 0) {
@@ -6032,7 +5733,7 @@ export class HackerzGame {
 
     /** How much a line pulse fades per field unit: little in our blue, more in orange, most in red. */
     private pulseFade(u: number, d: number) {
-        const zone = this.zoneOf(u, d)
+        const zone = this.territory.zoneOf(u, d)
         return zone === 'held' ? LINE_PULSE_FADE.held : zone === 'contested' ? LINE_PULSE_FADE.contested : LINE_PULSE_FADE.theirs
     }
 
@@ -6141,7 +5842,7 @@ export class HackerzGame {
             if (this.pathChips) this.pathChips.locked = false
             this.pathChips?.restore(this.bonusChips)
             this.bonusChips = null
-            this.islands = []
+            this.territory.islands = []
         } else {
             const integrity = this.bastion.wallMaxHp > 0 ? this.bastion.wallHp / this.bastion.wallMaxHp : 0
             const clear = hackerzClearBonus(this.wave, integrity)
@@ -6246,13 +5947,6 @@ export class HackerzGame {
             this.overclockLeft
         )
     }
-}
-
-/** An island's radius toward its goal: swelling at `ISLAND_FLOW`, draining a little slower. */
-function swell(current: number, goal: number, dt: number) {
-    return goal > current
-        ? Math.min(goal, current + ISLAND_FLOW * dt)
-        : Math.max(goal, current - ISLAND_FLOW * 0.6 * dt)
 }
 
 /**
