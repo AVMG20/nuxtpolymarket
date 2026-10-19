@@ -138,7 +138,7 @@ export class Combat {
         const enemy = this.game.enemies[index]
         if (!enemy) return
         if (this.game.target === enemy) this.game.target = null
-        for (const mount of this.game.turrets) {
+        for (const mount of this.game.battery.turrets) {
             if (mount.target === enemy) mount.target = null
         }
         for (const other of this.game.enemies) {

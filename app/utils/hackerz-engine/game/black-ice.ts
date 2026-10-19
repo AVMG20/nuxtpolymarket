@@ -184,7 +184,7 @@ export class BlackIce {
         enemy.bossTimer -= dtMs
         if (enemy.bossTimer > 0) return
         enemy.bossTimer = 7000
-        const warm = this.game.turrets.filter(m => m.frozenMs <= 0)
+        const warm = this.game.battery.turrets.filter(m => m.frozenMs <= 0)
         if (!warm.length) return
         const mount = warm[randomInt(0, warm.length - 1)]!
         mount.frozenMs = 12_000

@@ -4,11 +4,11 @@ import type { DemoScript } from '../hackerz-demo-scripts'
 import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
-    HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
-    HACKERZ_SPIDER_INJECT_MS, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS,
-    HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES,
-    HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
-    hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
+    HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, hackerzHackerField, HACKERZ_MAX_WAVE, HACKERZ_SPIDER_INJECT_MS,
+    HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_WAVE_MS, hackerzBossFor,
+    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
+    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
+    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
     hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
     type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
     type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
@@ -16,7 +16,7 @@ import {
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
     MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY,
-    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, GUN_Z, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
+    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, GUN_Z, WALL_HALF_LENGTH, WALL_HEIGHT
 } from './constants'
 import { clamp, randRange, segPointDist, segSegDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -33,18 +33,17 @@ import {
 } from './data-lines'
 import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
 import {
-    ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
-    drainGrowth, gatherLegs, easeInject, easeStrike, injectLands, railKickFor, rollSpeedFor, spinTurret, strideFor,
-    strikeLands, turnToward
+    ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, hitFlash, drainGrowth,
+    gatherLegs, easeInject, easeStrike, injectLands, railKickFor, rollSpeedFor, strideFor, strikeLands, turnToward
 } from './rig-motion'
 import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
 import { LaneProps } from './lane-props'
-import { Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, turretProjectile, type HealthTag } from './fx'
-import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
+import { Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, type HealthTag } from './fx'
+import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity } from './types'
 import {
-    PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK,
-    WALL_HIT_Y
+    MUZZLE_Y, PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP,
+    LANE_SLACK, WALL_HIT_Y
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -62,6 +61,7 @@ import { Assault } from './game/assault'
 import { Rootkit } from './game/rootkit'
 import { BlackIce } from './game/black-ice'
 import { ZeroDay } from './game/zero-day'
+import { Turrets } from './game/turrets'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -102,9 +102,6 @@ interface ShotSpec {
     crit: boolean
     fromTurret: boolean
 }
-
-/** Turret and rail muzzles sit this high above the field, in field units. */
-const MUZZLE_Y = (WALL_HEIGHT + 1.1) * PER_WORLD
 
 /**
  * Rounds start on the deck, well behind the fence. Walkers stop a body-width
@@ -167,12 +164,6 @@ const ZAP_CHANCE = 0.55
 const ZAP_MIN = 45
 const ZAP_MAX = 170
 const ZAP_COOLDOWN_MS = 2600
-
-/** Half the width of a turret's own lane, in field units: mounts sit about twice this apart. */
-const TURRET_LANE = 75
-
-/** How often a turret holding a target looks again for one it would rather shoot. */
-const TURRET_RETARGET_MS = 400
 
 /**
  * DDoS surge: the final push adds enough cheap units to outlast the player's
@@ -390,7 +381,7 @@ export class HackerzGame {
     // ── Run state ──
     loadout: HackerzLoadout | null = null
     private weapon: HackerzWeaponRuntime | null = null
-    private slots = 2
+    slots = 2
     private wave = 0
     private waveElapsed = 0
     private schedule: ScheduledSpawn[] = []
@@ -436,7 +427,7 @@ export class HackerzGame {
     private tarpitDrain = 0
     private pulseCharge = 0
     private overclockCharge = 0
-    private overclockLeft = 0
+    overclockLeft = 0
     private railHeading = Math.PI
     /** Where the rail gun stands along the wall: the middle, or wherever a railgun has glided to on its track. */
     railU = RAIL_U
@@ -454,7 +445,6 @@ export class HackerzGame {
     private rescanMs = 0
     /** Power Surges on the grid: where, how long left, and the countdowns to the next arc and the next ring. */
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
-    turrets: TurretMount[] = []
 
     // ── Input ──
     /** The hostile the button was pressed on: tracked only while it stays held. */
@@ -508,6 +498,7 @@ export class HackerzGame {
     readonly rootkit = new Rootkit(this)
     readonly blackIce = new BlackIce(this)
     readonly zeroDay = new ZeroDay(this)
+    readonly battery = new Turrets(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -607,8 +598,8 @@ export class HackerzGame {
         this.detachInput()
         this.resizeObserver?.disconnect()
         this.clearField()
-        for (const mount of this.turrets) disposeRig(mount.rig)
-        this.turrets = []
+        for (const mount of this.battery.turrets) disposeRig(mount.rig)
+        this.battery.turrets = []
         if (this.railRig) disposeRig(this.railRig)
         this.transient?.clear()
         this.view?.dispose()
@@ -884,7 +875,7 @@ export class HackerzGame {
             this.view?.redLine.fill(FIELD_DEPTH)
             this.view?.orangeLine.fill(FIELD_DEPTH)
             // Reused or freshly built, every mount starts as a new one stands: facing home, ready to fire.
-            for (const mount of this.turrets) {
+            for (const mount of this.battery.turrets) {
                 mount.cooldown = 0
                 mount.kick = 0
                 mount.heading = Math.PI
@@ -1094,9 +1085,9 @@ export class HackerzGame {
                 this.placeArmed()
                 return
             }
-            const frozen = this.pickFrozenTurret(p.x, p.y)
+            const frozen = this.battery.pickFrozenTurret(p.x, p.y)
             if (frozen) {
-                this.thaw(frozen)
+                this.battery.thaw(frozen)
                 return
             }
             this.setAimFromScreen(p.x, p.y)
@@ -1281,7 +1272,7 @@ export class HackerzGame {
         this.reloadTimer = 0
         this.tarpitDrain = 0
         this.slots = loadout.slots
-        this.syncTurrets()
+        this.battery.syncTurrets()
         this.bastion.emitWall()
         this.emitAmmo()
         return true
@@ -1340,8 +1331,8 @@ export class HackerzGame {
         this.overclockCharge = loadout.overclockCooldownMs
         this.overclockLeft = 0
         this.slots = loadout.slots
-        this.syncTurrets()
-        for (const mount of this.turrets) if (mount.frozenMs > 0) this.thaw(mount)
+        this.battery.syncTurrets()
+        for (const mount of this.battery.turrets) if (mount.frozenMs > 0) this.battery.thaw(mount)
 
         this.wave = wave
         this.waveElapsed = 0
@@ -1704,48 +1695,6 @@ export class HackerzGame {
         return Math.round(this.bastion.wallHp)
     }
 
-    // ─── Bastion assembly ────────────────────────────────────────────────────
-
-    /** Rebuilds the mounted turrets to match what the uplink installed. */
-    private syncTurrets() {
-        const view = this.view
-        if (!view) return
-        const wanted = this.loadout?.turrets ?? []
-        const same = wanted.length === this.turrets.length
-            && wanted.every((runtime, i) => this.turrets[i]?.runtime.id === runtime.id && this.turrets[i]?.runtime.slot === runtime.slot)
-        if (same) {
-            // Same hardware, new numbers (Firmware, Foundry): keep the rigs.
-            wanted.forEach((runtime, i) => { this.turrets[i]!.runtime = runtime })
-        } else {
-            for (const mount of this.turrets) disposeRig(mount.rig)
-            this.turrets = []
-            for (const runtime of wanted) {
-                const anchor = mountPosition(runtime.slot)
-                const rig = buildRig(`turret-${runtime.id}`, runtime.hex, 1.3)
-                const z = GUN_Z + anchor.z
-                rig.root.position.set(anchor.u * FIELD_SCALE, WALL_HEIGHT + 0.1 + anchor.rise, z)
-                view.scene.add(rig.root)
-                this.turrets.push({
-                    runtime,
-                    rig,
-                    u: anchor.u,
-                    z,
-                    muzzleD: -z * PER_WORLD,
-                    muzzleLift: anchor.rise * PER_WORLD,
-                    cooldown: randomBetween(0, 400),
-                    kick: 0,
-                    heading: Math.PI,
-                    frozenMs: 0,
-                    ice: null,
-                    target: null,
-                    retargetMs: 0
-                })
-            }
-        }
-        const installed = Array.from({ length: HACKERZ_MAX_SLOTS }, (_, slot) => wanted.some(t => t.slot === slot))
-        view.setMountsUsed(this.slots, installed)
-    }
-
     // ─── Wave scheduling ─────────────────────────────────────────────────────
 
     /**
@@ -1951,7 +1900,7 @@ export class HackerzGame {
             this.updateSpits(dt)
             this.blackIce.updateIce(dt)
             if (this.running && !this.purging) this.updateSurges(dtMs)
-            this.updateTurrets(dtMs, frozen)
+            this.battery.updateTurrets(dtMs, frozen)
             this.scoring.updateCoins(frozen ? 0 : dtMs)
             this.bastion.updateBastion(dt, dtMs)
             this.memory.updateLeaks(dt, frozen ? 0 : dtMs)
@@ -3009,28 +2958,6 @@ export class HackerzGame {
         }
     }
 
-    /** Thaws a frozen turret, early by a click or on its own when the ice runs out. */
-    private thaw(mount: TurretMount) {
-        mount.frozenMs = 0
-        if (mount.ice) mount.ice.visible = false
-        const at = mount.rig.root.position.clone().add(_w.set(0, 1, 0))
-        this.particles.burst(at, 0xbfe9ff, 30, 9, { size: 0.3, life: 0.6 })
-        this.transient?.ring(at, 0xbfe9ff, 2.4, 0.35)
-    }
-
-    /** The frozen turret under the cursor, if any: thawing beats firing for that click. */
-    private pickFrozenTurret(x: number, y: number) {
-        const view = this.view
-        if (!view) return null
-        const screen = { x: 0, y: 0 }
-        for (const mount of this.turrets) {
-            if (mount.frozenMs <= 0) continue
-            if (!view.project(mount.rig.root.position.clone().add(_w.set(0, 0.9, 0)), screen)) continue
-            if (Math.hypot(screen.x - x, screen.y - y) <= 34) return mount
-        }
-        return null
-    }
-
     // ─── Player weapon ───────────────────────────────────────────────────────
 
     /**
@@ -3097,7 +3024,7 @@ export class HackerzGame {
         }
     }
 
-    private get overclockRate() {
+    get overclockRate() {
         return this.loadout?.overclockMultiplier ?? 1
     }
 
@@ -3172,7 +3099,7 @@ export class HackerzGame {
      * toward +u. Its rendered height eases from the muzzle to `toY` over the
      * ground distance to the aim point, so a locked shot visibly meets the body.
      */
-    private spawnBullet(u: number, d: number, fromY: number, angle: number, spec: ShotSpec, toY: number, aimAt: EnemyEntity | null) {
+    spawnBullet(u: number, d: number, fromY: number, angle: number, spec: ShotSpec, toY: number, aimAt: EnemyEntity | null) {
         const mesh = makeProjectile(spec.projectile, spec.hex, spec.crit, spec.fromTurret)
         this.fieldRoot.add(mesh)
         const span = aimAt ? Math.max(40, Math.hypot(aimAt.u - u, aimAt.d - d)) : Math.max(40, Math.hypot(this.aimU - u, this.aimD - d))
@@ -3458,111 +3385,6 @@ export class HackerzGame {
         }
     }
 
-    // ─── Turrets ─────────────────────────────────────────────────────────────
-
-    /** `frozen`: a packet-loss spike — the turrets still fire, but are not seen to move. */
-    private updateTurrets(dtMs: number, frozen = false) {
-        const overclocked = this.overclockLeft > 0
-        const dt = frozen ? 0 : dtMs / 1000
-        for (const mount of this.turrets) {
-            if (mount.frozenMs > 0) {
-                mount.frozenMs -= dtMs
-                if (mount.frozenMs <= 0) this.thaw(mount)
-                continue
-            }
-            const target = this.turretTarget(mount, dtMs)
-            // Turrets aim at what they can see — during a packet-loss spike,
-            // the stale picture rather than where the unit really is.
-            const seen = target ? this.lag.seenAt(target) : null
-            if (target && seen) {
-                const desired = Math.atan2((seen.u - mount.u) * FIELD_SCALE, -seen.d * FIELD_SCALE - mount.z)
-                mount.heading = turnToward(mount.heading, desired, dt * MOTION.turretTurn)
-            }
-            if (mount.rig.yaw) mount.rig.yaw.rotation.y = mount.heading
-            spinTurret(mount.rig, dt)
-
-            if (!frozen) mount.kick = easeTurretKick(mount.rig, mount.kick, dtMs)
-
-            if (!this.running || this.purging) continue
-            mount.cooldown -= dtMs * (overclocked ? this.overclockRate : 1)
-            if (!target || !seen || mount.cooldown > 0) continue
-            mount.cooldown = mount.runtime.intervalMs
-
-            const isMissile = mount.runtime.splashRadius > 0
-            const angle = Math.atan2(seen.u - mount.u, seen.d - mount.muzzleD)
-            this.spawnBullet(mount.u, mount.muzzleD, MUZZLE_Y * 0.92 + mount.muzzleLift, angle, {
-                damage: mount.runtime.damage,
-                pierce: mount.runtime.pierce,
-                damageType: mount.runtime.damageType,
-                splashRadius: mount.runtime.splashRadius,
-                splashDamage: mount.runtime.splashDamage,
-                // A missile can only home on a signal it has; mid-spike it flies blind.
-                homing: isMissile && this.lag.boardLagMs <= 0,
-                chain: 0,
-                chainFalloff: 0,
-                speed: isMissile ? 780 : 1700,
-                hex: mount.runtime.hex,
-                projectile: turretProjectile(mount.runtime),
-                crit: false,
-                fromTurret: true
-            }, enemyCentreY(target), target)
-            const muzzle = fieldToWorld(mount.u + Math.sin(angle) * 30, mount.muzzleD + Math.cos(angle) * 30, (MUZZLE_Y * 0.92 + mount.muzzleLift) * FIELD_SCALE, _v)
-            this.transient?.flash(muzzle, mount.runtime.hex, 0.35)
-            mount.kick = MOTION.turretKick
-            if (mount.runtime.id === 'gun') this.callbacks.onSound?.('turret-gun')
-            else if (mount.runtime.id === 'needler') this.callbacks.onSound?.('turret-needler')
-            else if (mount.runtime.id === 'warhead') this.callbacks.onSound?.('turret-warhead')
-            else if (mount.runtime.id === 'lance') this.callbacks.onSound?.('turret-lance')
-        }
-    }
-
-    /**
-     * What a turret shoots, in order of preference:
-     *
-     * 1. Anything but a hacker: the hackers are the rail's job, and a battery
-     *    that ignores them while there is armour about gives them a chance.
-     * 2. Its own lane — the strip of field in front of its mount — then the
-     *    lanes beside it, then anything in range, so a battery spreads its fire
-     *    instead of every barrel chasing one unit.
-     * 3. The tankiest: the most health it started with.
-     * 4. Whatever is closest to the fence.
-     *
-     * Range is measured straight out from the wall, which is what the balance
-     * sim assumes.
-     */
-    private pickTurretTarget(mount: TurretMount) {
-        let best: EnemyEntity | null = null
-        let bestHacker = 0
-        let bestTier = 0
-        for (const enemy of this.enemies) {
-            if (enemy.d > mount.runtime.range || this.combat.untargetable(enemy)) continue
-            const hacker = enemy.def.id === HACKERZ_HACKER_ID ? 1 : 0
-            const off = Math.abs(enemy.u - mount.u)
-            const tier = off <= TURRET_LANE ? 0 : off <= TURRET_LANE * 3 ? 1 : 2
-            if (best && (hacker > bestHacker || (hacker === bestHacker && (tier > bestTier
-                || (tier === bestTier && (enemy.maxHp < best.maxHp
-                    || (enemy.maxHp === best.maxHp && enemy.d >= best.d))))))) continue
-            best = enemy
-            bestHacker = hacker
-            bestTier = tier
-        }
-        return best
-    }
-
-    /**
-     * A turret keeps shooting what it picked until that drops out of range or
-     * out of sight, and only now and then looks again for something better —
-     * the full search above runs a few times a second, not every frame.
-     */
-    private turretTarget(mount: TurretMount, dtMs: number) {
-        mount.retargetMs -= dtMs
-        const kept = mount.target
-        if (kept && mount.retargetMs > 0 && kept.d <= mount.runtime.range && !this.combat.untargetable(kept)) return kept
-        mount.target = this.pickTurretTarget(mount)
-        mount.retargetMs = TURRET_RETARGET_MS
-        return mount.target
-    }
-
     // ─── Enemy projectiles ───────────────────────────────────────────────────
 
     private updateSpits(dt: number) {
@@ -3593,11 +3415,6 @@ export class HackerzGame {
     }
 
     // ─── Abilities ───────────────────────────────────────────────────────────
-
-    /** See `Combat.untargetable`. */
-    untargetable(enemy: EnemyEntity) {
-        return this.combat.untargetable(enemy)
-    }
 
     /**
      * Right click: a radar ring sweeps out from the rail and lights every contact
@@ -4414,13 +4231,6 @@ export class HackerzGame {
     private pulseFade(u: number, d: number) {
         const zone = this.territory.zoneOf(u, d)
         return zone === 'held' ? LINE_PULSE_FADE.held : zone === 'contested' ? LINE_PULSE_FADE.contested : LINE_PULSE_FADE.theirs
-    }
-
-    // ─── Exploit chain ───────────────────────────────────────────────────────
-
-    /** See `Bastion.damageWall`. */
-    damageWall(amount: number, sourceU: number, quiet = false) {
-        return this.bastion.damageWall(amount, sourceU, quiet)
     }
 
     // ─── Wave end ────────────────────────────────────────────────────────────
