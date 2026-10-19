@@ -53,7 +53,7 @@ export class AutopilotBridge {
      * work first, then whatever is closest to the wall. Nothing that cannot be
      * locked on is offered.
      */
-    autopilotView(): { view: HackerzAutopilotView, contacts: Map<string, EnemyEntity> } {
+    view(): { view: HackerzAutopilotView, contacts: Map<string, EnemyEntity> } {
         const loadout = this.game.loadout
         const chips = this.game.pathChips?.chips ?? []
         const live = this.game.enemies.filter(e => e.hp > 0 && !e.turned && !e.decoy && !this.game.combat.untargetable(e))
@@ -89,7 +89,7 @@ export class AutopilotBridge {
     }
 
     /** Auto-play locks the rail on `target` and holds the trigger, or lets go with none. */
-    autopilotAim(target: EnemyEntity | null) {
+    aim(target: EnemyEntity | null) {
         const live = !!target && target.hp > 0 && this.game.enemies.includes(target)
         this.game.rail.target = live ? target : null
         this.game.rail.lockSpot = null
@@ -101,7 +101,7 @@ export class AutopilotBridge {
      * closest to the wall, and the one a White Hat would best turn. Null with
      * nothing on the ground.
      */
-    private autopilotPack() {
+    private pack() {
         const best = densestGroup(this.game.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.game.combat.untouchable(e)))
         if (!best.length) return null
         const { u, d } = centroid(best)
@@ -111,8 +111,8 @@ export class AutopilotBridge {
     }
 
     /** Auto-play's deployable stock and the pack it would be used on. */
-    autopilotStock() {
-        const pack = this.autopilotPack()
+    stock() {
+        const pack = this.pack()
         return {
             stock: { ...this.game.deployer.stock },
             pack: pack ? { size: pack.size, d: pack.d } : null,
@@ -126,14 +126,14 @@ export class AutopilotBridge {
      * its way to the wall, a White Hat on the toughest hostile in it that can
      * be turned; Portscan and Cosmic Blip simply go off. True when one was spent.
      */
-    autopilotDeploy(id: HackerzDeployableId) {
+    deploy(id: HackerzDeployableId) {
         if (!this.game.running || this.game.purging || this.game.paused || this.game.deployer.stock[id] <= 0) return false
         const before = this.game.deployer.stock[id]
         if (hackerzDeployable(id).instant) {
             this.game.deployer.useInstant(id)
             return this.game.deployer.stock[id] < before
         }
-        const pack = this.autopilotPack()
+        const pack = this.pack()
         if (!pack) return false
         if (id === 'whitehat') {
             if (pack.convert) this.game.deployer.useWhiteHat(pack.convert)
@@ -152,7 +152,7 @@ export class AutopilotBridge {
      * them — where a player would spray. A cloaked unit is not aimed at: a
      * round passes through it. True when it is firing.
      */
-    autopilotBlindFire() {
+    blindFire() {
         const pack = densestGroup(this.game.enemies.filter(e => e.hp > 0 && !e.turned && !this.game.combat.untouchable(e) && this.game.combat.inTheDark(e)))
         if (!pack.length) return false
         const n = pack.length
@@ -166,7 +166,7 @@ export class AutopilotBridge {
     }
 
     /** Auto-play fires an ability; each does nothing when it is not ready. */
-    autopilotAbility(id: 'pulse' | 'ping' | 'overclock') {
+    ability(id: 'pulse' | 'ping' | 'overclock') {
         if (id === 'pulse') this.game.abilities.firePulse()
         else if (id === 'ping') this.game.abilities.firePing()
         else this.game.abilities.fireOverclock()

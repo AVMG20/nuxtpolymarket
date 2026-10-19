@@ -273,34 +273,34 @@ export class HackerzGame {
 
     // ─── Auto-play ───────────────────────────────────────────────────────────
 
-    /** See `AutopilotBridge.autopilotView`. */
+    /** See `AutopilotBridge.view`. */
     autopilotView(): { view: HackerzAutopilotView, contacts: Map<string, EnemyEntity> } {
-        return this.autopilot.autopilotView()
+        return this.autopilot.view()
     }
 
-    /** See `AutopilotBridge.autopilotAim`. */
+    /** See `AutopilotBridge.aim`. */
     autopilotAim(target: EnemyEntity | null) {
-        return this.autopilot.autopilotAim(target)
+        return this.autopilot.aim(target)
     }
 
-    /** See `AutopilotBridge.autopilotStock`. */
+    /** See `AutopilotBridge.stock`. */
     autopilotStock() {
-        return this.autopilot.autopilotStock()
+        return this.autopilot.stock()
     }
 
-    /** See `AutopilotBridge.autopilotDeploy`. */
+    /** See `AutopilotBridge.deploy`. */
     autopilotDeploy(id: HackerzDeployableId) {
-        return this.autopilot.autopilotDeploy(id)
+        return this.autopilot.deploy(id)
     }
 
-    /** See `AutopilotBridge.autopilotBlindFire`. */
+    /** See `AutopilotBridge.blindFire`. */
     autopilotBlindFire() {
-        return this.autopilot.autopilotBlindFire()
+        return this.autopilot.blindFire()
     }
 
-    /** See `AutopilotBridge.autopilotAbility`. */
+    /** See `AutopilotBridge.ability`. */
     autopilotAbility(id: 'pulse' | 'ping' | 'overclock') {
-        return this.autopilot.autopilotAbility(id)
+        return this.autopilot.ability(id)
     }
 
     /** Advances the simulation by hand, in frames of `frameMs`. For a test harness only. */
@@ -321,53 +321,53 @@ export class HackerzGame {
         await this.mount(host)
         if (!this.mounted) return false
         this.startRun({ loadout })
-        this.demoDirector.demoReset()
+        this.demoDirector.reset()
         return true
     }
 
-    /** See `DemoDirector.demoPlay`. */
+    /** See `DemoDirector.play`. */
     demoPlay(script: DemoScript, loadout: HackerzLoadout, say: (line: string) => void) {
-        return this.demoDirector.demoPlay(script, loadout, say)
+        return this.demoDirector.play(script, loadout, say)
     }
 
-    /** See `DemoDirector.demoFire`. */
+    /** See `DemoDirector.fire`. */
     demoFire(at: 'lead' | 'node' | null) {
-        return this.demoDirector.demoFire(at)
+        return this.demoDirector.fire(at)
     }
 
-    /** See `DemoDirector.demoAbility`. */
+    /** See `DemoDirector.ability`. */
     demoAbility(id: 'pulse' | 'overclock' | 'ping') {
-        return this.demoDirector.demoAbility(id)
+        return this.demoDirector.ability(id)
     }
 
-    /** See `DemoDirector.demoSpawnFree`. */
+    /** See `DemoDirector.spawnFree`. */
     demoSpawnFree(id: HackerzEnemyId, u: number, d: number) {
-        return this.demoDirector.demoSpawnFree(id, u, d)
+        return this.demoDirector.spawnFree(id, u, d)
     }
 
-    /** See `DemoDirector.demoReset`. */
+    /** See `DemoDirector.reset`. */
     demoReset() {
-        return this.demoDirector.demoReset()
+        return this.demoDirector.reset()
     }
 
-    /** See `DemoDirector.demoLook`. */
+    /** See `DemoDirector.look`. */
     demoLook(at: { u: number, d: number } | null, zoom = 1) {
-        return this.demoDirector.demoLook(at, zoom)
+        return this.demoDirector.look(at, zoom)
     }
 
-    /** See `DemoDirector.demoSpawn`. */
+    /** See `DemoDirector.spawn`. */
     demoSpawn(id: HackerzEnemyId, path: { u: number, d: number }[]) {
-        return this.demoDirector.demoSpawn(id, path)
+        return this.demoDirector.spawn(id, path)
     }
 
-    /** See `DemoDirector.demoHack`. */
+    /** See `DemoDirector.hack`. */
     demoHack(count: number) {
-        return this.demoDirector.demoHack(count)
+        return this.demoDirector.hack(count)
     }
 
-    /** See `DemoDirector.demoDeploy`. */
+    /** See `DemoDirector.deploy`. */
     demoDeploy(id: HackerzDeployableId, u: number, d: number) {
-        return this.demoDirector.demoDeploy(id, u, d)
+        return this.demoDirector.deploy(id, u, d)
     }
 
     private loop = (now: number) => {
@@ -375,7 +375,7 @@ export class HackerzGame {
         this.raf = requestAnimationFrame(this.loop)
         const rawMs = now - this.lastTime
         this.lastTime = now
-        if (this.demo) this.demoDirector.demoFrame(rawMs)
+        if (this.demo) this.demoDirector.frame(rawMs)
         else this.tick(rawMs)
     }
 
@@ -574,7 +574,7 @@ export class HackerzGame {
         this.lag.muteFx(frozen)
         const seen = frozen ? 0 : dt
         if (!frozen) this.visualTime += dtMs
-        // The model clock is shared; a demo board hands it back after its own steps (see `demoFrame`).
+        // The model clock is shared; a demo board hands it back after its own steps (see `DemoDirector.frame`).
         modelClock.value = this.visualTime / 1000
         if (live) {
             if (this.running && !this.purging) {
@@ -649,7 +649,7 @@ export class HackerzGame {
             fog.far = 120 - 58 * this.territory.darkness
         }
 
-        if (this.demo) this.demoDirector.demoCamera(dt)
+        if (this.demo) this.demoDirector.camera(dt)
         view.render(frozen ? 0 : dt, this.shake)
         this.drawOverlay(frozen ? 0 : dt)
 
