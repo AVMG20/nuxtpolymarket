@@ -78,7 +78,7 @@ export class Rootkit {
         this.game.transient?.ring(at, enemy.def.hex, 7, 0.45)
         this.game.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.6 })
         this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD, _v), 'BURROWING', enemy.def.hex, 1.2)
-        if (this.game.target === enemy) this.game.target = null
+        if (this.game.rail.target === enemy) this.game.rail.target = null
     }
 
     /** Spiderlings on the field. */

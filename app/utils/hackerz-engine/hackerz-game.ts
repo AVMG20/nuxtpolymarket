@@ -31,10 +31,10 @@ import {
     buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget, type DataNetwork, type LinePoint,
     type Trace
 } from './data-lines'
-import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
+import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud } from './models'
 import {
-    ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, hitFlash, drainGrowth,
-    gatherLegs, easeInject, easeStrike, injectLands, railKickFor, rollSpeedFor, strideFor, strikeLands, turnToward
+    ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRecoil, easeSheen, hitFlash, drainGrowth, gatherLegs,
+    easeInject, easeStrike, injectLands, rollSpeedFor, strideFor, strikeLands, turnToward
 } from './rig-motion'
 import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
@@ -42,8 +42,8 @@ import { LaneProps } from './lane-props'
 import { Overlay, ParticleSystem, TransientFx, hexCss, type HealthTag } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
 import {
-    type ShotSpec, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE, PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D,
-    GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK, MUZZLE_Y
+    RAIL_TRACK, PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK,
+    MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -63,6 +63,7 @@ import { BlackIce } from './game/black-ice'
 import { ZeroDay } from './game/zero-day'
 import { Turrets } from './game/turrets'
 import { Projectiles } from './game/projectiles'
+import { Rail } from './game/rail'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -266,18 +267,7 @@ const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
 const DEMO_STEP_MS = 1000 / 60
 const DEMO_SEED = 0x5eed
 
-/**
- * The Longbore's track: how far either side of the middle it can glide (field
- * units, just inside the lane), and how fast — quick enough to keep up with a
- * cursor sweeping the lane.
- */
-const RAIL_TRACK = FIELD_HALF_WIDTH - 20
-const RAIL_GLIDE = 2400
-
 const LANE_RETURN = 0.5
-
-/** Rounds the Tarpit Grid burns from the gun's magazine each second it is biting. */
-const TARPIT_ROUNDS_PER_S = 1
 
 /** Auto-play offers Laya this many hostiles to choose between, and counts this close to the wall as near. */
 const AUTOPILOT_CONTACTS = 5
@@ -310,8 +300,6 @@ export class HackerzGame {
     transient: TransientFx | null = null
     overlay = new Overlay()
     fieldRoot = new THREE.Group()
-    railRig: ModelRig | null = null
-    private ammoRack: AmmoRack | null = null
     private laneProps: LaneProps | null = null
     pathChips: PathChips | null = null
     terminals: HackTerminals | null = null
@@ -338,7 +326,6 @@ export class HackerzGame {
 
     // ── Run state ──
     loadout: HackerzLoadout | null = null
-    private weapon: HackerzWeaponRuntime | null = null
     slots = 2
     private wave = 0
     private waveElapsed = 0
@@ -377,21 +364,9 @@ export class HackerzGame {
     private armed: HackerzDeployableId | null = null
 
     // ── Weapon ──
-    private mag = 10
-    private magSize = 10
-    private fireTimer = 0
-    private reloadTimer = 0
-    /** Rounds the Tarpit Grid has drawn from the magazine but not yet spent a whole round of. */
-    private tarpitDrain = 0
     private pulseCharge = 0
     private overclockCharge = 0
     overclockLeft = 0
-    private railHeading = Math.PI
-    /** Where the rail gun stands along the wall: the middle, or wherever a railgun has glided to on its track. */
-    railU = RAIL_U
-    /** The railgun's track across the deck, shown while the Longbore is on. */
-    private railTrack: THREE.Object3D | null = null
-    private railKick = 0
     private pingCharge = PING_COOLDOWN_MS
 
     // ── Entities ──
@@ -403,16 +378,6 @@ export class HackerzGame {
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
 
     // ── Input ──
-    /** The hostile the button was pressed on: tracked only while it stays held. */
-    target: EnemyEntity | null = null
-    /** Left button held: the rail fires, at `target` or else at the cursor. */
-    private holding = false
-    /** Where a lag spike left the rail firing when it dropped the lock. */
-    lockSpot: { u: number, d: number, y: number } | null = null
-    /** A press always fires once, even if the button is up again before the next frame. */
-    private queuedShot = false
-    aimU = 0
-    aimD = FIELD_DEPTH * 0.5
     private listeners: (() => void)[] = []
     private raycaster = new THREE.Raycaster()
     private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
@@ -456,6 +421,7 @@ export class HackerzGame {
     readonly zeroDay = new ZeroDay(this)
     readonly battery = new Turrets(this)
     readonly projectiles = new Projectiles(this)
+    readonly rail = new Rail(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -482,17 +448,17 @@ export class HackerzGame {
         view.scene.add(this.fieldRoot, this.particles.points)
         this.particles.setViewportHeight(view.height * view.renderer.getPixelRatio())
 
-        this.railRig = buildRig('turret-rail', CYAN, 1.8)
-        this.railRig.root.position.set(RAIL_U * FIELD_SCALE, WALL_HEIGHT, GUN_Z)
-        view.scene.add(this.railRig.root)
+        this.rail.railRig = buildRig('turret-rail', CYAN, 1.8)
+        this.rail.railRig.root.position.set(RAIL_U * FIELD_SCALE, WALL_HEIGHT, GUN_Z)
+        view.scene.add(this.rail.railRig.root)
 
         // The magazine sits on the deck right behind the rail, cabled into it.
-        this.ammoRack = new AmmoRack(new THREE.Vector3(RAIL_U * FIELD_SCALE, WALL_HEIGHT + 0.25, GUN_Z + 0.7), CYAN)
-        this.ammoRack.group.position.set(RAIL_U * FIELD_SCALE, WALL_HEIGHT, GUN_Z + 3.3)
+        this.rail.ammoRack = new AmmoRack(new THREE.Vector3(RAIL_U * FIELD_SCALE, WALL_HEIGHT + 0.25, GUN_Z + 0.7), CYAN)
+        this.rail.ammoRack.group.position.set(RAIL_U * FIELD_SCALE, WALL_HEIGHT, GUN_Z + 3.3)
         // Big enough to read every capacitor and its trace from the camera.
-        this.ammoRack.group.scale.setScalar(1.3)
-        this.ammoRack.group.updateMatrixWorld(true)
-        view.scene.add(this.ammoRack.group)
+        this.rail.ammoRack.group.scale.setScalar(1.3)
+        this.rail.ammoRack.group.updateMatrixWorld(true)
+        view.scene.add(this.rail.ammoRack.group)
 
         // The Longbore's track: a glowing rail across the deck it glides along, shown only while it is on.
         const trackLength = RAIL_TRACK * 2 * FIELD_SCALE + 1.6
@@ -512,7 +478,7 @@ export class HackerzGame {
         }
         track.position.set(0, WALL_HEIGHT + 0.06, GUN_Z)
         track.visible = false
-        this.railTrack = track
+        this.rail.railTrack = track
         view.scene.add(track)
 
         // Chips and capacitors either side of the lane, marked by whoever holds their ground.
@@ -557,7 +523,7 @@ export class HackerzGame {
         this.clearField()
         for (const mount of this.battery.turrets) disposeRig(mount.rig)
         this.battery.turrets = []
-        if (this.railRig) disposeRig(this.railRig)
+        if (this.rail.railRig) disposeRig(this.rail.railRig)
         this.transient?.clear()
         this.view?.dispose()
         this.view = null
@@ -621,9 +587,9 @@ export class HackerzGame {
     /** Auto-play locks the rail on `target` and holds the trigger, or lets go with none. */
     autopilotAim(target: EnemyEntity | null) {
         const live = !!target && target.hp > 0 && this.enemies.includes(target)
-        this.target = live ? target : null
-        this.lockSpot = null
-        this.holding = live
+        this.rail.target = live ? target : null
+        this.rail.lockSpot = null
+        this.rail.holding = live
     }
 
     /**
@@ -670,8 +636,8 @@ export class HackerzGame {
             if (pack.convert) this.useWhiteHat(pack.convert)
             return this.stock[id] < before
         }
-        this.aimU = pack.u
-        this.aimD = pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0)
+        this.rail.aimU = pack.u
+        this.rail.aimD = pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0)
         const spot = this.deploySpot(id)
         this.drop(id, spot.u, spot.d, spot.chip)
         return true
@@ -687,13 +653,13 @@ export class HackerzGame {
         const pack = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !this.combat.untouchable(e) && this.combat.inTheDark(e)))
         if (!pack.length) return false
         const n = pack.length
-        this.target = null
-        this.lockSpot = {
+        this.rail.target = null
+        this.rail.lockSpot = {
             u: pack.reduce((sum, e) => sum + e.u, 0) / n,
             d: pack.reduce((sum, e) => sum + e.d, 0) / n,
             y: pack.reduce((sum, e) => sum + enemyCentreY(e), 0) / n
         }
-        this.holding = true
+        this.rail.holding = true
         return true
     }
 
@@ -747,8 +713,8 @@ export class HackerzGame {
     demoFire(at: 'lead' | 'node' | null) {
         if (!this.demo) return
         this.demoFiring = at
-        this.holding = at !== null
-        if (!at) this.target = null
+        this.rail.holding = at !== null
+        if (!at) this.rail.target = null
     }
 
     /** Sets off one of the rail's abilities for the script, charged or not. */
@@ -782,16 +748,16 @@ export class HackerzGame {
     /** Keeps the rail's lock for the script: on the next hostile when its mark falls, or on the outermost hacked node. */
     private demoAim() {
         if (this.demoFiring === 'lead') {
-            if (this.target && this.target.hp > 0 && this.enemies.includes(this.target)) return
-            this.target = this.enemies
+            if (this.rail.target && this.rail.target.hp > 0 && this.enemies.includes(this.rail.target)) return
+            this.rail.target = this.enemies
                 .filter(e => e.hp > 0 && !e.turned && !this.combat.untargetable(e))
                 .sort((a, b) => a.d - b.d)[0] ?? null
         } else if (this.demoFiring === 'node') {
             const chip = this.pathChips?.ordered.find(c => c.state === 'hacked')
-            this.target = null
+            this.rail.target = null
             if (chip) {
-                this.aimU = chip.u
-                this.aimD = chip.d
+                this.rail.aimU = chip.u
+                this.rail.aimD = chip.d
             }
         }
     }
@@ -817,9 +783,9 @@ export class HackerzGame {
             this.bastion.wallHp = this.bastion.wallMaxHp
             this.bastion.shield = this.bastion.shieldMax
             // The rail, the barrier's regen clock and the kill chain start fresh too.
-            this.railHeading = Math.PI
-            this.railU = RAIL_U
-            this.railKick = 0
+            this.rail.railHeading = Math.PI
+            this.rail.railU = RAIL_U
+            this.rail.railKick = 0
             this.bastion.msSinceWallHit = 99_999
             this.bastion.shieldHit = 0
             this.scoring.chain = 0
@@ -1051,15 +1017,15 @@ export class HackerzGame {
             // Press fires; holding keeps firing. Pressed on a hostile, the rail
             // tracks it for as long as the button stays down — though not
             // through a packet-loss spike, which drops every lock.
-            this.lockSpot = null
-            this.target = this.lag.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y)
-            this.holding = true
-            this.queuedShot = true
+            this.rail.lockSpot = null
+            this.rail.target = this.lag.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y)
+            this.rail.holding = true
+            this.rail.queuedShot = true
         }
         const release = () => {
-            this.holding = false
-            this.target = null
-            this.lockSpot = null
+            this.rail.holding = false
+            this.rail.target = null
+            this.rail.lockSpot = null
         }
         // Only letting go of the fire button stops the fire: a ping released
         // mid-burst leaves it running.
@@ -1072,9 +1038,9 @@ export class HackerzGame {
 
         const onKeyDown = (event: KeyboardEvent) => {
             const key = event.key.toLowerCase()
-            if (key === 'r') this.beginReload()
+            if (key === 'r') this.rail.beginReload()
             if (key === 'escape') {
-                this.target = null
+                this.rail.target = null
                 this.arm(null)
             }
             const deploy = DEPLOY_KEYS[key]
@@ -1120,8 +1086,8 @@ export class HackerzGame {
         this.raycaster.setFromCamera(ndc, view.camera)
         const hit = this.raycaster.ray.intersectPlane(this.groundPlane, _v)
         if (!hit) return
-        this.aimU = hit.x * PER_WORLD
-        this.aimD = Math.max(20, -hit.z * PER_WORLD)
+        this.rail.aimU = hit.x * PER_WORLD
+        this.rail.aimD = Math.max(20, -hit.z * PER_WORLD)
     }
 
     /**
@@ -1182,8 +1148,8 @@ export class HackerzGame {
         this.clearField()
         this.sysLog.reset()
         this.loadout = loadout
-        this.weapon = loadout.weapon
-        this.ammoRack?.setColour(loadout.weapon.hex)
+        this.rail.weapon = loadout.weapon
+        this.rail.ammoRack?.setColour(loadout.weapon.hex)
         this.wave = 0
         this.waveElapsed = 0
         this.scoring.totalKills = config.kills ?? 0
@@ -1204,14 +1170,14 @@ export class HackerzGame {
         this.pulseCharge = loadout.pulseCooldownMs
         this.overclockCharge = loadout.overclockCooldownMs
         this.overclockLeft = 0
-        this.magSize = Math.round(loadout.weapon.magazine)
-        this.mag = this.magSize
-        this.reloadTimer = 0
-        this.tarpitDrain = 0
+        this.rail.magSize = Math.round(loadout.weapon.magazine)
+        this.rail.mag = this.rail.magSize
+        this.rail.reloadTimer = 0
+        this.rail.tarpitDrain = 0
         this.slots = loadout.slots
         this.battery.syncTurrets()
         this.bastion.emitWall()
-        this.emitAmmo()
+        this.rail.emitAmmo()
         return true
     }
 
@@ -1252,18 +1218,18 @@ export class HackerzGame {
         this.arm(null)
         const previousMax = this.bastion.wallMaxHp
         this.loadout = loadout
-        this.weapon = loadout.weapon
-        this.ammoRack?.setColour(loadout.weapon.hex)
+        this.rail.weapon = loadout.weapon
+        this.rail.ammoRack?.setColour(loadout.weapon.hex)
         this.bastion.wallMaxHp = loadout.wallMaxHp
         if (loadout.wallMaxHp > previousMax) this.bastion.wallHp += loadout.wallMaxHp - previousMax
         this.bastion.wallHp = clamp(this.bastion.wallHp, 1, this.bastion.wallMaxHp)
         this.bastion.shieldMax = loadout.shieldMax
         this.bastion.shield = loadout.shieldMax
-        this.magSize = Math.round(loadout.weapon.magazine)
-        this.mag = this.magSize
-        this.reloadTimer = 0
-        this.tarpitDrain = 0
-        this.fireTimer = 0
+        this.rail.magSize = Math.round(loadout.weapon.magazine)
+        this.rail.mag = this.rail.magSize
+        this.rail.reloadTimer = 0
+        this.rail.tarpitDrain = 0
+        this.rail.fireTimer = 0
         this.pulseCharge = loadout.pulseCooldownMs
         this.overclockCharge = loadout.overclockCooldownMs
         this.overclockLeft = 0
@@ -1281,7 +1247,7 @@ export class HackerzGame {
         this.running = true
         this.purging = false
         this.paused = false
-        this.target = null
+        this.rail.target = null
         // A bonus round is a sandbox: whatever it does to the wall is undone.
         this.bastion.bonusStartHp = this.bastion.wallHp
         this.bastion.bonusStartShield = this.bastion.shield
@@ -1299,7 +1265,7 @@ export class HackerzGame {
             )
         }
         this.bastion.emitWall()
-        this.emitAmmo()
+        this.rail.emitAmmo()
         this.emitPulse()
         this.emitOverclock()
         this.callbacks.onSound?.('wave-start')
@@ -1313,14 +1279,14 @@ export class HackerzGame {
     swapWeapon(weapon: HackerzWeaponRuntime) {
         if (!this.loadout) return
         this.loadout = { ...this.loadout, weapon }
-        this.weapon = weapon
-        this.ammoRack?.setColour(weapon.hex)
-        this.magSize = Math.round(weapon.magazine)
-        this.mag = this.magSize
-        this.reloadTimer = this.running ? Math.min(600, weapon.reloadMs) : 0
-        this.fireTimer = 0
+        this.rail.weapon = weapon
+        this.rail.ammoRack?.setColour(weapon.hex)
+        this.rail.magSize = Math.round(weapon.magazine)
+        this.rail.mag = this.rail.magSize
+        this.rail.reloadTimer = this.running ? Math.min(600, weapon.reloadMs) : 0
+        this.rail.fireTimer = 0
         this.callbacks.onWeapon(weapon.id)
-        this.emitAmmo()
+        this.rail.emitAmmo()
         this.callbacks.onSound?.('weapon-swap')
     }
 
@@ -1328,7 +1294,7 @@ export class HackerzGame {
 
     /** Where a deployable would land: the cursor, kept to the deployable stretch. */
     private get deployD() {
-        return clamp(this.aimD, DEPLOY_MIN_D, DEPLOY_MAX_D)
+        return clamp(this.rail.aimD, DEPLOY_MIN_D, DEPLOY_MAX_D)
     }
 
     /** Arms a deployable for the next click, or disarms with null. Arming one you have none of does nothing. */
@@ -1339,7 +1305,7 @@ export class HackerzGame {
         }
         if (this.armed === id) return
         this.armed = id
-        if (id) this.target = null
+        if (id) this.rail.target = null
         this.showGhost(id)
         this.callbacks.onArm?.(id)
     }
@@ -1353,7 +1319,7 @@ export class HackerzGame {
         let bestDistance = BOMB_CHIP_SNAP
         for (const chip of this.pathChips?.chips ?? []) {
             if (chip.state === 'hacked') continue
-            const distance = Math.hypot(chip.u - this.aimU, chip.d - this.aimD)
+            const distance = Math.hypot(chip.u - this.rail.aimU, chip.d - this.rail.aimD)
             if (distance > bestDistance) continue
             best = chip
             bestDistance = distance
@@ -1367,7 +1333,7 @@ export class HackerzGame {
             const chip = this.bombChip()
             if (chip) return { u: chip.u, d: chip.d, chip }
         }
-        let u = clamp(this.aimU, -FIELD_HALF_WIDTH + 30, FIELD_HALF_WIDTH - 30)
+        let u = clamp(this.rail.aimU, -FIELD_HALF_WIDTH + 30, FIELD_HALF_WIDTH - 30)
         let d = this.deployD
         // A honeypot sits on a data line, or nothing could ride to it.
         if (id === 'honeypot') {
@@ -1616,7 +1582,7 @@ export class HackerzGame {
 
     pause() {
         this.paused = true
-        this.holding = false
+        this.rail.holding = false
     }
 
     resume() {
@@ -1826,7 +1792,7 @@ export class HackerzGame {
                 }
                 this.maintainDefenders()
                 this.rootkit.hatchInfected(dtMs)
-                this.updateWeapon(dtMs)
+                this.rail.updateWeapon(dtMs)
                 this.updateAbilities(dtMs)
                 if (!this.finalPush && this.waveElapsed >= this.waveMs - FINAL_PUSH_MS) this.beginFinalPush()
                 if (this.waveElapsed >= this.waveMs) this.beginPurge()
@@ -1851,17 +1817,17 @@ export class HackerzGame {
         }
         this.guardrail?.update(live ? seen : 0)
         this.terminals?.update(live ? seen : 0, view.camera)
-        this.updateRail(frozen ? 0 : dt)
+        this.rail.updateRail(frozen ? 0 : dt)
         this.updateCamera(dt)
         this.territory.updateTerritory(live ? seen : 0)
-        const reload = this.reloadTimer > 0 && this.weapon ? 1 - this.reloadTimer / this.weapon.reloadMs : 1
-        this.ammoRack?.update(live ? seen : 0, this.mag, this.magSize, reload)
+        const reload = this.rail.reloadTimer > 0 && this.rail.weapon ? 1 - this.rail.reloadTimer / this.rail.weapon.reloadMs : 1
+        this.rail.ammoRack?.update(live ? seen : 0, this.rail.mag, this.rail.magSize, reload)
         this.laneProps?.update(live ? seen : 0, view.redLine, view.orangeLine)
         this.combat.updateDying(live ? seen : 0)
         view.ageSurges(live ? seen : 0)
 
         // The grid goes dark while the gun reloads: it has no power then.
-        view.trapMaterial.uniforms.uLevel!.value = (this.loadout?.spikeDps ?? 0) > 0 && this.tarpitPowered ? 1 : 0
+        view.trapMaterial.uniforms.uLevel!.value = (this.loadout?.spikeDps ?? 0) > 0 && this.rail.tarpitPowered ? 1 : 0
         view.shieldMaterial.uniforms.uStrength!.value = this.bastion.shieldMax > 0 ? this.bastion.shield / this.bastion.shieldMax : 0
         view.shieldMaterial.uniforms.uHit!.value = this.bastion.shieldHit
         // With every node theirs the ground right up to the deck and the barrier
@@ -2376,10 +2342,10 @@ export class HackerzGame {
             })
         }
         let reticle = null
-        if (this.target) {
-            const height = this.target.rig.height * PER_WORLD
-            const pos = this.lag.seenWorld(this.target, height * 0.5, new THREE.Vector3())
-            const top = view.project(this.lag.seenWorld(this.target, height, _w), { x: 0, y: 0 })
+        if (this.rail.target) {
+            const height = this.rail.target.rig.height * PER_WORLD
+            const pos = this.lag.seenWorld(this.rail.target, height * 0.5, new THREE.Vector3())
+            const top = view.project(this.lag.seenWorld(this.rail.target, height, _w), { x: 0, y: 0 })
             const mid = view.project(pos, { x: 0, y: 0 })
             const size = top && mid ? clamp(Math.abs(top.y - mid.y) + 6, 12, 70) : 16
             reticle = { pos, size, color: '#22d3ee' }
@@ -2585,7 +2551,7 @@ export class HackerzGame {
 
     private updateEnemies(dt: number, dtMs: number) {
         // The Tarpit Grid runs off the gun's magazine: dead while it reloads.
-        const spikeDps = this.tarpitPowered ? this.loadout?.spikeDps ?? 0 : 0
+        const spikeDps = this.rail.tarpitPowered ? this.loadout?.spikeDps ?? 0 : 0
         let spiking = false
 
         for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -2804,9 +2770,9 @@ export class HackerzGame {
             if (enemy.litMs) enemy.litMs = Math.max(0, enemy.litMs - dtMs)
             enemy.rig.reveal.value += ((enemy.revealMs > 0 || enemy.litMs ? 1 : 0) - enemy.rig.reveal.value) * Math.min(1, dt * 5)
             // Into the dark the lock slips: the rail keeps firing where it last saw its target.
-            if (this.target === enemy && this.combat.inTheDark(enemy)) {
-                this.lockSpot = { u: enemy.u, d: enemy.d, y: enemyCentreY(enemy) }
-                this.target = null
+            if (this.rail.target === enemy && this.combat.inTheDark(enemy)) {
+                this.rail.lockSpot = { u: enemy.u, d: enemy.d, y: enemyCentreY(enemy) }
+                this.rail.target = null
             }
             // A cloaked unit still disturbs the grid: a faint shimmer where it walks.
             if (cloakedAway && Math.random() < dt * 5) {
@@ -2850,32 +2816,8 @@ export class HackerzGame {
             enemy.wound?.update(dt)
         }
 
-        if (spiking) this.drainTarpit(dt)
+        if (spiking) this.rail.drainTarpit(dt)
         this.crowd.separate()
-    }
-
-    /** The Tarpit Grid has power while the gun has rounds in it and is not reloading. */
-    private get tarpitPowered() {
-        return this.reloadTimer <= 0 && this.mag > 0
-    }
-
-    /**
-     * The Tarpit Grid draws its power from the gun: while it is biting it
-     * burns through the magazine at a steady rate, on top of whatever the gun
-     * fires, and an empty magazine sends the gun to reload — the grid going
-     * dark with it until the reload is done.
-     */
-    private drainTarpit(dt: number) {
-        this.tarpitDrain += TARPIT_ROUNDS_PER_S * dt
-        if (this.tarpitDrain < 1) return
-        const rounds = Math.min(this.mag, Math.floor(this.tarpitDrain))
-        this.tarpitDrain -= rounds
-        this.mag -= rounds
-        this.emitAmmo()
-        if (this.mag <= 0) {
-            this.tarpitDrain = 0
-            this.beginReload()
-        }
     }
 
     // ─── Bosses ──────────────────────────────────────────────────────────────
@@ -2897,138 +2839,8 @@ export class HackerzGame {
 
     // ─── Player weapon ───────────────────────────────────────────────────────
 
-    /**
-     * Where the rail is pointing this frame: the locked target, else the spot a
-     * lag spike left it firing at (while the button stays down), else the cursor.
-     */
-    private railAim() {
-        const target = this.target
-        if (target) return { u: target.u, d: target.d, y: enemyCentreY(target) }
-        if (this.lockSpot && this.holding) return this.lockSpot
-        return { u: this.aimU, d: this.aimD, y: 0 }
-    }
-
-    /** The Longbore is a railgun: it cannot turn, and fires straight down the lane from wherever it stands on its rail. */
-    private get straightShot() {
-        return this.weapon?.projectile === 'slug'
-    }
-
-    private updateRail(dt: number) {
-        const rig = this.railRig
-        if (!rig) return
-        const aim = this.railAim()
-        const straight = this.straightShot
-        // A railgun glides along its track under the cursor (or its locked
-        // target); every other gun sits back in the middle and turns to aim.
-        const home = straight ? clamp(aim.u, -RAIL_TRACK, RAIL_TRACK) : RAIL_U
-        const gap = home - this.railU
-        this.railU += Math.sign(gap) * Math.min(Math.abs(gap), RAIL_GLIDE * dt)
-        rig.root.position.x = this.railU * FIELD_SCALE
-        this.ammoRack?.follow(this.railU * FIELD_SCALE)
-        if (this.railTrack) this.railTrack.visible = straight
-        const desired = straight ? Math.PI : Math.atan2((aim.u - this.railU) * FIELD_SCALE, -aim.d * FIELD_SCALE - GUN_Z)
-        this.railHeading = straight ? Math.PI : turnToward(this.railHeading, desired, dt * MOTION.railTurn)
-        if (rig.yaw) rig.yaw.rotation.y = this.railHeading
-        this.railKick = easeRailKick(rig, this.railKick, dt)
-        for (const spinner of rig.spins) spinner.rotation.y += dt
-    }
-
-    private updateWeapon(dtMs: number) {
-        const weapon = this.weapon
-        if (!weapon) return
-
-        if (this.reloadTimer > 0) {
-            this.reloadTimer -= dtMs
-            if (this.reloadTimer <= 0) {
-                this.reloadTimer = 0
-                this.mag = this.magSize
-            }
-            this.emitAmmo()
-        }
-
-        this.fireTimer -= dtMs
-        const firing = this.holding || this.queuedShot
-        if (firing && this.reloadTimer <= 0 && this.fireTimer <= 0) {
-            if (this.mag > 0) {
-                this.shoot()
-                this.queuedShot = false
-                // Every reclaimed node on the path feeds the rail: +10% fire rate each.
-                const nodes = 1 + 0.1 * (this.pathChips?.owned ?? 0)
-                this.fireTimer = weapon.fireIntervalMs / (this.overclockLeft > 0 ? this.overclockRate : 1) / nodes
-            } else {
-                this.beginReload()
-            }
-        }
-    }
-
     get overclockRate() {
         return this.loadout?.overclockMultiplier ?? 1
-    }
-
-    private beginReload() {
-        if (!this.weapon || this.reloadTimer > 0 || this.mag >= this.magSize) return
-        if (!this.running || this.purging) return
-        this.reloadTimer = this.weapon.reloadMs
-        this.emitAmmo()
-        this.callbacks.onSound?.('weapon-reload')
-    }
-
-    private shoot() {
-        const weapon = this.weapon
-        const loadout = this.loadout
-        if (!weapon || !loadout) return
-        this.mag--
-        this.emitAmmo()
-        if (weapon.id === 'rail') this.callbacks.onSound?.('shoot-rail')
-        else if (weapon.id === 'flak') this.callbacks.onSound?.('shoot-flak')
-        else if (weapon.id === 'arc') this.callbacks.onSound?.('shoot-arc')
-        else if (weapon.id === 'missile') this.callbacks.onSound?.('shoot-missile')
-        else if (weapon.id === 'sniper') this.callbacks.onSound?.('shoot-sniper')
-
-        let aim = this.railAim()
-        // Aimed down at a pile of leaked memory by the fence, the round goes for
-        // the top of it, and is spent freeing a block.
-        const leak = this.target ? null : this.memory.leakPileAt(aim.u, aim.d)
-        if (leak) aim = { u: leak.u, d: LEAK_D, y: leak.stack.top(_w).y * PER_WORLD }
-        // Lead the target by its walking speed over the round's flight, once —
-        // a locked shot should land, but a pushed or turning target can still slip it.
-        let aimD = aim.d
-        const from = this.railU
-        if (this.target && weapon.speed > 0) {
-            const flight = Math.hypot(aim.u - from, aim.d - MUZZLE_D) / weapon.speed
-            if (this.target.d > this.target.standoff) aimD = Math.max(this.target.standoff, aim.d - this.target.speed * flight)
-        }
-        // A railgun fires dead straight from where it stands on its rail.
-        const angle = this.straightShot ? 0 : Math.atan2(aim.u - from, aimD - MUZZLE_D)
-
-        const crit = randomChance(loadout.critChance)
-        const overclocked = this.overclockLeft > 0
-        const spec: ShotSpec = {
-            damage: weapon.damage * (crit ? loadout.critMultiplier : 1) * (overclocked ? 1.25 : 1),
-            pierce: weapon.pierce,
-            damageType: weapon.damageType,
-            splashRadius: weapon.splashRadius,
-            splashDamage: weapon.splashDamage,
-            homing: weapon.homing,
-            chain: weapon.chain,
-            chainFalloff: weapon.chainFalloff,
-            speed: weapon.speed,
-            hex: crit ? 0xfde047 : weapon.hex,
-            projectile: weapon.projectile,
-            crit,
-            fromTurret: false
-        }
-
-        for (let i = 0; i < weapon.pellets; i++) {
-            const spread = weapon.pellets > 1 ? (randomFloat() * 2 - 1) * weapon.spread : 0
-            this.projectiles.spawnBullet(from, MUZZLE_D, MUZZLE_Y, angle + spread, spec, aim.y, this.target)
-            if (leak) this.projectiles.bullets[this.projectiles.bullets.length - 1]!.leakU = leak.u
-        }
-
-        const muzzle = fieldToWorld(from + Math.sin(angle) * 36, MUZZLE_D + Math.cos(angle) * 36, MUZZLE_Y * FIELD_SCALE, _v)
-        this.transient?.flash(muzzle, spec.hex, weapon.projectile === 'slug' ? 0.9 : 0.55)
-        this.railKick = railKickFor(weapon.projectile)
-        this.addShake(weapon.projectile === 'slug' ? 5 : crit ? 3 : 1.6)
     }
 
     // ─── Abilities ───────────────────────────────────────────────────────────
@@ -3865,8 +3677,8 @@ export class HackerzGame {
         // And the black ice melts.
         for (const wall of this.blackIce.iceWalls) wall.wall.thaw()
         this.purging = true
-        this.holding = false
-        this.target = null
+        this.rail.holding = false
+        this.rail.target = null
         this.callbacks.onWaveTime(0, this.enemies.length)
 
         this.view?.flash(0xffffff, 0.25)
@@ -3942,7 +3754,7 @@ export class HackerzGame {
                 this.callbacks.onCredits(extra, 'clear')
                 this.overlay.banner(`BONUS ×${HACKERZ_BONUS_MULTIPLIER}`, LIME, `+${extra} credits`)
                 this.view?.flash(0xa3e635, 0.3)
-                if (this.railRig) this.particles.burst(this.railRig.root.position, LIME, 120, 16, { size: 0.36, life: 1 })
+                if (this.rail.railRig) this.particles.burst(this.rail.railRig.root.position, LIME, 120, 16, { size: 0.36, life: 1 })
             }
             this.bonus = null
             if (this.pathChips) this.pathChips.locked = false
@@ -3983,8 +3795,8 @@ export class HackerzGame {
         this.gameOver = true
         this.running = false
         this.purging = false
-        this.holding = false
-        this.target = null
+        this.rail.holding = false
+        this.rail.target = null
         this.callbacks.onSound?.('game-over')
         // Coins in the air when the wall fell were still earned.
         this.scoring.flushCoins()
@@ -4029,17 +3841,10 @@ export class HackerzGame {
         this.bonus = null
         this.bonusChips = null
         if (this.pathChips) this.pathChips.locked = false
-        this.target = null
-        this.holding = false
+        this.rail.target = null
+        this.rail.holding = false
         this.shake = 0
         this.bastion.wallFlash = 0
-    }
-
-    private emitAmmo() {
-        const progress = this.reloadTimer > 0 && this.weapon
-            ? 1 - this.reloadTimer / this.weapon.reloadMs
-            : 1
-        this.callbacks.onAmmo(this.mag, this.magSize, progress)
     }
 
     private emitPulse() {

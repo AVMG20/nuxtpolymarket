@@ -137,7 +137,7 @@ export class Combat {
     removeEnemy(index: number, shortOut = false) {
         const enemy = this.game.enemies[index]
         if (!enemy) return
-        if (this.game.target === enemy) this.game.target = null
+        if (this.game.rail.target === enemy) this.game.rail.target = null
         for (const mount of this.game.battery.turrets) {
             if (mount.target === enemy) mount.target = null
         }

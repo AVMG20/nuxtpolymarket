@@ -91,9 +91,9 @@ export class PacketLoss {
         this.game.sysLog.lagSpike()
         // The spike drops the lock: the rail keeps firing at the last spot it
         // saw its target, while the target walks on out of it.
-        if (this.game.target) {
-            this.game.lockSpot = { u: this.game.target.u, d: this.game.target.d, y: enemyCentreY(this.game.target) }
-            this.game.target = null
+        if (this.game.rail.target) {
+            this.game.rail.lockSpot = { u: this.game.rail.target.u, d: this.game.rail.target.d, y: enemyCentreY(this.game.rail.target) }
+            this.game.rail.target = null
         }
     }
 

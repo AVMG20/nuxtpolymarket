@@ -102,7 +102,7 @@ export class Scoring {
             this.game.sysLog.chain(this.chain)
             this.game.overlay.banner(`EXPLOIT CHAIN ×${this.chain}`, LIME, `credits ×${this.chainMultiplier.toFixed(2)}`)
             this.game.callbacks.onSound?.('wave-start')
-            if (this.game.railRig) this.game.particles.burst(this.game.railRig.root.position, LIME, 40, 9, { size: 0.3, life: 0.7 })
+            if (this.game.rail.railRig) this.game.particles.burst(this.game.rail.railRig.root.position, LIME, 40, 9, { size: 0.3, life: 0.7 })
         }
         this.emitChain()
     }
@@ -111,7 +111,7 @@ export class Scoring {
     breakChain() {
         if (this.chain >= 5) {
             this.game.overlay.floatText(fieldToWorld(RAIL_U, 0, FENCE_HEIGHT + 3, _v), `CHAIN BROKEN · ${this.chain}`, RED, 1.4)
-            if (this.game.railRig) this.game.particles.burst(this.game.railRig.root.position, RED, 24, 7, { size: 0.26, life: 0.5 })
+            if (this.game.rail.railRig) this.game.particles.burst(this.game.rail.railRig.root.position, RED, 24, 7, { size: 0.26, life: 0.5 })
         }
         this.chain = 0
         this.emitChain()

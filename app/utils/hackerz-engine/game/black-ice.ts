@@ -56,7 +56,7 @@ export class BlackIce {
         if (enemy.broodMs > 0) return
         enemy.broodMs = BLACK_ICE_SPIT_MS
         enemy.burstLeft = (enemy.burstLeft + 1) % 3
-        const atRail = enemy.burstLeft === 0 && !!this.game.railRig
+        const atRail = enemy.burstLeft === 0 && !!this.game.rail.railRig
         placeEnemy(enemy)
         const mouth = muzzleOf(enemy.rig, new THREE.Vector3())
         const from = { u: mouth.x * PER_WORLD, d: -mouth.z * PER_WORLD, y: mouth.y * PER_WORLD }
@@ -65,8 +65,8 @@ export class BlackIce {
         // gun stands now: a gun that can glide (the Longbore) can get out from under it.
         const width = atRail ? BLACK_ICE_RAIL_CHUNK : 0
         if (atRail) {
-            const rail = this.game.railRig!.root.position
-            const u = clamp(this.game.railU, -FIELD_HALF_WIDTH + width / 2, FIELD_HALF_WIDTH - width / 2)
+            const rail = this.game.rail.railRig!.root.position
+            const u = clamp(this.game.rail.railU, -FIELD_HALF_WIDTH + width / 2, FIELD_HALF_WIDTH - width / 2)
             to = { u, d: -rail.z * PER_WORLD, y: (rail.y + 1) * PER_WORLD }
         } else {
             // Ahead of it, between it and the fence: where its wall will stand.
@@ -122,7 +122,7 @@ export class BlackIce {
                     this.game.particles.burst(shard, 0xa5b4fc, 10, 6, { size: 0.24, life: 0.45 })
                 }
                 // Clear of the gun: it smashes on the rail and does nothing.
-                if (Math.abs(this.game.railU - glob.u) > glob.width / 2 + RAIL_GUN_HALF) {
+                if (Math.abs(this.game.rail.railU - glob.u) > glob.width / 2 + RAIL_GUN_HALF) {
                     this.game.addShake(2)
                     continue
                 }

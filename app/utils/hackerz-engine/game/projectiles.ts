@@ -8,7 +8,7 @@ import { turnToward } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import { makeProjectile } from '../fx'
 import type { BulletEntity, EnemyEntity, SpitEntity } from '../types'
-import { type ShotSpec, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE, LEAK_D, _v, _w, halfExtents, WALL_HIT_Y } from './tuning'
+import { LEAK_D, _v, _w, halfExtents, WALL_HIT_Y, type ShotSpec, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE } from './tuning'
 import { enemyCentreY, enemyWorld, reachOf } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -62,7 +62,7 @@ export class Projectiles {
     spawnBullet(u: number, d: number, fromY: number, angle: number, spec: ShotSpec, toY: number, aimAt: EnemyEntity | null) {
         const mesh = makeProjectile(spec.projectile, spec.hex, spec.crit, spec.fromTurret)
         this.game.fieldRoot.add(mesh)
-        const span = aimAt ? Math.max(40, Math.hypot(aimAt.u - u, aimAt.d - d)) : Math.max(40, Math.hypot(this.game.aimU - u, this.game.aimD - d))
+        const span = aimAt ? Math.max(40, Math.hypot(aimAt.u - u, aimAt.d - d)) : Math.max(40, Math.hypot(this.game.rail.aimU - u, this.game.rail.aimD - d))
         const bullet: BulletEntity = {
             mesh,
             u,

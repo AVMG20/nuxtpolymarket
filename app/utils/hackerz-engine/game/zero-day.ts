@@ -44,7 +44,7 @@ export class ZeroDay {
             this.game.attachToNetwork(enemy)
             this.game.attachToNetwork(swap)
         }
-        if (this.game.target === enemy) this.game.target = null
+        if (this.game.rail.target === enemy) this.game.rail.target = null
         const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
         this.game.transient?.ring(at, enemy.def.hex, 10, 0.5)
         this.game.overlay.banner('ZERO DAY FORKED', enemy.def.hex, 'find the one that bleeds data')

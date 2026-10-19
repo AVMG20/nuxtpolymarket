@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { HackerzDamageType, HackerzWeaponRuntime } from '#shared/utils/gamelogic/hackerz'
-import { FIELD_SCALE, FENCE_HEIGHT, GUN_Z, WALL_HEIGHT } from '../constants'
+import { FIELD_HALF_WIDTH, FIELD_SCALE, FENCE_HEIGHT, GUN_Z, WALL_HEIGHT } from '../constants'
 
 /** Field units per world unit, for heights that only exist for rendering. */
 export const PER_WORLD = 1 / FIELD_SCALE
@@ -94,3 +94,10 @@ export const PACKET_LOSS = 0.25
  * round hangs in the body before carrying on, and how hard it drives it back.
  */
 export const LONGBORE_FLARE = 0xc084fc
+
+/**
+ * The Longbore's track: how far either side of the middle it can glide (field
+ * units, just inside the lane), and how fast — quick enough to keep up with a
+ * cursor sweeping the lane.
+ */
+export const RAIL_TRACK = FIELD_HALF_WIDTH - 20
