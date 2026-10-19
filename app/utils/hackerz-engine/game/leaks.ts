@@ -9,6 +9,7 @@ import type { EnemyEntity } from '../types'
 import { LEAK_D, _v, _w } from './tuning'
 import type { HackerzGame } from '../hackerz-game'
 
+/** How big leaked blocks are drawn: a full pile stands about fence-high, as it does beside a Daemon on the database turntable. */
 const LEAK_SCALE = 2
 
 /** A shot aimed this close to a pile (field units) is fired at it, and how often a pile drains the fence. */

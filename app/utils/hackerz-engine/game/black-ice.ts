@@ -14,8 +14,8 @@ import type { HackerzGame } from '../hackerz-game'
 /**
  * BLACK ICE: how often it spits, how its globs fall (field units/s²), and the
  * walls they build — how wide and tall at full growth, how much of a wall one
- * glob makes, the nearest to the fence one may stand, how long it lasts after
- * its last glob, and how much a round through it is slowed.
+ * glob makes, the nearest to the fence one may stand, and how long it lasts
+ * after its last glob.
  */
 const BLACK_ICE_SPIT_MS = 2500
 const BLACK_ICE_GRAVITY = 900

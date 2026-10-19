@@ -54,12 +54,14 @@ const SHELTER_BEHIND = 70
 const SHELTER_REACH = 350
 const SHELTER_RADIUS = 110
 
+/** The gap between shield bearers leaving the portal. */
 const BEARER_RESPAWN_MS = 1500
 
 /** A weakling below this share of health holds in red to heal, until it is back above `RECOVERED`. */
 const RETREAT_BELOW = 0.5
 const RECOVERED = 0.9
 
+/** Healthier units this close in front of a retreating one hold this long to cover it. */
 const COVER_RADIUS = 170
 const COVER_HOLD_MS = 900
 

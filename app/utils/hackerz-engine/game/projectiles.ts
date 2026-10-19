@@ -7,20 +7,22 @@ import type { PathChip } from '../path-chips'
 import { turnToward } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import { makeProjectile } from '../fx'
-import type { BulletEntity, EnemyEntity, SpitEntity } from '../types'
-import { LEAK_D, _v, _w, halfExtents, WALL_HIT_Y, type ShotSpec, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE } from './tuning'
-import { enemyCentreY, enemyWorld, reachOf } from './bodies'
+import type { BulletEntity, EnemyEntity, ShotSpec, SpitEntity } from '../types'
+import { LEAK_D, _v, _w, WALL_HIT_Y, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE } from './tuning'
+import { enemyCentreY, enemyWorld, halfExtents, reachOf } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
+/** How much a round through a wall of black ice is slowed, for the rest of its flight. */
 const BLACK_ICE_SLOW = 0.45
 
+/** A railgun round punching through a body: how long it hangs there before carrying on, and how hard it drives it back. */
 const PUNCH_HOLD_MS = 70
 const PUNCH_PUSH = 480
 
 /** How long a round fired blind into the dark lights up what it hits. */
 const HIT_LIGHT_MS = 450
 
-/** How long a blast leaves a unit glitching, and over how much of the end it eases out. */
+/** How long a blast leaves a unit glitching (it eases out over `GLITCH_FADE_MS`). */
 const GLITCH_MS = 650
 
 /**

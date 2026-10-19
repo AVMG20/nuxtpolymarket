@@ -11,15 +11,15 @@ import {
     strideFor, strikeLands
 } from '../rig-motion'
 import { AMBER, CYAN } from '../scene'
-import type { EnemyEntity } from '../types'
-import {
-    PER_WORLD, _v, _w, ZONE_TICK_MS, GLITCH_FADE_MS, HACK_TEAM, type RouteGoal, HACK_REACH, unitSize, PING_REVEAL_MS
-} from './tuning'
-import { burrowing, enemyCentreY, enemyWorld, glitchOf, placeEnemy, underground } from './bodies'
+import type { EnemyEntity, RouteGoal } from '../types'
+import { PER_WORLD, _v, _w, ZONE_TICK_MS, GLITCH_FADE_MS, HACK_TEAM, HACK_REACH, PING_REVEAL_MS } from './tuning'
+import { burrowing, enemyCentreY, enemyWorld, glitchOf, placeEnemy, underground, unitSize } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
+/** With a node's team full (`HACK_TEAM`), how much further out the next hacker waits for a free terminal. */
 const HACK_QUEUE_GAP = 70
 
+/** Each bite of held ground: this share of a unit's max health (far less for a boss), plus a flat bite. */
 const ZONE_TICK_SHARE = 0.025
 const ZONE_TICK_BOSS_SHARE = 0.006
 

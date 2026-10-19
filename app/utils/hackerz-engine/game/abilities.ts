@@ -8,6 +8,7 @@ import type { EnemyEntity } from '../types'
 import { _v, MUZZLE_D, PING_COOLDOWN_MS } from './tuning'
 import type { HackerzGame } from '../hackerz-game'
 
+/** How fast the radar ping's wavefront sweeps out, in field units a second. */
 const PING_SPEED = 1500
 
 /**

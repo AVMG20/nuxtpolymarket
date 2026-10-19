@@ -57,6 +57,7 @@ import { Input } from './game/input'
 import { DemoDirector } from './game/demo'
 import { AutopilotBridge } from './game/autopilot'
 
+/** How much faster everything moves in the final push (`FINAL_PUSH_MS`). */
 const FINAL_PUSH_SPEED = 1.35
 
 /** How fast a health bar's trail drains after a hit, in bar-lengths a second. */

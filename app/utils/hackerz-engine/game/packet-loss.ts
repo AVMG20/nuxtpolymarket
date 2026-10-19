@@ -11,6 +11,7 @@ import type { HackerzGame } from '../hackerz-game'
 const LAG_FREEZE_MS = 1400
 const LAG_GAP_MS = 1800
 
+/** How long the catch-up surge after a lag spike lasts. */
 const LAG_CATCH_UP_MS = 500
 
 /**

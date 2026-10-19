@@ -5,14 +5,15 @@ import type { Hold } from '../deployables'
 import { nearestOnNetwork, tracePassesNear, type DataNetwork, type LinePoint, type Trace } from '../data-lines'
 import { ENEMY_PACE, SAPPER_SPEED, THEIR_GROUND_SPEED, turnToward } from '../rig-motion'
 import { RED } from '../scene'
-import type { EnemyEntity } from '../types'
-import { _v, _w, CROWD_GAP, LANE_SLACK, YAW_DOWN, type RouteGoal } from './tuning'
+import type { EnemyEntity, RouteGoal } from '../types'
+import { _v, _w, CROWD_GAP, LANE_SLACK, YAW_DOWN } from './tuning'
 import { enemyWorld, footprint, sinkInto } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** A honeypot pulls in riders whose next trace passes this close to it. */
 const LURE_TRACE_RADIUS = 120
 
+/** Facing for a rider running across, along a rung, either way. */
 const YAW_RIGHT = Math.PI / 2
 const YAW_LEFT = -Math.PI / 2
 
@@ -22,13 +23,15 @@ const ESCORT_CATCH_UP = 1.3
 /** Bearers plod: their rules speed, without the field pace or their ground's boost. */
 const BEARER_PACE = 1
 
-/** A unit falls back at this share of its pace; healthier units this close in front of it hold to cover it. */
+/** A unit falls back at this share of its pace. */
 const RETREAT_SPEED = 0.8
+/** Facing for a rider backing up its line, toward the portal. */
 const YAW_UP = Math.PI
 
-/** PACKET LOSS: when a spike clears, hostiles surge this many times faster for this long. */
+/** PACKET LOSS: when a spike clears, hostiles surge this many times faster (for `LAG_CATCH_UP_MS`). */
 const LAG_CATCH_UP_SPEED = 4
 
+/** The share of its speed at which a rider stood off its line eases back onto it, when there is room. */
 const LANE_RETURN = 0.5
 
 /** How close to its stop line a demo unit counts as there: `walkTo` settles within 3. */

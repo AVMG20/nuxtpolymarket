@@ -9,8 +9,8 @@ import { hdr } from '../models'
 import { MOTION, turnToward } from '../rig-motion'
 import { CYAN, RED, fieldToWorld } from '../scene'
 import type { BulletEntity, EnemyEntity } from '../types'
-import { PER_WORLD, _w, halfExtents, CROWD_GAP, HACK_TEAM, YAW_DOWN } from './tuning'
-import { enemyWorld, placeEnemy } from './bodies'
+import { PER_WORLD, _w, CROWD_GAP, HACK_TEAM, YAW_DOWN } from './tuning'
+import { enemyWorld, halfExtents, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** How many open nodes the hackers split across at once. */

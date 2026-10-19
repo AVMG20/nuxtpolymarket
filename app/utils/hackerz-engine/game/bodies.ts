@@ -1,10 +1,48 @@
 import type * as THREE from 'three'
-import { hackerzIsAirborne } from '#shared/utils/gamelogic/hackerz'
+import { hackerzIsAirborne, type HackerzEnemyDefinition, type HackerzEnemyId } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_SCALE } from '../constants'
 import { MOTION, burrowFrame, hoverBob } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, ROOTKIT_BURROW_MS, GLITCH_FADE_MS, halfExtents } from './tuning'
+import { PER_WORLD, ROOTKIT_BURROW_MS, GLITCH_FADE_MS } from './tuning'
+
+/*
+ * A unit's body on the board: how big it is, where it stands and is drawn,
+ * and how it takes up room on the ground. Pure functions of the unit.
+ */
+
+/**
+ * Units drawn smaller than their height in the rules says: ROOTKIT's legs
+ * spread far wider than it is tall, so at full size it straddled half the
+ * fence. Its body, hitbox, standoff, stride and spacing all shrink together.
+ */
+const UNIT_DISPLAY_SCALE: Partial<Record<HackerzEnemyId, number>> = { titan: 0.55 }
+/** How much bigger (footprint area) a body must be to barge another out of its way. */
+const BARGE_RATIO = 1.6
+
+const halves = new WeakMap<THREE.Box3, { x: number, z: number }>()
+
+/** A unit's size on the board, in the rules' height units. */
+export function unitSize(def: HackerzEnemyDefinition) {
+    return def.height * (UNIT_DISPLAY_SCALE[def.id] ?? 1)
+}
+
+/**
+ * A model's half extents on the ground, in field units: across (`x`) and
+ * along (`z`) its own axes. A rig's box is fixed once built, so each is
+ * worked out once.
+ */
+export function halfExtents(box: THREE.Box3) {
+    let half = halves.get(box)
+    if (!half) {
+        half = {
+            x: Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD,
+            z: Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        }
+        halves.set(box, half)
+    }
+    return half
+}
 
 /** World position of an enemy, `lift` field units above where it stands. */
 export function enemyWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3) {
@@ -109,6 +147,3 @@ export function footprint(enemy: EnemyEntity) {
     foot.d = s * half.x + c * half.z
     return foot
 }
-
-/** How much bigger (footprint area) a body must be to barge another out of its way. */
-const BARGE_RATIO = 1.6

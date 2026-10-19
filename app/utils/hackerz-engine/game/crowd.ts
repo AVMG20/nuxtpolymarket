@@ -3,8 +3,8 @@ import { HACKERZ_HACKER_ID, hackerzIsAirborne } from '#shared/utils/gamelogic/ha
 import { FIELD_HALF_WIDTH } from '../constants'
 import { clamp } from '../math'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK } from './tuning'
-import { enemyWorld, footprint, outweighs, sinkInto } from './bodies'
+import { PER_WORLD, GLITCH_FADE_MS, CROWD_GAP, LANE_SLACK } from './tuning'
+import { enemyWorld, footprint, halfExtents, outweighs, sinkInto } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** How long a body may stand blocked before a jam is broken, and how long it then backs off to break it. */

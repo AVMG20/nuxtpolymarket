@@ -7,11 +7,12 @@ import type { ModelRig } from '../models'
 import { MOTION, easeRailKick, railKickFor, turnToward } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { AmmoRack } from '../ammo-rack'
-import type { EnemyEntity } from '../types'
-import { PER_WORLD, LEAK_D, _v, _w, MUZZLE_Y, type ShotSpec, MUZZLE_D, RAIL_TRACK } from './tuning'
+import type { EnemyEntity, ShotSpec } from '../types'
+import { PER_WORLD, LEAK_D, _v, _w, MUZZLE_Y, MUZZLE_D, RAIL_TRACK } from './tuning'
 import { enemyCentreY } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
+/** How fast the Longbore glides along its track: quick enough to keep up with a cursor sweeping the lane. */
 const RAIL_GLIDE = 2400
 
 /** Rounds the Tarpit Grid burns from the gun's magazine each second it is biting. */

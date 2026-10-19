@@ -11,6 +11,7 @@ import { PER_WORLD, _v, _w, ROOTKIT_BURROW_MS } from './tuning'
 import { enemyWorld, underground } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
+/** How many spiderlings scatter where ROOTKIT goes under. */
 const ROOTKIT_BURROW_CLUTCH = 3
 
 /**

@@ -175,6 +175,31 @@ export interface EnemyEntity {
     hacking: boolean
 }
 
+/** Where a unit is headed this frame. */
+export interface RouteGoal {
+    /** Depth to stop at: the fence's standoff, or a proxy wall. */
+    stopD: number
+    /** Arrived early: true once the unit is close enough to do its job from where it stands. */
+    near?: (u: number, d: number) => boolean
+}
+
+/** What a projectile carries, whoever fired it. */
+export interface ShotSpec {
+    damage: number
+    pierce: number
+    damageType: HackerzDamageType
+    splashRadius: number
+    splashDamage: number
+    homing: boolean
+    chain: number
+    chainFalloff: number
+    speed: number
+    hex: number
+    projectile: HackerzProjectile
+    crit: boolean
+    fromTurret: boolean
+}
+
 export interface BulletEntity {
     mesh: THREE.Mesh
     u: number

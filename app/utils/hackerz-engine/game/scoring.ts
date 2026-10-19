@@ -8,6 +8,7 @@ import { PER_WORLD, _v } from './tuning'
 import { enemyWorld } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
+/** Where dropped coins fly to and bank: the deck behind the rail. */
 const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
 
 /** Chain lengths that earn a banner. */

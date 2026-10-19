@@ -5,6 +5,7 @@ import type { EnemyEntity } from '../types'
 import { PER_WORLD, _v } from './tuning'
 import type { HackerzGame } from '../hackerz-game'
 
+/** The deployable each key arms (or sets off, for one with nothing to aim). */
 const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACKERZ_DEPLOYABLES.map(def => [def.key.toLowerCase(), def.id]))
 
 /**
