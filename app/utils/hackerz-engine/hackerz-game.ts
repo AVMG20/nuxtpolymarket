@@ -4,16 +4,16 @@ import type { DemoScript } from '../hackerz-demo-scripts'
 import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
-    HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_LEAK_MERGE,
-    HACKERZ_MAX_WAVE, HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS,
-    HACKERZ_SPIDER_INJECT_MS, HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY,
-    HACKERZ_SHIELD_DELAY_MS, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor,
-    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
-    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
-    hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool,
-    type HackerzDamageType, type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition,
-    type HackerzEnemyId, type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
+    HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
+    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
+    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SHIELD_DELAY_MS,
+    HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier,
+    hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier,
+    hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier,
+    hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave, hackerzNetworkEvent,
+    hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
+    type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
+    type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
@@ -28,7 +28,6 @@ import { Deployables, type Blast, type Hold } from './deployables'
 import { HackTerminals } from './hack-terminal'
 import { LinePulses } from './line-pulses'
 import { SysLog } from './sys-log'
-import { LeakCarry, LeakStack } from './memory-leak'
 import { Shrapnel } from './shrapnel'
 import { GlitchClouds } from './glitch-cloud'
 import { HexShield } from './hex-shield'
@@ -43,9 +42,8 @@ import {
 import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
 import {
     ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
-    burrowFrame, drainGrowth, gatherLegs, easeHeave, easeInject, easeStrike, fangTips, injectLands, heaveCarry,
-    heaveReleases, hoverBob, muzzleOf, railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward,
-    weaponTip
+    burrowFrame, drainGrowth, gatherLegs, easeInject, easeStrike, fangTips, injectLands, hoverBob, muzzleOf,
+    railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward, weaponTip
 } from './rig-motion'
 import { AMBER, CYAN, DARK_ZONES, FRONT_COLUMNS, HackerzScene, ISLANDS, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
@@ -56,8 +54,9 @@ import {
 import type {
     BulletEntity, CoinEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount
 } from './types'
-import { PER_WORLD } from './game/tuning'
+import { LEAK_D, _v, _w, PER_WORLD } from './game/tuning'
 import { Healers } from './game/healers'
+import { Leaks } from './game/leaks'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -114,19 +113,6 @@ const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
 const MUZZLE_D = -GUN_Z * PER_WORLD
 
 /**
- * Where leaked memory piles up: between the fence and the Daemons hitting it;
- * and how big, so a full pile stands about fence-high, the size it is beside a
- * Daemon on the database turntable.
- */
-const LEAK_D = 14
-const LEAK_SCALE = 2
-
-/** A shot aimed this close to a pile (field units) is fired at it, and how often a pile drains the fence. */
-const LEAK_AIM_U = 36
-const LEAK_AIM_D = 45
-const LEAK_TICK_MS = 1000
-
-/**
  * Units drawn smaller than their height in the rules says: ROOTKIT's legs
  * spread far wider than it is tall, so at full size it straddled half the
  * fence. Its body, hitbox, standoff, stride and spacing all shrink together.
@@ -164,16 +150,6 @@ const RAIL_GUN_HALF = 24
 /** How long ROOTKIT stays gone when it burrows, its dive into the floor included; and how many spiderlings scatter where it goes under. */
 const ROOTKIT_BURROW_MS = 2600
 const ROOTKIT_BURROW_CLUTCH = 3
-
-/** A pile of leaked allocations at the foot of the fence, and what each of its blocks drains a second. */
-interface LeakPile {
-    u: number
-    stack: LeakStack
-    drains: number[]
-    tickMs: number
-    /** Blocks shot off it so far, for the log line when it is gone. */
-    freed: number
-}
 
 /** Chain lengths that earn a banner. */
 const CHAIN_MILESTONES = [10, 25, 50, 100]
@@ -484,16 +460,13 @@ const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACK
 /** A logic bomb dropped this close to a node that is not theirs is wired onto it. */
 const BOMB_CHIP_SNAP = 110
 
-const _v = new THREE.Vector3()
-const _w = new THREE.Vector3()
-
 export class HackerzGame {
     private view: HackerzScene | null = null
-    private callbacks: HackerzCallbacks
+    callbacks: HackerzCallbacks
     particles = new ParticleSystem(5000)
     transient: TransientFx | null = null
     private overlay = new Overlay()
-    private fieldRoot = new THREE.Group()
+    fieldRoot = new THREE.Group()
     private railRig: ModelRig | null = null
     private ammoRack: AmmoRack | null = null
     private laneProps: LaneProps | null = null
@@ -516,10 +489,10 @@ export class HackerzGame {
     private destroyed = false
     private mounted = false
     /** A wave is live: enemies spawn, the clock runs, input fires. */
-    private running = false
+    running = false
     private paused = false
     /** The end-of-wave sweep is playing; input is dead but the field still ticks. */
-    private purging = false
+    purging = false
     private gameOver = false
 
     // ── Run state ──
@@ -580,7 +553,7 @@ export class HackerzGame {
     /** Warhead blasts: clouds of corrupted data scrambling the splash area. */
     private glitchClouds: GlitchClouds | null = null
     /** The firewall's syslog, for the terminal beside the board. */
-    private sysLog = new SysLog(line => this.callbacks.onLog?.(line))
+    sysLog = new SysLog(line => this.callbacks.onLog?.(line))
     /** The hacker pack size last seen this wave, to announce a second contingent. */
     private hackerField = 0
     private decoysLogged = false
@@ -619,7 +592,6 @@ export class HackerzGame {
     enemies: EnemyEntity[] = []
     private bullets: BulletEntity[] = []
     private spits: SpitEntity[] = []
-    private leaks: LeakPile[] = []
     /** BLACK ICE's globs in flight (a field position and velocity; `left` seconds to landing), and the walls they have built. */
     private iceGlobs: { mesh: THREE.Mesh, u: number, d: number, y: number, vu: number, vd: number, vy: number, left: number, atRail: boolean, width: number }[] = []
     private iceWalls: { u: number, d: number, wall: IceWall, ageMs: number }[] = []
@@ -673,6 +645,7 @@ export class HackerzGame {
 
     // ── Systems: each owns its part of the game (see ./game) ──
     readonly healers = new Healers(this)
+    readonly memory = new Leaks(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -2219,7 +2192,7 @@ export class HackerzGame {
             this.updateTurrets(dtMs, frozen)
             this.updateCoins(frozen ? 0 : dtMs)
             this.updateBastion(dt, dtMs)
-            this.updateLeaks(dt, frozen ? 0 : dtMs)
+            this.memory.updateLeaks(dt, frozen ? 0 : dtMs)
             this.updateHackPulses(dt)
             this.pathChips?.update(seen)
             this.linePulses?.update(seen, (u, d) => this.pulseFade(u, d))
@@ -3543,7 +3516,7 @@ export class HackerzGame {
                 gatherLegs(enemy.rig, dive.gather)
                 enemy.rig.root.rotation.y = enemy.yaw + dive.spin
             }
-            if (enemy.heave > 0) this.heaveLeak(enemy, dt)
+            if (enemy.heave > 0) this.memory.heaveLeak(enemy, dt)
             enemy.hexShield?.update(dt)
             if (enemy.inject > 0) {
                 const before = enemy.inject
@@ -4539,102 +4512,6 @@ export class HackerzGame {
     // ─── Memory leaks ────────────────────────────────────────────────────────
 
     /**
-     * The heave: arms back to the disc, a leaked block out of it, overhead, and
-     * let go onto the pile in front.
-     */
-    private heaveLeak(enemy: EnemyEntity, dt: number) {
-        const before = enemy.heave
-        enemy.heave = easeHeave(enemy.rig, enemy.heave, dt)
-        const at = _w
-        const grown = heaveCarry(enemy.rig, enemy.heave, at)
-        if (grown > 0) {
-            enemy.carry ??= new LeakCarry(this.fieldRoot, enemy.def.hex, LEAK_SCALE)
-            enemy.carry.show(at, grown)
-        } else enemy.carry?.hide()
-        if (heaveReleases(before, enemy.heave)) this.leakMemory(enemy, enemy.heaveDrain, enemy.carry?.mesh.position ?? at)
-    }
-
-    /**
-     * A Daemon's hit leaves an allocation behind: a block thrown from `from`
-     * onto the pile at that stretch of fence (a new pile if there is none near),
-     * draining `drain` a second until it is shot or collected.
-     */
-    private leakMemory(enemy: EnemyEntity, drain: number, from: THREE.Vector3) {
-        // Once the sweep has started, the heap is being collected: nothing new lands.
-        if (this.purging || !this.running) {
-            enemy.carry?.hide()
-            return
-        }
-        let pile = this.leaks.find(p => Math.abs(p.u - enemy.u) < HACKERZ_LEAK_MERGE)
-        if (!pile) {
-            const u = clamp(enemy.u, -WALL_HALF_LENGTH + 20, WALL_HALF_LENGTH - 20)
-            const stack = new LeakStack(this.fieldRoot, fieldToWorld(u, LEAK_D, 0, new THREE.Vector3()), enemy.def.hex, LEAK_SCALE)
-            pile = { u, stack, drains: [], tickMs: 0, freed: 0 }
-            this.leaks.push(pile)
-            this.sysLog.memoryLeak(Math.floor((u + FIELD_HALF_WIDTH) / 100) + 1)
-        }
-        enemy.carry?.hide()
-        if (pile.stack.spill(from)) pile.drains.push(drain)
-    }
-
-    /** Each pile drains the fence once a second, by what its blocks leak; quietly, as a leak does. */
-    private updateLeaks(dt: number, dtMs: number) {
-        for (const pile of this.leaks) {
-            pile.stack.update(dt)
-            if (!this.running || this.purging || !pile.drains.length) continue
-            pile.tickMs += dtMs
-            if (pile.tickMs < LEAK_TICK_MS) continue
-            pile.tickMs -= LEAK_TICK_MS
-            pile.stack.drained()
-            const top = pile.stack.top(new THREE.Vector3())
-            this.particles.emit(top, _w.set(0, 1.2, 1.4), pile.stack.hex, { size: 0.2, life: 0.4, gravity: 0 })
-            this.damageWall(pile.drains.reduce((sum, d) => sum + d, 0), pile.u, true)
-        }
-    }
-
-    /** The pile a shot at (u, d) is aimed at: one right by the fence, under the cursor. */
-    private leakPileAt(u: number, d: number) {
-        if (d > LEAK_D + LEAK_AIM_D) return null
-        let best: LeakPile | null = null
-        for (const pile of this.leaks) {
-            if (Math.abs(pile.u - u) < LEAK_AIM_U && (!best || Math.abs(pile.u - u) < Math.abs(best.u - u))) best = pile
-        }
-        return best
-    }
-
-    /** A round fired at a pile reaches it: one block freed, in a burst. */
-    private shootLeak(u: number) {
-        const pile = this.leaks.find(p => p.u === u)
-        if (!pile) return
-        const at = pile.stack.pop(new THREE.Vector3())
-        if (!at) return
-        pile.drains.pop()
-        this.particles.burst(at, pile.stack.hex, 12, 7, { size: 0.24, life: 0.4 })
-        this.particles.burst(at, 0xffffff, 4, 4, { size: 0.16, life: 0.2 })
-        this.callbacks.onSound?.('hit-enemy')
-        if (pile.stack.count) {
-            pile.freed++
-            return
-        }
-        this.transient?.ring(fieldToWorld(pile.u, LEAK_D, 0.1, _v), pile.stack.hex, 2.4, 0.4)
-        this.sysLog.heapFreed(pile.freed + 1, false)
-        pile.stack.dispose()
-        this.leaks.splice(this.leaks.indexOf(pile), 1)
-    }
-
-    /** Collects every pile: the purge's sweep logs it as a GC run; a reset just drops them. */
-    private clearLeaks(swept: boolean) {
-        let blocks = 0
-        for (const pile of this.leaks) {
-            blocks += pile.stack.count
-            if (swept) this.particles.burst(pile.stack.top(new THREE.Vector3()), pile.stack.hex, 18, 8, { size: 0.26, life: 0.5 })
-            pile.stack.dispose()
-        }
-        this.leaks = []
-        if (swept && blocks) this.sysLog.heapFreed(blocks, true)
-    }
-
-    /**
      * Applies damage. There is no resistance term — a source that is not the type
      * an enemy is weak to deals full damage, and one that is deals a quarter more.
      * The number is coloured by the damage type and the bonus hit is drawn larger,
@@ -4952,7 +4829,7 @@ export class HackerzGame {
         let aim = this.railAim()
         // Aimed down at a pile of leaked memory by the fence, the round goes for
         // the top of it, and is spent freeing a block.
-        const leak = this.target ? null : this.leakPileAt(aim.u, aim.d)
+        const leak = this.target ? null : this.memory.leakPileAt(aim.u, aim.d)
         if (leak) aim = { u: leak.u, d: LEAK_D, y: leak.stack.top(_w).y * PER_WORLD }
         // Lead the target by its walking speed over the round's flight, once —
         // a locked shot should land, but a pushed or turning target can still slip it.
@@ -5108,7 +4985,7 @@ export class HackerzGame {
             // way, and is spent on the pile.
             if (bullet.leakU !== undefined) {
                 if (bullet.d < LEAK_D) continue
-                this.shootLeak(bullet.leakU)
+                this.memory.shootLeak(bullet.leakU)
                 bullet.mesh.removeFromParent()
                 this.bullets.splice(i, 1)
                 continue
@@ -6366,7 +6243,7 @@ export class HackerzGame {
      * a leak, keep the barrier from recharging or break the chain, and it lands
      * without the jolt and the alarm.
      */
-    private damageWall(amount: number, sourceU: number, quiet = false) {
+    damageWall(amount: number, sourceU: number, quiet = false) {
         if (this.gameOver) return
         if (!quiet) {
             this.msSinceWallHit = 0
@@ -6449,7 +6326,7 @@ export class HackerzGame {
         if (this.purging) return
         this.sysLog.purge(this.enemies.length)
         // The sweep is a full garbage collection: every leaked block goes with it.
-        this.clearLeaks(true)
+        this.memory.clearLeaks(true)
         // And the black ice melts.
         for (const wall of this.iceWalls) wall.wall.thaw()
         this.purging = true
@@ -6508,7 +6385,7 @@ export class HackerzGame {
         while (this.enemies.length) this.killEnemy(this.enemies.length - 1, HACKERZ_PURGE_BOUNTY)
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
-        this.clearLeaks(false)
+        this.memory.clearLeaks(false)
         this.infected.clear()
         this.clearIce()
         this.surges = []
@@ -6594,7 +6471,7 @@ export class HackerzGame {
         this.bullets = []
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
-        this.clearLeaks(false)
+        this.memory.clearLeaks(false)
         this.infected.clear()
         this.clearIce()
         this.surges = []
