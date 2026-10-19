@@ -46,7 +46,7 @@ function setup() {
         { kind: 'double', name: 'Double Points', seconds: 21, ending: false },
         { kind: 'insta', name: 'Insta-Kill', seconds: 4, ending: true }
     ]
-    hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
+    hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, rods: null, rodTimer: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
     hud.ping = 24
     hud.chat = [{ id: 1, name: 'Pvt. Hale', text: 'door by the chapel, need 750', born: 0 }]
 }

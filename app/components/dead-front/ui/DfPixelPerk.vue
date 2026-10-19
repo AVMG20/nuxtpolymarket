@@ -54,6 +54,8 @@
 // filled with that perk's colour up to `fill`. Sizes that are multiples of
 // 20 px land on whole pixels.
 import type { DfPerkId } from '#shared/utils/dead-front/types'
+import { DF_BOTTLES, DF_BOTTLE_H, DF_BOTTLE_W, dfBottlePixel } from '~/utils/dead-front/world/perk-bottles'
+import type { DfBottlePixel } from '~/utils/dead-front/world/perk-bottles'
 
 const props = withDefaults(defineProps<{
     perk: DfPerkId
@@ -70,40 +72,8 @@ const props = withDefaults(defineProps<{
 
 const clipId = `df-pxperk-${useId()}`
 
-const W = 12
-const H = 20
-
-/** Per row: the body's [left, right] columns (inclusive), or null above the bottle. */
-type Spans = ([number, number] | null)[]
-
-interface Sprite {
-    spans: Spans
-    /** Rows covered by the paper label [from, to] inclusive. */
-    label: [number, number]
-}
-
-function rows(...parts: [number, number, [number, number]][]): Spans {
-    const out: Spans = Array.from({ length: H }, () => null)
-    for (const [a, b, span] of parts) {
-        for (let r = a; r <= b; r++) out[r] = span
-    }
-    return out
-}
-
-const SPRITES: Record<DfPerkId, Sprite> = {
-    // stout: graded shoulders, wide body
-    ironhide: { spans: rows([0, 4, [4, 7]], [5, 5, [3, 8]], [6, 19, [2, 9]]), label: [10, 13] },
-    // tonic: slim and tall
-    quickhand: { spans: rows([0, 5, [4, 7]], [6, 19, [3, 8]]), label: [10, 14] },
-    // rye: flat square shoulders, the widest
-    twinfire: { spans: rows([0, 3, [4, 7]], [4, 19, [1, 10]]), label: [9, 12] },
-    // round flask
-    secondwind: { spans: rows([0, 6, [4, 7]], [7, 7, [3, 8]], [8, 8, [2, 9]], [9, 10, [1, 10]], [11, 15, [0, 11]], [16, 17, [1, 10]], [18, 18, [2, 9]], [19, 19, [3, 8]]), label: [12, 14] },
-    // wasp waist
-    fleetfoot: { spans: rows([0, 3, [4, 7]], [4, 7, [2, 9]], [8, 9, [3, 8]], [10, 19, [1, 10]]), label: [13, 16] },
-    // long neck
-    steadyeye: { spans: rows([0, 8, [4, 7]], [9, 9, [3, 8]], [10, 19, [2, 9]]), label: [13, 16] }
-}
+const W = DF_BOTTLE_W
+const H = DF_BOTTLE_H
 
 const OUTLINE = '#0b0906'
 const CAP = '#8a5d30'
@@ -127,58 +97,45 @@ function mix(c: [number, number, number], to: [number, number, number], t: numbe
 interface Px { x: number, y: number, w: number, fill: string }
 
 const sprite = computed(() => {
-    const sp = SPRITES[props.perk]
+    const sp = DF_BOTTLES[props.perk]
     const base = hex(props.color)
     const black: [number, number, number] = [10, 8, 6]
     const white: [number, number, number] = [255, 250, 235]
-    const liquid = mix(base, black, 0)
-    const liquidLo = mix(base, black, 0.35)
     const liquidHi = mix(base, white, 0.45)
-    const glass = mix(base, black, 0.78)
-    const glassHi = mix(base, white, 0.2)
-    const band = mix(base, black, 0.2)
-    // the bottle's top body row (below the cap) and its bottom
+    const fills: Record<Exclude<DfBottlePixel, 'none'>, string> = {
+        cork: CAP,
+        corkHi: CAP_HI,
+        outline: OUTLINE,
+        label: PAPER,
+        labelBand: mix(base, black, 0.2),
+        ink: INK,
+        liquid: mix(base, black, 0),
+        liquidHi,
+        liquidLo: mix(base, black, 0.35),
+        glass: mix(base, black, 0.78),
+        glassHi: mix(base, white, 0.2)
+    }
     const first = sp.spans.findIndex(s => s !== null)
-    const capRows = 2
-    const bodyTop = first + capRows
     const bottom = H - 1
-    const fill = Math.max(0, Math.min(1, props.fill))
-    const liquidTop = Math.round(bottom - fill * (bottom - bodyTop - 1))
     const out: Px[] = []
     const liquidPx: Px[] = []
-    const push = (x: number, y: number, w: number, f: string) => {
-        if (w > 0) out.push({ x, y, w, fill: f })
-    }
-    const inside = (x: number, y: number): boolean => {
-        if (y < bodyTop || y > bottom) return false
-        const s = sp.spans[y]
-        return !!s && x >= s[0] && x <= s[1]
-    }
+    let liquidTop = H
     for (let y = 0; y < H; y++) {
         const s = sp.spans[y]
         if (!s) continue
-        const [l, r] = s
-        if (y < bodyTop) {
-            // cork
-            push(l, y, r - l + 1, y === first ? CAP_HI : CAP)
-            continue
-        }
-        for (let x = l; x <= r; x++) {
-            let f: string
-            if (!inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1)) {
-                f = OUTLINE
-            } else if (y >= sp.label[0] && y <= sp.label[1] && inside(x - 2, y) && inside(x + 2, y)) {
-                // a paper label: coloured bands top and bottom, a stripe of ink across the middle
-                const stripe = y === Math.floor((sp.label[0] + sp.label[1]) / 2) && sp.label[1] - sp.label[0] >= 3 && inside(x - 3, y) && inside(x + 3, y)
-                f = y === sp.label[0] || y === sp.label[1] ? band : stripe ? INK : PAPER
-            } else if (y >= liquidTop) {
-                f = !inside(x - 2, y) ? liquidHi : !inside(x + 2, y) ? liquidLo : y === liquidTop ? liquidHi : liquid
+        for (let x = s[0]; x <= s[1]; x++) {
+            const k = dfBottlePixel(sp, x, y, props.fill)
+            if (k === 'none') continue
+            if (k === 'liquid' || k === 'liquidHi' || k === 'liquidLo') {
                 liquidPx.push({ x, y, w: 1, fill: '' })
-            } else {
-                f = !inside(x - 2, y) ? glassHi : glass
+                liquidTop = Math.min(liquidTop, y)
             }
-            push(x, y, 1, f)
+            out.push({ x, y, w: 1, fill: fills[k] })
         }
+    }
+    const inside = (x: number, y: number): boolean => {
+        const k = dfBottlePixel(sp, x, y)
+        return k !== 'none' && k !== 'cork' && k !== 'corkHi'
     }
     // Brewing particles: three bubble columns from the bottom to the surface, and
     // wisps / sparkles just above the cork (drawn outside the box; the svg overflows).

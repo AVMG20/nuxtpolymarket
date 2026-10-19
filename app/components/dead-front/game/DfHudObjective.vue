@@ -27,6 +27,24 @@
                     </svg>
                     <span class="count">{{ objective.fuses }}</span>
                 </div>
+                <div v-if="objective.rods" class="rods">
+                    <svg
+                        v-for="i in rodTotal"
+                        :key="i"
+                        class="rod"
+                        :class="{ on: i <= rodsOn }"
+                        viewBox="0 0 5 9"
+                        width="10"
+                        height="18"
+                        shape-rendering="crispEdges"
+                        aria-hidden="true"
+                    >
+                        <path class="mast" d="M2 1h1v7H2zM0 8h5v1H0z" />
+                        <path class="bolt" d="M2 0h2v1H3v1h1v1H3v1H2V3H1V2h1z" />
+                    </svg>
+                    <span class="count">{{ objective.rods }}</span>
+                    <span v-if="objective.rodTimer" class="timer" :class="{ urgent: objective.rodTimer <= 10 }">{{ clock(objective.rodTimer) }}</span>
+                </div>
                 <div v-if="objective.charge !== null" class="df-seg charge" :style="{ '--p': objective.charge, '--c': '#7f93ff', '--seg': '6px' }" />
                 <div v-if="objective.hasTarget && objective.label" class="where">
                     <span class="arrow" aria-hidden="true" />{{ objective.label }} · {{ objective.distance }} m
@@ -56,11 +74,18 @@ import type { DfHudState } from '~/utils/dead-front/engine/hud'
 
 const props = defineProps<{ objective: DfHudState['objective'] }>()
 
-const STEPS = ['power', 'fuses', 'install', 'charge', 'claim', 'done']
+const STEPS = ['power', 'fuses', 'install', 'charge', 'rods', 'claim', 'done']
 const stepNo = computed(() => STEPS.indexOf(props.objective.step) + 1)
 const text = computed(() => props.objective.text.trim().replace(/[.!]+$/, ''))
 const fuseFound = computed(() => Number((props.objective.fuses ?? '0/3').split('/')[0]) || 0)
 const fuseTotal = computed(() => Number((props.objective.fuses ?? '0/3').split('/')[1]) || 3)
+const rodsOn = computed(() => Number((props.objective.rods ?? '0/3').split('/')[0]) || 0)
+const rodTotal = computed(() => Number((props.objective.rods ?? '0/3').split('/')[1]) || 3)
+
+function clock(s: number): string {
+    const t = Math.max(0, Math.ceil(s))
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
+}
 </script>
 
 <style scoped>
@@ -151,6 +176,53 @@ const fuseTotal = computed(() => Number((props.objective.fuses ?? '0/3').split('
     font-size: 0.9rem;
     color: #b9c4ff;
     font-variant-numeric: tabular-nums;
+}
+
+.rods {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0.45rem 0.65rem 0;
+}
+
+.rod .mast {
+    fill: #4a4f57;
+}
+
+.rod .bolt {
+    fill: #2c3140;
+}
+
+.rod.on .mast {
+    fill: #c9d2e6;
+}
+
+.rod.on .bolt {
+    fill: #bfe6ff;
+    filter: drop-shadow(0 0 3px #7fb8ff);
+}
+
+.rods .count {
+    margin-left: 0.2rem;
+    font-family: var(--df-font-stencil);
+    font-size: 0.9rem;
+    color: #b9c4ff;
+    font-variant-numeric: tabular-nums;
+}
+
+.rods .timer {
+    margin-left: auto;
+    padding: 0.05rem 0.35rem;
+    font-family: var(--df-font-stencil);
+    font-size: 0.9rem;
+    color: #ffd978;
+    background: rgba(0, 0, 0, 0.45);
+    font-variant-numeric: tabular-nums;
+}
+
+.rods .timer.urgent {
+    color: #ff6a50;
+    animation: df-blink 0.5s steps(2) infinite;
 }
 
 .charge {

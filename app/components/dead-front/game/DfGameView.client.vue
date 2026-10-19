@@ -32,6 +32,7 @@
         <DfPauseMenu
             v-if="paused"
             :settings="settings"
+            :solo="solo"
             @resume="play"
             @leave="leave"
             @update:settings="onSettings"
@@ -91,6 +92,8 @@ const canvasEl = ref<HTMLElement | null>(null)
 const hud = reactive(dfCreateHudState())
 const settings = ref<DfSettings>(dfLoadSettings())
 const paused = ref(false)
+/** Alone in the match: the pause menu says the war waits for you. */
+const solo = ref(true)
 let engine: DfEngine | null = null
 let everLocked = false
 
@@ -131,6 +134,7 @@ const feedCtx: DfHudFeedContext = {
 }
 const offSnap = props.net.on('snap', (m) => {
     feedPlayers = m.s.players
+    solo.value = m.s.players.length <= 1
     for (const ev of m.s.events) {
         const line = dfHudFeedLine(ev, feedCtx)
         if (line) dfHudPushFeed(hud.feed, line, performance.now())

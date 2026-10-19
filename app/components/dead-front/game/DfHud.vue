@@ -37,6 +37,9 @@
             <div v-if="hud.hitmarker.key > 0" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
                 <i /><i /><i /><i />
             </div>
+            <Transition name="df-fade">
+                <div v-if="hud.ammoHint && hud.life !== 'dead'" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
+            </Transition>
             <div v-if="hud.killKey > 0" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.hitmarker.kind === 'head' }">
                 <svg viewBox="0 0 7 7" width="21" height="21" shape-rendering="crispEdges" aria-hidden="true">
                     <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
@@ -70,6 +73,32 @@
                         <span v-if="hud.prompt.hold > 0" class="hold df-seg" :style="{ '--p': hud.prompt.hold, '--c': '#ffd978' }" />
                     </div>
                     <div v-if="hud.prompt.sub" class="sub" :class="{ no: !hud.prompt.ok }">{{ hud.prompt.sub }}</div>
+                </div>
+            </Transition>
+        </div>
+        <!-- markers: the last zombies and downed teammates -->
+        <DfHudMarkers v-if="hud.markers.length" :markers="hud.markers" />
+
+        <!-- the last few zombies of a round -->
+        <Transition name="df-drop">
+            <div v-if="hud.lastZombies > 0" class="df-last absolute left-1/2">
+                <svg v-for="n in hud.lastZombies" :key="n" viewBox="0 0 7 7" width="14" height="14" shape-rendering="crispEdges" aria-hidden="true">
+                    <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
+                </svg>
+                <span>{{ hud.lastZombies === 1 ? 'Last one' : `Last ${hud.lastZombies}` }}</span>
+            </div>
+        </Transition>
+
+        <!-- first-match coaching -->
+        <div class="df-hint-wrap absolute inset-x-0 flex justify-center px-4">
+            <Transition name="df-hint">
+                <div v-if="hud.hint && hud.life === 'alive'" :key="hud.hint.key" class="df-hint">
+                    <div class="line">
+                        <span v-if="hintParts.verb" class="verb">{{ hintParts.verb }}</span>
+                        <span v-if="hintParts.key" class="keycap"><b>{{ hintParts.key }}</b></span>
+                        <span class="text">{{ hintParts.text }}</span>
+                    </div>
+                    <div v-if="hud.hint.sub" class="sub">{{ hud.hint.sub }}</div>
                 </div>
             </Transition>
         </div>
@@ -177,6 +206,7 @@ import type { DfHudState } from '~/utils/dead-front/engine/hud'
 import { dfDrawPowerupIcon } from '~/utils/dead-front/engine/powerups'
 import DfHudAmmo from './DfHudAmmo.vue'
 import DfHudFeed from './DfHudFeed.vue'
+import DfHudMarkers from './DfHudMarkers.vue'
 import DfHudObjective from './DfHudObjective.vue'
 import DfHudPerks from './DfHudPerks.vue'
 import DfHudPoints from './DfHudPoints.vue'
@@ -197,12 +227,13 @@ const bleedFrac = computed(() => Math.max(0, Math.min(1, props.hud.bleedout / Ma
 const isRoundBanner = computed(() => /^Round \d+$/.test(props.hud.announce?.title ?? ''))
 
 /** Splits "Hold F to buy …" into a verb, a keycap and the rest of the line. */
-const promptParts = computed(() => {
-    const text = props.hud.prompt?.text ?? ''
+function keyParts(text: string): { verb: string, key: string, text: string } {
     const m = /^(Hold|Press)\s+([A-Z0-9])\s+(.*)$/.exec(text)
     if (!m) return { verb: '', key: '', text }
     return { verb: m[1]!, key: m[2]!, text: m[3]! }
-})
+}
+const promptParts = computed(() => keyParts(props.hud.prompt?.text ?? ''))
+const hintParts = computed(() => keyParts(props.hud.hint?.text ?? ''))
 
 const icons = new Map<DfPowerupKind, string>()
 function iconFor(kind: DfPowerupKind): string {
@@ -462,6 +493,130 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-announce.pale .title {
     font-size: clamp(1.1rem, 2vw, 1.6rem);
+}
+
+/* ammo hint under the crosshair */
+.df-ammo-hint {
+    position: absolute;
+    left: 50%;
+    top: 34px;
+    transform: translateX(-50%);
+    font-family: var(--df-font-stencil);
+    font-size: 0.78rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: #ffd978;
+    text-shadow: var(--df-outline);
+}
+
+.df-ammo-hint.out {
+    color: #ff6a50;
+    animation: df-ammo-blink 0.8s steps(2, jump-none) infinite;
+}
+
+@keyframes df-ammo-blink {
+    50% { opacity: 0.45; }
+}
+
+/* the last zombies */
+.df-last {
+    top: calc(var(--edge) + 2.6rem);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transform: translateX(-50%);
+    padding: 0.2rem 0.5rem;
+    font-family: var(--df-font-stencil);
+    font-size: 0.78rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #f1e8cf;
+    background: var(--df-hud-bg);
+    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+}
+
+.df-last svg {
+    fill: #e2412f;
+}
+
+.df-last span {
+    margin-left: 0.3rem;
+}
+
+/* first-match coaching: quiet, lower centre */
+.df-hint-wrap {
+    top: 73%;
+}
+
+.df-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    opacity: 0.92;
+}
+
+.df-hint .line {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.25rem 0.6rem;
+    background: rgba(8, 7, 6, 0.55);
+}
+
+.df-hint .keycap b {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding-bottom: 2px;
+    font-size: 0.82rem;
+    color: #1f170e;
+    background: #efe3c2;
+    box-shadow: inset 0 -3px 0 rgba(90, 64, 26, 0.55), 0 0 0 2px #000;
+}
+
+.df-hint .verb,
+.df-hint .text {
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-shadow: var(--df-outline);
+}
+
+.df-hint .verb {
+    color: #b9ad8c;
+}
+
+.df-hint .text {
+    color: #efe6cf;
+}
+
+.df-hint .sub {
+    margin-top: 0.3rem;
+    font-family: var(--df-font-type);
+    font-size: 0.78rem;
+    color: #cfc5a8;
+    text-shadow: var(--df-outline);
+}
+
+.df-hint-enter-active {
+    transition: opacity 0.4s ease-out, transform 0.4s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+
+.df-hint-leave-active {
+    transition: opacity 0.6s ease-in;
+}
+
+.df-hint-enter-from {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+.df-hint-leave-to {
+    opacity: 0;
 }
 
 /* interaction prompt */
