@@ -97,7 +97,7 @@ export interface DfWeaponDef {
 /** Attachment mod fields that add instead of multiply. */
 export const DF_ADDITIVE_MODS: readonly DfNumericStat[] = ['pellets', 'penetration', 'chains']
 
-export const DF_WEAPON_IDS: DfWeaponId[] = ['m1911', 'c96', 'm1897', 'kar98k', 'thompson', 'mp18', 'bar', 'lewis', 'xray', 'wunder']
+export const DF_WEAPON_IDS: DfWeaponId[] = ['m1911', 'c96', 'm1897', 'kar98k', 'thompson', 'mp18', 'ppsh', 'bar', 'lewis', 'xray', 'wunder']
 
 /** Pack-a-Punch camo colours per tier 1..3 (violet, crimson, gold). */
 export const DF_PAP_COLORS: [string, string, string] = ['#a04dff', '#ff2a45', '#ffc23a']
@@ -133,8 +133,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         startable: true,
         papNames: ['Witch\'s Broom', 'Hexenbesen', 'Broom of Ages'],
         attachments: [
-            att('c96-tangent', 'optic', 'Tangent Leaf Sight', 2, 'The optimistic 1000-metre tangent sight. Hits harder at range, slower to settle.', { range: 1.3, maxRange: 1.2, adsSpread: 0.8, adsTime: 1.1 }),
-            att('c96-reddot', 'optic', 'Red Dot Sight', 3, 'A slim open reflex sight bolted over the receiver. Tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.68, hipSpread: 0.9, adsTime: 1.08 }),
+            att('c96-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight bolted over the receiver. Tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.68, hipSpread: 0.9, adsTime: 1.08 }),
             att('c96-maxim', 'muzzle', 'Maxim Silencer', 3, 'A threaded Maxim can on the long barrel. Soft-shooting and steady, with +20% headshot damage, but it bleeds some punch and reach.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92, headMult: 1.2 }),
             att('c96-cutts', 'muzzle', 'Cutts Compensator', 3, 'Slotted brake that keeps the muzzle down. Loud, and the blast widens the hip cone.', { recoil: 0.68, hipSpread: 1.12 }),
             att('c96-box', 'magazine', '20-Round Box Magazine', 4, 'A detachable box magazine in place of stripper clips. Twice the rounds, heavier in hand.', { magSize: 2, reserve: 1.2, reloadTime: 1.1, reloadEmptyTime: 1.05, moveMult: 0.97 }),
@@ -190,8 +189,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         startable: true,
         papNames: ['Chicago Choir', 'Crimson Choir', 'Gilded Choir'],
         attachments: [
-            att('thompson-lyman', 'optic', 'Lyman Ladder Sight', 2, 'The adjustable ladder sight. Tighter aimed fire, a beat slower to aim.', { adsSpread: 0.72, adsTime: 1.1 }),
-            att('thompson-reddot', 'optic', 'Red Dot Sight', 3, 'A slim open reflex sight over the receiver. Tighter aimed and hip fire, a beat slower to aim.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.08 }),
+            att('thompson-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight over the receiver. Tighter aimed and hip fire, a beat slower to aim.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.08 }),
             att('thompson-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the finned barrel. Steadier bursts and +20% headshot damage, but less reach and punch.', { recoil: 0.82, damage: 0.93, range: 0.88, maxRange: 0.92, headMult: 1.2 }),
             att('thompson-cutts', 'muzzle', 'Cutts Compensator', 3, 'Keeps the climb in check. The blast widens hip fire a little.', { recoil: 0.7, hipSpread: 1.1, range: 0.95 }),
             att('thompson-drum', 'magazine', '50-Round Drum', 4, 'The famous drum magazine. Fifty rounds, slower to swap and heavier to carry.', { magSize: 1.67, reserve: 1.25, reloadTime: 1.3, reloadEmptyTime: 1.22, moveMult: 0.95, adsTime: 1.1 }),
@@ -214,6 +212,23 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
             att('mp18-maxim', 'muzzle', 'Maxim Silencer', 3, 'Soft, steady bursts and +20% headshot damage, but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92, headMult: 1.2 }),
             att('mp18-snail', 'magazine', '32-Round Snail Drum', 4, 'The Trommelmagazin 08. Thirty-two rounds, slower to swap, heavier.', { magSize: 1.6, reserve: 1.2, reloadTime: 1.25, reloadEmptyTime: 1.18, moveMult: 0.96 }),
             att('mp18-light', 'stock', 'Lightened Stock', 5, 'A slimmer stock. Quicker to move and aim, more kick.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })
+        ]
+    },
+    ppsh: {
+        id: 'ppsh',
+        name: 'PPSh-41',
+        class: 'smg',
+        year: 1941,
+        description: 'Shpagin\'s stamped-steel buzzsaw: a walnut stock, a slotted jacket with a slanted brake and a 71-round drum it empties in about four seconds.',
+        inBox: true,
+        startable: true,
+        papNames: ['Red Blizzard', 'Red Tempest', 'General Winter'],
+        attachments: [
+            att('ppsh-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight on the top cover. Tighter aimed and hip fire, a beat slower to aim.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.08 }),
+            att('ppsh-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the jacket nose. Steadier bursts and +20% headshot damage, but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92, headMult: 1.2 }),
+            att('ppsh-brake', 'muzzle', 'Extended Brake', 3, 'A longer slanted nose that throws the blast up and forward. Much less climb, a little wider from the hip.', { recoil: 0.72, hipSpread: 1.1, range: 0.95 }),
+            att('ppsh-box', 'magazine', '35-Round Box Magazine', 4, 'The curved wartime box. Half the rounds, but quick to swap and lighter to carry.', { magSize: 0.493, reloadTime: 0.75, reloadEmptyTime: 0.78, moveMult: 1.03, adsTime: 0.95 }),
+            att('ppsh-light', 'stock', 'Cut-Down Stock', 5, 'A shortened walnut butt. Quicker on your feet and to the sights, more climb.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })
         ]
     },
     bar: {
@@ -313,6 +328,12 @@ const BASE: Record<DfWeaponId, DfBaseStats> = {
         range: 14, maxRange: 38, minDamageMult: 0.5, penetration: 0, hipSpread: 0.04, adsSpread: 0.011,
         adsTime: 0.19, adsZoom: 1.25, moveMult: 1.02, recoil: 0.013, splashRadius: 0, splashDamage: 0, projectileSpeed: 0, chains: 0
     },
+    ppsh: {
+        fireMode: 'auto', shot: 'hitscan', damage: 50, headMult: 2.2, limbMult: 0.8, rpm: 1000, pellets: 1,
+        magSize: 71, reserve: 284, reloadTime: 2.6, reloadEmptyTime: 3.2, perRoundReload: 0,
+        range: 12, maxRange: 36, minDamageMult: 0.5, penetration: 0, hipSpread: 0.05, adsSpread: 0.014,
+        adsTime: 0.19, adsZoom: 1.25, moveMult: 1.02, recoil: 0.014, splashRadius: 0, splashDamage: 0, projectileSpeed: 0, chains: 0
+    },
     bar: {
         fireMode: 'auto', shot: 'hitscan', damage: 140, headMult: 2.6, limbMult: 0.85, rpm: 450, pellets: 1,
         magSize: 20, reserve: 200, reloadTime: 2.6, reloadEmptyTime: 3.1, perRoundReload: 0,
@@ -374,6 +395,7 @@ const PAP_OVERRIDES: Partial<Record<DfWeaponId, [Partial<DfBaseStats>, Partial<D
     kar98k: [{ penetration: 3 }, { penetration: 4, rpm: 60 }, { penetration: 6, rpm: 75 }],
     thompson: [{}, { rpm: 760, penetration: 1 }, { rpm: 840, penetration: 2 }],
     mp18: [{}, { rpm: 600, penetration: 1 }, { rpm: 680, penetration: 2 }],
+    ppsh: [{}, { rpm: 1080, penetration: 1 }, { rpm: 1150, penetration: 2 }],
     bar: [{ penetration: 2 }, { penetration: 2, rpm: 490 }, { penetration: 3, rpm: 540 }],
     lewis: [{ penetration: 2 }, { penetration: 2, rpm: 600 }, { penetration: 3, rpm: 660 }],
     // Bigger, hotter, faster bolts every tier (and a new colour: blue, crimson, gold).
@@ -495,6 +517,7 @@ const BOX_WEIGHTS: Partial<Record<DfWeaponId, number>> = {
     kar98k: 0.6,
     thompson: 1,
     mp18: 0.85,
+    ppsh: 0.9,
     bar: 1.1,
     lewis: 1,
     xray: 0.45

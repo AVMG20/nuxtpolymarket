@@ -89,6 +89,11 @@ const FEEL: Record<string, ShotFeel> = {
     special: { star: 1.1, cone: 0.7, prongs: 0, flash: 0.05, back: 1.1, flip: 1, roll: 0.3, yaw: 0.5 }
 }
 
+/** Guns that kick unlike their class: the PPSh's light bolt buzzes (small, quick kicks, more shake). */
+const FEEL_ID: Partial<Record<DfViewmodelWeapon['id'], ShotFeel>> = {
+    ppsh: { star: 0.8, cone: 1, prongs: 0.85, flash: 0.022, back: 0.5, flip: 0.42, roll: 0.3, yaw: 1.7 }
+}
+
 interface Clip {
     kind: 'mag' | 'shell-in' | 'shell' | 'shell-out'
     t: number
@@ -315,7 +320,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             stats = null
         }
         current = w
-        feel = FEEL[DF_WEAPONS[w.id]?.class ?? 'pistol'] ?? FEEL.pistol!
+        feel = FEEL_ID[w.id] ?? FEEL[DF_WEAPONS[w.id]?.class ?? 'pistol'] ?? FEEL.pistol!
         shotsSinceReload = 0
         clip = null
         shellGrace = -1
@@ -497,7 +502,30 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 fn()
             }
         }
-        if (c.kind === 'mag') {
+        if (c.kind === 'mag' && r.drum && r.reload === 'mag') {
+            // A drum change: the gun cants its belly toward the eye, the drum slides off the
+            // well and drops away, a fresh one swings up and is slapped home; empty, the bolt
+            // handle is yanked back after.
+            const dip = bump(u, 0, 1, 0.18)
+            out.x -= 0.04 * dip
+            out.y += 0.045 * dip
+            out.pitch += 0.1 * dip
+            out.roll -= 0.5 * dip
+            const off = smooth((u - 0.12) / 0.08) * 0.03 + smooth((u - 0.2) / 0.2) * 0.3
+            const on = smooth((u - 0.48) / 0.22)
+            const drop = u < 0.48 ? off : 0.33 * (1 - on)
+            out.mag.set(0, -drop, -0.05 * Math.min(1, drop / 0.1))
+            const slap = bump(u, 0.7, 0.8, 0.04)
+            out.y -= 0.012 * slap
+            out.pitch -= 0.06 * slap
+            ev(0.12, () => play(DF_WSND.drumOut))
+            ev(0.7, () => play(DF_WSND.drumIn))
+            if (c.empty) {
+                out.bolt = bump(u, 0.82, 0.96, 0.05)
+                ev(0.82, () => play(DF_WSND.boltOpen))
+                ev(0.92, () => play(DF_WSND.boltClose))
+            }
+        } else if (c.kind === 'mag') {
             const dip = bump(u, 0, 1, 0.2)
             out.y -= 0.05 * dip
             out.pitch += 0.22 * dip
@@ -512,7 +540,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 const dir = r.reload === 'top' ? tmpV.set(0, 0.25, 0.04) : r.reload === 'side' || r.reload === 'capsule' || r.reload === 'coil' ? tmpV.set(-0.22, -0.03, 0) : tmpV.set(0, -0.26, 0.04)
                 out.mag.copy(dir).multiplyScalar(away)
                 ev(0.16, () => {
-                    play(r.reload === 'top' || r.id === 'thompson' ? DF_WSND.drum : DF_WSND.magOut)
+                    play(r.reload === 'top' ? DF_WSND.drum : DF_WSND.magOut)
                     if (r.reload === 'capsule' || r.reload === 'coil') {
                         play(DF_WSND.steam)
                         api.muzzleWorld(ctx.camera, tmpV2)
@@ -543,7 +571,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         }
     }
 
-    const res = { y: 0, z: 0, roll: 0, pitch: 0, mag: new THREE.Vector3(), bolt: 0, pump: 0 }
+    const res = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, mag: new THREE.Vector3(), bolt: 0, pump: 0 }
     const hip = new THREE.Vector3()
     const pos = new THREE.Vector3()
     const rot = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -646,6 +674,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         }
 
         // reload / shells
+        res.x = 0
         res.y = 0
         res.z = 0
         res.roll = 0
@@ -669,6 +698,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 clip = { kind: 'shell-out', t: 0, dur: 0.55, empty: false, fired: new Set() }
             }
         }
+        pos.x += res.x
         pos.y += res.y
         pos.z += res.z
         rot.z += res.roll
@@ -718,7 +748,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             if (g.slide) g.slide.position.copy(g.slide.userData.rest as THREE.Vector3).setZ(0.022 * slide)
             if (g.bolt) {
                 const rest = g.bolt.userData.rest as THREE.Vector3
-                g.bolt.position.set(rest.x, rest.y, rest.z + 0.05 * bolt + (shotT < 0.05 && g.id !== 'kar98k' ? 0.015 : 0))
+                g.bolt.position.set(rest.x, rest.y, rest.z + 0.05 * bolt + (shotT < Math.min(0.05, shotDur * 0.45) && g.id !== 'kar98k' ? 0.015 : 0))
                 if (g.id === 'kar98k') g.bolt.rotation.z = bolt * 1.2
             }
             if (g.pump) g.pump.position.copy(g.pump.userData.rest as THREE.Vector3).setZ(0.07 * pump)

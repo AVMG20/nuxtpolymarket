@@ -38,6 +38,8 @@ export interface DfGunRig {
     /** Glow material pulsed by the viewmodel (X-Ray, wonder weapon). */
     glow: DfVoxMaterial | null
     reload: DfReloadStyle
+    /** Feeds from a drum: the reload plays the drum's wind and clatter. */
+    drum: boolean
     scoped: boolean
     lens: THREE.Mesh | null
     long: boolean
@@ -254,6 +256,9 @@ interface Spec {
     left: [number, number, number]
     eject: [number, number]
     reload: DfReloadStyle
+    drum?: boolean
+    /** Muzzle column k when a fitting moves it (default: 0, or the Maxim can's mouth). */
+    muzzle?: number
     long: boolean
     scoped?: { j: number, k0: number, k1: number }
     /** A red dot sight: the window's centre row j, its front glass k0 and the rear edge k1 the eye looks from. */
@@ -381,7 +386,6 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             if (holster) g.slope(24, 28, k => 2 + (k - 24) * 0.5, k => 9 - (k - 24) * 0.2, 3, WOOD_L)
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 12)
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 12)
-            if (has(att, 'optic', 'tangent')) g.box(15, 18, 14, 16, 3, STEEL_HI).cut(16, 17, 15, 16, g.ci, g.ci + 1)
             const dot = has(att, 'optic', 'reddot') ? redDot(g, 11, 20, 14) : undefined
             return { gun: g, grip: [22, 5], bore: 12, front: 1, sight: [16, 15], eyeRelief: 0.32, left: [-0.025, -0.02, -0.03], eject: [19, 13], reload: box ? 'mag' : 'stripper', long: false, dot }
         }
@@ -503,10 +507,9 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.part('main')
             if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 16)
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 16)
-            if (has(att, 'optic', 'lyman')) g.box(45, 48, 20, 24, 3, STEEL_HI).cut(46, 47, 22, 24, g.ci, g.ci + 1)
             const dot = dotSight ? redDot(g, 45, 54, 20) : undefined
             if (has(att, 'stock', 'light')) for (const k of [60, 67]) g.cut(k, k + 4, 6, 12, 0, g.W)
-            return { gun: g, grip: [47, 9], bore: 16, front: 1, sight: [46, 21], eyeRelief: 0.26, left: [-0.012, -0.04, -0.33], eject: [38, 19], reload: 'mag', long: true, dot }
+            return { gun: g, grip: [47, 9], bore: 16, front: 1, sight: [46, 21], eyeRelief: 0.26, left: [-0.012, -0.04, -0.33], eject: [38, 19], reload: 'mag', drum, long: true, dot }
         }
         case 'mp18': {
             const snail = has(att, 'magazine', 'snail')
@@ -542,6 +545,149 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             const dot = has(att, 'optic', 'reddot') ? redDot(g, 44, 53, 18) : undefined
             if (has(att, 'stock', 'light')) for (const k of [62, 69]) g.cut(k, k + 4, 6, 10, 0, g.W)
             return { gun: g, grip: [52, 9], bore: 15, front: 1, sight: [38, 19], eyeRelief: 0.31, left: [-0.015, 0.005, -0.27], eject: [44, 16], reload: 'side', long: true, dot }
+        }
+        case 'ppsh': {
+            // PPSh-41: a slotted round jacket ending in a slanted brake with a hooded post, a
+            // blued receiver with a hinged top cover, a walnut stock with a straight comb and a
+            // deep pistol-grip swell, a ring trigger guard and the 71-round drum underneath.
+            const box = has(att, 'magazine', 'box')
+            const brake = has(att, 'muzzle', 'brake')
+            const dotSight = has(att, 'optic', 'reddot')
+            const short = has(att, 'stock', 'light')
+            const g = new Gun(VOX, 80, 30, 9, 4)
+            const B = 20
+            const ci = g.ci
+            const SEAM = derive(scaleHex(STEEL, 0.72), STEEL)
+            // ---- jacket: a rounded tube, hollow round the barrel. The front is cut on a slant
+            // (the brake): the top lip runs furthest forward over the bore exit.
+            const front = brake ? -4 : 0
+            const nose = (j: number) => front + Math.round((22 - j) * 1.2)
+            g.oval(front, 31, B, 2.2, 2.6, STEEL)
+            for (let j = 18; j <= 22; j++) g.cut(front, nose(j), j, j + 1, 0, g.W)
+            g.cut(nose(19) + 1, 30, 19, 22, ci - 1, ci + 2)
+            g.rod(nose(19) + 1, 31, B, 1, BLACK).rod(nose(B) + 1, 31, B, 0.6, STEEL_HI)
+            // The slanted brake plate, lit, with the bore's port punched through it.
+            for (let j = 18; j <= 22; j++) g.box(nose(j), nose(j) + 1, j, j + 1, j === 18 || j === 22 ? 3 : 5, STEEL_HI)
+            g.box(nose(B), nose(B) + 1, B, B + 1, 1, BLACK).box(nose(B + 1), nose(B + 1) + 1, B + 1, B + 2, 1, SEAM)
+            // Four big oval cooling slots through both flanks (one more in the long brake): solid
+            // steel bands between them and a lip above, so the jacket stays a tube.
+            const slots = brake ? [0, 6, 12, 18, 24] : [6, 12, 18, 24]
+            for (const k0 of slots) {
+                for (const i of [ci - 2, ci + 2]) g.cut(k0, k0 + 4, 19, 21, i, i + 1)
+            }
+            // A row of small round vents along the top, and the collar into the receiver.
+            for (const k of [9, 15, 21, 27]) g.box(k, k + 1, 22, 23, 1, BLACK)
+            g.oval(29, 31, B, 2.6, 2.9, STEEL)
+            // A sling swivel on the left of the collar.
+            g.boxI(28, 31, 19, 20, ci - 4, ci - 3, STEEL_HI).boxI(28, 29, 17, 19, ci - 4, ci - 3, STEEL_HI).boxI(30, 31, 17, 19, ci - 4, ci - 3, STEEL_HI)
+            // ---- hooded front post: a ramp on the nose, an arched hood open over the post.
+            g.box(front + 1, front + 5, 23, 24, 3, STEEL)
+            g.box(front + 3, front + 4, 24, 25, 1, STEEL_HI)
+            g.boxI(front + 2, front + 5, 23, 26, ci - 2, ci - 1, STEEL).boxI(front + 2, front + 5, 23, 26, ci + 2, ci + 3, STEEL)
+            g.box(front + 2, front + 5, 26, 27, 3, STEEL_HI).cut(front + 3, front + 4, 26, 27, ci, ci + 1)
+            // ---- receiver: the lower half, the top cover over a dark seam, rounded on top, its
+            // hinge pin at the front and a catch at the back.
+            g.box(31, 55, 17, 19, 5, STEEL)
+            g.box(31, 55, 19, 20, 5, SEAM)
+            g.box(31, 55, 20, 22, 5, STEEL).box(31, 55, 22, 23, 3, STEEL)
+            g.box(31, 33, 19, 21, 7, STEEL_HI)
+            g.box(53, 54, 22, 23, 1, STEEL_HI).box(54, 55, 21, 22, 5, SEAM)
+            g.rivets([36], 18, 5, STEEL_HI)
+            // Ejection port on top and the charging-handle slot down the right flank, with its
+            // safety notch at the rear.
+            g.cut(41, 46, 21, 23, ci - 1, ci + 2)
+            g.boxI(40, 53, 20, 21, ci + 2, ci + 3, BLACK).boxI(51, 53, 21, 22, ci + 2, ci + 3, BLACK)
+            // Rear sight: a base on the cover and the L-flip leaf, its second leaf folded down.
+            if (!dotSight) {
+                g.box(33, 39, 23, 24, 3, STEEL)
+                g.boxI(34, 35, 24, 25, ci - 1, ci, STEEL_HI).boxI(34, 35, 24, 25, ci + 1, ci + 2, STEEL_HI)
+                g.boxI(36, 39, 24, 25, ci - 1, ci, STEEL).boxI(36, 39, 24, 25, ci + 1, ci + 2, STEEL)
+            }
+            // ---- walnut: the fore-end under the receiver, the pistol-grip swell behind the guard,
+            // a straight comb and a tall butt.
+            g.slope(28, 55, k => 14 + Math.max(0, (31 - k) * 1.1), () => 17, 5, WOOD)
+            g.box(29, 31, 17, 18, 5, WOOD)
+            const end = short ? 70 : 80
+            const swell = (k: number) => {
+                const x = (k + 0.5 - 59.5) / 6.2
+                return Math.abs(x) < 1 ? 5.8 * Math.sqrt(1 - x * x) : 0
+            }
+            const lo = (k: number) => Math.min(k < 63 ? 13.4 : 13.4 - (k - 63) * (5.8 / 16), 14 - swell(k))
+            const comb = (k: number) => 22 - (k - 55) * 0.06
+            for (let k = 55; k < end; k++) {
+                const j0 = Math.round(lo(k))
+                const j1 = Math.round(comb(k))
+                g.box(k, k + 1, j0, j1, 5, WOOD)
+                // The bottom edge rounded off.
+                g.cut(k, k + 1, j0, j0 + 1, ci - 2, ci - 1).cut(k, k + 1, j0, j0 + 1, ci + 2, ci + 3)
+            }
+            g.box(end - 1, end, Math.round(lo(end - 1)), Math.round(comb(end - 1)), 5, STEEL)
+            g.box(end - 1, end, Math.round(lo(end - 1)), Math.round(lo(end - 1)) + 1, 5, STEEL_HI)
+            g.box(end - 1, end, Math.round(comb(end - 1)) - 1, Math.round(comb(end - 1)), 5, STEEL_HI)
+            // The sling slot through the butt.
+            const sk = short ? 64 : 71
+            g.cut(sk, sk + 3, Math.round(lo(sk)) + 3, Math.round(lo(sk)) + 5, 0, g.W)
+            // The stock bolt where wood meets the receiver.
+            g.rivets([57], 18, 5, STEEL_HI)
+            // ---- ring trigger guard and a curled trigger, under the receiver.
+            for (let k = 45; k < 56; k++) {
+                for (let j = 8; j < 14; j++) {
+                    const d = Math.hypot((k + 0.5 - 50.5) / 3.6, (j + 0.5 - 13) / 4.2)
+                    if (d > 0.74 && d <= 1.04) g.box(k, k + 1, j, j + 1, 1, STEEL)
+                }
+            }
+            g.box(50, 51, 11, 14, 1, BLACK).box(51, 52, 10, 12, 1, BLACK)
+            // The magazine catch ahead of the guard.
+            g.box(44, 46, 13, 14, 3, STEEL_HI)
+            // ---- moving parts
+            g.part('bolt')
+            g.box(39, 48, 21, 22, 3, STEEL_HI)
+            g.box(41, 46, 21, 22, 1, SEAM)
+            g.boxI(46, 48, 20, 21, ci + 3, ci + 4, STEEL_HI).boxI(46, 48, 19, 22, ci + 4, ci + 5, STEEL_HI)
+            g.part('mag')
+            g.box(36, 43, 12, 14, 3, STEEL)
+            if (box) {
+                // The curved 35-round box, sweeping forward as it drops, with a lit spine.
+                const RIB = derive(scaleHex(BLACK, 1.3), BLACK)
+                for (let j = 0; j < 12; j++) {
+                    const k0 = 38 - Math.round((12 - j) * 0.32)
+                    g.box(k0, k0 + 5, j, j + 1, 3, j % 4 === 1 ? RIB : BLACK)
+                    g.box(k0, k0 + 1, j, j + 1, 3, STEEL)
+                }
+                g.box(33, 40, -1, 0, 3, STEEL)
+            } else {
+                // The drum: a fat disc on its side. A lit rim with the body/cover seam, face plates
+                // recessed inside it, a raised stamped ring and the winding key on the left.
+                const ck = 39.5
+                const cj = 4.5
+                const R = 8.6
+                const RING = derive(scaleHex(STEEL, 1.18), STEEL)
+                for (let k = 30; k < 49; k++) {
+                    for (let j = -5; j < 14; j++) {
+                        const d = Math.hypot(k + 0.5 - ck, j + 0.5 - cj)
+                        if (d >= R) continue
+                        const rim = d > R - 1.3
+                        const ring = d > 4.3 && d < 5.4
+                        g.box(k, k + 1, j, j + 1, rim || ring ? 7 : 5, ring && !rim ? RING : STEEL)
+                        if (rim) g.boxI(k, k + 1, j, j + 1, ci + 1, ci + 2, SEAM)
+                        if (d < 1.9) g.box(k, k + 1, j, j + 1, 9, d < 0.8 ? STEEL : STEEL_HI)
+                    }
+                }
+                // The winding key: a lever across the hub on the left face; a spring latch on top.
+                g.boxI(37, 42, 4, 5, 0, 1, STEEL_HI)
+                g.boxI(37, 38, 4, 6, 0, 1, STEEL_HI)
+                g.box(37, 42, 12, 13, 7, STEEL_HI)
+            }
+            g.part('main')
+            if (has(att, 'muzzle', 'maxim')) {
+                g.rod(0, 3, B, 0.6, STEEL)
+                maxim(g, 0, B)
+            }
+            const dot = dotSight ? redDot(g, 32, 41, 23) : undefined
+            return {
+                gun: g, grip: [57, 12], bore: B, front: front + 3, sight: [34, 25], eyeRelief: 0.3, left: [-0.015, 0.008, -0.32], eject: [43, 22],
+                reload: 'mag', drum: !box, muzzle: brake ? -2 : 1, long: true, dot
+            }
         }
         case 'bar': {
             const sc = has(att, 'optic', 'scope')
@@ -868,7 +1014,7 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
     const pan = sub('pan', spec.panAxis)
     const mag = pan ?? sub('mag')
     const muzzle = new THREE.Object3D()
-    const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : (id === 'm1911' && tier > 0) || id === 'xray' ? -2 : 0
+    const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : spec.muzzle ?? ((id === 'm1911' && tier > 0) || id === 'xray' ? -2 : 0)
     toGun(gi, spec.bore + 0.5, muzzleK, muzzle.position)
     root.add(muzzle)
     let lens: THREE.Mesh | null = null
@@ -927,6 +1073,7 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
         pan,
         glow: glowMat,
         reload: spec.reload,
+        drum: !!spec.drum,
         scoped: !!spec.scoped,
         lens,
         long: spec.long

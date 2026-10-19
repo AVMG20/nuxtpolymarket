@@ -103,11 +103,12 @@ describe('levels and sanitising', () => {
 
     it('drops locked, unknown and mismatched attachments', () => {
         expect(dfUnlockedAttachments('thompson', 1)).toHaveLength(0)
-        expect(dfSanitizeAttachments('thompson', 5, { magazine: 'thompson-drum', optic: 'thompson-lyman' })).toEqual({ magazine: 'thompson-drum', optic: 'thompson-lyman' })
+        expect(dfSanitizeAttachments('thompson', 5, { magazine: 'thompson-drum', optic: 'thompson-reddot' })).toEqual({ magazine: 'thompson-drum', optic: 'thompson-reddot' })
         expect(dfSanitizeAttachments('thompson', 3, { magazine: 'thompson-drum' })).toEqual({})
         expect(dfSanitizeAttachments('thompson', 5, { optic: 'thompson-drum' })).toEqual({})
         expect(dfSanitizeAttachments('thompson', 5, { optic: 'nope' })).toEqual({})
-        expect(dfSanitizeAttachments('xray', 5, { optic: 'thompson-lyman' })).toEqual({})
+        expect(dfSanitizeAttachments('thompson', 5, { optic: 'thompson-lyman' })).toEqual({})
+        expect(dfSanitizeAttachments('xray', 5, { optic: 'thompson-reddot' })).toEqual({})
     })
 })
 

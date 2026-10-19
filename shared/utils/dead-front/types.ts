@@ -15,6 +15,7 @@ export type DfWeaponId
         | 'kar98k' // bolt-action rifle
         | 'thompson' // M1921 drum SMG
         | 'mp18' // Bergmann SMG
+        | 'ppsh' // PPSh-41 drum SMG, mystery box only
         | 'bar' // M1918 automatic rifle
         | 'lewis' // Lewis LMG
         | 'xray' // the X-Ray: a 1900s brass-and-valve ray pistol, mystery box only

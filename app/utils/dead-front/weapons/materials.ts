@@ -74,7 +74,7 @@ export function dfReticleTexture(): THREE.Texture {
 }
 
 let dotTex: THREE.Texture | null = null
-/** A soft red dot with a faint halo, for the red dot sights' glass. */
+/** A plain red dot for the red dot sights' glass: no halo, and no white core for the bloom to smear. */
 export function dfDotTexture(): THREE.Texture {
     if (dotTex) return dotTex
     const c = typeof document !== 'undefined' ? document.createElement('canvas') : null
@@ -85,16 +85,12 @@ export function dfDotTexture(): THREE.Texture {
     c.width = 64
     c.height = 64
     const g = c.getContext('2d')!
-    const halo = g.createRadialGradient(32, 32, 0, 32, 32, 30)
-    halo.addColorStop(0, 'rgba(255,60,48,0.55)')
-    halo.addColorStop(1, 'rgba(255,40,30,0)')
-    g.fillStyle = halo
-    g.fillRect(0, 0, 64, 64)
-    const core = g.createRadialGradient(32, 32, 0, 32, 32, 4.5)
-    core.addColorStop(0, 'rgba(255,235,225,1)')
-    core.addColorStop(0.5, 'rgba(255,70,55,1)')
-    core.addColorStop(1, 'rgba(255,45,35,0)')
-    g.fillStyle = core
+    // A solid disc with a one-pixel soft edge
+    const dot = g.createRadialGradient(32, 32, 0, 32, 32, 3.5)
+    dot.addColorStop(0, 'rgba(255,40,30,1)')
+    dot.addColorStop(0.7, 'rgba(255,40,30,1)')
+    dot.addColorStop(1, 'rgba(255,40,30,0)')
+    g.fillStyle = dot
     g.fillRect(0, 0, 64, 64)
     dotTex = new THREE.CanvasTexture(c)
     dotTex.colorSpace = THREE.SRGBColorSpace

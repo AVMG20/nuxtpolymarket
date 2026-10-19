@@ -25,6 +25,8 @@ export const DF_WSND = {
     shell: 'w:shell',
     clip: 'w:clip',
     drum: 'w:drum',
+    drumOut: 'w:drum-out',
+    drumIn: 'w:drum-in',
     raise: 'w:raise',
     knife: 'w:knife',
     pin: 'w:grenade-pin',
@@ -59,6 +61,14 @@ export interface DfGunVoice {
     drive: number
     /** Overall level (own shot peaks land around 0.8). */
     gain: number
+    /** Resonant mid "bark" of a stamped-steel gun (bandpass centre, Hz); kept at a distance too. */
+    bark?: number
+    /** Short ring of a sheet-metal receiver (Hz). */
+    ring?: number
+    /** A light open bolt slamming home just after the shot: level. */
+    slam?: number
+    /** Tail level multiplier: very fast guns keep their tails short and low so a burst stays a rattle. */
+    tailGain?: number
 }
 
 /** Per-weapon voicing. Exported for the spec (every weapon has a distinct report). */
@@ -75,6 +85,10 @@ export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder'>, DfGun
     thompson: { body: 190, bodyEnd: 65, bodyDur: 0.08, blast: 2000, blastDur: 0.07, crack: 0, tail: 0.3, echo: 0.2, mech: 2300, mechAt: 0.02, mechGain: 0.07, drive: 1.8, gain: 0.66 },
     // 9 mm MP18: tighter and lighter than the Thompson, with a tinny bolt.
     mp18: { body: 240, bodyEnd: 85, bodyDur: 0.065, blast: 2600, blastDur: 0.06, crack: 0, tail: 0.28, echo: 0.18, mech: 3100, mechAt: 0.018, mechGain: 0.07, drive: 1.5, gain: 0.6 },
+    // 7.62 Tokarev PPSh: a hot, high supersonic snap with a nasal stamped-steel bark, a short
+    // receiver ring and a light bolt slapping home. Short, low tails: at 1000 rpm a burst
+    // reads as a buzzing rattle, not a roar.
+    ppsh: { body: 300, bodyEnd: 115, bodyDur: 0.038, blast: 3800, blastDur: 0.032, crack: 4100, tail: 0.16, echo: 0.08, mech: 3700, mechAt: 0.008, mechGain: 0.06, drive: 1.45, gain: 0.52, bark: 1550, ring: 2350, slam: 0.11, tailGain: 0.6 },
     // .30-06 BAR: heavy rifle report with a solid bolt slam.
     bar: { body: 140, bodyEnd: 45, bodyDur: 0.13, blast: 2600, blastDur: 0.11, crack: 2700, tail: 0.9, echo: 0.5, mech: 1900, mechAt: 0.03, mechGain: 0.1, drive: 2, gain: 0.74 },
     // .303 Lewis gun: a drier rifle bark with a ratchety cocking click.
@@ -145,9 +159,15 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
             thump(p, v.body * 0.9, v.bodyEnd, v.bodyDur * 0.8, 0.5)
             noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: 900, freqEnd: 300, q: 0.7, gain: 0.45, dur: 0.07 })
             noiseBurst({ ...r, out: punchOut }, { kind: 'pink', type: 'bandpass', freq: 1300, freqEnd: 700, q: 1.2, gain: 0.12, dur: 0.06 })
+            if (v.bark) noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: v.bark * 0.7, q: 2.2, gain: 0.16, dur: 0.035 })
             if (!remote) {
                 const m = at({ ...r, out: punchOut }, Math.max(0.02, v.mechAt))
                 tick(m, v.mech || 2400, 0.22)
+                // A light open bolt: with the report gone, its clatter and slam are the sound.
+                if (v.slam) {
+                    clack(at(m, 0.024), v.mech * 0.55, v.slam * 1.6)
+                    if (v.ring) metal(at(m, 0.024), { base: v.ring, ratios: [1, 1.41, 2.13], decay: 0.05, gain: 0.05, strike: 0 })
+                }
             }
             return
         }
@@ -155,19 +175,23 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
         thump(p, v.body * body, v.bodyEnd, v.bodyDur, 0.95)
         thump(p, v.body * 0.5 * body, v.bodyEnd * 0.7, v.bodyDur * 1.4, 0.35, 'triangle')
         noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: v.blast, freqEnd: v.blast * 0.22, q: 0.7, gain: 0.9, dur: v.blastDur, attack: 0.0008 })
+        // Stamped-steel guns bark through the middle: a tight resonant band that cuts through the mix.
+        if (v.bark) noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: v.bark, freqEnd: v.bark * 0.8, q: 2.6, gain: remote ? 0.5 : 0.38, dur: 0.03, attack: 0.0006 })
         // Supersonic crack: short and band-limited so it snaps without fizzing.
         const dry: Rt = { ...r, out: punchOut }
         if (v.crack > 0 && !remote) {
             noiseBurst(dry, { kind: 'white', type: 'bandpass', freq: v.crack, q: 1.1, gain: 0.32, dur: 0.014, attack: 0.0005 })
         }
         // Outdoor tail and a slapback off the ruins.
-        const tailG = remote ? 0.32 : 0.2
+        const tailG = (remote ? 0.32 : 0.2) * (v.tailGain ?? 1)
         noiseSwell(dry, { kind: 'brown', type: 'lowpass', freq: v.blast * 0.45, freqEnd: 140, q: 0.6, gain: tailG, dur: v.tail, peakAt: 0.04 })
         if (v.echo > 0) {
             const e = at(dry, rnd(0.13, 0.24))
             noiseBurst(e, { kind: 'pink', type: 'lowpass', freq: v.blast * 0.3, freqEnd: 200, q: 0.6, gain: v.echo * 0.12, dur: v.tail * 0.5, attack: 0.01 })
         }
         if (!remote && v.mechGain > 0) tick(at(dry, v.mechAt), v.mech, v.mechGain)
+        if (!remote && v.ring) metal(at(dry, 0.004), { base: v.ring, ratios: [1, 1.41, 2.13], decay: 0.045, gain: 0.045, strike: 0 })
+        if (!remote && v.slam) clack(at(dry, v.mechAt + 0.026), v.mech * 0.55, v.slam)
         if (pap) papShimmer(dry)
     }
 }
@@ -338,6 +362,25 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         clickTrain(p, scatter(9, 0.16, 1), { freq: 2200, q: 2, gain: 0.12, len: 0.008, jitter: 0.5 })
         scrape(p, 900, 1300, 0.16, 0.14)
         clack(at(p, 0.18), 1300, 0.45)
+    })
+    // Drum off: the latch, the drum's spring creaking as it slides off the well, the rounds
+    // shifting inside and its weight landing in the hand.
+    r(DF_WSND.drumOut, (p) => {
+        tick(p, 2700, 0.26, 0.05)
+        clack(at(p, 0.02), 1500, 0.2)
+        scrape(at(p, 0.03), 1100, 650, 0.12, 0.2)
+        metal(at(p, 0.05), { base: 820, ratios: [1, 1.52, 2.31], decay: 0.16, gain: 0.05, strike: 0.1 })
+        clickTrain(at(p, 0.06), scatter(8, 0.14, 1.2), { freq: 1900, q: 2, gain: 0.1, len: 0.008, jitter: 0.5 })
+        thump(at(p, 0.16), 230, 110, 0.07, 0.16)
+    })
+    // Drum on: a slide into the well, a heavy seat the hand slaps home, the latch snapping
+    // over and the rounds settling.
+    r(DF_WSND.drumIn, (p) => {
+        scrape(p, 650, 1250, 0.07, 0.17)
+        clack(at(p, 0.07), 1350, 0.55)
+        thump(at(p, 0.07), 190, 85, 0.09, 0.32)
+        tick(at(p, 0.1), 3000, 0.2, 0.05)
+        clickTrain(at(p, 0.11), scatter(6, 0.1, 1.4), { freq: 2100, q: 2, gain: 0.06, len: 0.007, jitter: 0.5 })
     })
     // Raise: a cloth rustle and a sling-swivel rattle.
     r(DF_WSND.raise, (p) => {

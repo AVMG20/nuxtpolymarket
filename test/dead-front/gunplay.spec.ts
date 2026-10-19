@@ -156,7 +156,7 @@ describe('aim', () => {
     })
 
     it('a rested shot down the sights lands on the centre (within 0.1 degrees) for every weapon', () => {
-        for (const id of ['m1911', 'c96', 'm1897', 'kar98k', 'thompson', 'mp18', 'bar', 'lewis', 'xray'] as const) {
+        for (const id of ['m1911', 'c96', 'm1897', 'kar98k', 'thompson', 'mp18', 'ppsh', 'bar', 'lewis', 'xray'] as const) {
             const s = dfWeaponStats(id, 0)
             const spread = dfSpread({ hipSpread: s.hipSpread, adsSpread: s.adsSpread, adsBlend: 1, spreadMult: 1, move: 0, airborne: false, crouched: false, bloom: 0 })
             const d = dfAimDir(0.3, -0.05, { x: 0, y: 0, z: 0 })

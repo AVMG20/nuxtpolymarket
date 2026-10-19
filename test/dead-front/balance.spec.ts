@@ -164,9 +164,9 @@ describe('balance (headless bots)', () => {
             expect(total(1) + 500).toBeGreaterThanOrEqual(costs.door)
             expect(total(5)).toBeGreaterThanOrEqual(costs.perk + costs.box)
             expect(total(10)).toBeGreaterThanOrEqual(costs.pap)
-            // rounds stay short early and grow later
+            // rounds stay short early and grow later (a gas round's smaller pack can be short, so take the longest late round)
             expect(lines[0]!.seconds).toBeLessThan(60)
-            expect(lines[8]!.seconds).toBeGreaterThan(lines[0]!.seconds)
+            expect(Math.max(...lines.slice(6, 9).map(l => l.seconds))).toBeGreaterThan(lines[0]!.seconds)
         }
     }, 120_000)
 })
@@ -186,8 +186,14 @@ describe('weapon niches and the box', () => {
         // the Thompson out-damages the cheaper MP18, which is steadier
         expect(dps('thompson')).toBeGreaterThan(dps('mp18'))
         expect(stat('mp18').recoil).toBeLessThan(stat('thompson').recoil)
-        // the Lewis carries the most rounds, the BAR reaches furthest of the autos
-        expect(DF_WEAPON_IDS.every(id => id === 'lewis' || stat(id).magSize < stat('lewis').magSize || stat(id).shot !== 'hitscan')).toBe(true)
+        // the Lewis carries the most damage per magazine, the BAR reaches furthest of the autos
+        const magDamage = (id: DfWeaponId) => stat(id).magSize * stat(id).damage * stat(id).pellets
+        expect(hitscan.every(id => id === 'lewis' || magDamage(id) < magDamage('lewis'))).toBe(true)
+        // the PPSh has the biggest drum and the fastest cycle, but lighter rounds and no more sustained damage than the Thompson
+        expect(hitscan.every(id => id === 'ppsh' || (stat(id).magSize < stat('ppsh').magSize && stat(id).rpm < stat('ppsh').rpm))).toBe(true)
+        expect(stat('ppsh').damage).toBeLessThan(stat('thompson').damage)
+        expect(dps('ppsh')).toBeLessThanOrEqual(dps('thompson'))
+        expect(dps('ppsh')).toBeGreaterThan(dps('mp18'))
         expect(stat('bar').range).toBeGreaterThan(stat('thompson').range)
         // the X-Ray splashes; the pistols kill a round-1 zombie with one headshot
         expect(stat('xray').splashRadius).toBeGreaterThan(0)
