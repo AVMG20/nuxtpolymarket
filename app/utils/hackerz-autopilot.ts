@@ -19,8 +19,8 @@ import {
 import type { HackerzGame } from './hackerz-engine/hackerz-game'
 import type { EnemyEntity } from './hackerz-engine/types'
 
-// Auto-play for HACKERZ, played by Laya on this machine (`bun scripts/laya-server.ts`,
-// or laya_server.py). A few times a second mid-wave the board is described to
+// Auto-play for HACKERZ, played by Laya on this machine: `laya_server.py`, the
+// same local Laya API Shapezz and Pirate Raid auto-play use (`runtimeConfig.public.layaUrl`). A few times a second mid-wave the board is described to
 // Laya and it names the hostile to shoot and any ability to fire; this class
 // carries that out through the engine. Between waves it asks Laya what to buy,
 // one purchase at a time. It makes no decisions of its own: while Laya is down
@@ -195,7 +195,7 @@ export class HackerzAutopilot {
     private offline() {
         this.retryAt = performance.now() + OFFLINE_RETRY_MS
         this.game.autopilotAim(null)
-        this.setStatus({ online: false, line: 'Laya offline: run bun scripts/laya-server.ts' })
+        this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
     }
 
     /**
@@ -218,7 +218,7 @@ export class HackerzAutopilot {
             answers = null
         }
         if (!answers) {
-            this.setStatus({ online: false, line: 'Laya offline: run bun scripts/laya-server.ts' })
+            this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
             return { online: false, pick: null }
         }
         const pick = hackerzLayaShopPick(offers, answers)
@@ -243,7 +243,7 @@ export class HackerzAutopilot {
             answers = null
         }
         if (!answers) {
-            this.setStatus({ online: false, line: 'Laya offline: run bun scripts/laya-server.ts' })
+            this.setStatus({ online: false, line: 'Laya offline: start laya_server.py' })
             return null
         }
         const take = hackerzLayaBonusPick(answers)

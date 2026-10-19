@@ -1921,7 +1921,7 @@ async function toggleFullscreen() {
               {{ autopilotOn ? 'Stop Laya' : 'Activate Laya' }}
             </UButton>
             <p class="mt-1 text-xs text-muted">
-              Needs Laya on this machine: <code>bun scripts/laya-server.ts</code>. It shoots, fires abilities, shops and deploys every wave.
+              Needs Laya on this machine: <code>laya_server.py</code>, the same local API Shapezz and Pirate Raid auto-play use. It shoots, fires abilities, shops and deploys every wave.
             </p>
           </div>
           <div>

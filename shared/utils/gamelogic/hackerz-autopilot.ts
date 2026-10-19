@@ -1,6 +1,7 @@
 /**
  * Auto-play for HACKERZ: the questions Laya (the local decision model, see
- * `scripts/laya-server.ts`) is asked, and how its answers are read. Laya makes
+ * `laya_server.py`, at `runtimeConfig.public.layaUrl`) is asked, and how its
+ * answers are read. Laya makes
  * the calls a player makes — which hostile to shoot, when to fire an ability,
  * what to buy at the uplink — and the game carries them out. Nothing here
  * decides anything itself.
