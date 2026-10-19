@@ -3,8 +3,8 @@ import { randomFloat } from '../rng'
 import { FIELD_SCALE } from '../constants'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v } from './tuning'
-import { enemyCentreY, enemyWorld, placeEnemy } from './bodies'
+import { _v } from './tuning'
+import { bodyPoint, enemyCentreY, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** PACKET LOSS: how long the board's picture freezes, and the gap between freezes, give or take. */
@@ -70,7 +70,7 @@ export class PacketLoss {
             this.muteFx(false)
             for (const enemy of this.game.enemies) {
                 placeEnemy(enemy)
-                this.game.particles.burst(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), 0xe879f9, 6, 4, { size: 0.22, life: 0.3 })
+                this.game.particles.burst(bodyPoint(enemy, 0.5, _v), 0xe879f9, 6, 4, { size: 0.22, life: 0.3 })
             }
             for (const bullet of this.game.projectiles.bullets) this.game.projectiles.orientBullet(bullet)
             for (const spit of this.game.projectiles.spits) fieldToWorld(spit.u, spit.d, spit.y * FIELD_SCALE, spit.mesh.position)

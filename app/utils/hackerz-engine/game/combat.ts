@@ -6,8 +6,8 @@ import { disposeRig, type ModelRig } from '../models'
 import { MOTION } from '../rig-motion'
 import { LIME, RED, fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v, _w, BLACKOUT_LIGHT_D } from './tuning'
-import { enemyWorld, placeEnemy } from './bodies'
+import { _v, _w, BLACKOUT_LIGHT_D } from './tuning'
+import { bodyPoint, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -41,9 +41,9 @@ export class Combat {
         if (shieldable && enemy.redShield && amount > 0) {
             this.game.territory.setRedShield(enemy, false)
             enemy.rig.body.uniforms.uShieldHit!.value = 1
-            const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+            const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
             this.game.particles.burst(at, 0xff3b3b, 14, 7, { size: 0.24, life: 0.35 })
-            if (showNumber) this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'BLOCKED', 0xff6b6b, 0.95)
+            if (showNumber) this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 20), 'BLOCKED', 0xff6b6b, 0.95)
             if (flash) enemy.flashMs = MOTION.hitFlashMs
             return
         }
@@ -62,7 +62,7 @@ export class Combat {
         if (showNumber) {
             const effective = bonus > 1
             this.game.overlay.floatText(
-                enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v),
+                bodyPoint(enemy, 1, _v, 20),
                 crit ? `${Math.round(dealt)}!` : effective ? `${Math.round(dealt)}+` : `${Math.round(dealt)}`,
                 crit ? 0xfde047 : HACKERZ_TYPE_HEX[damageType],
                 crit ? 1.5 : effective ? 1.2 : 0.95
@@ -76,10 +76,16 @@ export class Combat {
         placeEnemy(enemy)
         this.game.shrapnel?.burst(enemy.rig, 0xffffff, enemy.rig.guardParts)
         for (const part of enemy.rig.guardParts) part.visible = false
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
         this.game.particles.burst(at, 0xffffff, 18, 9, { size: 0.24, life: 0.45 })
         this.game.transient?.ring(at, 0xffffff, 3, 0.35)
-        this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'SHIELD DOWN', 0xffffff, 1.1)
+        this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 20), 'SHIELD DOWN', 0xffffff, 1.1)
+    }
+
+    /** Takes a hostile a hit has just brought down off the field, paying out in full. */
+    finish(enemy: EnemyEntity) {
+        const index = this.game.enemies.indexOf(enemy)
+        if (index >= 0) this.killEnemy(index, 1)
     }
 
     /** Removes an enemy and pays out. `payout` scales it (the purge pays less). */
@@ -91,12 +97,12 @@ export class Combat {
         const credits = Math.round(enemy.bounty * payout * (payout >= 1 ? this.game.scoring.chainMultiplier : 1))
         const coins = Math.round(enemy.coinValue * payout)
 
-        const centre = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3())
+        const centre = bodyPoint(enemy, 0.45, new THREE.Vector3())
         // A ZERO DAY copy dies as what it is: a fake, with none of the boss's fanfare.
         const bossDeath = !!enemy.def.boss && !enemy.decoy
         // The purge writes its own summary; only kills the player made get a line.
         if (payout >= 1 && !enemy.decoy) this.game.sysLog.kill(enemy.def.id, enemy.def.name, bossDeath, !!enemy.def.cloaked)
-        if (enemy.decoy) this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'DECOY', 0x94a3b8, 1.2)
+        if (enemy.decoy) this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 20), 'DECOY', 0x94a3b8, 1.2)
         this.game.particles.burst(centre, enemy.def.hex, bossDeath ? 120 : 22, bossDeath ? 22 : 11,
             { size: bossDeath ? 0.5 : 0.3, life: 0.8, gravity: 18 })
         // The discharge: bolts arc from the body into the floor, and the charge
@@ -110,7 +116,7 @@ export class Combat {
         this.game.view?.addSurge(ground.x, ground.z, enemy.def.hex, bossDeath ? 2.4 : payout < 1 ? 0.6 : 1)
         this.game.transient?.ring(fieldToWorld(enemy.u, enemy.d, 0.1, _v), enemy.def.hex, bossDeath ? 14 : 2.4, 0.4)
         if (credits > 0) {
-            this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 34, _v), `+${credits}`, LIME, 1.1)
+            this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 34), `+${credits}`, LIME, 1.1)
         }
         if (coins > 0) this.game.scoring.dropCoins(enemy, coins)
         if (bossDeath) {

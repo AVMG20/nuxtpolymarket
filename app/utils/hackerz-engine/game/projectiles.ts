@@ -212,8 +212,7 @@ export class Projectiles {
                 if (bullet.chain > 0) this.chainFrom(bullet, enemy)
 
                 if (enemy.hp <= 0) {
-                    const index = this.game.enemies.indexOf(enemy)
-                    if (index >= 0) this.game.combat.killEnemy(index, 1)
+                    this.game.combat.finish(enemy)
                 } else if (!enemy.def.boss) {
                     // A little shove on hit — the feedback that sells the shot
                     // even when the target survives it.
@@ -338,10 +337,7 @@ export class Projectiles {
             this.game.particles.burst(end, 0xffffff, 4, 6, { size: 0.16, life: 0.2 })
             bullet.hit.add(best)
             this.game.combat.damageEnemy(best, damage, bullet.damageType, true, true, false)
-            if (best.hp <= 0) {
-                const index = this.game.enemies.indexOf(best)
-                if (index >= 0) this.game.combat.killEnemy(index, 1)
-            }
+            if (best.hp <= 0) this.game.combat.finish(best)
             from = best
             damage *= bullet.chainFalloff
         }

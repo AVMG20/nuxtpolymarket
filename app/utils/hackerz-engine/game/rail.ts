@@ -1,6 +1,7 @@
 import type * as THREE from 'three'
 import { randomChance, randomFloat } from '../rng'
-import type { HackerzWeaponRuntime } from '#shared/utils/gamelogic/hackerz'
+import type { HackerzWeaponId, HackerzWeaponRuntime } from '#shared/utils/gamelogic/hackerz'
+import type { FirewallSoundEvent } from '../../firewall-sounds'
 import { FIELD_DEPTH, FIELD_SCALE, RAIL_U, GUN_Z } from '../constants'
 import { clamp } from '../math'
 import type { ModelRig } from '../models'
@@ -17,6 +18,11 @@ const RAIL_GLIDE = 2400
 
 /** Rounds the Tarpit Grid burns from the gun's magazine each second it is biting. */
 const TARPIT_ROUNDS_PER_S = 1
+
+/** The sound each gun makes firing. */
+const SHOT_SOUND: Partial<Record<HackerzWeaponId, FirewallSoundEvent>> = {
+    rail: 'shoot-rail', flak: 'shoot-flak', arc: 'shoot-arc', missile: 'shoot-missile', sniper: 'shoot-sniper'
+}
 
 /**
  * The player's gun on the wall: where it aims, what it fires, its
@@ -179,11 +185,8 @@ export class Rail {
         if (!weapon || !loadout) return
         this.mag--
         this.emitAmmo()
-        if (weapon.id === 'rail') this.game.callbacks.onSound?.('shoot-rail')
-        else if (weapon.id === 'flak') this.game.callbacks.onSound?.('shoot-flak')
-        else if (weapon.id === 'arc') this.game.callbacks.onSound?.('shoot-arc')
-        else if (weapon.id === 'missile') this.game.callbacks.onSound?.('shoot-missile')
-        else if (weapon.id === 'sniper') this.game.callbacks.onSound?.('shoot-sniper')
+        const sound = SHOT_SOUND[weapon.id]
+        if (sound) this.game.callbacks.onSound?.(sound)
 
         let aim = this.railAim()
         // Aimed down at a pile of leaked memory by the fence, the round goes for

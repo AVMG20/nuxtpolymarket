@@ -4,9 +4,10 @@ import type { PathChip } from '../path-chips'
 import { DARK_ZONES, FRONT_COLUMNS, ISLANDS, RED, fieldToWorld } from '../scene'
 import { zoneAt } from '../lane-props'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D } from './tuning'
-import { enemyWorld } from './bodies'
+import { _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D } from './tuning'
+import { bodyPoint } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
+import { centroid } from '../math'
 
 /** Their ground always covers the portal: the red line never pulls back past this. */
 const PORTAL_GROUND = FIELD_DEPTH - 30
@@ -173,8 +174,7 @@ export class Territory {
             if (group.length >= DARK_CLUSTER) groups.push(group)
         }
         const targets = groups.slice(0, DARK_ZONES).map((group) => {
-            const u = group.reduce((sum, chip) => sum + chip.u, 0) / group.length
-            const d = group.reduce((sum, chip) => sum + chip.d, 0) / group.length
+            const { u, d } = centroid(group)
             const r = Math.max(...group.map(chip => Math.hypot(chip.u - u, chip.d - d))) + DARK_MARGIN
             return { u, d, r }
         })
@@ -309,7 +309,7 @@ export class Territory {
         const share = (enemy.def.boss ? RED_HEAL_BOSS_SHARE : RED_HEAL_SHARE) * (guarding ? 2 : 1)
         enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * share)
         if (!this.game.combat.untargetable(enemy)) {
-            this.game.particles.emit(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
+            this.game.particles.emit(bodyPoint(enemy, 0.6, _v), _w.set(0, 2.4, 0), RED,
                 { size: 0.2, life: 0.5, gravity: 0 })
         }
     }

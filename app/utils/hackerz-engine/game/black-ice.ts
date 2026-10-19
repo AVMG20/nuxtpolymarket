@@ -8,7 +8,7 @@ import { muzzleOf } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
 import { PER_WORLD, _v, _w } from './tuning'
-import { enemyWorld, placeEnemy } from './bodies'
+import { bodyPoint, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -198,7 +198,7 @@ export class BlackIce {
             mount.rig.root.add(mount.ice)
         }
         mount.ice.visible = true
-        const from = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.7, new THREE.Vector3())
+        const from = bodyPoint(enemy, 0.7, new THREE.Vector3())
         const to = mount.rig.root.position.clone().add(_w.set(0, 1, 0))
         this.game.transient?.bolt(from, to, 0xbfe9ff)
         this.game.transient?.beam(from, to, 0xbfe9ff, 0.35)

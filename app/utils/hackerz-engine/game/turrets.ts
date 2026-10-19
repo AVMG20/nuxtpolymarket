@@ -1,5 +1,6 @@
 import { randomBetween } from '../rng'
-import { HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS } from '#shared/utils/gamelogic/hackerz'
+import { HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, type HackerzTurretId } from '#shared/utils/gamelogic/hackerz'
+import type { FirewallSoundEvent } from '../../firewall-sounds'
 import { FIELD_SCALE, GUN_Z, WALL_HEIGHT, mountPosition } from '../constants'
 import { buildRig, disposeRig } from '../models'
 import { MOTION, easeTurretKick, spinTurret, turnToward } from '../rig-motion'
@@ -15,6 +16,11 @@ const TURRET_LANE = 75
 
 /** How often a turret holding a target looks again for one it would rather shoot. */
 const TURRET_RETARGET_MS = 400
+
+/** The sound each turret makes firing. */
+const TURRET_SOUND: Partial<Record<HackerzTurretId, FirewallSoundEvent>> = {
+    gun: 'turret-gun', needler: 'turret-needler', warhead: 'turret-warhead', lance: 'turret-lance'
+}
 
 /**
  * The turrets on the wall: built to match the loadout, each keeping its
@@ -136,10 +142,8 @@ export class Turrets {
             const muzzle = fieldToWorld(mount.u + Math.sin(angle) * 30, mount.muzzleD + Math.cos(angle) * 30, (MUZZLE_Y * 0.92 + mount.muzzleLift) * FIELD_SCALE, _v)
             this.game.transient?.flash(muzzle, mount.runtime.hex, 0.35)
             mount.kick = MOTION.turretKick
-            if (mount.runtime.id === 'gun') this.game.callbacks.onSound?.('turret-gun')
-            else if (mount.runtime.id === 'needler') this.game.callbacks.onSound?.('turret-needler')
-            else if (mount.runtime.id === 'warhead') this.game.callbacks.onSound?.('turret-warhead')
-            else if (mount.runtime.id === 'lance') this.game.callbacks.onSound?.('turret-lance')
+            const sound = TURRET_SOUND[mount.runtime.id]
+            if (sound) this.game.callbacks.onSound?.(sound)
         }
     }
 

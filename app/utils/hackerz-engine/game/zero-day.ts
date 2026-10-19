@@ -5,7 +5,7 @@ import { clamp, randRange } from '../math'
 import { buildRig } from '../models'
 import type { EnemyEntity } from '../types'
 import { PER_WORLD, _w } from './tuning'
-import { enemyWorld, placeEnemy } from './bodies'
+import { bodyPoint, enemyWorld, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -45,7 +45,7 @@ export class ZeroDay {
             this.game.movement.attachToNetwork(swap)
         }
         if (this.game.rail.target === enemy) this.game.rail.target = null
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
         this.game.transient?.ring(at, enemy.def.hex, 10, 0.5)
         this.game.overlay.banner('ZERO DAY FORKED', enemy.def.hex, 'find the one that bleeds data')
         this.game.addShake(10)

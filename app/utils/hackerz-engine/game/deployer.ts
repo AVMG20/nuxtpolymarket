@@ -1,8 +1,14 @@
 import * as THREE from 'three'
 import { randomInt } from '../rng'
 import {
-    HACKERZ_HACKER_ID, HACKERZ_PORTSCAN_REPING_MS, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
-    hackerzIsAirborne, type HackerzDeployableId, type HackerzDeployableStock
+    HACKERZ_HACKER_ID,
+    HACKERZ_PORTSCAN_REPING_MS,
+    hackerzDeployable,
+    hackerzDeployableStats,
+    hackerzEmptyStock,
+    hackerzIsAirborne,
+    type HackerzDeployableId,
+    type HackerzDeployableStock
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE } from '../constants'
 import { clamp } from '../math'
@@ -11,8 +17,8 @@ import type { Blast } from '../deployables'
 import { nearestOnNetwork } from '../data-lines'
 import { CYAN, fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v } from './tuning'
-import { enemyWorld } from './bodies'
+import { _v } from './tuning'
+import { bodyPoint } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** Deployables may only go down on this stretch of the lane. */
@@ -239,7 +245,7 @@ export class Deployer {
             for (let n = 0; n < stats.arcs && inside.length; n++) {
                 const enemy = inside.splice(randomInt(0, inside.length - 1), 1)[0]!
                 this.game.combat.damageEnemy(enemy, stats.damage, 'energy', true, true)
-                const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+                const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
                 this.game.transient?.bolt(centre, at, hex)
                 this.game.particles.burst(at, hex, 5, 6, { size: 0.2, life: 0.25 })
             }

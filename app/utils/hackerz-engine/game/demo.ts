@@ -13,6 +13,7 @@ import type { EnemyEntity } from '../types'
 import { _v, PING_COOLDOWN_MS } from './tuning'
 import { placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
+import { centroid } from '../math'
 
 /** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
 const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
@@ -229,16 +230,8 @@ export class DemoDirector {
     demoCamera(dt: number) {
         const view = this.game.view
         if (!view) return
-        let u = 0
-        let d = FIELD_DEPTH * 0.5
         const live = this.game.enemies.filter(e => e.hp > 0)
-        if (this.demoFocus) {
-            u = this.demoFocus.u
-            d = this.demoFocus.d
-        } else if (live.length) {
-            u = live.reduce((sum, e) => sum + e.u, 0) / live.length
-            d = live.reduce((sum, e) => sum + e.d, 0) / live.length
-        }
+        const { u, d } = this.demoFocus ?? (live.length ? centroid(live) : { u: 0, d: FIELD_DEPTH * 0.5 })
         const aim = fieldToWorld(u, d, 0, _v)
         view.cameraTarget.lerp(aim, this.demoSnap ? 1 : 1 - Math.exp(-dt * 2.2))
         view.cameraHome.copy(view.cameraTarget).addScaledVector(DEMO_CAMERA_OFFSET, this.demoZoom)
@@ -280,8 +273,7 @@ export class DemoDirector {
         for (const chip of taken) chips.landPulse(chip, 1)
         if (taken.length) {
             this.demoLook({
-                u: taken.reduce((sum, chip) => sum + chip.u, 0) / taken.length,
-                d: taken.reduce((sum, chip) => sum + chip.d, 0) / taken.length
+                ...centroid(taken)
             })
         }
     }

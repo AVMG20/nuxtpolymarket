@@ -1,14 +1,17 @@
 import * as THREE from 'three'
 import {
-    HACKERZ_HACKER_ID, hackerzEnemy, hackerzIsAirborne, type HackerzEnemyId
+    HACKERZ_HACKER_ID,
+    hackerzEnemy,
+    hackerzIsAirborne,
+    type HackerzEnemyId
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, RAIL_U } from '../constants'
 import { clamp, randRange } from '../math'
 import type { PathChip } from '../path-chips'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v, _w, CROWD_GAP, MUZZLE_D, HACK_REACH } from './tuning'
-import { enemyWorld, footprint } from './bodies'
+import { _v, _w, CROWD_GAP, MUZZLE_D, HACK_REACH } from './tuning'
+import { bodyPoint, footprint } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -290,14 +293,14 @@ export class Squads {
     private disintegrate(index: number) {
         const enemy = this.game.enemies[index]
         if (!enemy) return
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
         this.game.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.7 })
         const ground = fieldToWorld(enemy.u, enemy.d, 0.05, new THREE.Vector3())
         for (let b = 0; b < 4; b++) {
             this.game.transient?.bolt(at, ground.clone().add(_w.set(randRange(-1, 1), 0, randRange(-1, 1))), enemy.def.hex)
         }
         this.game.view?.addSurge(ground.x, ground.z, enemy.def.hex, 1)
-        this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'DISINTEGRATED', enemy.def.hex, 1)
+        this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 20), 'DISINTEGRATED', enemy.def.hex, 1)
         this.game.combat.removeEnemy(index, true)
     }
 

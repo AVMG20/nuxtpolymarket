@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { hackerzIsAirborne } from '#shared/utils/gamelogic/hackerz'
 import { hdr } from '../models'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, _v } from './tuning'
-import { enemyWorld } from './bodies'
+import { _v } from './tuning'
+import { bodyPoint } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -34,10 +34,10 @@ export class WhiteHats {
         halo.scale.setScalar(Math.max(0.6, enemy.rig.height * 0.4))
         halo.position.y = 0.05
         enemy.rig.root.add(halo)
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const at = bodyPoint(enemy, 0.5, new THREE.Vector3())
         this.game.particles.burst(at, 0xffffff, 24, 8, { size: 0.26, life: 0.6 })
         this.game.transient?.ring(at, 0xffffff, 3, 0.4)
-        this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'WHITE HAT', 0xffffff, 1.1)
+        this.game.overlay.floatText(bodyPoint(enemy, 1, _v, 20), 'WHITE HAT', 0xffffff, 1.1)
     }
 
     /** What a turned unit, or a hostile it is brawling with, hits for: its own heft, not its wall damage. */
@@ -82,7 +82,7 @@ export class WhiteHats {
                 enemy.attackTimer = enemy.def.attackMs
                 enemy.strike = 1
                 this.game.combat.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, true)
-                const at = enemyWorld(foe, foe.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+                const at = bodyPoint(foe, 0.5, new THREE.Vector3())
                 this.game.particles.burst(at, 0xffffff, 8, 6, { size: 0.22, life: 0.3 })
             }
         }

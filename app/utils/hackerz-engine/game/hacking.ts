@@ -10,7 +10,7 @@ import { MOTION, turnToward } from '../rig-motion'
 import { CYAN, RED, fieldToWorld } from '../scene'
 import type { BulletEntity, EnemyEntity } from '../types'
 import { PER_WORLD, _w, CROWD_GAP, HACK_TEAM, YAW_DOWN } from './tuning'
-import { enemyWorld, halfExtents, placeEnemy } from './bodies'
+import { bodyPoint, enemyWorld, halfExtents, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** How many open nodes the hackers split across at once. */
@@ -243,7 +243,7 @@ export class Hacking {
         }
         const to = zapTarget(this.game.movement.network, enemy.u, enemy.d, ZAP_MIN, ZAP_MAX)
         if (!to) return
-        const from = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const from = bodyPoint(enemy, 0.5, new THREE.Vector3())
         if (enemy.hacking) this.stopHacking(enemy)
         enemy.u = to.u
         enemy.d = to.d
@@ -252,7 +252,7 @@ export class Hacking {
         enemy.routeTo = to.trace.to
         enemy.routeFrom = to.trace.from
         enemy.zapCooldown = ZAP_COOLDOWN_MS
-        const landed = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        const landed = bodyPoint(enemy, 0.5, new THREE.Vector3())
         this.game.transient?.bolt(from, landed, enemy.def.hex)
         this.game.particles.burst(from, enemy.def.hex, 12, 6, { size: 0.24, life: 0.35 })
         this.game.particles.burst(landed, enemy.def.hex, 16, 7, { size: 0.26, life: 0.4 })

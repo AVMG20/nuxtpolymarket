@@ -3,8 +3,8 @@ import { HACKERZ_HACKER_ID, hackerzIsAirborne } from '#shared/utils/gamelogic/ha
 import { FIELD_HALF_WIDTH } from '../constants'
 import { clamp } from '../math'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD, GLITCH_FADE_MS, CROWD_GAP, LANE_SLACK } from './tuning'
-import { enemyWorld, footprint, halfExtents, outweighs, sinkInto } from './bodies'
+import { GLITCH_FADE_MS, CROWD_GAP, LANE_SLACK } from './tuning'
+import { bodyPoint, footprint, halfExtents, outweighs, sinkInto } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** How long a body may stand blocked before a jam is broken, and how long it then backs off to break it. */
@@ -64,7 +64,7 @@ export class Crowd {
                             // flicker of corrupted blocks around it, as it passes through.
                             body.phaseMs = Math.max(body.phaseMs ?? 0, PHASE_GLITCH_MS)
                             if (Math.random() < PHASE_CLOUD_CHANCE) {
-                                this.game.glitchClouds?.burst(enemyWorld(body, body.rig.height * PER_WORLD * 0.5, new THREE.Vector3()), body.rig.height * 0.7, body.def.hex)
+                                this.game.glitchClouds?.burst(bodyPoint(body, 0.5, new THREE.Vector3()), body.rig.height * 0.7, body.def.hex)
                             }
                         }
                     }

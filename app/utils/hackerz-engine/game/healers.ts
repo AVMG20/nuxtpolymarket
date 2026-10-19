@@ -1,8 +1,7 @@
 import * as THREE from 'three'
 import { HACKERZ_HEAL_TICK_MS } from '#shared/utils/gamelogic/hackerz'
 import type { EnemyEntity } from '../types'
-import { PER_WORLD } from './tuning'
-import { enemyCentreY, enemyWorld, placeEnemy } from './bodies'
+import { bodyPoint, enemyCentreY, enemyWorld, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /**
@@ -110,7 +109,7 @@ export class Healers {
 
     private healBeam(healer: EnemyEntity, patient: EnemyEntity) {
         placeEnemy(healer)
-        const from = enemyWorld(healer, healer.rig.height * PER_WORLD * 0.3, new THREE.Vector3())
+        const from = bodyPoint(healer, 0.3, new THREE.Vector3())
         const to = enemyWorld(patient, enemyCentreY(patient) - patient.altitude, new THREE.Vector3())
         this.game.transient?.beam(from, to, HEAL_HEX, 0.18)
         this.game.particles.burst(to, HEAL_HEX, 3, 3, { size: 0.18, life: 0.35, gravity: -6 })

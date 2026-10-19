@@ -6,6 +6,7 @@ import type { EnemyEntity } from '../types'
 import { PING_COOLDOWN_MS } from './tuning'
 import { enemyCentreY } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
+import { centroid } from '../math'
 
 /** Auto-play offers Laya this many hostiles to choose between, and counts this close to the wall as near. */
 const AUTOPILOT_CONTACTS = 5
@@ -103,8 +104,7 @@ export class AutopilotBridge {
     private autopilotPack() {
         const best = densestGroup(this.game.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.game.combat.untouchable(e)))
         if (!best.length) return null
-        const u = best.reduce((sum, e) => sum + e.u, 0) / best.length
-        const d = best.reduce((sum, e) => sum + e.d, 0) / best.length
+        const { u, d } = centroid(best)
         const lead = best.reduce((top, e) => e.d < top.d ? e : top)
         const convert = best.filter(e => this.game.whiteHats.turnable(e)).sort((a, b) => b.maxHp - a.maxHp)[0] ?? null
         return { u, d, size: best.length, lead, convert }
@@ -158,8 +158,7 @@ export class AutopilotBridge {
         const n = pack.length
         this.game.rail.target = null
         this.game.rail.lockSpot = {
-            u: pack.reduce((sum, e) => sum + e.u, 0) / n,
-            d: pack.reduce((sum, e) => sum + e.d, 0) / n,
+            ...centroid(pack),
             y: pack.reduce((sum, e) => sum + enemyCentreY(e), 0) / n
         }
         this.game.rail.holding = true

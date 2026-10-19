@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import {
-    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS, hackerzEnemy
+    HACKERZ_SPIDER_CAP,
+    HACKERZ_SPIDER_HATCH_MS,
+    HACKERZ_SPIDER_INFECT_RADIUS,
+    HACKERZ_SPIDER_INJECT_MS,
+    hackerzEnemy
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, SHIELD_D } from '../constants'
 import { clamp, randRange } from '../math'
@@ -8,7 +12,7 @@ import { MOTION, fangTips } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
 import { PER_WORLD, _v, _w, ROOTKIT_BURROW_MS } from './tuning'
-import { enemyWorld, underground } from './bodies'
+import { bodyPoint, underground } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** How many spiderlings scatter where ROOTKIT goes under. */
@@ -78,7 +82,7 @@ export class Rootkit {
         const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
         this.game.transient?.ring(at, enemy.def.hex, 7, 0.45)
         this.game.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.6 })
-        this.game.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD, _v), 'BURROWING', enemy.def.hex, 1.2)
+        this.game.overlay.floatText(bodyPoint(enemy, 1, _v), 'BURROWING', enemy.def.hex, 1.2)
         if (this.game.rail.target === enemy) this.game.rail.target = null
     }
 

@@ -49,6 +49,14 @@ export function enemyWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3)
     return fieldToWorld(enemy.u, enemy.d, (enemy.altitude + lift) * FIELD_SCALE, out)
 }
 
+/**
+ * A point on a unit's body: `share` of the way up it (1 is its top), and
+ * `lift` field units above that. Where its effects, labels and beams go.
+ */
+export function bodyPoint(enemy: EnemyEntity, share: number, out: THREE.Vector3, lift = 0) {
+    return enemyWorld(enemy, enemy.rig.height * PER_WORLD * share + lift, out)
+}
+
 /** Field height of an enemy's centre of mass, for aiming and splash. */
 export function enemyCentreY(enemy: EnemyEntity) {
     return enemy.altitude + enemy.rig.height * PER_WORLD * 0.5

@@ -12,7 +12,7 @@ import { fieldToWorld } from '../scene'
 import { makeSpit } from '../fx'
 import type { EnemyEntity } from '../types'
 import { PER_WORLD, _v, _w, WALL_HIT_Y } from './tuning'
-import { enemyWorld, placeEnemy } from './bodies'
+import { bodyPoint, enemyWorld, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** The colour of an electric prod's discharge. */
@@ -109,7 +109,7 @@ export class Assault {
                 // A cloaked unit has to drop its cloak to strike.
                 if (enemy.def.cloaked && !enemy.decloaked) {
                     enemy.decloaked = true
-                    this.game.particles.burst(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), enemy.def.hex, 14, 6, { size: 0.24, life: 0.4 })
+                    this.game.particles.burst(bodyPoint(enemy, 0.5, _v), enemy.def.hex, 14, 6, { size: 0.24, life: 0.4 })
                 }
                 this.game.bastion.damageWall(damage, enemy.u)
                 this.game.particles.burst(fieldToWorld(enemy.u, 4, FENCE_HEIGHT * 0.5, _v), enemy.def.hex, 5, 8, { size: 0.2, life: 0.3 })
@@ -199,6 +199,6 @@ export class Assault {
         enemy.wound ??= new DrainWound(this.game.fieldRoot, enemy.def.hex)
         // The surface faces the field: back toward the spiderling.
         enemy.wound.place(at, _w.set(0, 0, -1), enemy.rig.height * drainGrowth(enemy.drainPower) * 0.9)
-        enemy.wound.draw(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3()))
+        enemy.wound.draw(bodyPoint(enemy, 0.45, new THREE.Vector3()))
     }
 }
