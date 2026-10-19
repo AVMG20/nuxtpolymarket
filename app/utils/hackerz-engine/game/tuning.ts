@@ -19,3 +19,27 @@ export const ZONE_TICK_MS = 500
 
 /** BLACKOUT: hostiles further out than this are dark until a ping lights them. */
 export const BLACKOUT_LIGHT_D = 260
+
+/** How long ROOTKIT stays gone when it burrows, its dive into the floor included; and how many spiderlings scatter where it goes under. */
+export const ROOTKIT_BURROW_MS = 2600
+
+export const GLITCH_FADE_MS = 400
+
+/**
+ * A model's half extents on the ground, in field units: across (`x`) and
+ * along (`z`) its own axes. A rig's box is fixed once built, so each is
+ * worked out once.
+ */
+export function halfExtents(box: THREE.Box3) {
+    let half = halves.get(box)
+    if (!half) {
+        half = {
+            x: Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD,
+            z: Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        }
+        halves.set(box, half)
+    }
+    return half
+}
+
+export const halves = new WeakMap<THREE.Box3, { x: number, z: number }>()

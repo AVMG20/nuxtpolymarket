@@ -4,7 +4,8 @@ import type { PathChip } from '../path-chips'
 import { DARK_ZONES, FRONT_COLUMNS, ISLANDS, RED, fieldToWorld } from '../scene'
 import { zoneAt } from '../lane-props'
 import type { EnemyEntity } from '../types'
-import { ZONE_TICK_MS, BLACKOUT_LIGHT_D, PER_WORLD, _v, _w } from './tuning'
+import { PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D } from './tuning'
+import { enemyWorld } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** Their ground always covers the portal: the red line never pulls back past this. */
@@ -308,7 +309,7 @@ export class Territory {
         const share = (enemy.def.boss ? RED_HEAL_BOSS_SHARE : RED_HEAL_SHARE) * (guarding ? 2 : 1)
         enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * share)
         if (!this.game.untargetable(enemy)) {
-            this.game.particles.emit(this.game.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
+            this.game.particles.emit(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
                 { size: 0.2, life: 0.5, gravity: 0 })
         }
     }

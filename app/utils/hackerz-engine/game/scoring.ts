@@ -5,6 +5,7 @@ import { AMBER, LIME, RED, fieldToWorld } from '../scene'
 import { makeCoin } from '../fx'
 import type { CoinEntity, EnemyEntity } from '../types'
 import { PER_WORLD, _v } from './tuning'
+import { enemyWorld } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
@@ -47,7 +48,7 @@ export class Scoring {
             // banks exactly what the kill was worth.
             const value = i === count - 1 ? total - share * (count - 1) : share
             const mesh = makeCoin(enemy.def.boss ? 1.5 : 1)
-            const from = this.game.enemyWorld(enemy, enemy.rig.height * PER_WORLD * randRange(0.3, 0.8), new THREE.Vector3())
+            const from = enemyWorld(enemy, enemy.rig.height * PER_WORLD * randRange(0.3, 0.8), new THREE.Vector3())
             from.x += randRange(-0.6, 0.6)
             mesh.position.copy(from)
             this.game.fieldRoot.add(mesh)
