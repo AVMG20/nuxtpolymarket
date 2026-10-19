@@ -5,11 +5,10 @@ import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autop
 import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
     HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
-    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
-    HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_WAVE_MS, hackerzBossFor,
-    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
-    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
+    HACKERZ_SPIDER_INJECT_MS, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS,
+    HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES,
+    HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
+    hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
     hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
     type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
     type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
@@ -17,7 +16,7 @@ import {
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
     MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY,
-    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
+    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, GUN_Z, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
 } from './constants'
 import { clamp, randRange, segPointDist, segSegDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -36,8 +35,8 @@ import {
 import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
 import {
     ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
-    drainGrowth, gatherLegs, easeInject, easeStrike, fangTips, injectLands, muzzleOf, railKickFor, rollSpeedFor,
-    spinTurret, strideFor, strikeLands, turnToward
+    drainGrowth, gatherLegs, easeInject, easeStrike, injectLands, muzzleOf, railKickFor, rollSpeedFor, spinTurret,
+    strideFor, strikeLands, turnToward
 } from './rig-motion'
 import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
@@ -45,8 +44,8 @@ import { LaneProps } from './lane-props'
 import { Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, turretProjectile, type HealthTag } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
 import {
-    WALL_HIT_Y, PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, ROOTKIT_BURROW_MS, GLITCH_FADE_MS,
-    halfExtents, CROWD_GAP, LANE_SLACK
+    PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK,
+    WALL_HIT_Y
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -61,6 +60,7 @@ import { Crowd } from './game/crowd'
 import { Combat } from './game/combat'
 import { WhiteHats } from './game/white-hats'
 import { Assault } from './game/assault'
+import { Rootkit } from './game/rootkit'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -146,8 +146,6 @@ const BLACK_ICE_SLOW = 0.45
  */
 const BLACK_ICE_RAIL_CHUNK = FIELD_HALF_WIDTH * 2 / 3
 const RAIL_GUN_HALF = 24
-
-const ROOTKIT_BURROW_CLUTCH = 3
 
 /** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
 const PING_COOLDOWN_MS = 3500
@@ -479,8 +477,6 @@ export class HackerzGame {
     private rescanMs = 0
     /** Power Surges on the grid: where, how long left, and the countdowns to the next arc and the next ring. */
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
-    /** Hacked nodes ROOTKIT has infected, and ms until each hatches its next spiderling. */
-    private infected = new Map<number, number>()
     turrets: TurretMount[] = []
 
     // ── Input ──
@@ -532,6 +528,7 @@ export class HackerzGame {
     readonly combat = new Combat(this)
     readonly whiteHats = new WhiteHats(this)
     readonly assault = new Assault(this)
+    readonly rootkit = new Rootkit(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -1963,7 +1960,7 @@ export class HackerzGame {
                     this.maintainEscorts(dtMs)
                 }
                 this.maintainDefenders()
-                this.hatchInfected(dtMs)
+                this.rootkit.hatchInfected(dtMs)
                 this.updateWeapon(dtMs)
                 this.updateAbilities(dtMs)
                 if (!this.finalPush && this.waveElapsed >= this.waveMs - FINAL_PUSH_MS) this.beginFinalPush()
@@ -2599,7 +2596,7 @@ export class HackerzGame {
      * portal shows nothing of it. `reinforcement` is a top-up hacker: half
      * the credits, and no coins.
      */
-    private spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1, at: { u: number, d: number } | null = null) {
+    spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1, at: { u: number, d: number } | null = null) {
         const loadout = this.loadout
         if (!loadout) return
         const difficulty = loadout.difficulty
@@ -2981,7 +2978,7 @@ export class HackerzGame {
                 const before = enemy.inject
                 enemy.inject = easeInject(enemy.rig, enemy.inject, dt)
                 // ROOTKIT's stab puts its brood in; a spiderling's is its bite (see `drainFence`).
-                if (injectLands(before, enemy.inject) && enemy.def.id === 'titan') this.injectBrood(enemy)
+                if (injectLands(before, enemy.inject) && enemy.def.id === 'titan') this.rootkit.injectBrood(enemy)
             }
             if (enemy.ribbonMs > 0 || enemy.ribbon?.busy) this.assault.feedRibbon(enemy, dt, dtMs)
             enemy.storm?.update(dt)
@@ -3022,7 +3019,7 @@ export class HackerzGame {
         if (enemy.decoy) return
         switch (enemy.def.id) {
             case 'titan':
-                this.updateRootkit(enemy, dt, dtMs)
+                this.rootkit.updateRootkit(enemy, dt, dtMs)
                 break
             case 'leviathan':
                 this.updateBlackIce(enemy, dtMs)
@@ -3031,64 +3028,6 @@ export class HackerzGame {
                 this.updateZeroDay(enemy, dt)
                 break
         }
-    }
-
-    /**
-     * ROOTKIT goes to ground every few seconds while it is still far out: gone
-     * from sight and from every gun, moving faster, its route given away only by
-     * red surges running through the traces, until it erupts somewhere else.
-     */
-    private updateRootkit(enemy: EnemyEntity, dt: number, dtMs: number) {
-        // It halts with its head against the ICE Barrier while that stands,
-        // and against the fence itself once the barrier is down.
-        enemy.standoff = enemy.rig.box.max.z * PER_WORLD + 2 + (this.bastion.shield > 0 ? SHIELD_D : 0)
-        if (enemy.riseMs > 0) enemy.riseMs = Math.max(0, enemy.riseMs - dtMs)
-        if (enemy.burrowMs > 0) {
-            const wasUp = !underground(enemy)
-            enemy.burrowMs = Math.max(0, enemy.burrowMs - dtMs)
-            // The moment it drills out of sight, a clutch of its brood scatters from the hole.
-            if (wasUp && underground(enemy) && !enemy.decoy) {
-                const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
-                this.transient?.ring(at, enemy.def.hex, 6, 0.45)
-                this.particles.burst(at, enemy.def.hex, 30, 10, { size: 0.3, life: 0.6 })
-                for (let i = 0; i < ROOTKIT_BURROW_CLUTCH; i++) {
-                    const a = (i / ROOTKIT_BURROW_CLUTCH) * Math.PI * 2
-                    this.hatchSpider(enemy.u + Math.cos(a) * 40, enemy.d + Math.sin(a) * 40)
-                }
-            }
-            // Melting in: the floor boils red round it as it goes under.
-            if (!underground(enemy) && Math.random() < dt * 30) {
-                const at = fieldToWorld(enemy.u + randRange(-30, 30), enemy.d + randRange(-30, 30), 0.05, _v)
-                this.particles.emit(at, _w.set(0, 1.5, 0), enemy.def.hex, { size: 0.3, life: 0.5, gravity: 0 })
-            }
-            enemy.u = clamp(enemy.u + Math.sin(enemy.age * 1.6) * dt * 90, -FIELD_HALF_WIDTH + 60, FIELD_HALF_WIDTH - 60)
-            if (Math.random() < dt * 5) {
-                const at = fieldToWorld(enemy.u, enemy.d, 0, _v)
-                this.view?.addSurge(at.x, at.z, enemy.def.hex, 0.8)
-            }
-            if (enemy.burrowMs === 0) {
-                // It erupts onto the nearest data line and rides on from there.
-                this.attachToNetwork(enemy)
-                enemy.age = 0
-                // And climbs back out of the floor where it surfaced.
-                enemy.riseMs = MOTION.burrowRiseMs
-                const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
-                this.transient?.ring(at, enemy.def.hex, 9, 0.5)
-                this.particles.burst(at, enemy.def.hex, 50, 12, { size: 0.35, life: 0.7 })
-                this.addShake(8)
-            }
-            return
-        }
-        this.rootkitBrood(enemy, dtMs)
-        enemy.bossTimer -= dtMs
-        if (enemy.bossTimer > 0 || enemy.d < enemy.standoff + 220) return
-        enemy.bossTimer = 6000
-        enemy.burrowMs = ROOTKIT_BURROW_MS
-        const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
-        this.transient?.ring(at, enemy.def.hex, 7, 0.45)
-        this.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.6 })
-        this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD, _v), 'BURROWING', enemy.def.hex, 1.2)
-        if (this.target === enemy) this.target = null
     }
 
     /**
@@ -3339,81 +3278,6 @@ export class HackerzGame {
         placeEnemy(decoy)
         this.enemies.push(decoy)
         return decoy
-    }
-
-    // ─── ROOTKIT's brood ─────────────────────────────────────────────────────
-
-    /** Spiderlings on the field. */
-    private spiderCount() {
-        let n = 0
-        for (const e of this.enemies) if (e.def.id === 'spiderling') n++
-        return n
-    }
-
-    /** A spiderling hatches at (u, d), if the brood is not already at its cap. */
-    private hatchSpider(u: number, d: number) {
-        if (this.spiderCount() >= HACKERZ_SPIDER_CAP) return
-        // A reinforcement: half bounty and no coins, so the brood is never a farm.
-        this.spawn(hackerzEnemy('spiderling'), true, 1, { u, d })
-    }
-
-    /**
-     * ROOTKIT, surfaced: it infects the hacked nodes it passes, and every few
-     * seconds its forelegs rear up to inject a pair of spiderlings.
-     */
-    private rootkitBrood(enemy: EnemyEntity, dtMs: number) {
-        if (!this.running || this.purging || enemy.decoy) return
-        for (const chip of this.pathChips?.chips ?? []) {
-            if (chip.state !== 'hacked' || this.infected.has(chip.id)) continue
-            if (Math.hypot(chip.u - enemy.u, chip.d - enemy.d) > HACKERZ_SPIDER_INFECT_RADIUS) continue
-            this.infected.set(chip.id, HACKERZ_SPIDER_HATCH_MS * 0.5)
-            const at = fieldToWorld(chip.u, chip.d, 0.3, new THREE.Vector3())
-            this.transient?.ring(at, enemy.def.hex, 4, 0.5)
-            this.particles.burst(at, enemy.def.hex, 24, 7, { size: 0.24, life: 0.6 })
-            this.sysLog.infected(chip.id)
-        }
-        enemy.broodMs -= dtMs
-        if (enemy.broodMs > 0 || enemy.inject > 0) return
-        enemy.broodMs = HACKERZ_SPIDER_INJECT_MS
-        if (this.spiderCount() < HACKERZ_SPIDER_CAP) enemy.inject = 1
-    }
-
-    /** The forelegs drive home: a spiderling out of each needle. */
-    private injectBrood(enemy: EnemyEntity) {
-        for (const tip of fangTips(enemy.rig)) {
-            this.particles.burst(tip, enemy.def.hex, 10, 5, { size: 0.2, life: 0.35 })
-            this.hatchSpider(tip.x * PER_WORLD, -tip.z * PER_WORLD)
-        }
-    }
-
-    /**
-     * Infected nodes hatch a spiderling every tick, for as long as ROOTKIT
-     * lives and the node stays theirs.
-     */
-    private hatchInfected(dtMs: number) {
-        if (!this.infected.size) return
-        if (!this.enemies.some(e => e.def.id === 'titan' && !e.decoy)) {
-            this.infected.clear()
-            return
-        }
-        const chips = this.pathChips?.chips ?? []
-        for (const [id, ms] of this.infected) {
-            const chip = chips.find(c => c.id === id)
-            if (!chip || chip.state !== 'hacked') {
-                this.infected.delete(id)
-                continue
-            }
-            const at = fieldToWorld(chip.u, chip.d, 0.3, _v)
-            // A sick pulse on the node, so the player can see what is breeding there.
-            if (Math.random() < dtMs / 1000 * 4) this.particles.emit(at, _w.set(randRange(-0.4, 0.4), 1.2, randRange(-0.4, 0.4)), 0xfb7185, { size: 0.2, life: 0.5, gravity: 0 })
-            let left = ms - dtMs
-            if (left <= 0) {
-                left += HACKERZ_SPIDER_HATCH_MS
-                this.transient?.ring(at, 0xfb7185, 2.4, 0.35)
-                this.hatchSpider(chip.u, chip.d - 30)
-            }
-            this.infected.set(id, left)
-        }
     }
 
     // ─── Player weapon ───────────────────────────────────────────────────────
@@ -4411,7 +4275,7 @@ export class HackerzGame {
      * It walks there — across, then along — rather than snapping onto it:
      * bodies are solid, and the line may have someone on it.
      */
-    private attachToNetwork(enemy: EnemyEntity) {
+    attachToNetwork(enemy: EnemyEntity) {
         const on = nearestOnNetwork(this.network, enemy.u, enemy.d)
         if (!on) {
             enemy.route = null
@@ -4879,7 +4743,7 @@ export class HackerzGame {
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
         this.memory.clearLeaks(false)
-        this.infected.clear()
+        this.rootkit.infected.clear()
         this.clearIce()
         this.surges = []
         this.portscanLeft = 0
@@ -4965,7 +4829,7 @@ export class HackerzGame {
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
         this.memory.clearLeaks(false)
-        this.infected.clear()
+        this.rootkit.infected.clear()
         this.clearIce()
         this.surges = []
         this.portscanLeft = 0

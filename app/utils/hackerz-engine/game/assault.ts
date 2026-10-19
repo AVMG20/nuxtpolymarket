@@ -11,7 +11,7 @@ import { drainGrowth, fangTips, muzzleOf, weaponTip } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import { makeSpit } from '../fx'
 import type { EnemyEntity } from '../types'
-import { WALL_HIT_Y, PER_WORLD, _v, _w } from './tuning'
+import { PER_WORLD, _v, _w, WALL_HIT_Y } from './tuning'
 import { enemyWorld, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
