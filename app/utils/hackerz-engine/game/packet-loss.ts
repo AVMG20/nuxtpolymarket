@@ -31,12 +31,14 @@ export class PacketLoss {
 
     /**
      * Where a unit appears to be: normally where it is, but during a
-     * packet-loss spike where its frozen picture still stands.
+     * packet-loss spike where its frozen picture still stands. That is the
+     * spot it was last drawn at, not the drawn rig itself: a glitching
+     * unit's rig is skipped off it by cosmetic `Math.random`, and aim read
+     * from there would make the run's outcome depend on it.
      */
     seenAt(enemy: EnemyEntity) {
-        if (this.boardLagMs <= 0) return { u: enemy.u, d: enemy.d }
-        const p = enemy.rig.root.position
-        return { u: p.x / FIELD_SCALE, d: -p.z / FIELD_SCALE }
+        if (this.boardLagMs <= 0 || !enemy.seen) return { u: enemy.u, d: enemy.d }
+        return { u: enemy.seen.u, d: enemy.seen.d }
     }
 
     /**

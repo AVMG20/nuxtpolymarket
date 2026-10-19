@@ -165,6 +165,8 @@ export interface EnemyEntity {
     phaseMs?: number
     /** Where the glitching picture has skipped to, off its true spot (world units), and for how many more frames. */
     glitchJump?: { x: number, y: number, z: number, frames: number }
+    /** The field spot it was last drawn at, before any glitch skip: where a packet-loss spike's frozen picture stands. */
+    seen?: { u: number, d: number }
     /** Health fraction the bar's draining trail stands at (overlay only). */
     hpTrail?: number
     /** A Database demo's unit: the waypoints it walks in place of its own judgement (see `puppetStep`). */

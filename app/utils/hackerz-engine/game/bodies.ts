@@ -65,6 +65,11 @@ export function enemyCentreY(enemy: EnemyEntity) {
 export function placeEnemy(enemy: EnemyEntity) {
     const bob = hackerzIsAirborne(enemy.def) ? hoverBob(enemy.hover) : 0
     fieldToWorld(enemy.u, enemy.d, (enemy.altitude + bob) * FIELD_SCALE + burrowing(enemy).lift * enemy.rig.height, enemy.rig.root.position)
+    // Recorded before the skips below, so what the picture shows to aim at
+    // never depends on their `Math.random` (see `PacketLoss.seenAt`).
+    const seen = enemy.seen ??= { u: 0, d: 0 }
+    seen.u = enemy.u
+    seen.d = enemy.d
     // Corrupted by a blast, the whole unit skips: it snaps to a random spot
     // nearby — sideways, up, forwards or back — holds there a few frames,
     // snaps home, and goes again until the corruption fades, stuttering
