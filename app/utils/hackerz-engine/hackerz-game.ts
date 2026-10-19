@@ -16,7 +16,7 @@ import {
     type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
-    BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
+    BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
     MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY,
     SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, SPIT_SPEED, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT,
     mountPosition
@@ -49,14 +49,13 @@ import { AMBER, CYAN, DARK_ZONES, FRONT_COLUMNS, HackerzScene, ISLANDS, LIME, RE
 import { AmmoRack } from './ammo-rack'
 import { LaneProps, zoneAt } from './lane-props'
 import {
-    Overlay, ParticleSystem, TransientFx, hexCss, makeCoin, makeProjectile, makeSpit, turretProjectile, type HealthTag
+    Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, makeSpit, turretProjectile, type HealthTag
 } from './fx'
-import type {
-    BulletEntity, CoinEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount
-} from './types'
-import { LEAK_D, _v, _w, PER_WORLD } from './game/tuning'
+import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
+import { PER_WORLD, LEAK_D, _v, _w } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
+import { Scoring } from './game/scoring'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -103,7 +102,6 @@ const MUZZLE_Y = (WALL_HEIGHT + 1.1) * PER_WORLD
 
 /** Where the fence is struck, and where dropped coins bank. */
 const WALL_HIT_Y = FENCE_HEIGHT * 0.55 * PER_WORLD
-const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
 
 /**
  * Rounds start on the deck, well behind the fence. Walkers stop a body-width
@@ -150,9 +148,6 @@ const RAIL_GUN_HALF = 24
 /** How long ROOTKIT stays gone when it burrows, its dive into the floor included; and how many spiderlings scatter where it goes under. */
 const ROOTKIT_BURROW_MS = 2600
 const ROOTKIT_BURROW_CLUTCH = 3
-
-/** Chain lengths that earn a banner. */
-const CHAIN_MILESTONES = [10, 25, 50, 100]
 
 /** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
 const PING_COOLDOWN_MS = 3500
@@ -465,9 +460,9 @@ export class HackerzGame {
     callbacks: HackerzCallbacks
     particles = new ParticleSystem(5000)
     transient: TransientFx | null = null
-    private overlay = new Overlay()
+    overlay = new Overlay()
     fieldRoot = new THREE.Group()
-    private railRig: ModelRig | null = null
+    railRig: ModelRig | null = null
     private ammoRack: AmmoRack | null = null
     private laneProps: LaneProps | null = null
     private pathChips: PathChips | null = null
@@ -503,15 +498,6 @@ export class HackerzGame {
     private waveElapsed = 0
     private schedule: ScheduledSpawn[] = []
     private scheduleIndex = 0
-    private waveKills = 0
-    private waveCredits = 0
-    private waveCoins = 0
-    private totalKills = 0
-    /**
-     * Exploit chain: kills since the last leak. It multiplies run credits only —
-     * coins, and so the site economy, never see it.
-     */
-    private chain = 0
     /** The wave's closing stretch is on: everything but the hackers charges. */
     private finalPush = false
     /** Ms until the portal may send the next top-up hacker. */
@@ -602,7 +588,6 @@ export class HackerzGame {
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
     /** Hacked nodes ROOTKIT has infected, and ms until each hatches its next spiderling. */
     private infected = new Map<number, number>()
-    private coins: CoinEntity[] = []
     private turrets: TurretMount[] = []
 
     // ── Input ──
@@ -646,6 +631,7 @@ export class HackerzGame {
     // ── Systems: each owns its part of the game (see ./game) ──
     readonly healers = new Healers(this)
     readonly memory = new Leaks(this)
+    readonly scoring = new Scoring(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -1012,8 +998,8 @@ export class HackerzGame {
             this.railKick = 0
             this.msSinceWallHit = 99_999
             this.shieldHit = 0
-            this.chain = 0
-            this.totalKills = 0
+            this.scoring.chain = 0
+            this.scoring.totalKills = 0
             this.pingCharge = PING_COOLDOWN_MS
             // Dark zones fade in and out: one lit in the last scene must not still be fading here.
             for (const zone of this.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
@@ -1396,9 +1382,9 @@ export class HackerzGame {
         this.ammoRack?.setColour(loadout.weapon.hex)
         this.wave = 0
         this.waveElapsed = 0
-        this.totalKills = config.kills ?? 0
-        this.chain = 0
-        this.emitChain()
+        this.scoring.totalKills = config.kills ?? 0
+        this.scoring.chain = 0
+        this.scoring.emitChain()
         // A fresh board each run: nodes first, then the lines laid around them.
         this.pathChips?.reset()
         this.network = buildNetwork(this.pathChips?.ordered ?? [])
@@ -1483,9 +1469,9 @@ export class HackerzGame {
 
         this.wave = wave
         this.waveElapsed = 0
-        this.waveKills = 0
-        this.waveCredits = 0
-        this.waveCoins = 0
+        this.scoring.waveKills = 0
+        this.scoring.waveCredits = 0
+        this.scoring.waveCoins = 0
         this.scheduleIndex = 0
         this.schedule = this.buildSchedule(wave)
         this.running = true
@@ -2190,7 +2176,7 @@ export class HackerzGame {
             this.updateIce(dt)
             if (this.running && !this.purging) this.updateSurges(dtMs)
             this.updateTurrets(dtMs, frozen)
-            this.updateCoins(frozen ? 0 : dtMs)
+            this.scoring.updateCoins(frozen ? 0 : dtMs)
             this.updateBastion(dt, dtMs)
             this.memory.updateLeaks(dt, frozen ? 0 : dtMs)
             this.updateHackPulses(dt)
@@ -4578,8 +4564,8 @@ export class HackerzGame {
         const enemy = this.enemies[index]
         if (!enemy) return
         // A kill the player earned extends the chain; the purge's sweep does not.
-        if (payout >= 1) this.extendChain()
-        const credits = Math.round(enemy.bounty * payout * (payout >= 1 ? this.chainMultiplier : 1))
+        if (payout >= 1) this.scoring.extendChain()
+        const credits = Math.round(enemy.bounty * payout * (payout >= 1 ? this.scoring.chainMultiplier : 1))
         const coins = Math.round(enemy.coinValue * payout)
 
         const centre = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3())
@@ -4603,7 +4589,7 @@ export class HackerzGame {
         if (credits > 0) {
             this.overlay.floatText(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 34, _v), `+${credits}`, LIME, 1.1)
         }
-        if (coins > 0) this.dropCoins(enemy, coins)
+        if (coins > 0) this.scoring.dropCoins(enemy, coins)
         if (bossDeath) {
             this.transient?.ring(centre, RED, 30, 0.8)
             this.view?.flash(0xffffff, 0.35)
@@ -4613,10 +4599,10 @@ export class HackerzGame {
 
         this.removeEnemy(index, true)
         this.callbacks.onSound?.(bossDeath ? 'boss-death' : 'enemy-death')
-        this.waveKills++
-        this.totalKills++
+        this.scoring.waveKills++
+        this.scoring.totalKills++
         if (credits > 0) {
-            this.waveCredits += credits
+            this.scoring.waveCredits += credits
             this.callbacks.onCredits(credits, payout < 1 ? 'purge' : 'kill')
         }
     }
@@ -4677,63 +4663,6 @@ export class HackerzGame {
                 )
             }
         }
-    }
-
-    // ─── Coins ───────────────────────────────────────────────────────────────
-
-    /**
-     * Sheds an enemy's coin value as physical coins that fly to the wall. Split
-     * across a few discs so a boss reads as a payday, but capped hard.
-     */
-    private dropCoins(enemy: EnemyEntity, total: number) {
-        const count = enemy.def.boss ? 7 : total > 400 ? 3 : total > 80 ? 2 : 1
-        const share = Math.floor(total / count)
-        for (let i = 0; i < count; i++) {
-            // The last coin carries the rounding remainder, so the drop always
-            // banks exactly what the kill was worth.
-            const value = i === count - 1 ? total - share * (count - 1) : share
-            const mesh = makeCoin(enemy.def.boss ? 1.5 : 1)
-            const from = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * randRange(0.3, 0.8), new THREE.Vector3())
-            from.x += randRange(-0.6, 0.6)
-            mesh.position.copy(from)
-            this.fieldRoot.add(mesh)
-            this.coins.push({ mesh, from, apex: Math.max(from.y, COIN_BANK.y) + randRange(3, 7), t: -i * 0.12, value })
-        }
-    }
-
-    private updateCoins(dtMs: number) {
-        for (let i = this.coins.length - 1; i >= 0; i--) {
-            const coin = this.coins[i] as CoinEntity
-            coin.t += dtMs / COIN_FLIGHT_MS
-            if (coin.t < 0) continue
-            if (coin.t >= 1) {
-                this.bankCoin(coin)
-                this.coins.splice(i, 1)
-                continue
-            }
-            // Quadratic bezier through the apex — one lerp pair, no physics.
-            const t = coin.t
-            const inv = 1 - t
-            const p = coin.mesh.position
-            p.x = inv * inv * coin.from.x + 2 * inv * t * ((coin.from.x + COIN_BANK.x) / 2) + t * t * COIN_BANK.x
-            p.z = inv * inv * coin.from.z + 2 * inv * t * ((coin.from.z + COIN_BANK.z) / 2) + t * t * COIN_BANK.z
-            p.y = inv * inv * coin.from.y + 2 * inv * t * coin.apex + t * t * COIN_BANK.y
-            coin.mesh.rotation.y = t * Math.PI * 6
-        }
-    }
-
-    private bankCoin(coin: CoinEntity) {
-        coin.mesh.removeFromParent()
-        this.particles.burst(COIN_BANK, AMBER, 3, 4, { size: 0.2, life: 0.3, gravity: 0 })
-        this.waveCoins += coin.value
-        this.callbacks.onCoins(coin.value)
-        this.callbacks.onSound?.('coin-pickup')
-    }
-
-    /** Banks everything still in flight — called when a wave settles. */
-    private flushCoins() {
-        for (const coin of this.coins) this.bankCoin(coin)
-        this.coins = []
     }
 
     // ─── Player weapon ───────────────────────────────────────────────────────
@@ -6159,7 +6088,7 @@ export class HackerzGame {
     private chipReclaimed(chip: PathChip) {
         const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
         const reward = 15 + this.wave * 8
-        this.waveCredits += reward
+        this.scoring.waveCredits += reward
         this.callbacks.onCredits(reward, 'kill')
         this.view?.addSurge(at.x, at.z, CYAN, 1.6)
         this.transient?.ring(at, CYAN, 6, 0.55)
@@ -6203,36 +6132,6 @@ export class HackerzGame {
 
     // ─── Exploit chain ───────────────────────────────────────────────────────
 
-    /** ×1 at no chain, +2% a link, capped at ×2 so a long chain is a bonus rather than the economy. */
-    private get chainMultiplier() {
-        return 1 + Math.min(this.chain, 50) * 0.02
-    }
-
-    private extendChain() {
-        this.chain++
-        if (CHAIN_MILESTONES.includes(this.chain)) {
-            this.sysLog.chain(this.chain)
-            this.overlay.banner(`EXPLOIT CHAIN ×${this.chain}`, LIME, `credits ×${this.chainMultiplier.toFixed(2)}`)
-            this.callbacks.onSound?.('wave-start')
-            if (this.railRig) this.particles.burst(this.railRig.root.position, LIME, 40, 9, { size: 0.3, life: 0.7 })
-        }
-        this.emitChain()
-    }
-
-    /** A leak shatters the chain: the loss is what makes holding it worth something. */
-    private breakChain() {
-        if (this.chain >= 5) {
-            this.overlay.floatText(fieldToWorld(RAIL_U, 0, FENCE_HEIGHT + 3, _v), `CHAIN BROKEN · ${this.chain}`, RED, 1.4)
-            if (this.railRig) this.particles.burst(this.railRig.root.position, RED, 24, 7, { size: 0.26, life: 0.5 })
-        }
-        this.chain = 0
-        this.emitChain()
-    }
-
-    private emitChain() {
-        this.callbacks.onChain?.(this.chain, this.chainMultiplier)
-    }
-
     /** Wall health left, as a whole percentage. */
     private integrityPercent() {
         return this.wallMaxHp > 0 ? Math.round(100 * this.wallHp / this.wallMaxHp) : 100
@@ -6247,7 +6146,7 @@ export class HackerzGame {
         if (this.gameOver) return
         if (!quiet) {
             this.msSinceWallHit = 0
-            this.breakChain()
+            this.scoring.breakChain()
         }
 
         let remaining = amount
@@ -6391,7 +6290,7 @@ export class HackerzGame {
         this.surges = []
         this.portscanLeft = 0
         // Coins still mid-flight belong to the wave that dropped them.
-        this.flushCoins()
+        this.scoring.flushCoins()
 
         const event = this.bonus
         let passed = false
@@ -6401,9 +6300,9 @@ export class HackerzGame {
             this.shield = this.bonusStartShield
             this.emitWall()
             passed = !this.bonusFailed
-            if (passed && this.waveCredits > 0) {
-                const extra = this.waveCredits * (HACKERZ_BONUS_MULTIPLIER - 1)
-                this.waveCredits += extra
+            if (passed && this.scoring.waveCredits > 0) {
+                const extra = this.scoring.waveCredits * (HACKERZ_BONUS_MULTIPLIER - 1)
+                this.scoring.waveCredits += extra
                 this.callbacks.onCredits(extra, 'clear')
                 this.overlay.banner(`BONUS ×${HACKERZ_BONUS_MULTIPLIER}`, LIME, `+${extra} credits`)
                 this.view?.flash(0xa3e635, 0.3)
@@ -6417,7 +6316,7 @@ export class HackerzGame {
         } else {
             const integrity = this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0
             const clear = hackerzClearBonus(this.wave, integrity)
-            this.waveCredits += clear
+            this.scoring.waveCredits += clear
             this.callbacks.onCredits(clear, 'clear')
         }
 
@@ -6428,12 +6327,12 @@ export class HackerzGame {
             this.view?.flash(0xffffff, 0.4)
         }
 
-        this.sysLog.waveEnd(this.wave, this.waveKills)
+        this.sysLog.waveEnd(this.wave, this.scoring.waveKills)
         this.callbacks.onWaveEnd({
             wave: this.wave,
-            kills: this.waveKills,
-            credits: this.waveCredits,
-            coins: this.waveCoins,
+            kills: this.scoring.waveKills,
+            credits: this.scoring.waveCredits,
+            coins: this.scoring.waveCoins,
             wallHp: Math.round(this.wallHp),
             wallMaxHp: this.wallMaxHp,
             victory,
@@ -6452,7 +6351,7 @@ export class HackerzGame {
         this.target = null
         this.callbacks.onSound?.('game-over')
         // Coins in the air when the wall fell were still earned.
-        this.flushCoins()
+        this.scoring.flushCoins()
 
         this.view?.flash(RED, 0.6)
         this.overlay.banner('BREACHED', RED, `wave ${this.wave}`)
@@ -6460,7 +6359,7 @@ export class HackerzGame {
         for (let i = 0; i < 6; i++) {
             this.transient?.ring(fieldToWorld(randRange(-400, 400), randRange(0, 60), 1, _v), RED, 8, 0.8)
         }
-        this.callbacks.onGameOver({ wave: this.wave, kills: this.totalKills })
+        this.callbacks.onGameOver({ wave: this.wave, kills: this.scoring.totalKills })
     }
 
     // ─── Housekeeping ────────────────────────────────────────────────────────
@@ -6477,8 +6376,8 @@ export class HackerzGame {
         this.surges = []
         this.portscanLeft = 0
         // Dropped without banking: a cleared field is a run that is restarting.
-        for (const coin of this.coins) coin.mesh.removeFromParent()
-        this.coins = []
+        for (const coin of this.scoring.coins) coin.mesh.removeFromParent()
+        this.scoring.coins = []
         this.particles.clear()
         for (const corpse of this.dying) disposeRig(corpse.rig)
         this.dying = []
