@@ -5,7 +5,7 @@ import { clamp } from '../math'
 import type { PathChip } from '../path-chips'
 import { AMBER, CYAN, LIME, fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { PING_COOLDOWN_MS, _v, MUZZLE_D } from './tuning'
+import { _v, MUZZLE_D, PING_COOLDOWN_MS } from './tuning'
 import type { HackerzGame } from '../hackerz-game'
 
 const PING_SPEED = 1500

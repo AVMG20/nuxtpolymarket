@@ -1,16 +1,15 @@
 import * as THREE from 'three'
-import { randomChance, randomFloat, randomInt, seededRng, withSeed } from './rng'
+import { randomChance, randomFloat, seededRng, withSeed } from './rng'
 import type { DemoScript } from '../hackerz-demo-scripts'
 import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
     HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, hackerzHackerField, HACKERZ_MAX_WAVE, HACKERZ_SPIDER_INJECT_MS,
     HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_WAVE_MS, hackerzBossFor,
-    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
-    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
-    hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDeployableId,
-    type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId, type HackerzEventId,
+    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, hackerzDamageMultiplier,
+    hackerzDeployable, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne,
+    hackerzIsBossWave, hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool,
+    type HackerzDeployableId, type HackerzEnemyDefinition, type HackerzEnemyId, type HackerzEventId,
     type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
@@ -20,7 +19,7 @@ import {
 import { clamp, randRange, segPointDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
 import { Guardrail } from './guardrail'
-import { Deployables, type Blast, type Hold } from './deployables'
+import { Deployables, type Hold } from './deployables'
 import { HackTerminals } from './hack-terminal'
 import { LinePulses } from './line-pulses'
 import { SysLog } from './sys-log'
@@ -41,8 +40,8 @@ import { LaneProps } from './lane-props'
 import { Overlay, ParticleSystem, TransientFx, hexCss, type HealthTag } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
 import {
-    PING_COOLDOWN_MS, PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP,
-    LANE_SLACK, MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE, RAIL_TRACK
+    PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK, MUZZLE_D,
+    PACKET_LOSS, LONGBORE_FLARE, RAIL_TRACK, PING_COOLDOWN_MS
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -64,6 +63,7 @@ import { Turrets } from './game/turrets'
 import { Projectiles } from './game/projectiles'
 import { Rail } from './game/rail'
 import { Abilities } from './game/abilities'
+import { Deployer } from './game/deployer'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -282,13 +282,7 @@ const HP_TRAIL_DRAIN = 0.9
 /** How close to its stop line a demo unit counts as there: `walkTo` settles within 3. */
 const PUPPET_SETTLE = 4
 
-/** Deployables may only go down on this stretch of the lane. */
-const DEPLOY_MIN_D = 60
-const DEPLOY_MAX_D = FIELD_DEPTH * 0.85
 const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACKERZ_DEPLOYABLES.map(def => [def.key.toLowerCase(), def.id]))
-
-/** A logic bomb dropped this close to a node that is not theirs is wired onto it. */
-const BOMB_CHIP_SNAP = 110
 
 export class HackerzGame {
     view: HackerzScene | null = null
@@ -301,7 +295,7 @@ export class HackerzGame {
     pathChips: PathChips | null = null
     terminals: HackTerminals | null = null
     /** The data lines ground hostiles ride. Rebuilt each run. */
-    private network: DataNetwork = { nodes: [], traces: [] }
+    network: DataNetwork = { nodes: [], traces: [] }
     /** Hack pulses in flight from a terminal to its node: they count when they land. */
     private hackPulses: { chip: PathChip, from: THREE.Vector3, to: THREE.Vector3, t: number, mesh: THREE.Mesh }[] = []
     private pulseGeometry = new THREE.OctahedronGeometry(0.34, 0)
@@ -324,7 +318,7 @@ export class HackerzGame {
     // ── Run state ──
     loadout: HackerzLoadout | null = null
     slots = 2
-    private wave = 0
+    wave = 0
     private waveElapsed = 0
     private schedule: ScheduledSpawn[] = []
     private scheduleIndex = 0
@@ -356,14 +350,9 @@ export class HackerzGame {
     /** The hacker pack size last seen this wave, to announce a second contingent. */
     private hackerField = 0
     private decoysLogged = false
-    private stock: HackerzDeployableStock = hackerzEmptyStock()
-    /** Armed by Z/X/C: the next left click places it instead of firing. */
-    private armed: HackerzDeployableId | null = null
 
     // ── Entities ──
     enemies: EnemyEntity[] = []
-    /** Power Surges on the grid: where, how long left, and the countdowns to the next arc and the next ring. */
-    private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
 
     // ── Input ──
     private listeners: (() => void)[] = []
@@ -411,6 +400,7 @@ export class HackerzGame {
     readonly projectiles = new Projectiles(this)
     readonly rail = new Rail(this)
     readonly abilities = new Abilities(this)
+    readonly deployer = new Deployer(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -600,7 +590,7 @@ export class HackerzGame {
     autopilotStock() {
         const pack = this.autopilotPack()
         return {
-            stock: { ...this.stock },
+            stock: { ...this.deployer.stock },
             pack: pack ? { size: pack.size, d: pack.d } : null,
             held: (this.pathChips?.chips ?? []).filter(chip => chip.state === 'hacked').length
         }
@@ -613,22 +603,22 @@ export class HackerzGame {
      * be turned; Portscan and Cosmic Blip simply go off. True when one was spent.
      */
     autopilotDeploy(id: HackerzDeployableId) {
-        if (!this.running || this.purging || this.paused || this.stock[id] <= 0) return false
-        const before = this.stock[id]
+        if (!this.running || this.purging || this.paused || this.deployer.stock[id] <= 0) return false
+        const before = this.deployer.stock[id]
         if (hackerzDeployable(id).instant) {
-            this.useInstant(id)
-            return this.stock[id] < before
+            this.deployer.useInstant(id)
+            return this.deployer.stock[id] < before
         }
         const pack = this.autopilotPack()
         if (!pack) return false
         if (id === 'whitehat') {
-            if (pack.convert) this.useWhiteHat(pack.convert)
-            return this.stock[id] < before
+            if (pack.convert) this.deployer.useWhiteHat(pack.convert)
+            return this.deployer.stock[id] < before
         }
         this.rail.aimU = pack.u
         this.rail.aimD = pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0)
-        const spot = this.deploySpot(id)
-        this.drop(id, spot.u, spot.d, spot.chip)
+        const spot = this.deployer.deploySpot(id)
+        this.deployer.drop(id, spot.u, spot.d, spot.chip)
         return true
     }
 
@@ -926,20 +916,20 @@ export class HackerzGame {
      */
     demoDeploy(id: HackerzDeployableId, u: number, d: number) {
         if (!this.demo) return
-        this.stock[id] = HACKERZ_DEPLOYABLE_MAX
+        this.deployer.stock[id] = HACKERZ_DEPLOYABLE_MAX
         if (hackerzDeployable(id).instant) {
-            this.useInstant(id)
+            this.deployer.useInstant(id)
             return
         }
         if (id === 'whitehat') {
             const pick = this.enemies
                 .filter(e => this.whiteHats.turnable(e))
                 .sort((a, b) => Math.hypot(a.u - u, a.d - d) - Math.hypot(b.u - u, b.d - d))[0]
-            this.useWhiteHat(pick ?? null)
+            this.deployer.useWhiteHat(pick ?? null)
             return
         }
         // Exactly where the script says: no snapping to a line or a node.
-        this.drop(id, u, d, null)
+        this.deployer.drop(id, u, d, null)
     }
 
     private loop = (now: number) => {
@@ -970,8 +960,8 @@ export class HackerzGame {
         const onPointerMove = (event: PointerEvent) => {
             const p = local(event)
             this.setAimFromScreen(p.x, p.y)
-            canvas.style.cursor = !this.armed && this.pickEnemy(p.x, p.y) ? 'pointer' : 'crosshair'
-            if (this.armed) this.showGhost(this.armed)
+            canvas.style.cursor = !this.deployer.armed && this.pickEnemy(p.x, p.y) ? 'pointer' : 'crosshair'
+            if (this.deployer.armed) this.deployer.showGhost(this.deployer.armed)
             if (event.button < 0) return
             if (event.buttons & (1 << buttonBit(event.button))) press(event)
             else lift(event)
@@ -981,20 +971,20 @@ export class HackerzGame {
         const press = (event: PointerEvent) => {
             if (event.button === 2) {
                 // Right click puts an armed deployable away; otherwise it pings.
-                if (this.armed) this.arm(null)
+                if (this.deployer.armed) this.deployer.arm(null)
                 else this.abilities.firePing()
                 return
             }
             if (event.button !== 0) return
             const p = local(event)
             // A White Hat is aimed at a hostile, not at the ground.
-            if (this.armed === 'whitehat') {
-                this.useWhiteHat(this.pickEnemy(p.x, p.y))
+            if (this.deployer.armed === 'whitehat') {
+                this.deployer.useWhiteHat(this.pickEnemy(p.x, p.y))
                 return
             }
-            if (this.armed) {
+            if (this.deployer.armed) {
                 this.setAimFromScreen(p.x, p.y)
-                this.placeArmed()
+                this.deployer.placeArmed()
                 return
             }
             const frozen = this.battery.pickFrozenTurret(p.x, p.y)
@@ -1030,12 +1020,12 @@ export class HackerzGame {
             if (key === 'r') this.rail.beginReload()
             if (key === 'escape') {
                 this.rail.target = null
-                this.arm(null)
+                this.deployer.arm(null)
             }
             const deploy = DEPLOY_KEYS[key]
             // One with nothing to aim (a Portscan, a Cosmic Blip) goes off at once.
-            if (deploy && hackerzDeployable(deploy).instant) this.useInstant(deploy)
-            else if (deploy) this.arm(this.armed === deploy ? null : deploy)
+            if (deploy && hackerzDeployable(deploy).instant) this.deployer.useInstant(deploy)
+            else if (deploy) this.deployer.arm(this.deployer.armed === deploy ? null : deploy)
             if (key === ' ') {
                 // Space scrolls the page by default, which is fatal for a key
                 // the player mashes under pressure.
@@ -1201,10 +1191,10 @@ export class HackerzGame {
         this.sysLog.waveStart(wave, event)
         this.waveMs = event ? HACKERZ_BONUS_MS : HACKERZ_WAVE_MS
         this.bastion.bonusFailed = false
-        this.stock = { ...loadout.deployables }
+        this.deployer.stock = { ...loadout.deployables }
         this.deployables?.clear()
         this.linePulses?.clear()
-        this.arm(null)
+        this.deployer.arm(null)
         const previousMax = this.bastion.wallMaxHp
         this.loadout = loadout
         this.rail.weapon = loadout.weapon
@@ -1281,261 +1271,12 @@ export class HackerzGame {
 
     // ─── Deployables ─────────────────────────────────────────────────────────
 
-    /** Where a deployable would land: the cursor, kept to the deployable stretch. */
-    private get deployD() {
-        return clamp(this.rail.aimD, DEPLOY_MIN_D, DEPLOY_MAX_D)
-    }
-
-    /** Arms a deployable for the next click, or disarms with null. Arming one you have none of does nothing. */
+    /** See `Deployer.arm`. */
     arm(id: HackerzDeployableId | null) {
-        if (id && (!this.running || this.purging || this.stock[id] <= 0)) {
-            if (id && this.running && this.stock[id] <= 0) this.callbacks.onNotice(`No ${hackerzDeployable(id).name} left — buy them at the uplink.`, 'info')
-            return
-        }
-        if (this.armed === id) return
-        this.armed = id
-        if (id) this.rail.target = null
-        this.showGhost(id)
-        this.callbacks.onArm?.(id)
-    }
-
-    /**
-     * The node a logic bomb under the cursor would wire onto: the nearest one
-     * still ours or still being fought over, within reach of the cursor.
-     */
-    private bombChip(): PathChip | null {
-        let best: PathChip | null = null
-        let bestDistance = BOMB_CHIP_SNAP
-        for (const chip of this.pathChips?.chips ?? []) {
-            if (chip.state === 'hacked') continue
-            const distance = Math.hypot(chip.u - this.rail.aimU, chip.d - this.rail.aimD)
-            if (distance > bestDistance) continue
-            best = chip
-            bestDistance = distance
-        }
-        return best
-    }
-
-    /** Where an armed deployable would go down, and the node it would wire onto, if any. */
-    private deploySpot(id: HackerzDeployableId) {
-        if (id === 'bomb') {
-            const chip = this.bombChip()
-            if (chip) return { u: chip.u, d: chip.d, chip }
-        }
-        let u = clamp(this.rail.aimU, -FIELD_HALF_WIDTH + 30, FIELD_HALF_WIDTH - 30)
-        let d = this.deployD
-        // A honeypot sits on a data line, or nothing could ride to it.
-        if (id === 'honeypot') {
-            const on = nearestOnNetwork(this.network, u, d)
-            if (on) {
-                u = on.u
-                d = clamp(on.d, DEPLOY_MIN_D, DEPLOY_MAX_D)
-            }
-        }
-        return { u, d, chip: null }
-    }
-
-    private showGhost(id: HackerzDeployableId | null) {
-        // A White Hat picks a hostile: no patch of ground to preview.
-        if (!id || id === 'whitehat') {
-            this.deployables?.setGhost(null)
-            return
-        }
-        const spot = this.deploySpot(id)
-        this.deployables?.setGhost(id, spot.u, spot.d, this.wave)
-    }
-
-    private placeArmed() {
-        const id = this.armed
-        const deployables = this.deployables
-        if (!id || !deployables || !this.running || this.purging || this.paused || this.stock[id] <= 0) return
-        const { u, d, chip } = this.deploySpot(id)
-        this.drop(id, u, d, chip)
-        // One click, one drop: placing another means pressing the key again.
-        this.arm(null)
-    }
-
-    /** Puts a deployable down at (u, d), wired onto `chip` if given, and spends one. */
-    private drop(id: HackerzDeployableId, u: number, d: number, chip: PathChip | null) {
-        // A Power Surge is a field the engine runs; the rest are props the deployables keep.
-        if (id === 'surge') this.placeSurge(u, d)
-        else this.deployables?.place(id, u, d, this.wave, chip?.id ?? null)
-        const hex = hackerzDeployable(id).hex
-        this.stock[id]--
-        this.callbacks.onDeploy?.(id, this.stock[id])
-        this.sysLog.deploy(id, chip?.id ?? null)
-        const at = fieldToWorld(u, d, 0.2, new THREE.Vector3())
-        this.transient?.ring(at, hex, 4, 0.4)
-        this.particles.burst(at, hex, 30, 9, { size: 0.3, life: 0.6 })
-        this.view?.addSurge(at.x, at.z, hex, 1.2)
-        this.callbacks.onSound?.('weapon-swap')
+        return this.deployer.arm(id)
     }
 
     // ─── Consumables: Portscan, Cosmic Blip, White Hat, Power Surge ──────────
-
-    /**
-     * A deployable with nothing to aim goes off the moment its key is pressed.
-     * One that would do nothing right now (no node to flip back) is kept.
-     */
-    private useInstant(id: HackerzDeployableId) {
-        const loadout = this.loadout
-        if (!loadout || !this.running || this.purging || this.paused) return
-        if (this.stock[id] <= 0) {
-            this.callbacks.onNotice(`No ${hackerzDeployable(id).name} left — buy them at the uplink.`, 'info')
-            return
-        }
-        if (id === 'portscan') {
-            this.abilities.portscanLeft = loadout.portscanMs
-            this.abilities.rescanMs = HACKERZ_PORTSCAN_REPING_MS
-            this.abilities.firePing(true)
-            this.sysLog.deploy(id, null)
-        } else if (id === 'blip') {
-            if (!this.cosmicBlip(loadout.blipNodes)) return
-        } else return
-        this.stock[id]--
-        this.callbacks.onDeploy?.(id, this.stock[id])
-        this.callbacks.onSound?.('weapon-swap')
-    }
-
-    /** A Cosmic Blip: `count` hacked nodes, picked at random, flipped straight back to us. False when there are none. */
-    private cosmicBlip(count: number) {
-        const chips = this.pathChips
-        const hacked = chips && !chips.locked ? chips.chips.filter(chip => chip.state === 'hacked') : []
-        if (!hacked.length) {
-            this.callbacks.onNotice(chips?.locked ? 'The flood holds every node — nothing for a blip to flip.' : 'No hacked node to flip back.', 'info')
-            return false
-        }
-        let flipped = 0
-        for (let n = 0; n < count && hacked.length; n++) {
-            const chip = hacked.splice(randomInt(0, hacked.length - 1), 1)[0]!
-            if (!chips!.reclaim(chip)) continue
-            flipped++
-            const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
-            // Out of the sky: a white streak straight down onto the node.
-            this.transient?.beam(fieldToWorld(chip.u, chip.d, 30, new THREE.Vector3()), at, 0xe0f2fe, 0.4)
-            this.transient?.ring(at, CYAN, 6, 0.55)
-            this.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
-            this.view?.addSurge(at.x, at.z, CYAN, 1.6)
-            this.pulseFromChip(chip)
-        }
-        this.sysLog.blip(flipped)
-        return flipped > 0
-    }
-
-    /**
-     * A White Hat: the hostile clicked (never a boss), and as many of the
-     * nearest others as the Mainframe allows, switch sides for good.
-     */
-    private useWhiteHat(picked: EnemyEntity | null) {
-        const loadout = this.loadout
-        if (!loadout || !this.running || this.purging || this.paused || this.stock.whitehat <= 0) return
-        if (!picked || !this.whiteHats.turnable(picked)) {
-            this.callbacks.onNotice(picked?.def.boss ? 'A boss cannot be turned.' : 'Click a hostile to turn it.', 'info')
-            return
-        }
-        const turned = [picked]
-        const others = this.enemies
-            .filter(e => e !== picked && this.whiteHats.turnable(e))
-            .sort((a, b) => Math.hypot(a.u - picked.u, a.d - picked.d) - Math.hypot(b.u - picked.u, b.d - picked.d))
-        turned.push(...others.slice(0, loadout.whitehatTargets - 1))
-        for (const enemy of turned) this.whiteHats.turnEnemy(enemy)
-        this.stock.whitehat--
-        this.callbacks.onDeploy?.('whitehat', this.stock.whitehat)
-        this.sysLog.whiteHat(turned.length)
-        this.callbacks.onSound?.('coin-pickup')
-        this.arm(null)
-    }
-
-    /** A Power Surge laid on the grid at (u, d). */
-    private placeSurge(u: number, d: number) {
-        const loadout = this.loadout
-        if (!loadout) return
-        this.surges.push({ u, d, leftMs: loadout.surgeMs, arcMs: 0, ringMs: 0 })
-    }
-
-    /** Every Power Surge on the grid: arcs into the hostiles inside it, a few at a time, until it runs out. */
-    private updateSurges(dtMs: number) {
-        if (!this.surges.length) return
-        const stats = hackerzDeployableStats(this.wave).surge
-        const hex = hackerzDeployable('surge').hex
-        for (let i = this.surges.length - 1; i >= 0; i--) {
-            const surge = this.surges[i]!
-            surge.leftMs -= dtMs
-            if (surge.leftMs <= 0) {
-                this.surges.splice(i, 1)
-                continue
-            }
-            // The field itself: a ring breathing on the grid, and stray sparks across it.
-            surge.ringMs -= dtMs
-            if (surge.ringMs <= 0) {
-                surge.ringMs = 600
-                this.transient?.ring(fieldToWorld(surge.u, surge.d, 0.08, _v), hex, stats.radius * FIELD_SCALE, 0.5, 0.6)
-            }
-            const centre = fieldToWorld(surge.u, surge.d, 0.3, new THREE.Vector3())
-            if (Math.random() < dtMs / 1000 * 8) {
-                const a = Math.random() * Math.PI * 2
-                const r = Math.random() * stats.radius
-                this.transient?.bolt(centre, fieldToWorld(surge.u + Math.cos(a) * r, surge.d + Math.sin(a) * r, 0.1, new THREE.Vector3()), hex)
-            }
-            surge.arcMs -= dtMs
-            if (surge.arcMs > 0) continue
-            surge.arcMs += stats.arcMs
-            const inside = this.enemies.filter(e => !e.turned && e.hp > 0 && !this.combat.untouchable(e)
-                && Math.hypot(e.u - surge.u, e.d - surge.d) <= stats.radius)
-            for (let n = 0; n < stats.arcs && inside.length; n++) {
-                const enemy = inside.splice(randomInt(0, inside.length - 1), 1)[0]!
-                this.combat.damageEnemy(enemy, stats.damage, 'energy', true, true)
-                const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-                this.transient?.bolt(centre, at, hex)
-                this.particles.burst(at, hex, 5, 6, { size: 0.2, life: 0.25 })
-            }
-        }
-    }
-
-    /** A honeypot or logic bomb goes off: everything in the radius takes it, falling off to half at the edge. */
-    private detonateBlast(blast: Blast) {
-        const at = fieldToWorld(blast.u, blast.d, 0.4, new THREE.Vector3())
-        this.transient?.ring(at, blast.hex, blast.radius * FIELD_SCALE, 0.5, 2)
-        this.transient?.flash(at, blast.hex, 3, 0.3)
-        this.particles.burst(at, blast.hex, 90, 18, { size: 0.42, life: 0.9, gravity: 10 })
-        this.particles.burst(at, 0xffffff, 30, 12, { size: 0.3, life: 0.5 })
-        this.view?.addSurge(at.x, at.z, blast.hex, 2.4)
-        this.view?.flash(blast.hex, 0.18)
-        this.addShake(12)
-        this.callbacks.onSound?.('boss-death')
-        let kills = 0
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const enemy = this.enemies[i] as EnemyEntity
-            if (this.combat.untouchable(enemy)) continue
-            const distance = Math.hypot(enemy.u - blast.u, enemy.d - blast.d)
-            if (distance > blast.radius) continue
-            this.combat.damageEnemy(enemy, blast.damage * (1 - 0.5 * distance / blast.radius), 'energy', true, true)
-            if (!enemy.def.boss) enemy.pushVd += 160 * (1 - distance / blast.radius)
-            if (enemy.hp <= 0) {
-                this.combat.killEnemy(i, 1)
-                kills++
-            }
-        }
-        this.sysLog.blast(blast.kind, kills)
-        const label = blast.kind === 'honeypot' ? 'HONEYPOT SPRUNG' : 'LOGIC BOMB'
-        this.overlay.floatText(fieldToWorld(blast.u, blast.d, 3, _v), kills > 1 ? `${label} ×${kills}` : label, blast.hex, kills > 2 ? 1.7 : 1.3)
-        if (kills >= 4) this.overlay.banner(`MULTI-KILL ×${kills}`, blast.hex)
-    }
-
-    private updateDeployables(dt: number) {
-        const deployables = this.deployables
-        if (!deployables) return
-        const ground = this.enemies
-            .filter(e => !hackerzIsAirborne(e.def) && !this.combat.untouchable(e))
-            .map(e => ({ u: e.u, d: e.d, hacker: e.def.id === HACKERZ_HACKER_ID }))
-        const events = deployables.update(dt, ground)
-        for (const blast of events.blasts) this.detonateBlast(blast)
-        for (const broken of events.broken) {
-            const at = fieldToWorld(broken.u, broken.d, 1, new THREE.Vector3())
-            this.particles.burst(at, broken.hex, 50, 12, { size: 0.3, life: 0.6 })
-            if (broken.hp <= 0) this.overlay.floatText(at, 'PROXY DOWN', broken.hex, 1.1)
-        }
-    }
 
     /** Reports a hostile type or bonus round the first time it turns up; a demo board never does. */
     private sight(id: string) {
@@ -1767,12 +1508,12 @@ export class HackerzGame {
                 if (!this.finalPush && this.waveElapsed >= this.waveMs - FINAL_PUSH_MS) this.beginFinalPush()
                 if (this.waveElapsed >= this.waveMs) this.beginPurge()
             }
-            this.updateDeployables(dt)
+            this.deployer.updateDeployables(dt)
             this.updateEnemies(dt, dtMs)
             this.projectiles.updateBullets(dt)
             this.projectiles.updateSpits(dt)
             this.blackIce.updateIce(dt)
-            if (this.running && !this.purging) this.updateSurges(dtMs)
+            if (this.running && !this.purging) this.deployer.updateSurges(dtMs)
             this.battery.updateTurrets(dtMs, frozen)
             this.scoring.updateCoins(frozen ? 0 : dtMs)
             this.bastion.updateBastion(dt, dtMs)
@@ -3439,7 +3180,7 @@ export class HackerzGame {
         this.addShake(4)
         this.callbacks.onNotice('A path node was hacked — shoot it to reclaim it.', 'bad')
         // A logic bomb wired onto it goes off under the crew that just took it.
-        for (const blast of this.deployables?.detonateOnChip(node.id) ?? []) this.detonateBlast(blast)
+        for (const blast of this.deployables?.detonateOnChip(node.id) ?? []) this.deployer.detonateBlast(blast)
         // The units on it re-target on their next step and march on to the next node.
     }
 
@@ -3579,7 +3320,7 @@ export class HackerzGame {
         this.purging = false
         this.finalPush = false
         this.abilities.overclockLeft = 0
-        this.arm(null)
+        this.deployer.arm(null)
         // Unspent hardware does not carry over: it was placed for this fight.
         this.deployables?.clear()
         this.linePulses?.clear()
@@ -3591,7 +3332,7 @@ export class HackerzGame {
         this.memory.clearLeaks(false)
         this.rootkit.infected.clear()
         this.blackIce.clearIce()
-        this.surges = []
+        this.deployer.surges = []
         this.abilities.portscanLeft = 0
         // Coins still mid-flight belong to the wave that dropped them.
         this.scoring.flushCoins()
@@ -3677,7 +3418,7 @@ export class HackerzGame {
         this.memory.clearLeaks(false)
         this.rootkit.infected.clear()
         this.blackIce.clearIce()
-        this.surges = []
+        this.deployer.surges = []
         this.abilities.portscanLeft = 0
         // Dropped without banking: a cleared field is a run that is restarting.
         for (const coin of this.scoring.coins) coin.mesh.removeFromParent()
@@ -3693,7 +3434,7 @@ export class HackerzGame {
         this.shrapnel?.clear()
         this.glitchClouds?.clear()
         this.clearHacking()
-        this.armed = null
+        this.deployer.armed = null
         this.bonus = null
         this.bonusChips = null
         if (this.pathChips) this.pathChips.locked = false
