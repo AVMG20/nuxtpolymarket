@@ -6,10 +6,10 @@ import {
     HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX,
     HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
     HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
-    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS,
-    HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES,
-    HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
-    hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
+    HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_WAVE_MS, hackerzBossFor,
+    hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
+    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy,
+    hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
     hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
     type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
     type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
@@ -17,8 +17,7 @@ import {
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
     MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK, PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY,
-    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, SPIT_SPEED, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT,
-    mountPosition
+    SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
 } from './constants'
 import { clamp, randRange, segPointDist, segSegDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -29,9 +28,6 @@ import { LinePulses } from './line-pulses'
 import { SysLog } from './sys-log'
 import { Shrapnel } from './shrapnel'
 import { GlitchClouds } from './glitch-cloud'
-import { CRYSTAL_RIBBON_IDS, CrystalRibbon } from './crystal-ribbon'
-import { BLOCK_STORM_IDS, BlockStorm } from './block-storm'
-import { DrainWound } from './drain-wound'
 import { IceWall, disposeIceGlob, makeIceGlob } from './ice-wall'
 import {
     buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget, type DataNetwork, type LinePoint,
@@ -41,18 +37,16 @@ import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, typ
 import {
     ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
     drainGrowth, gatherLegs, easeInject, easeStrike, fangTips, injectLands, muzzleOf, railKickFor, rollSpeedFor,
-    spinTurret, strideFor, strikeLands, turnToward, weaponTip
+    spinTurret, strideFor, strikeLands, turnToward
 } from './rig-motion'
 import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
 import { LaneProps } from './lane-props'
-import {
-    Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, makeSpit, turretProjectile, type HealthTag
-} from './fx'
+import { Overlay, ParticleSystem, TransientFx, hexCss, makeProjectile, turretProjectile, type HealthTag } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
 import {
-    PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, ROOTKIT_BURROW_MS, GLITCH_FADE_MS, halfExtents,
-    CROWD_GAP, LANE_SLACK
+    WALL_HIT_Y, PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, ROOTKIT_BURROW_MS, GLITCH_FADE_MS,
+    halfExtents, CROWD_GAP, LANE_SLACK
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -66,6 +60,7 @@ import {
 import { Crowd } from './game/crowd'
 import { Combat } from './game/combat'
 import { WhiteHats } from './game/white-hats'
+import { Assault } from './game/assault'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -109,9 +104,6 @@ interface ShotSpec {
 
 /** Turret and rail muzzles sit this high above the field, in field units. */
 const MUZZLE_Y = (WALL_HEIGHT + 1.1) * PER_WORLD
-
-/** Where the fence is struck, and where dropped coins bank. */
-const WALL_HIT_Y = FENCE_HEIGHT * 0.55 * PER_WORLD
 
 /**
  * Rounds start on the deck, well behind the fence. Walkers stop a body-width
@@ -295,9 +287,6 @@ const COVER_RADIUS = 170
 const COVER_HOLD_MS = 900
 const YAW_UP = Math.PI
 
-/** The colour of an electric prod's discharge. */
-const PROD_HEX = 0xbfe9ff
-
 /** How much of a node a hack pulse takes (how often they fly is `MOTION.hackPulseMs`). */
 const HACK_PULSE_AMOUNT = 0.09
 
@@ -446,7 +435,7 @@ export class HackerzGame {
     private bonusChips: ReturnType<PathChips['snapshot']> | null = null
 
     // ── Deployables ──
-    private deployables: Deployables | null = null
+    deployables: Deployables | null = null
     private linePulses: LinePulses | null = null
     shrapnel: Shrapnel | null = null
     /** Warhead blasts: clouds of corrupted data scrambling the splash area. */
@@ -542,6 +531,7 @@ export class HackerzGame {
     readonly crowd = new Crowd(this)
     readonly combat = new Combat(this)
     readonly whiteHats = new WhiteHats(this)
+    readonly assault = new Assault(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -2844,9 +2834,9 @@ export class HackerzGame {
                     enemy.burstLeft--
                     enemy.attackTimer = enemy.burstLeft > 0 ? MOTION.burstGapMs : enemy.def.attackMs
                     if (hold) {
-                        if (this.strikeDeployable(enemy, hold)) continue
+                        if (this.assault.strikeDeployable(enemy, hold)) continue
                     } else {
-                        this.enemyStrike(enemy)
+                        this.assault.enemyStrike(enemy)
                         if (enemy.def.kind === 'bomber' || enemy.kamikaze) continue
                     }
                 }
@@ -2974,8 +2964,8 @@ export class HackerzGame {
                 const before = enemy.strike
                 enemy.strike = easeStrike(enemy.rig, enemy.strike, dt)
                 if (strikeLands(before, enemy.strike)) {
-                    if (enemy.rig.weaponKind === 'ram') this.ramImpact(enemy)
-                    else this.prodZap(enemy)
+                    if (enemy.rig.weaponKind === 'ram') this.assault.ramImpact(enemy)
+                    else this.assault.prodZap(enemy)
                 }
             }
             placeEnemy(enemy)
@@ -2993,7 +2983,7 @@ export class HackerzGame {
                 // ROOTKIT's stab puts its brood in; a spiderling's is its bite (see `drainFence`).
                 if (injectLands(before, enemy.inject) && enemy.def.id === 'titan') this.injectBrood(enemy)
             }
-            if (enemy.ribbonMs > 0 || enemy.ribbon?.busy) this.feedRibbon(enemy, dt, dtMs)
+            if (enemy.ribbonMs > 0 || enemy.ribbon?.busy) this.assault.feedRibbon(enemy, dt, dtMs)
             enemy.storm?.update(dt)
             enemy.wound?.update(dt)
         }
@@ -3351,184 +3341,7 @@ export class HackerzGame {
         return decoy
     }
 
-    /**
-     * A held unit beats on the honeypot or proxy wall in its way instead of the
-     * fence. A sapper spends itself on it. True when the unit is gone.
-     */
-    private strikeDeployable(enemy: EnemyEntity, hold: Hold) {
-        const damage = enemy.damage * this.chipBuff(enemy)
-        const at = fieldToWorld(enemy.u, hold.target.d, 1.2, new THREE.Vector3())
-        this.particles.burst(at, hold.target.hex, 5, 7, { size: 0.2, life: 0.3 })
-        if (enemy.def.kind === 'bomber') {
-            this.deployables?.strike(hold.target, damage * 2)
-            this.transient?.ring(at, enemy.def.hex, 7, 0.4)
-            this.particles.burst(at, enemy.def.hex, 26, 14, { size: 0.32, life: 0.6 })
-            this.addShake(6)
-            const index = this.enemies.indexOf(enemy)
-            if (index >= 0) this.combat.removeEnemy(index)
-            return true
-        }
-        if (enemy.def.cloaked && !enemy.decloaked) enemy.decloaked = true
-        // A spiderling sinks its fangs into a proxy wall and drains it like the fence.
-        if (enemy.def.drain && hold.target.kind === 'proxy') {
-            this.drainFence(enemy, damage, hold.target)
-            return false
-        }
-        this.deployables?.strike(hold.target, damage)
-        return false
-    }
-
-    /** What an enemy does when it reaches its stopping distance. */
-    private enemyStrike(enemy: EnemyEntity) {
-        const damage = enemy.damage * this.chipBuff(enemy)
-        // The last healers of a wave go off on the fence like a weak Sapper.
-        switch (enemy.kamikaze ? 'bomber' : enemy.def.kind) {
-            case 'ranged': {
-                const heavy = enemy.def.id === 'artillery'
-                // The shot leaves from the muzzle itself (shared with the
-                // database turntable), not from somewhere inside the body.
-                placeEnemy(enemy)
-                // Twin guns (a Gunship's) take turns down the volley.
-                const muzzle = muzzleOf(enemy.rig, new THREE.Vector3(), enemy.burstLeft)
-                const from = { u: muzzle.x / FIELD_SCALE, d: -muzzle.z / FIELD_SCALE, y: muzzle.y / FIELD_SCALE }
-                const speed = heavy ? SPIT_SPEED * 1.5 : SPIT_SPEED
-                const flightTime = Math.max(0.35, from.d / speed)
-                const mesh = makeSpit(enemy.def.hex, heavy)
-                this.fieldRoot.add(mesh)
-                this.spits.push({
-                    mesh,
-                    u: from.u,
-                    d: from.d,
-                    y: from.y,
-                    vd: -from.d / flightTime,
-                    vy: (WALL_HIT_Y - from.y) / flightTime + 0.5 * SPIT_GRAVITY * flightTime,
-                    damage,
-                    hex: enemy.def.hex,
-                    heavy
-                })
-                this.transient?.flash(muzzle, enemy.def.hex, heavy ? 0.9 : 0.5)
-                enemy.recoil = 1
-                break
-            }
-            case 'bomber': {
-                this.bastion.damageWall(damage, enemy.u)
-                // It goes up: the spikes are blown off the cage in every direction.
-                placeEnemy(enemy)
-                this.shrapnel?.burst(enemy.rig, enemy.def.hex)
-                const at = enemyWorld(enemy, 10, _v)
-                this.transient?.flash(at, enemy.def.hex, 2.6, 0.25)
-                this.transient?.ring(at, enemy.def.hex, 9, 0.45)
-                this.particles.burst(at, enemy.def.hex, 30, 16, { size: 0.35, life: 0.7 })
-                this.addShake(14)
-                this.callbacks.onNotice(`A ${enemy.def.name} reached the wall.`, 'bad')
-                this.sysLog.sapperHit(Math.floor((enemy.u + FIELD_HALF_WIDTH) / 100) + 1, this.bastion.integrityPercent())
-                const index = this.enemies.indexOf(enemy)
-                if (index >= 0) this.combat.removeEnemy(index)
-                break
-            }
-            default: {
-                // A spiderling latches on and drains instead of striking.
-                if (enemy.def.drain) {
-                    this.drainFence(enemy, damage)
-                    break
-                }
-                // A cloaked unit has to drop its cloak to strike.
-                if (enemy.def.cloaked && !enemy.decloaked) {
-                    enemy.decloaked = true
-                    this.particles.burst(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), enemy.def.hex, 14, 6, { size: 0.24, life: 0.4 })
-                }
-                this.bastion.damageWall(damage, enemy.u)
-                this.particles.burst(fieldToWorld(enemy.u, 4, FENCE_HEIGHT * 0.5, _v), enemy.def.hex, 5, 8, { size: 0.2, life: 0.3 })
-                // A unit with a melee weapon (the Warden's prod) jabs it home.
-                enemy.strike = 1
-                // A Phantom's strikes are a crystal ribbon: each keeps it fed until the next.
-                if (CRYSTAL_RIBBON_IDS.includes(enemy.def.id)) enemy.ribbonMs = enemy.def.attackMs * 1.3
-                // ZERO DAY's are its own body: it comes apart at the wall and regrows from its gem.
-                if (BLOCK_STORM_IDS.includes(enemy.def.id)) this.blockStorm(enemy)
-                // A leaking unit (the Daemon) heaves a leaked block onto the pile;
-                // it only starts draining once it lands there.
-                if (enemy.def.leak && enemy.heave <= 0 && enemy.rig.lifts.length) {
-                    enemy.heave = 1
-                    enemy.heaveDrain = damage * enemy.def.leak
-                }
-                break
-            }
-        }
-    }
-
-    /** A Phantom's ribbon: crystals out of its chest, round its crossing orbits, and off the front at the fence. */
-    private feedRibbon(enemy: EnemyEntity, dt: number, dtMs: number) {
-        enemy.ribbonMs = Math.max(0, enemy.ribbonMs - dtMs)
-        const height = enemy.rig.height
-        enemy.ribbon ??= new CrystalRibbon(this.fieldRoot, enemy.def.hex, height, at => {
-            if (randomChance(0.35)) this.particles.burst(at, enemy.def.hex, 3, 5, { size: 0.16, life: 0.25 })
-        })
-        const chest = enemyWorld(enemy, height * PER_WORLD * 0.6, new THREE.Vector3())
-        const target = fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.55, new THREE.Vector3())
-        const forward = target.clone().sub(chest).normalize()
-        enemy.ribbon.update(dt, enemy.ribbonMs > 0, chest, forward, target)
-    }
-
-    /** ZERO DAY's blow: its blocks burst off, sweep past its gem and pelt the fence; it regrows after. */
-    private blockStorm(enemy: EnemyEntity) {
-        placeEnemy(enemy)
-        enemy.storm ??= new BlockStorm(enemy.rig, this.fieldRoot, enemy.def.hex, at => {
-            this.particles.burst(at, enemy.def.hex, 4, 6, { size: 0.22, life: 0.3 })
-        })
-        enemy.storm.start(fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.5, new THREE.Vector3()))
-    }
-
-    /** The ram slamming home: sparks and grit off the plate, a shock along the fence, a jolt. */
-    private ramImpact(enemy: EnemyEntity) {
-        placeEnemy(enemy)
-        const face = weaponTip(enemy.rig, new THREE.Vector3())
-        if (!face) return
-        this.particles.burst(face, 0xffd08a, 26, 9, { size: 0.24, life: 0.4, gravity: 12 })
-        this.particles.burst(face, enemy.def.hex, 12, 5, { size: 0.32, life: 0.5 })
-        this.transient?.ring(fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.3, _v), enemy.def.hex, 3.2, 0.35)
-        this.addShake(7)
-    }
-
-    /** The prod's discharge: arcs from its tip into the fence, and a spit of sparks. */
-    private prodZap(enemy: EnemyEntity) {
-        placeEnemy(enemy)
-        const tip = weaponTip(enemy.rig, new THREE.Vector3())
-        if (!tip) return
-        const fence = fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.45, new THREE.Vector3())
-        this.transient?.bolt(tip, fence, PROD_HEX)
-        this.transient?.bolt(tip, fence.clone().add(_w.set(randRange(-0.6, 0.6), randRange(-0.4, 0.4), 0)), PROD_HEX)
-        this.particles.burst(tip, PROD_HEX, 10, 6, { size: 0.18, life: 0.25 })
-    }
-
     // ─── ROOTKIT's brood ─────────────────────────────────────────────────────
-
-    /**
-     * A spiderling drains the fence (the ICE Barrier first): quietly, like a
-     * leak, and harder every time. What it drains feeds it: it grows, its
-     * health with it, and it heals by what it took.
-     */
-    private drainFence(enemy: EnemyEntity, damage: number, proxy: Hold['target'] | null = null) {
-        const dealt = damage * enemy.drainPower
-        // The fence (its ICE Barrier first), or the proxy wall standing in the way.
-        if (proxy) this.deployables?.strike(proxy, dealt)
-        else this.bastion.damageWall(dealt, enemy.u, true)
-        const before = drainGrowth(enemy.drainPower)
-        enemy.drainPower = Math.min(HACKERZ_SPIDER_MAX_DRAIN, enemy.drainPower * (1 + enemy.def.drain!))
-        enemy.maxHp *= drainGrowth(enemy.drainPower) / before
-        enemy.hp = Math.min(enemy.maxHp, enemy.hp + dealt)
-        // The bite: its fangs drive in, a red stain spills out round them, and
-        // the draw pulses in from the stain's edge, up the fangs, into it.
-        enemy.inject = 1
-        placeEnemy(enemy)
-        const tips = fangTips(enemy.rig)
-        const bite = tips.length ? tips.reduce((sum, t) => sum.add(t), new THREE.Vector3()).divideScalar(tips.length) : enemyWorld(enemy, 6, new THREE.Vector3())
-        const surfaceD = proxy ? proxy.d + 4 : 1
-        const at = fieldToWorld(enemy.u, surfaceD, bite.y * PER_WORLD, new THREE.Vector3())
-        enemy.wound ??= new DrainWound(this.fieldRoot, enemy.def.hex)
-        // The surface faces the field: back toward the spiderling.
-        enemy.wound.place(at, _w.set(0, 0, -1), enemy.rig.height * drainGrowth(enemy.drainPower) * 0.9)
-        enemy.wound.draw(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3()))
-    }
 
     /** Spiderlings on the field. */
     private spiderCount() {
@@ -4280,7 +4093,7 @@ export class HackerzGame {
     // ─── Path nodes ──────────────────────────────────────────────────────────
 
     /** ×1.25 on speed and damage for a hostile inside a hacked node's aura. */
-    private chipBuff(enemy: EnemyEntity) {
+    chipBuff(enemy: EnemyEntity) {
         return this.pathChips?.buffedAt(enemy.u, enemy.d) ? 1.25 : 1
     }
 

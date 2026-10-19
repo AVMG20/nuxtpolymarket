@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { FIELD_SCALE } from '../constants'
+import { FIELD_SCALE, FENCE_HEIGHT } from '../constants'
 
 /** Field units per world unit, for heights that only exist for rendering. */
 export const PER_WORLD = 1 / FIELD_SCALE
@@ -54,3 +54,6 @@ export const CROWD_GAP = 4
  * share of its speed, whenever there is room.
  */
 export const LANE_SLACK = 70
+
+/** Where the fence is struck, and where dropped coins bank. */
+export const WALL_HIT_Y = FENCE_HEIGHT * 0.55 * PER_WORLD
