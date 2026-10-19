@@ -308,7 +308,7 @@ export class Territory {
             && Math.hypot(chip.u - enemy.u, chip.d - enemy.d) <= GUARD_RADIUS)
         const share = (enemy.def.boss ? RED_HEAL_BOSS_SHARE : RED_HEAL_SHARE) * (guarding ? 2 : 1)
         enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * share)
-        if (!this.game.untargetable(enemy)) {
+        if (!this.game.combat.untargetable(enemy)) {
             this.game.particles.emit(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
                 { size: 0.2, life: 0.5, gravity: 0 })
         }

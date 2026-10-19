@@ -7,13 +7,12 @@ import {
     HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField, HACKERZ_MAX_WAVE,
     HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
     HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY, HACKERZ_PURGE_BOUNTY, HACKERZ_SPAWN_WINDOW_MS,
-    HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue,
-    HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats,
-    hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne,
-    hackerzIsBossWave, hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget, hackerzSpawnWeight,
-    hackerzWavePool, type HackerzDamageType, type HackerzDeployableId, type HackerzDeployableStock,
-    type HackerzEnemyDefinition, type HackerzEnemyId, type HackerzEventId, type HackerzLoadout,
-    type HackerzWeaponRuntime
+    HACKERZ_WAVE_MS, hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, HACKERZ_DEPLOYABLES,
+    HACKERZ_PORTSCAN_REPING_MS, hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
+    hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp, hackerzIsAirborne, hackerzIsBossWave,
+    hackerzNetworkEvent, hackerzWaveBudget, hackerzSpawnWeight, hackerzWavePool, type HackerzDamageType,
+    type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition, type HackerzEnemyId,
+    type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
     BULLET_LIFE_MS, BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE,
@@ -30,7 +29,6 @@ import { LinePulses } from './line-pulses'
 import { SysLog } from './sys-log'
 import { Shrapnel } from './shrapnel'
 import { GlitchClouds } from './glitch-cloud'
-import { HexShield } from './hex-shield'
 import { CRYSTAL_RIBBON_IDS, CrystalRibbon } from './crystal-ribbon'
 import { BLOCK_STORM_IDS, BlockStorm } from './block-storm'
 import { DrainWound } from './drain-wound'
@@ -53,8 +51,8 @@ import {
 } from './fx'
 import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount } from './types'
 import {
-    CROWD_GAP, LANE_SLACK, PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, ROOTKIT_BURROW_MS, GLITCH_FADE_MS,
-    halfExtents
+    PER_WORLD, LEAK_D, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, ROOTKIT_BURROW_MS, GLITCH_FADE_MS, halfExtents,
+    CROWD_GAP, LANE_SLACK
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -66,6 +64,7 @@ import {
     burrowing, enemyCentreY, enemyWorld, footprint, glitchOf, placeEnemy, reachOf, sinkInto, underground
 } from './game/bodies'
 import { Crowd } from './game/crowd'
+import { Combat } from './game/combat'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -398,7 +397,7 @@ export class HackerzGame {
     private ammoRack: AmmoRack | null = null
     private laneProps: LaneProps | null = null
     pathChips: PathChips | null = null
-    private terminals: HackTerminals | null = null
+    terminals: HackTerminals | null = null
     /** The data lines ground hostiles ride. Rebuilt each run. */
     private network: DataNetwork = { nodes: [], traces: [] }
     /** Hack pulses in flight from a terminal to its node: they count when they land. */
@@ -406,8 +405,6 @@ export class HackerzGame {
     private pulseGeometry = new THREE.OctahedronGeometry(0.34, 0)
     private pulseMaterial = new THREE.MeshBasicMaterial({ color: hdr(0xff3b3b, 3), toneMapped: false })
     private guardrail: Guardrail | null = null
-    /** Killed units still shorting out on the field: cosmetic only, already paid out. */
-    private dying: { rig: ModelRig, age: number, life: number, hex: number }[] = []
     private resizeObserver: ResizeObserver | null = null
     private raf = 0
     private lastTime = 0
@@ -450,7 +447,7 @@ export class HackerzGame {
     // ── Deployables ──
     private deployables: Deployables | null = null
     private linePulses: LinePulses | null = null
-    private shrapnel: Shrapnel | null = null
+    shrapnel: Shrapnel | null = null
     /** Warhead blasts: clouds of corrupted data scrambling the splash area. */
     glitchClouds: GlitchClouds | null = null
     /** The firewall's syslog, for the terminal beside the board. */
@@ -494,7 +491,7 @@ export class HackerzGame {
     private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
     /** Hacked nodes ROOTKIT has infected, and ms until each hatches its next spiderling. */
     private infected = new Map<number, number>()
-    private turrets: TurretMount[] = []
+    turrets: TurretMount[] = []
 
     // ── Input ──
     /** The hostile the button was pressed on: tracked only while it stays held. */
@@ -542,6 +539,7 @@ export class HackerzGame {
     readonly lag = new PacketLoss(this)
     readonly territory = new Territory(this)
     readonly crowd = new Crowd(this)
+    readonly combat = new Combat(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -672,7 +670,7 @@ export class HackerzGame {
     autopilotView(): { view: HackerzAutopilotView, contacts: Map<string, EnemyEntity> } {
         const loadout = this.loadout
         const chips = this.pathChips?.chips ?? []
-        const live = this.enemies.filter(e => e.hp > 0 && !e.turned && !e.decoy && !this.untargetable(e))
+        const live = this.enemies.filter(e => e.hp > 0 && !e.turned && !e.decoy && !this.combat.untargetable(e))
         live.sort((a, b) => Number(b.hacking) - Number(a.hacking) || Number(!!b.def.boss) - Number(!!a.def.boss) || a.d - b.d)
         const picked = live.slice(0, AUTOPILOT_CONTACTS)
         const contacts = new Map(picked.map((enemy, i) => [`e${i}`, enemy]))
@@ -695,7 +693,7 @@ export class HackerzGame {
                     plated: !!enemy.def.armored
                 })),
                 near: hostile.filter(e => e.d < AUTOPILOT_NEAR).length,
-                hidden: hostile.filter(e => this.inTheDark(e) || (!!e.def.cloaked && !e.decloaked && e.revealMs <= 0)).length,
+                hidden: hostile.filter(e => this.combat.inTheDark(e) || (!!e.def.cloaked && !e.decloaked && e.revealMs <= 0)).length,
                 total: hostile.length,
                 pulseReady: !!loadout?.pulseUnlocked && this.pulseCharge >= loadout.pulseCooldownMs,
                 pingReady: this.pingCharge >= PING_COOLDOWN_MS,
@@ -718,7 +716,7 @@ export class HackerzGame {
      * nothing on the ground.
      */
     private autopilotPack() {
-        const best = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.untouchable(e)))
+        const best = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.combat.untouchable(e)))
         if (!best.length) return null
         const u = best.reduce((sum, e) => sum + e.u, 0) / best.length
         const d = best.reduce((sum, e) => sum + e.d, 0) / best.length
@@ -770,7 +768,7 @@ export class HackerzGame {
      * round passes through it. True when it is firing.
      */
     autopilotBlindFire() {
-        const pack = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !this.untouchable(e) && this.inTheDark(e)))
+        const pack = densestGroup(this.enemies.filter(e => e.hp > 0 && !e.turned && !this.combat.untouchable(e) && this.combat.inTheDark(e)))
         if (!pack.length) return false
         const n = pack.length
         this.target = null
@@ -870,7 +868,7 @@ export class HackerzGame {
         if (this.demoFiring === 'lead') {
             if (this.target && this.target.hp > 0 && this.enemies.includes(this.target)) return
             this.target = this.enemies
-                .filter(e => e.hp > 0 && !e.turned && !this.untargetable(e))
+                .filter(e => e.hp > 0 && !e.turned && !this.combat.untargetable(e))
                 .sort((a, b) => a.d - b.d)[0] ?? null
         } else if (this.demoFiring === 'node') {
             const chip = this.pathChips?.ordered.find(c => c.state === 'hacked')
@@ -1224,7 +1222,7 @@ export class HackerzGame {
         const screen = { x: 0, y: 0 }
         for (const enemy of this.enemies) {
             // Nothing in the dark can be picked out to lock on: fire blind instead.
-            if (this.untargetable(enemy)) continue
+            if (this.combat.untargetable(enemy)) continue
             const root = enemy.rig.root
             root.updateMatrixWorld()
             const box = enemy.rig.box
@@ -1261,7 +1259,7 @@ export class HackerzGame {
      * than the body radius the rules give it.
      */
     private roundHits(bullet: BulletEntity, enemy: EnemyEntity) {
-        if (this.untouchable(enemy)) return false
+        if (this.combat.untouchable(enemy)) return false
         // A rider turned onto a rung lies across the lane rather than along it.
         const sideways = Math.abs(Math.sin(enemy.yaw)) > 0.7
         const { x: across, z: along } = halfExtents(enemy.rig.box)
@@ -1618,7 +1616,7 @@ export class HackerzGame {
 
     /** A hostile a White Hat can take: not a boss, not a copy, not one already ours, not one out of reach. */
     private turnable(enemy: EnemyEntity) {
-        return !enemy.def.boss && !enemy.decoy && !enemy.turned && enemy.hp > 0 && !this.untargetable(enemy)
+        return !enemy.def.boss && !enemy.decoy && !enemy.turned && enemy.hp > 0 && !this.combat.untargetable(enemy)
     }
 
     /** It switches sides: drops whatever job it had, and is marked white. */
@@ -1684,7 +1682,7 @@ export class HackerzGame {
             if (enemy.attackTimer <= 0) {
                 enemy.attackTimer = enemy.def.attackMs
                 enemy.strike = 1
-                this.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, true)
+                this.combat.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, true)
                 const at = enemyWorld(foe, foe.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
                 this.particles.burst(at, 0xffffff, 8, 6, { size: 0.22, life: 0.3 })
             }
@@ -1711,7 +1709,7 @@ export class HackerzGame {
         if (enemy.attackTimer <= 0) {
             enemy.attackTimer = enemy.def.attackMs
             enemy.strike = 1
-            this.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, false)
+            this.combat.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, false)
         }
         return { moved: 0, arrived: false }
     }
@@ -1750,11 +1748,11 @@ export class HackerzGame {
             surge.arcMs -= dtMs
             if (surge.arcMs > 0) continue
             surge.arcMs += stats.arcMs
-            const inside = this.enemies.filter(e => !e.turned && e.hp > 0 && !this.untouchable(e)
+            const inside = this.enemies.filter(e => !e.turned && e.hp > 0 && !this.combat.untouchable(e)
                 && Math.hypot(e.u - surge.u, e.d - surge.d) <= stats.radius)
             for (let n = 0; n < stats.arcs && inside.length; n++) {
                 const enemy = inside.splice(randomInt(0, inside.length - 1), 1)[0]!
-                this.damageEnemy(enemy, stats.damage, 'energy', true, true)
+                this.combat.damageEnemy(enemy, stats.damage, 'energy', true, true)
                 const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
                 this.transient?.bolt(centre, at, hex)
                 this.particles.burst(at, hex, 5, 6, { size: 0.2, life: 0.25 })
@@ -1776,13 +1774,13 @@ export class HackerzGame {
         let kills = 0
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i] as EnemyEntity
-            if (this.untouchable(enemy)) continue
+            if (this.combat.untouchable(enemy)) continue
             const distance = Math.hypot(enemy.u - blast.u, enemy.d - blast.d)
             if (distance > blast.radius) continue
-            this.damageEnemy(enemy, blast.damage * (1 - 0.5 * distance / blast.radius), 'energy', true, true)
+            this.combat.damageEnemy(enemy, blast.damage * (1 - 0.5 * distance / blast.radius), 'energy', true, true)
             if (!enemy.def.boss) enemy.pushVd += 160 * (1 - distance / blast.radius)
             if (enemy.hp <= 0) {
-                this.killEnemy(i, 1)
+                this.combat.killEnemy(i, 1)
                 kills++
             }
         }
@@ -1796,7 +1794,7 @@ export class HackerzGame {
         const deployables = this.deployables
         if (!deployables) return
         const ground = this.enemies
-            .filter(e => !hackerzIsAirborne(e.def) && !this.untouchable(e))
+            .filter(e => !hackerzIsAirborne(e.def) && !this.combat.untouchable(e))
             .map(e => ({ u: e.u, d: e.d, hacker: e.def.id === HACKERZ_HACKER_ID }))
         const events = deployables.update(dt, ground)
         for (const blast of events.blasts) this.detonateBlast(blast)
@@ -2105,7 +2103,7 @@ export class HackerzGame {
         const reload = this.reloadTimer > 0 && this.weapon ? 1 - this.reloadTimer / this.weapon.reloadMs : 1
         this.ammoRack?.update(live ? seen : 0, this.mag, this.magSize, reload)
         this.laneProps?.update(live ? seen : 0, view.redLine, view.orangeLine)
-        this.updateDying(live ? seen : 0)
+        this.combat.updateDying(live ? seen : 0)
         view.ageSurges(live ? seen : 0)
 
         // The grid goes dark while the gun reloads: it has no power then.
@@ -2369,7 +2367,7 @@ export class HackerzGame {
         }
         this.view?.addSurge(ground.x, ground.z, enemy.def.hex, 1)
         this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'DISINTEGRATED', enemy.def.hex, 1)
-        this.removeEnemy(index, true)
+        this.combat.removeEnemy(index, true)
     }
 
     /**
@@ -2841,7 +2839,7 @@ export class HackerzGame {
             // Felled in a brawl or by a Power Surge since its last turn: a hostile
             // pays out as any kill; a turned unit that falls pays nothing.
             if (enemy.hp <= 0) {
-                this.killEnemy(i, enemy.turned ? 0 : 1)
+                this.combat.killEnemy(i, enemy.turned ? 0 : 1)
                 continue
             }
             // Waiting inside the portal for its socket to clear: it steps out
@@ -2968,7 +2966,7 @@ export class HackerzGame {
                 enemy.pushVd *= Math.max(0, 1 - dt * 4)
                 if (Math.abs(enemy.pushVd) < 4) enemy.pushVd = 0
                 if (enemy.d > DESPAWN_DEPTH) {
-                    this.removeEnemy(i)
+                    this.combat.removeEnemy(i)
                     continue
                 }
             }
@@ -2980,9 +2978,9 @@ export class HackerzGame {
             // Grid trap: ground units only, and only inside the band.
             if (spikeDps > 0 && !enemy.turned && !hackerzIsAirborne(enemy.def) && enemy.d < SPIKE_BAND) {
                 spiking = true
-                this.damageEnemy(enemy, spikeDps * dt, 'kinetic', false, false, false, false)
+                this.combat.damageEnemy(enemy, spikeDps * dt, 'kinetic', false, false, false, false)
                 if (enemy.hp <= 0) {
-                    this.killEnemy(i, 1)
+                    this.combat.killEnemy(i, 1)
                     continue
                 }
                 if (randomChance(dt * 4)) {
@@ -3005,10 +3003,10 @@ export class HackerzGame {
                     const share = enemy.def.boss ? ZONE_TICK_BOSS_SHARE : ZONE_TICK_SHARE
                     const bite = enemy.maxHp * share + 2 + this.wave * 0.6
                     // A tick is the ground biting, not a hit: it never pops a shield.
-                    this.damageEnemy(enemy, bite, 'energy', false, !this.untouchable(enemy), false, false)
+                    this.combat.damageEnemy(enemy, bite, 'energy', false, !this.combat.untouchable(enemy), false, false)
                     this.particles.burst(enemyWorld(enemy, 3, _v), CYAN, 4, 5, { size: 0.18, life: 0.3 })
                     if (enemy.hp <= 0) {
-                        this.killEnemy(i, 1)
+                        this.combat.killEnemy(i, 1)
                         continue
                     }
                 }
@@ -3052,7 +3050,7 @@ export class HackerzGame {
             if (enemy.litMs) enemy.litMs = Math.max(0, enemy.litMs - dtMs)
             enemy.rig.reveal.value += ((enemy.revealMs > 0 || enemy.litMs ? 1 : 0) - enemy.rig.reveal.value) * Math.min(1, dt * 5)
             // Into the dark the lock slips: the rail keeps firing where it last saw its target.
-            if (this.target === enemy && this.inTheDark(enemy)) {
+            if (this.target === enemy && this.combat.inTheDark(enemy)) {
                 this.lockSpot = { u: enemy.u, d: enemy.d, y: enemyCentreY(enemy) }
                 this.target = null
             }
@@ -3465,7 +3463,7 @@ export class HackerzGame {
             this.particles.burst(at, enemy.def.hex, 26, 14, { size: 0.32, life: 0.6 })
             this.addShake(6)
             const index = this.enemies.indexOf(enemy)
-            if (index >= 0) this.removeEnemy(index)
+            if (index >= 0) this.combat.removeEnemy(index)
             return true
         }
         if (enemy.def.cloaked && !enemy.decloaked) enemy.decloaked = true
@@ -3523,7 +3521,7 @@ export class HackerzGame {
                 this.callbacks.onNotice(`A ${enemy.def.name} reached the wall.`, 'bad')
                 this.sysLog.sapperHit(Math.floor((enemy.u + FIELD_HALF_WIDTH) / 100) + 1, this.bastion.integrityPercent())
                 const index = this.enemies.indexOf(enemy)
-                if (index >= 0) this.removeEnemy(index)
+                if (index >= 0) this.combat.removeEnemy(index)
                 break
             }
             default: {
@@ -3700,176 +3698,6 @@ export class HackerzGame {
                 this.hatchSpider(chip.u, chip.d - 30)
             }
             this.infected.set(id, left)
-        }
-    }
-
-    // ─── Memory leaks ────────────────────────────────────────────────────────
-
-    /**
-     * Applies damage. There is no resistance term — a source that is not the type
-     * an enemy is weak to deals full damage, and one that is deals a quarter more.
-     * The number is coloured by the damage type and the bonus hit is drawn larger,
-     * so the mechanic is legible from the field without a tooltip.
-     */
-    private damageEnemy(
-        enemy: EnemyEntity,
-        amount: number,
-        damageType: HackerzDamageType,
-        flash: boolean,
-        showNumber: boolean,
-        crit = false,
-        /** False for damage over time (trap, held ground): it does not count as a hit on a shield. */
-        shieldable = true
-    ) {
-        // Red ground's shield eats one whole hit and breaks, the sheen flaring
-        // across the plating as it takes the impact.
-        if (shieldable && enemy.redShield && amount > 0) {
-            this.territory.setRedShield(enemy, false)
-            enemy.rig.body.uniforms.uShieldHit!.value = 1
-            const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-            this.particles.burst(at, 0xff3b3b, 14, 7, { size: 0.24, life: 0.35 })
-            if (showNumber) this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'BLOCKED', 0xff6b6b, 0.95)
-            if (flash) enemy.flashMs = MOTION.hitFlashMs
-            return
-        }
-        const bonus = hackerzTypeMultiplier(damageType, enemy.armored)
-        const dealt = amount * bonus
-        // A carried shield (the Warden's) takes the hit until it breaks; the
-        // bubble flashes round the unit from the shield back.
-        const blocked = Math.min(enemy.guard, dealt)
-        if (blocked > 0) {
-            enemy.guard -= blocked
-            if (shieldable) (enemy.hexShield ??= new HexShield(enemy.rig)).pulse()
-            if (enemy.guard <= 0) this.breakGuard(enemy)
-        }
-        enemy.hp -= dealt - blocked
-        if (flash) enemy.flashMs = MOTION.hitFlashMs
-        if (showNumber) {
-            const effective = bonus > 1
-            this.overlay.floatText(
-                enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v),
-                crit ? `${Math.round(dealt)}!` : effective ? `${Math.round(dealt)}+` : `${Math.round(dealt)}`,
-                crit ? 0xfde047 : HACKERZ_TYPE_HEX[damageType],
-                crit ? 1.5 : effective ? 1.2 : 0.95
-            )
-        }
-    }
-
-    /** The shield gives: it shatters off the unit, and hits land on the unit from now on. */
-    private breakGuard(enemy: EnemyEntity) {
-        enemy.guard = 0
-        placeEnemy(enemy)
-        this.shrapnel?.burst(enemy.rig, 0xffffff, enemy.rig.guardParts)
-        for (const part of enemy.rig.guardParts) part.visible = false
-        const at = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-        this.particles.burst(at, 0xffffff, 18, 9, { size: 0.24, life: 0.45 })
-        this.transient?.ring(at, 0xffffff, 3, 0.35)
-        this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'SHIELD DOWN', 0xffffff, 1.1)
-    }
-
-    /** Removes an enemy and pays out. `payout` scales it (the purge pays less). */
-    private killEnemy(index: number, payout: number) {
-        const enemy = this.enemies[index]
-        if (!enemy) return
-        // A kill the player earned extends the chain; the purge's sweep does not.
-        if (payout >= 1) this.scoring.extendChain()
-        const credits = Math.round(enemy.bounty * payout * (payout >= 1 ? this.scoring.chainMultiplier : 1))
-        const coins = Math.round(enemy.coinValue * payout)
-
-        const centre = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3())
-        // A ZERO DAY copy dies as what it is: a fake, with none of the boss's fanfare.
-        const bossDeath = !!enemy.def.boss && !enemy.decoy
-        // The purge writes its own summary; only kills the player made get a line.
-        if (payout >= 1 && !enemy.decoy) this.sysLog.kill(enemy.def.id, enemy.def.name, bossDeath, !!enemy.def.cloaked)
-        if (enemy.decoy) this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'DECOY', 0x94a3b8, 1.2)
-        this.particles.burst(centre, enemy.def.hex, bossDeath ? 120 : 22, bossDeath ? 22 : 11,
-            { size: bossDeath ? 0.5 : 0.3, life: 0.8, gravity: 18 })
-        // The discharge: bolts arc from the body into the floor, and the charge
-        // runs out along the circuit traces from where it grounded.
-        const ground = fieldToWorld(enemy.u, enemy.d, 0.05, new THREE.Vector3())
-        const bolts = bossDeath ? 9 : 4
-        for (let b = 0; b < bolts; b++) {
-            const reach = enemy.rig.height * (bossDeath ? 0.8 : 0.9) + 0.6
-            this.transient?.bolt(centre, _v.set(ground.x + randRange(-reach, reach), 0.05, ground.z + randRange(-reach, reach)).clone(), enemy.def.hex)
-        }
-        this.view?.addSurge(ground.x, ground.z, enemy.def.hex, bossDeath ? 2.4 : payout < 1 ? 0.6 : 1)
-        this.transient?.ring(fieldToWorld(enemy.u, enemy.d, 0.1, _v), enemy.def.hex, bossDeath ? 14 : 2.4, 0.4)
-        if (credits > 0) {
-            this.overlay.floatText(enemyWorld(enemy, enemy.rig.height * PER_WORLD + 34, _v), `+${credits}`, LIME, 1.1)
-        }
-        if (coins > 0) this.scoring.dropCoins(enemy, coins)
-        if (bossDeath) {
-            this.transient?.ring(centre, RED, 30, 0.8)
-            this.view?.flash(0xffffff, 0.35)
-            this.addShake(18)
-            this.callbacks.onNotice(`${enemy.def.name} purged.`, 'good')
-        }
-
-        this.removeEnemy(index, true)
-        this.callbacks.onSound?.(bossDeath ? 'boss-death' : 'enemy-death')
-        this.scoring.waveKills++
-        this.scoring.totalKills++
-        if (credits > 0) {
-            this.scoring.waveCredits += credits
-            this.callbacks.onCredits(credits, payout < 1 ? 'purge' : 'kill')
-        }
-    }
-
-    /**
-     * Takes an enemy off the field. A killed one leaves its body behind for a
-     * beat, shorting out (see `updateDying`); anything else just goes.
-     */
-    private removeEnemy(index: number, shortOut = false) {
-        const enemy = this.enemies[index]
-        if (!enemy) return
-        if (this.target === enemy) this.target = null
-        for (const mount of this.turrets) {
-            if (mount.target === enemy) mount.target = null
-        }
-        for (const other of this.enemies) {
-            if (other.healing === enemy) other.healing = null
-        }
-        this.terminals?.close(enemy)
-        // A block still in its hands goes down with it.
-        enemy.carry?.dispose()
-        enemy.carry = null
-        enemy.hexShield?.dispose()
-        enemy.hexShield = null
-        enemy.ribbon?.dispose()
-        enemy.ribbon = null
-        // Whole again for its death, whatever state it was in.
-        enemy.storm?.dispose()
-        enemy.storm = null
-        enemy.wound?.dispose()
-        enemy.wound = null
-        if (shortOut) this.dying.push({ rig: enemy.rig, age: 0, life: enemy.def.boss ? 0.9 : 0.4, hex: enemy.def.hex })
-        else disposeRig(enemy.rig)
-        this.enemies.splice(index, 1)
-    }
-
-    /**
-     * A dead unit flares white-hot and is pulled down into the grid. Driven by
-     * its age alone, so a paused game holds it still; no strobing — a fast
-     * flash is a photosensitivity hazard, not an effect.
-     */
-    private updateDying(dt: number) {
-        for (let i = this.dying.length - 1; i >= 0; i--) {
-            const corpse = this.dying[i]!
-            corpse.age += dt
-            const t = corpse.age / corpse.life
-            if (t >= 1) {
-                disposeRig(corpse.rig)
-                this.dying.splice(i, 1)
-                continue
-            }
-            corpse.rig.body.uniforms.uFlash!.value = 1.1 * (1 - t)
-            corpse.rig.root.scale.set(1, Math.max(0.02, 1 - t * t), 1)
-            if (dt > 0 && Math.random() < dt * 25) {
-                this.particles.emit(
-                    corpse.rig.root.position.clone().add(_w.set(randRange(-0.6, 0.6), corpse.rig.height * (1 - t) * Math.random(), randRange(-0.6, 0.6))),
-                    _v.set(randRange(-3, 3), randRange(1, 5), randRange(-3, 3)), corpse.hex, { size: 0.22, life: 0.25, gravity: 4 }
-                )
-            }
         }
     }
 
@@ -4066,7 +3894,7 @@ export class HackerzGame {
         let best: EnemyEntity | null = null
         let bestScore = -Infinity
         for (const enemy of this.enemies) {
-            if (this.untargetable(enemy)) continue
+            if (this.combat.untargetable(enemy)) continue
             const score = -enemy.d - Math.hypot(enemy.u - u, enemy.d - d) * 0.25
             if (score > bestScore) {
                 bestScore = score
@@ -4138,9 +3966,9 @@ export class HackerzGame {
                 // Caught by a bodyguard, the round spares the hacker behind it:
                 // no splash and no arc jump reaches its charge.
                 if (enemy.escorting) bullet.hit.add(enemy.escorting)
-                this.damageEnemy(enemy, bullet.damage, bullet.damageType, true, true, bullet.crit)
+                this.combat.damageEnemy(enemy, bullet.damage, bullet.damageType, true, true, bullet.crit)
                 // A round fired blind lights up what it hits, for a moment.
-                if (this.inTheDark(enemy)) enemy.litMs = HIT_LIGHT_MS
+                if (this.combat.inTheDark(enemy)) enemy.litMs = HIT_LIGHT_MS
                 this.callbacks.onSound?.('hit-enemy')
                 const at = enemyWorld(enemy, enemyCentreY(enemy) - enemy.altitude, new THREE.Vector3())
                 this.particles.burst(at, enemy.def.hex, bullet.crit ? 8 : 4, 9, { size: 0.22, life: 0.3 })
@@ -4166,7 +3994,7 @@ export class HackerzGame {
 
                 if (enemy.hp <= 0) {
                     const index = this.enemies.indexOf(enemy)
-                    if (index >= 0) this.killEnemy(index, 1)
+                    if (index >= 0) this.combat.killEnemy(index, 1)
                 } else if (!enemy.def.boss) {
                     // A little shove on hit — the feedback that sells the shot
                     // even when the target survives it.
@@ -4245,22 +4073,22 @@ export class HackerzGame {
         }
         const crew = new Set<EnemyEntity>()
         for (const chip of crewNodes) {
-            const working = this.enemies.filter(e => e.def.id === HACKERZ_HACKER_ID && e.hacking && e.targetChip === chip && !this.untouchable(e))
+            const working = this.enemies.filter(e => e.def.id === HACKERZ_HACKER_ID && e.hacking && e.targetChip === chip && !this.combat.untouchable(e))
             if (working.length >= 2) for (const hacker of working) crew.add(hacker)
         }
         for (let e = this.enemies.length - 1; e >= 0; e--) {
             const enemy = this.enemies[e] as EnemyEntity
-            if (enemy === epicentre || bullet.hit.has(enemy) || this.untouchable(enemy)) continue
+            if (enemy === epicentre || bullet.hit.has(enemy) || this.combat.untouchable(enemy)) continue
             if (crew.has(enemy)) {
                 // A hacking crew: every member takes it, wherever on the node it works.
             } else if (enemy.def.id === HACKERZ_HACKER_ID || !reached(enemy)) {
                 // A lone hacker shrugs splash off: picking one off takes a direct hit.
                 continue
             }
-            this.damageEnemy(enemy, bullet.splashDamage, bullet.damageType, true, true, false)
+            this.combat.damageEnemy(enemy, bullet.splashDamage, bullet.damageType, true, true, false)
             enemy.glitchMs = GLITCH_MS
             this.particles.burst(enemyWorld(enemy, enemyCentreY(enemy) - enemy.altitude, _w), bullet.hex, 6, 7, { size: 0.22, life: 0.3 })
-            if (enemy.hp <= 0) this.killEnemy(e, 1)
+            if (enemy.hp <= 0) this.combat.killEnemy(e, 1)
         }
     }
 
@@ -4274,7 +4102,7 @@ export class HackerzGame {
             let bestDist = 260
             for (const enemy of this.enemies) {
                 // Hackers are grounded against arcs: only a direct hit lands on one.
-                if (bullet.hit.has(enemy) || this.untargetable(enemy) || enemy.def.id === HACKERZ_HACKER_ID) continue
+                if (bullet.hit.has(enemy) || this.combat.untargetable(enemy) || enemy.def.id === HACKERZ_HACKER_ID) continue
                 const d = Math.hypot(enemy.u - from.u, enemy.d - from.d)
                 if (d < bestDist) {
                     bestDist = d
@@ -4290,10 +4118,10 @@ export class HackerzGame {
             this.particles.burst(end, bullet.hex, 10, 9, { size: 0.22, life: 0.3 })
             this.particles.burst(end, 0xffffff, 4, 6, { size: 0.16, life: 0.2 })
             bullet.hit.add(best)
-            this.damageEnemy(best, damage, bullet.damageType, true, true, false)
+            this.combat.damageEnemy(best, damage, bullet.damageType, true, true, false)
             if (best.hp <= 0) {
                 const index = this.enemies.indexOf(best)
-                if (index >= 0) this.killEnemy(index, 1)
+                if (index >= 0) this.combat.killEnemy(index, 1)
             }
             from = best
             damage *= bullet.chainFalloff
@@ -4377,7 +4205,7 @@ export class HackerzGame {
         let bestHacker = 0
         let bestTier = 0
         for (const enemy of this.enemies) {
-            if (enemy.d > mount.runtime.range || this.untargetable(enemy)) continue
+            if (enemy.d > mount.runtime.range || this.combat.untargetable(enemy)) continue
             const hacker = enemy.def.id === HACKERZ_HACKER_ID ? 1 : 0
             const off = Math.abs(enemy.u - mount.u)
             const tier = off <= TURRET_LANE ? 0 : off <= TURRET_LANE * 3 ? 1 : 2
@@ -4399,7 +4227,7 @@ export class HackerzGame {
     private turretTarget(mount: TurretMount, dtMs: number) {
         mount.retargetMs -= dtMs
         const kept = mount.target
-        if (kept && mount.retargetMs > 0 && kept.d <= mount.runtime.range && !this.untargetable(kept)) return kept
+        if (kept && mount.retargetMs > 0 && kept.d <= mount.runtime.range && !this.combat.untargetable(kept)) return kept
         mount.target = this.pickTurretTarget(mount)
         mount.retargetMs = TURRET_RETARGET_MS
         return mount.target
@@ -4436,33 +4264,9 @@ export class HackerzGame {
 
     // ─── Abilities ───────────────────────────────────────────────────────────
 
-    /**
-     * Whether a unit is out of reach: a cloaked one nobody has pinged, or a
-     * ROOTKIT underground. Nothing targets, hits or splashes an untouchable unit.
-     */
-    private untouchable(enemy: EnemyEntity) {
-        // A White Hat's convert is on our side now: nothing of ours shoots it.
-        if (enemy.turned) return true
-        // Still waiting inside the portal: not on the board yet.
-        if (enemy.gateHold) return true
-        if (enemy.burrowMs > 0) return true
-        return !!enemy.def.cloaked && !enemy.decloaked && enemy.revealMs <= 0
-    }
-
-    /**
-     * Whether a unit stands unseen in the dark: out past the light in a
-     * BLACKOUT, or inside a dark zone, with no ping on it. Rounds fired blind
-     * still hit it, but nothing can lock on.
-     */
-    private inTheDark(enemy: EnemyEntity) {
-        if (enemy.revealMs > 0) return false
-        if (this.bonus === 'blackout' && this.running && enemy.d > BLACKOUT_LIGHT_D) return true
-        return this.territory.inDarkZone(enemy.u, enemy.d)
-    }
-
-    /** Whether nothing can pick a unit out to aim at: untouchable, or unseen in the dark. */
+    /** See `Combat.untargetable`. */
     untargetable(enemy: EnemyEntity) {
-        return this.untouchable(enemy) || this.inTheDark(enemy)
+        return this.combat.untargetable(enemy)
     }
 
     /**
@@ -4531,9 +4335,9 @@ export class HackerzGame {
             const falloff = clamp(1 - enemy.d / PULSE_RADIUS, 0.25, 1)
             // The pulse is kinetic: it is the panic button, and the thing you
             // panic about is a plated wave already inside the trap band.
-            this.damageEnemy(enemy, loadout.pulseDamage * falloff, 'kinetic', true, true, false)
+            this.combat.damageEnemy(enemy, loadout.pulseDamage * falloff, 'kinetic', true, true, false)
             enemy.pushVd += PULSE_KNOCKBACK * falloff * (enemy.def.boss ? 0.25 : 1)
-            if (enemy.hp <= 0) this.killEnemy(i, 1)
+            if (enemy.hp <= 0) this.combat.killEnemy(i, 1)
         }
         // The hacked nodes nearest the wall wash back toward us, the front one
         // whole. A defender throws itself in the way: the wash breaks on its
@@ -4551,7 +4355,7 @@ export class HackerzGame {
             for (let i = defenderOf(wash.brokeOn); i >= 0; i = defenderOf(wash.brokeOn)) {
                 const defender = this.enemies[i] as EnemyEntity
                 defender.hp = 0
-                this.killEnemy(i, 1)
+                this.combat.killEnemy(i, 1)
             }
         }
         this.callbacks.onNotice('ICE pulse discharged.', 'info')
@@ -4794,7 +4598,7 @@ export class HackerzGame {
      */
     private dodge(enemy: EnemyEntity, dtMs: number) {
         enemy.zapCooldown -= dtMs
-        if (enemy.zapCooldown > 0 || this.untouchable(enemy)) return
+        if (enemy.zapCooldown > 0 || this.combat.untouchable(enemy)) return
         const threatened = this.bullets.some((bullet) => {
             if (bullet.fromTurret || bullet.hit.has(enemy)) return false
             const speed = Math.hypot(bullet.vu, bullet.vd)
@@ -5316,7 +5120,7 @@ export class HackerzGame {
                 const front = -z * PER_WORLD
                 for (let i = this.enemies.length - 1; i >= 0; i--) {
                     if ((this.enemies[i] as EnemyEntity).d > front) continue
-                    this.killEnemy(i, HACKERZ_PURGE_BOUNTY)
+                    this.combat.killEnemy(i, HACKERZ_PURGE_BOUNTY)
                 }
             },
             () => this.finishWave()
@@ -5356,7 +5160,7 @@ export class HackerzGame {
         this.linePulses?.clear()
 
         // Anything left (a boss knocked past the sweep's reach, say) goes too.
-        while (this.enemies.length) this.killEnemy(this.enemies.length - 1, HACKERZ_PURGE_BOUNTY)
+        while (this.enemies.length) this.combat.killEnemy(this.enemies.length - 1, HACKERZ_PURGE_BOUNTY)
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
         this.memory.clearLeaks(false)
@@ -5440,7 +5244,7 @@ export class HackerzGame {
     // ─── Housekeeping ────────────────────────────────────────────────────────
 
     private clearField() {
-        while (this.enemies.length) this.removeEnemy(this.enemies.length - 1)
+        while (this.enemies.length) this.combat.removeEnemy(this.enemies.length - 1)
         for (const bullet of this.bullets) bullet.mesh.removeFromParent()
         this.bullets = []
         for (const spit of this.spits) spit.mesh.removeFromParent()
@@ -5454,8 +5258,8 @@ export class HackerzGame {
         for (const coin of this.scoring.coins) coin.mesh.removeFromParent()
         this.scoring.coins = []
         this.particles.clear()
-        for (const corpse of this.dying) disposeRig(corpse.rig)
-        this.dying = []
+        for (const corpse of this.combat.dying) disposeRig(corpse.rig)
+        this.combat.dying = []
         this.view?.clearSurges()
         this.transient?.clear()
         this.overlay.clear()

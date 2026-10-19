@@ -3,7 +3,7 @@ import { HACKERZ_HACKER_ID, hackerzIsAirborne } from '#shared/utils/gamelogic/ha
 import { FIELD_HALF_WIDTH } from '../constants'
 import { clamp } from '../math'
 import type { EnemyEntity } from '../types'
-import { CROWD_GAP, LANE_SLACK, PER_WORLD, GLITCH_FADE_MS, halfExtents } from './tuning'
+import { PER_WORLD, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK } from './tuning'
 import { enemyWorld, footprint, outweighs, sinkInto } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
