@@ -202,12 +202,17 @@ export function describeAbility(skill: ClassSkill, options: AbilityDescribeOptio
     if (e.selfStatus) parts.push(statusSentence(e.selfStatus, v.self, v.pwr, own))
     if (e.partyHeal) parts.push(`Heals ${ALLY_TARGET.ally_all} for ${hqPct(e.partyHeal)} of ${v.pwr}.`)
     if (e.partyStatus) parts.push(statusSentence(e.partyStatus, ALLY_TARGET.ally_all, v.pwr, null))
-    if (e.goldBurstMinutes) parts.push(`Grants ${hqNumber(e.goldBurstMinutes)} minutes of your Gold income.`)
-    if (e.xpBurstMinutes) parts.push(`Grants ${hqNumber(e.xpBurstMinutes)} minutes of your XP income.`)
+    if (e.goldBurstMinutes) parts.push(`Grants ${incomeSpan(e.goldBurstMinutes)} of your Gold income.`)
+    if (e.xpBurstMinutes) parts.push(`Grants ${incomeSpan(e.xpBurstMinutes)} of your XP income.`)
     if (parts.length === 0) parts.push('Does nothing.')
 
     const [first, ...rest] = parts
     return [`Every ${seconds(skill.cooldownSeconds)}: ${first!.charAt(0).toLowerCase()}${first!.slice(1)}`, ...rest].join(' ')
+}
+
+/** A burst's size in income: seconds under a minute, so a small one doesn't read as "0.01 minutes". */
+function incomeSpan(minutes: number): string {
+    return minutes < 1 ? `${hqNumber(minutes * 60)} seconds` : `${hqNumber(minutes)} minutes`
 }
 
 /** Whether an ability's hit is modulated by banked Gold (the Gambler's Strike family). */

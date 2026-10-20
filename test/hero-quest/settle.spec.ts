@@ -907,10 +907,10 @@ describe('hero-quest settle', () => {
         it('leaves healthy headroom under the shared balance column', () => {
             // Gold lives on user.balance — numeric(19,4), a ~1e15 ceiling. The worst case
             // stacks everything at once: the tenure ceiling at its ten-year horizon, the
-            // throughput floor, a x4 Gold% stack, and a player who never spends a coin. Battle
+            // throughput floor, a ×5.5 Gold stack (`gold-stack.spec.ts`), and a player who never spends a coin. Battle
             // Speed is held under the same bound (`settle`), so it adds nothing here.
             const BALANCE_COLUMN_CEILING = 1e15
-            const worstCase = maxGoldPerHour(4)
+            const worstCase = maxGoldPerHour(5.5)
             const headroomHours = BALANCE_COLUMN_CEILING / worstCase
 
             // At least 100 hours of uninterrupted worst-case earning before the column is
@@ -931,10 +931,10 @@ describe('hero-quest settle', () => {
             // of 600 (2026-10-12, issue #10) put ×1.43 back in. The largest collect is now
             // ~1.9e12 against a ~1e15 column (~2.7 orders), so 525 consecutive worst-case
             // collects fill it. The worst case already stacks everything at once — ten-year
-            // account age, the throughput floor, ×4 Gold%, a full 72-hour window, and a
+            // account age, the throughput floor, a ×5.5 Gold stack, a full 72-hour window, and a
             // player who never spends a coin — and `leaves healthy headroom` above still
             // passes by two orders of magnitude on its own terms.
-            const collect = maxGoldPerHour(4, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
+            const collect = maxGoldPerHour(5.5, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
             expect(collect).toBeLessThan(1e15 / 100)
         })
     })

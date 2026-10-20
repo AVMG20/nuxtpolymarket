@@ -1935,8 +1935,10 @@ export const GOLD_BURST_MINUTES: readonly number[] = [ // UNTUNED ╧
  * cadence is the price of trading combat for economy.
  *
  * A decision, not a transcription — no doc assigns skill cooldowns.
+ *
+ * 120 → 900 on 2026-10-20 (the user's call): every Gold burst scaled by 2/15 so a maxed 5+5 Gold build lands at §5's ~×5, not ×21.
  */
-export const GOLD_BURST_COOLDOWN_SECONDS = 120 // UNTUNED ╧
+export const GOLD_BURST_COOLDOWN_SECONDS = 900 // UNTUNED ╧
 
 /**
  * Treasure Hunter's Gambit's Gold burst, in minutes of current income: 4.8 **seconds**, where
@@ -1947,7 +1949,7 @@ export const GOLD_BURST_COOLDOWN_SECONDS = 120 // UNTUNED ╧
  * `SKILL_BASE_COOLDOWN_SECONDS`, since the ladder stretches both alike). The Epic ladder value on
  * that cadence was ~5.2 minutes every ~11 seconds, close to +2,800%.
  */
-export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 // locked 2026-10-20, the user's call
+export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 * 2 / 15 // locked 2026-10-20, the user's call: ×2/15 with every Gold burst (see GOLD_BURST_COOLDOWN_SECONDS)
 
 /**
  * King's Ransom's Gold and XP bursts, each in minutes of current income: 8 **seconds**, where
@@ -1958,6 +1960,9 @@ export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 // locked 2026-10
  * about +125% Gold and +125% XP while equipped, down from close to +7,500% of each.
  */
 export const KINGS_RANSOM_BURST_MINUTES = 8 / 60 // locked 2026-10-20, the user's call
+
+/** King's Ransom's Gold burst alone, ×2/15 with every Gold burst (see `GOLD_BURST_COOLDOWN_SECONDS`); its XP burst keeps the line above. */
+export const KINGS_RANSOM_GOLD_BURST_MINUTES = KINGS_RANSOM_BURST_MINUTES * 2 / 15 // locked 2026-10-20, the user's call
 
 /**
  * How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as.
