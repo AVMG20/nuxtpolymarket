@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
-  HACKERZ_DEPLOYABLES, hackerzEmptyArmoury, hackerzEmptyMainframe, hackerzLoadout, type HackerzLoadout
+  HACKERZ_DEPLOYABLES, hackerzEmptyArmoury, hackerzEmptyMainframe, hackerzLoadout, type HackerzEventId, type HackerzLoadout
 } from '#shared/utils/gamelogic/hackerz'
 
 /*
@@ -11,9 +11,10 @@ import {
  * reordered `tick`, or a changed shared helper, shows up here as a changed
  * hash.
  *
- * No PACKET LOSS round: during a lag spike the turrets aim at the drawn
- * picture, which carries cosmetic jitter (see `PacketLoss.seenAt`), so its
- * outcome would move with any new particle or glitch. These waves do not.
+ * `Math.random` is the picture's alone (particles, glitch skips, log lines),
+ * so how a wave plays must never depend on it. The PACKET LOSS round checks
+ * that by replaying under different cosmetic rolls: during its lag spikes
+ * the turrets aim at a unit's frozen picture (see `PacketLoss.seenAt`).
  *
  * When a change is meant to change how the game plays, update the snapshot
  * below, and say so in the commit.
@@ -104,21 +105,25 @@ function loadout(): HackerzLoadout {
 
 const n = (value: number) => String(value)
 
-/** Plays `seconds` of `wave` on a fresh engine and hashes the field every simulated second. */
-async function play(wave: number, seconds: number) {
+/**
+ * Plays `seconds` of `wave` (as the bonus round `event`, if given) on a fresh
+ * engine and hashes the field every simulated second. `cosmetic` seeds
+ * `Math.random`, which only the picture may read.
+ */
+async function play(wave: number, seconds: number, event: HackerzEventId | null = null, cosmetic = 0xc0ffee + wave) {
   const { HackerzGame } = await import('../../app/utils/hackerz-engine/hackerz-game')
   const { seededRng, withSeed } = await import('../../app/utils/hackerz-engine/rng')
   const game = new HackerzGame(new Proxy({}, { get: () => () => {} }) as never)
   await game.mount(fakeElement() as unknown as HTMLDivElement)
   // Drawing decides nothing, and there is nothing to draw on.
   game.view!.render = () => {}
-  const random = vi.spyOn(Math, 'random').mockImplementation(seeded(0xc0ffee + wave))
+  const random = vi.spyOn(Math, 'random').mockImplementation(seeded(cosmetic))
   const frames: string[] = []
   try {
     withSeed(seededRng(0x5eed + wave * 101), () => {
       const kit = loadout()
       game.startRun({ loadout: kit })
-      game.startWave(wave, kit)
+      game.startWave(wave, kit, event)
       let deploy = 0
       for (let s = 0; s < seconds; s++) {
         const lead = game.autopilotView().contacts.get('e0') ?? null
@@ -172,5 +177,17 @@ describe('the hackerz engine, replayed', () => {
 
   it('plays a BLACK ICE wave exactly as it did', async () => {
     expect(await play(10, 40)).toEqual({ hash: '7983382f38eb30bc', kills: 51, wallHp: 5371 })
+  })
+
+  it('plays a PACKET LOSS round exactly as it did', async () => {
+    expect(await play(8, 30, 'packetloss')).toEqual({ hash: 'b62e517cc0b94308', kills: 12, wallHp: 5581 })
+  })
+
+  it('plays a PACKET LOSS round the same whatever the cosmetic rolls', async () => {
+    // Its lag spikes are where cosmetic randomness once leaked into the aim.
+    const runs = []
+    for (const cosmetic of [1, 2, 3]) runs.push(await play(8, 30, 'packetloss', cosmetic))
+    expect(runs[1]).toEqual(runs[0])
+    expect(runs[2]).toEqual(runs[0])
   })
 })
