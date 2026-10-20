@@ -125,7 +125,7 @@ describe('hero-quest class content', () => {
     it('keeps utility abilities damage-free and damage abilities armed', () => {
         // The two halves of the roster, asserted explicitly so a later edit that quietly gives
         // Haste a damage multiplier — or strips Whirlwind's — shows up here.
-        const utility = ['skill_haste', 'skill_enrage', 'skill_totem_storm', 'skill_raise_dead',
+        const utility = ['skill_haste', 'skill_enrage', 'skill_totem_storm',
             'skill_disciple', 'skill_mans_best_friend', 'skill_threatening_roar']
         for (const node of TREE) {
             const isUtility = utility.includes(node.skill.id)

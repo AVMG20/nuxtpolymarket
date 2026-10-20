@@ -7,8 +7,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { analyzeCampaign, analyzeStage, makeHero, minLevelToClear, SIM_MATURE_TENURE_DAYS } from '../../scripts/hero-quest/sim'
-import { STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
+import { analyzeCampaign, analyzeStage, compareClasses, makeHero, makeParty, minLevelToClear, setSimTreePolicy, simTraitBoard, SIM_MATURE_TENURE_DAYS, SimProgression, withSimKit, withSimTree, type SimProgressionOptions } from '../../scripts/hero-quest/sim'
+import { BASE_CHAMPION_SLOTS, MAX_CHAMPION_SLOTS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
+import { CLASS_NODES, getClass } from '#shared/utils/hero-quest/content/classes'
 
 const hero = makeHero('class_beginner', 1)
 
@@ -128,5 +129,81 @@ describe('minLevelToClear', () => {
 
     it('returns null rather than a wrong answer when the ceiling is too low', () => {
         expect(minLevelToClear(hero, 0, WORLD_COUNT, STAGES_PER_WORLD, 1, 5)).toBeNull()
+    })
+})
+
+describe('analyzeCampaign with a SimProgression', () => {
+    const grown = (options: Partial<SimProgressionOptions>) => new SimProgression({
+        classId: 'class_beginner',
+        party: 1 + BASE_CHAMPION_SLOTS,
+        traits: [],
+        kit: [{ spec: 'none', atSeconds: 0 }],
+        classes: false,
+        shop: false,
+        ...options
+    })
+    const WALK = { maxPrestige: 3, grindBudgetSeconds: 1e9, maxLevel: 100_000 }
+
+    it('reports no prestiges without one', () => {
+        expect(analyzeCampaign(hero, 0, PAST_A_BLOCKER).prestiges).toEqual([])
+    })
+
+    it('spends Void Shards on slots before stats, and never past a cap', () => {
+        const result = analyzeCampaign(makeHero('class_beginner', 1), 0, { ...WALK, progression: grown({ shop: true, kit: [{ spec: 'mythic:5:10', atSeconds: 0 }] }) })
+        expect(result.prestiges.length).toBeGreaterThan(2)
+
+        // 100, then 200, then 400: the third prestige is the first to afford a 400 slot, and every
+        // shard before it is saved rather than spent on a stat level.
+        expect(result.prestiges[1]!.champions).toBe(BASE_CHAMPION_SLOTS)
+        expect(result.prestiges[2]!.champions).toBe(BASE_CHAMPION_SLOTS + 1)
+        for (const row of result.prestiges) {
+            expect(row.champions).toBeLessThanOrEqual(MAX_CHAMPION_SLOTS)
+            expect(row.statLevels).toBe(0)
+            expect(row.prestige).toBe(result.prestiges.indexOf(row) + 1)
+        }
+    })
+
+    it('spends class tokens one tier at a time, down a path it has reached', () => {
+        const result = analyzeCampaign(makeHero('class_beginner', 1), 0, { ...WALK, progression: grown({ classes: true }) })
+        const reached = new Set(['class_beginner'])
+        for (const row of result.prestiges) {
+            const bought = row.tokenSpentOn ?? row.classId
+            if (!reached.has(bought)) expect(reached.has(getClass(bought).parentId!)).toBe(true)
+            reached.add(bought)
+        }
+        expect(result.prestiges.at(-1)!.classId).not.toBe('class_beginner')
+    })
+
+    it('finishes sooner when the kit improves mid-run', () => {
+        const upgradeAt = 3600
+        const fixed = analyzeCampaign(makeHero('class_beginner', 1), 0, { ...WALK, maxPrestige: 0, progression: grown({ kit: [{ spec: 'common:0:1', atSeconds: 0 }] }) })
+        const ramped = analyzeCampaign(makeHero('class_beginner', 1), 0, {
+            ...WALK,
+            maxPrestige: 0,
+            progression: grown({ kit: [{ spec: 'common:0:1', atSeconds: 0 }, { spec: 'legendary:0:1', atSeconds: upgradeAt }] })
+        })
+
+        expect(fixed.totalSeconds).toBeGreaterThan(upgradeAt)
+        expect(ramped.totalSeconds).toBeLessThan(fixed.totalSeconds)
+        expect(ramped.prestigesCompleted).toBe(1)
+    })
+})
+
+describe('the class tiers on the baseline party', () => {
+    it('makes every class out-damage the one it was taken from', () => {
+        // issue #45: the baseline's Traits, tree and kit, a party of three, a first prestige's level
+        const traits = simTraitBoard('atk:D:deep_impact,imp:D:deep_impact,champion_atk:D:aggression,atk:D:aggression,imp:D:aggression')
+        setSimTreePolicy('cheapest')
+        let rows
+        try {
+            rows = compareClasses(1, 1, STAGES_PER_WORLD - 1, 446, 3, (id, level, size) => withSimTree(withSimKit(makeParty(id, level, size, { traits }), 'rare:0:2')))
+        } finally {
+            setSimTreePolicy('none')
+        }
+        const dps = new Map(rows.map(row => [row.classId, row.partyDps]))
+        for (const node of CLASS_NODES) {
+            if (!node.parentId || node.tier === 'capstone') continue
+            expect(dps.get(node.id)!.gt(dps.get(node.parentId)!), `${node.id} over ${node.parentId}`).toBe(true)
+        }
     })
 })

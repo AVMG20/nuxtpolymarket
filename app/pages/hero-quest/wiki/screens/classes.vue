@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ASCENDANT_KIT_SIZE, CONVERGENCE_COOLDOWN_FACTOR } from '#shared/utils/hero-quest/constants'
+import { ASCENDANT_KIT_SIZE, CLASS_TIER_PWR_MULTIPLIER, CONVERGENCE_COOLDOWN_FACTOR } from '#shared/utils/hero-quest/constants'
 import { ASCENDANT_ID, CLASS_BY_ID, CLASS_NODES, MASTER_IDS, ROOT_CLASS_ID } from '#shared/utils/hero-quest/content/classes'
 
 /**
@@ -11,6 +11,7 @@ const countOf = (tier: string) => CLASS_NODES.filter(node => node.tier === tier)
 const beginner = CLASS_BY_ID[ROOT_CLASS_ID].name
 const ascendant = CLASS_BY_ID[ASCENDANT_ID].name
 const bases = CLASS_NODES.filter(node => node.tier === 'base').map(node => node.name).join(', ')
+const tierPwr = (['base', 'elite', 'master', 'capstone'] as const).map(tier => `×${CLASS_TIER_PWR_MULTIPLIER[tier]}`).join(', ')
 
 const nodes = [
     { term: 'Gold ring', text: 'Your current class.', tone: 'text-warning' },
@@ -72,6 +73,10 @@ const kit = [
         <em>PRESTIGE FOR A NEW CLASS</em> when you do not. The token takes your class one step
         deeper down the tree. Switching back to any class you have already been is free, at any
         time, and never costs a level: your Hero keeps every level through every switch.
+      </p>
+      <p>
+        Every step down is a stronger Hero: a class multiplies your Hero's PWR by its tier,
+        {{ tierPwr }} from the base classes to the {{ ascendant }}.
       </p>
     </HeroQuestWikiSection>
 

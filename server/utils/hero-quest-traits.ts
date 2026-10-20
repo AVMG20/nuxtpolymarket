@@ -16,6 +16,7 @@ import { hqState, hqTraitSaveSlots, hqTraitSlots } from '#server/database/schema
 import { getShopLevels, getTraitBoard, type HqStateRow } from '#server/utils/hero-quest'
 import {
     MAX_TRAIT_SAVE_SLOTS,
+    TRAIT_AUTO_ROLL_RESERVE,
     TRAIT_SAVE_LOAD_COST,
     TRAIT_SET_TIERS,
     TRAIT_SLOT_COUNT
@@ -161,7 +162,7 @@ export async function rollTraits(tx: DbExecutor, userId: string, rng: () => numb
 
 /**
  * One Auto Roll batch: Roll until a rerolled slot lands at `minGrade` or better, the Trait Gems run
- * short, or `TRAIT_AUTO_ROLL_BATCH` have gone, when the client asks for the next. Every Roll is priced as a single one. The whole run is
+ * short of a Roll above `TRAIT_AUTO_ROLL_RESERVE`, or `TRAIT_AUTO_ROLL_BATCH` have gone, when the client asks for the next. Every Roll is priced as a single one. The whole run is
  * worked out under the `hq_state` lock against the balance read inside it, then paid in one guarded
  * decrement and written once, so a burst queues and each pays for its own run. Call it inside a
  * transaction.
@@ -172,7 +173,11 @@ export async function autoRollTraits(tx: DbExecutor, userId: string, minGrade: T
     if (!canRollTraits(board)) throw createError({ statusCode: 400, statusMessage: 'Every slot is locked' })
 
     const run = autoRollTraitBoard(board, state.traitGems, minGrade, undefined, rng)
-    if (run.rolls === 0) throw createError({ statusCode: 400, statusMessage: 'Not enough Trait Gems' })
+    if (run.rolls === 0) {
+        // a single Roll still fits: say it is the reserve that stops this one
+        const statusMessage = run.stoppedBy === 'reserve' ? `Auto Roll keeps ${TRAIT_AUTO_ROLL_RESERVE} Trait Gems to load a board` : 'Not enough Trait Gems'
+        throw createError({ statusCode: 400, statusMessage })
+    }
     const traitGems = await spendTraitGems(tx, userId, run.spent)
     await writeSlots(tx, userId, run.board.flatMap((slot, index) => !slot || board[index]?.locked ? [] : [{ index, slot }]))
     return { rolls: run.rolls, spent: run.spent, stoppedBy: run.stoppedBy, traitGems, slots: run.board.map(traitSlotView) }

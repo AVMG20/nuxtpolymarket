@@ -17,6 +17,7 @@ import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { maxHpFor } from '#shared/utils/hero-quest/combat'
 import {
     BASE_HP,
+    CLASS_TIER_PWR_MULTIPLIER,
     DPS_STAT_EXPONENT,
     ENEMY_STEP_BASE,
     HP_PER_VIT,
@@ -28,6 +29,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { CHAMPIONS, RARITY_STAT_MULTIPLIER, getChampion } from '#shared/utils/hero-quest/content/champions'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
+import { getClass } from '#shared/utils/hero-quest/content/classes'
 import type { ChampionSnapshot, HeroSnapshot } from '#shared/utils/hero-quest/types'
 
 function hero(over: Partial<HeroSnapshot> = {}): HeroSnapshot {
@@ -281,5 +283,21 @@ describe('the derived values', () => {
         const levelled = explainStats(hero({ classId: 'class_archer', heroLevel: 400 })).units[0]!
             .derived.find(d => d.key === 'critChance')!
         expect(levelled.note).toMatch(/off the level curve/)
+    })
+})
+
+describe('the class tier stage', () => {
+    it('multiplies the Hero\'s PWR alone, by its class\'s tier', () => {
+        for (const classId of ['class_beginner', 'class_mage', 'class_wizard', 'class_sorcerer', 'class_ascendant'] as const) {
+            const [heroUnit] = explainStats(hero({ classId, heroLevel: 30 })).units
+            const tiers = heroUnit!.stats.flatMap(stat => stat.stages.filter(stage => stage.id === 'tier').map(stage => ({ key: stat.key, factor: stage.factor.toNumber() })))
+            expect(tiers, classId).toEqual([{ key: 'pwr', factor: CLASS_TIER_PWR_MULTIPLIER[getClass(classId).tier] }])
+        }
+    })
+
+    it('climbs with every tier, so every class token is a stronger Hero', () => {
+        const ladder = (['beginner', 'base', 'elite', 'master', 'capstone'] as const).map(tier => CLASS_TIER_PWR_MULTIPLIER[tier])
+        ladder.slice(1).forEach((factor, i) => expect(factor).toBeGreaterThan(ladder[i]!))
+        expect(ladder[0]).toBe(1)
     })
 })

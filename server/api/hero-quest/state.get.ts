@@ -21,9 +21,9 @@ import {
     serializeShop,
     serializeTrainingGrounds,
     skillWealthHoursOf,
-    settleHq,
-    voidShardsFor
+    settleHq
 } from '#server/utils/hero-quest'
+import { voidShardsFor } from '#shared/utils/hero-quest/content/shop'
 import { HQ_REFRESH_INTERVAL_MS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
 import { fromStore, roundHq } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'

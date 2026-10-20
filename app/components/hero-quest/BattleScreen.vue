@@ -10,7 +10,7 @@ import { investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier } from '#shared/utils/hero-quest/stats'
 import { wealthFactorFor } from '#shared/utils/hero-quest/combat'
 import { describeAbility, describeWealth, hqNumber, hqPct, isWealthScaled, modifierLine } from '#shared/utils/hero-quest/describe'
-import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS, TRAIT_AUTO_ROLL_RESERVE } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import { grantKeys, nextKeyGrantAt } from '#shared/utils/hero-quest/raids'
@@ -758,6 +758,14 @@ watch(() => props.scene, () => {
 })
 const inRaid = computed(() => props.scene === 'raids' || raidRound.value !== null || raidReturning.value)
 /**
+ * The Arena attack the stage is playing in place of the run, and what it came to, held until its
+ * replay ends. Declared above `inSessionScene`, whose immediate watch reads them during setup: a
+ * reload with an Arena session open used to hit them uninitialised and fail the page with a 500.
+ */
+const arenaRound = ref<StageArena | null>(null)
+const arenaResult = ref<ArenaResultView | null>(null)
+let arenaOutcome: ArenaResultView | null = null
+/**
  * Whether the player is still where the open Loadout session belongs: a raid's in the Raids scene or
  * a round, the Arena's in the Arena or an Arena round (the user's call, 2026-10-10: the Arena's
  * preferred Loadout works exactly as a raid's). Anywhere else the session is left.
@@ -982,11 +990,6 @@ function onArenaTab(tab: HqArenaTab) {
     if (tab === 'ranking') void arenaRead(loadArenaBoard)
 }
 
-/** The Arena attack the stage is playing in place of the run, and what it came to, held until its replay ends. */
-const arenaRound = ref<StageArena | null>(null)
-const arenaResult = ref<ArenaResultView | null>(null)
-let arenaOutcome: ArenaResultView | null = null
-
 async function onArenaAction(target: ArenaTarget) {
     // a refresh or an attack paid in Gems waits for a second press, unless that is turned off in Settings
     const view = arenaView.value
@@ -1201,7 +1204,7 @@ type AutoRollTotal = Pick<HqTraitAutoRollResponse, 'rolls' | 'spent' | 'stoppedB
 
 /**
  * An Auto Roll run: batch after batch, the count running on the stage, until a slot lands at the
- * grade, the Trait Gems run short, or STOP. The state is read once at the end, and a batch that
+ * grade, the Trait Gems run short of a Roll above the reserve, or STOP. The state is read once at the end, and a batch that
  * fails after the first ends the run quietly, since what was rolled is already paid and kept.
  */
 async function runAutoRoll(): Promise<string> {
@@ -1214,7 +1217,9 @@ async function runAutoRoll(): Promise<string> {
                 res = await autoRollTraits(traitAutoGrade.value)
             } catch (e) {
                 if (total.rolls === 0) throw e
-                total = { ...total, stoppedBy: 'gems' }
+                // the batch before fitted its Rolls exactly: whether a single Roll still would says which edge it was
+                const left = traitAutoGems.value ?? 0
+                total = { ...total, stoppedBy: left >= (traits.value?.rollCost ?? Infinity) ? 'reserve' : 'gems' }
                 break
             }
             if (!res) break
@@ -1237,6 +1242,7 @@ function autoRollNote(res: AutoRollTotal): string {
         const best = res.slots.reduce<TraitGrade>((top, slot) => slot && TRAIT_GRADES.indexOf(slot.grade) > TRAIT_GRADES.indexOf(top) ? slot.grade : top, 'F')
         return `GRADE ${best} AFTER ${rolls}!`
     }
+    if (res.stoppedBy === 'reserve') return `KEPT ${TRAIT_AUTO_ROLL_RESERVE} TRAIT GEMS TO LOAD A BOARD, AFTER ${rolls}.`
     return res.stoppedBy === 'gems' ? `OUT OF TRAIT GEMS AFTER ${rolls}.` : `STOPPED AFTER ${rolls}.`
 }
 
@@ -1249,7 +1255,7 @@ const traitsView = computed<TraitsView>(() => {
     const gems = user.value?.gems ?? 0
     const armed = confirm.armed.value?.startsWith('trait:') ? confirm.armed.value.slice(6) as TraitsTarget : null
     if (!t) {
-        return { traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, sets: [], saves: [], saveCost: 0, saveAffordable: false, boardFull: false, gems, armed, roll: null, autoGrade: traitAutoGrade.value, gradePickerOpen: false }
+        return { traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [], saveCost: 0, saveAffordable: false, boardFull: false, gems, armed, roll: null, autoGrade: traitAutoGrade.value, gradePickerOpen: false }
     }
     return {
         traitGems: formatNumber(traitAutoGems.value ?? t.traitGems),
@@ -1264,6 +1270,7 @@ const traitsView = computed<TraitsView>(() => {
         rollCost: t.rollCost,
         rerolls: t.slots.length - t.locked,
         affordable: t.canRoll && t.traitGems >= t.rollCost,
+        autoAffordable: t.canRoll && t.traitGems >= t.rollCost + TRAIT_AUTO_ROLL_RESERVE,
         sets: t.sets.map(set => ({
             id: set.id,
             name: set.name,

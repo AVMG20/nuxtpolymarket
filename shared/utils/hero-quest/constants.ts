@@ -21,7 +21,7 @@
  * set directly.
  */
 
-import type { HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
+import type { ClassTier, HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
 import type { HolidayId } from './content/holidays'
 
 // ── Run structure ──────────────────────────────────  core-progression-and-prestige.md §2
@@ -547,6 +547,30 @@ export const DELTA_NORMAL = 4 // TUNED ✓
 export const DELTA_EXTREME = 8 // TUNED ✓
 
 /**
+ * The Hero's PWR by the tier of the class played (the user's call, 2026-10-20, issues #45 and #47):
+ * every class token is an upgrade, and a master out-damages an elite at any kit.
+ *
+ * Without it the Beginner (two strikes, `high` SPD, Haste) out-damaged every base class and
+ * several elites and masters, so a first token made the Hero weaker; and with strong kit the
+ * Shaman's party buff carried an elite past the Beast Master. A tier is a multiplier on the
+ * Hero's PWR, after the level curve, so the first run (played as the Beginner) is untouched.
+ *
+ * Measured with `--report=classes` on the baseline (party of 3, Traits, tree, Rare 0★ Lv2, prestige
+ * 1, level 446) and on strong kit (party of 4, Legendary 3★ Lv5, prestige 3, level 1,296): every
+ * class out-damages its parent at both, and the Beast Master every elite at the second. The
+ * smallest ladder that does is 2.4 / 2.8 / 3.2 / 3.6; the Warrior line binds it (Warrior over the
+ * Beginner, Knight over the Warrior). Off the baseline, without the Passive Skill Tree, the
+ * Warrior still trails the Beginner by 6–12%. Moving it re-paces every run after the first.
+ */
+export const CLASS_TIER_PWR_MULTIPLIER: Readonly<Record<ClassTier, number>> = { // UNTUNED ╧
+    beginner: 1,
+    base: 2.5,
+    elite: 3,
+    master: 3.5,
+    capstone: 4
+}
+
+/**
  * What every class's and archetype's **accumulated** LCK base is multiplied by.
  *
  * Applied after the tier value and the class path's deltas, so it lowers starting crit chance
@@ -697,8 +721,11 @@ export const XP_BASE_PER_KILL = 2 // TUNED ✓
  * on that baseline with Traits and the tree opening on their schedule (`--unlocks`), measured 4.04
  * days, and **World 1 in about 20 minutes** for a new party of three on Common 0★ Lv1 kit, measured
  * 20 min. The old pair measured 6.4 days and 45 minutes on the same walks.
+ *
+ * 38 → 86 on 2026-10-20 (the user's call): **a 4-day first prestige** again, measured 4.0 days on the
+ * baseline walk (`--unlocks`), with World 1 unchanged since its first gates need no grinding.
  */
-export const XP_TO_LEVEL_BASE = 38 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 86 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**
@@ -821,6 +848,20 @@ export const FIGHT_LENGTH_DRIFT = 0.35 // TUNED ✓
 /** The exponent enemy HP rides on the shared curve index. Derived — move `FIGHT_LENGTH_DRIFT`. */
 export const ENEMY_HP_STEP_EXPONENT = DPS_COVERAGE_PER_STAGE + FIGHT_LENGTH_DRIFT
 
+/**
+ * Enemy HP shed by each prestige, cumulative, in steps of `ENEMY_STEP_BASE` (the user's call, 2026-10-20, issue #44).
+ * Fitted on the baseline walk to land the prestiges on days 4, 9, 15, 22, 30, 60, 120 and 240; past the table each prestige repeats the last step.
+ */
+export const PRESTIGE_HP_SHED_STEPS: Readonly<Record<number, number>> = { // locked 2026-10-20, the user's call
+    1: 27.41,
+    2: 42.32,
+    3: 70.01,
+    4: 103.03,
+    5: 124.44,
+    6: 151.84,
+    7: 179.02
+}
+
 // ── Gold ───────────────────────────────────────────  gold-economy.md §3–4
 
 /**
@@ -878,11 +919,14 @@ export const BASE_GOLD = 1 // TUNED ✓
  * before day 90 and earns the walk's month what the 4-day pace did (1.29B against 1.38B): 50–77% of
  * platform on day one, 25–33% from day 3. Swept: 1.045 → 13–20% from day 3, 1.04 → 6–11%.
  *
+ * 1.05 → 1.065 on 2026-10-20, back on a 4-day first run (`XP_TO_LEVEL_BASE` 86): the first run's Worlds
+ * pay 26–75% of platform again (1.05 had fallen to 9–67%); past it the ceiling binds, so nothing later moves.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.05 // TUNED ✓
+export const GOLD_STEP_BASE = 1.065 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 
@@ -1895,6 +1939,27 @@ export const GOLD_BURST_MINUTES: readonly number[] = [ // UNTUNED ╧
 export const GOLD_BURST_COOLDOWN_SECONDS = 120 // UNTUNED ╧
 
 /**
+ * Treasure Hunter's Gambit's Gold burst, in minutes of current income: 4.8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Epic 3 minutes.
+ *
+ * Unlike Coin Toss it is a damage Active on the shared ladder cadence, so the Epic ladder
+ * stretches it to ~8.3 seconds of income every ~11 seconds, +75% Gold while equipped (4.8 over
+ * `SKILL_BASE_COOLDOWN_SECONDS`, since the ladder stretches both alike). The Epic ladder value on
+ * that cadence was ~5.2 minutes every ~11 seconds, close to +2,800%.
+ */
+export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 // locked 2026-10-20, the user's call
+
+/**
+ * King's Ransom's Gold and XP bursts, each in minutes of current income: 8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Mythic 8 minutes.
+ *
+ * The same fix as Treasure Hunter's Gambit, for the same reason: a damage Active on the shared
+ * ladder cadence. The Mythic ladder stretches it to ~20 seconds of income every ~16 seconds,
+ * about +125% Gold and +125% XP while equipped, down from close to +7,500% of each.
+ */
+export const KINGS_RANSOM_BURST_MINUTES = 8 / 60 // locked 2026-10-20, the user's call
+
+/**
  * How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as.
  *
  * Executioner's Edge, Ragnarok Strike and Fortune's Gambit carry such a clause, and there is no
@@ -2059,6 +2124,13 @@ export const TRAIT_SAVE_LOAD_COST = 100
  * how many requests a long run makes. Not a price: every Roll still costs what a Roll costs.
  */
 export const TRAIT_AUTO_ROLL_BATCH = 10 // locked 2026-10-11, the user's call
+
+/**
+ * Trait Gems an Auto Roll never spends (the user's call, 2026-10-19, issue #50): the price of
+ * loading a saved board, so a run that rolls the board worse can always be undone. A single Roll
+ * can still spend down to zero.
+ */
+export const TRAIT_AUTO_ROLL_RESERVE = TRAIT_SAVE_LOAD_COST
 
 // ── Prestige shop stat tracks ──────────────────────  open-items.md #41
 

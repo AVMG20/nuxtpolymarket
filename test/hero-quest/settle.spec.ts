@@ -3,6 +3,7 @@ import {
     applyXp,
     cappedOfflineSeconds,
     curveIndex,
+    enemyHpMultiplier,
     enemyMultiplier,
     enemyPackAt,
     enemyStatsAt,
@@ -11,6 +12,7 @@ import {
     goldProgressionFactor,
     goldTenureCeiling,
     platformCeiling,
+    prestigeHpShed,
     killsBeforeWipe,
     killsRequired,
     maxGoldPerHour,
@@ -32,7 +34,9 @@ import {
     BASE_KILL_COUNT,
     BOSS_STAGE,
     ENEMY_CURVE_T,
+    ENEMY_HP_STEP_EXPONENT,
     ENEMY_STEP_BASE,
+    PRESTIGE_HP_SHED_STEPS,
     BASE_GOLD,
     GOLD_BOUND_HORIZON_DAYS,
     GOLD_PLATFORM_DISCOUNT,
@@ -1181,5 +1185,34 @@ describe('walkWall', () => {
 
     it('lands nothing for a party that dies before its first kill', () => {
         expect(walkWall(0, 0, 3600, 0, 2)).toEqual({ kills: 0, killsInStage: 0, recoverySeconds: 0 })
+    })
+})
+
+describe('the enemy HP a prestige sheds (PRESTIGE_HP_SHED_STEPS)', () => {
+    const hpStep = (from: [number, number, number], to: [number, number, number]) =>
+        enemyHpMultiplier(...to).div(enemyHpMultiplier(...from)).toNumber()
+    const steps = (prestige: number) => Math.log(prestigeHpShed(prestige).toNumber()) / Math.log(ENEMY_STEP_BASE)
+    const last = Math.max(...Object.keys(PRESTIGE_HP_SHED_STEPS).map(Number))
+
+    it('sheds nothing inside a first run', () => {
+        expect(prestigeHpShed(0).toNumber()).toBe(1)
+        expect(enemyHpMultiplier(0, 4, 7).toNumber()).toBeCloseTo(Math.pow(ENEMY_STEP_BASE, curveIndex(0, 4, 7) * ENEMY_HP_STEP_EXPONENT), 6)
+    })
+
+    it('grows enemy HP by the same step at every stage within a run, whatever the prestige', () => {
+        const step = Math.pow(ENEMY_STEP_BASE, ENEMY_HP_STEP_EXPONENT)
+        for (const prestige of [0, 1, 5, last + 3]) expect(hpStep([prestige, 3, 4], [prestige, 3, 5])).toBeCloseTo(step, 9)
+    })
+
+    it('drops at each prestige by that prestige\'s share of the table, and repeats its last step past it', () => {
+        for (let prestige = 1; prestige <= last; prestige++) expect(steps(prestige)).toBeCloseTo(PRESTIGE_HP_SHED_STEPS[prestige]!, 6)
+        const step = PRESTIGE_HP_SHED_STEPS[last]! - PRESTIGE_HP_SHED_STEPS[last - 1]!
+        expect(steps(last + 2) - steps(last + 1)).toBeCloseTo(step, 6)
+        // the matched stats never shed: only fight length starts over
+        expect(enemyMultiplier(1, 1, 1).div(enemyMultiplier(0, WORLD_COUNT, STAGES_PER_WORLD)).toNumber()).toBeCloseTo(ENEMY_STEP_BASE, 9)
+    })
+
+    it('never sheds less at a later prestige, so enemies never get tougher by prestiging', () => {
+        for (let prestige = 1; prestige <= last + 2; prestige++) expect(steps(prestige)).toBeGreaterThan(steps(prestige - 1))
     })
 })

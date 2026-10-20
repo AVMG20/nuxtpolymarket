@@ -15,10 +15,12 @@
  */
 
 import {
+    ASCENDANT_KIT_SIZE,
     BASE_ARTIFACT_SLOTS,
     BASE_SKILL_SLOTS,
     BOSS_TIMER_SECONDS,
     LEVELS_PER_STAR,
+    MAX_CHAMPION_SLOTS,
     MAX_STAR,
     STAGES_PER_WORLD,
     TRAIT_SLOT_COUNT,
@@ -41,7 +43,8 @@ import {
 } from '../../shared/utils/hero-quest/settle'
 import { partyAbilityDps } from '../../shared/utils/hero-quest/projection'
 import { runFight } from '../../shared/utils/hero-quest/fight'
-import { CLASS_NODES } from '../../shared/utils/hero-quest/content/classes'
+import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, classPath, getClass, isDescendantOf } from '../../shared/utils/hero-quest/content/classes'
+import { shopTrackCost, voidShardsFor } from '../../shared/utils/hero-quest/content/shop'
 import { CHAMPIONS, CHAMPION_ABILITY_POOL, ability, getArchetype } from '../../shared/utils/hero-quest/content/champions'
 import { GEAR_SLOTS, gearIdFor } from '../../shared/utils/hero-quest/content/gear'
 import { skillsOfRarity } from '../../shared/utils/hero-quest/content/skills'
@@ -227,12 +230,17 @@ const KIT_REFERENCE = { level: 200, world: 5, stage: 9 }
  *
  * - Gear: one piece in every slot.
  * - Champions: the stand-ins swapped for real Champions of that rarity, in the same archetype order.
- * - Skills and Artifacts: the starting slots, each filled with whichever item of that rarity clears
- *   `KIT_REFERENCE` fastest given what is already picked.
+ * - Skills and Artifacts: `slots` of each (the starting slots unless the walk has bought more), each
+ *   filled with whichever item of that rarity clears `KIT_REFERENCE` fastest given what is already
+ *   picked. The picks are cached per class, party and slot count, since the walk asks every stage.
  *
  * The collections hold only what is equipped, so the collection passives are understated.
  */
-export function withSimKit(hero: HeroSnapshot, spec: string): HeroSnapshot {
+export function withSimKit(
+    hero: HeroSnapshot,
+    spec: string,
+    slots: { skills: number, artifacts: number } = { skills: BASE_SKILL_SLOTS, artifacts: BASE_ARTIFACT_SLOTS }
+): HeroSnapshot {
     if (spec === 'none' || spec === '') return hero
     const [rarity, starText = '0', levelText = '1'] = spec.split(':')
     const star = Number(starText)
@@ -272,6 +280,14 @@ export function withSimKit(hero: HeroSnapshot, spec: string): HeroSnapshot {
         ownedArtifacts: []
     }
 
+    const key = [spec, hero.classId, ...(hero.ascendantSkillIds ?? []), ...champions.map(c => c.championId), slots.skills, slots.artifacts].join('|')
+    const cached = kitPicks.get(key)
+    if (cached) {
+        const skills = cached.skills.map(copy)
+        const artifacts = cached.artifacts.map(copy)
+        return { ...kitted, equippedSkills: skills, ownedSkills: skills, equippedArtifacts: artifacts, ownedArtifacts: artifacts }
+    }
+
     const clearRate = (candidate: HeroSnapshot) => analyzeStage({ ...candidate, heroLevel: KIT_REFERENCE.level },
         0, KIT_REFERENCE.world, KIT_REFERENCE.stage, SIM_MATURE_TENURE_DAYS).secondsPerKill
     const fill = (ids: readonly string[], slots: number, field: 'Skills' | 'Artifacts') => {
@@ -288,10 +304,16 @@ export function withSimKit(hero: HeroSnapshot, spec: string): HeroSnapshot {
             if (best) kitted = best.hero
         }
     }
-    fill(skillsOfRarity(r).map(s => s.id), BASE_SKILL_SLOTS, 'Skills')
-    fill(ARTIFACTS.filter(a => a.rarity === r).map(a => a.id), BASE_ARTIFACT_SLOTS, 'Artifacts')
+    fill(skillsOfRarity(r).map(s => s.id), slots.skills, 'Skills')
+    fill(ARTIFACTS.filter(a => a.rarity === r).map(a => a.id), slots.artifacts, 'Artifacts')
+    kitPicks.set(key, {
+        skills: (kitted.equippedSkills ?? []).map(c => c.contentId),
+        artifacts: (kitted.equippedArtifacts ?? []).map(c => c.contentId)
+    })
     return kitted
 }
+
+const kitPicks = new Map<string, { skills: string[], artifacts: string[] }>()
 
 /**
  * Whether the walk opens Traits and the Passive Tree on their `FEATURE_UNLOCKS` schedule (`--unlocks`)
@@ -526,6 +548,12 @@ export function analyzeWorld(hero: HeroSnapshot, prestige: number, world: number
 }
 
 /**
+ * Builds the party a report fields. The CLI passes one that adds its `--traits`, `--kit` and
+ * `--tree`; the bare `makeParty` is the default for scratch callers.
+ */
+export type PartyBuilder = (classId: ClassId, heroLevel: number, size: number) => HeroSnapshot
+
+/**
  * Lowest hero level that clears a stage — the number that actually answers "is this gate
  * tuned right". Binary search is valid because damage rises monotonically with level.
  */
@@ -535,9 +563,10 @@ export function minLevelForGate(
     world: number,
     stage: number,
     maxLevel = 5000,
-    party = 1
+    party = 1,
+    build: PartyBuilder = makeParty
 ): number | null {
-    return minLevelToClear(makeParty(classId, 1, party), prestige, world, stage, 1, maxLevel)
+    return minLevelToClear(build(classId, 1, party), prestige, world, stage, 1, maxLevel)
 }
 
 /**
@@ -579,11 +608,11 @@ export interface GateRow {
 }
 
 /** Min level for every boss gate in the game. The fastest read on whether the curve holds. */
-export function gateTable(classId: ClassId, prestige: number, worlds = WORLD_COUNT, party = 1): GateRow[] {
+export function gateTable(classId: ClassId, prestige: number, worlds = WORLD_COUNT, party = 1, build: PartyBuilder = makeParty): GateRow[] {
     const rows: GateRow[] = []
     for (let world = 1; world <= worlds; world++) {
-        const bossLevel = minLevelForGate(classId, prestige, world, 5, 5000, party)
-        const superBossLevel = minLevelForGate(classId, prestige, world, STAGES_PER_WORLD, 5000, party)
+        const bossLevel = minLevelForGate(classId, prestige, world, 5, 5000, party, build)
+        const superBossLevel = minLevelForGate(classId, prestige, world, STAGES_PER_WORLD, 5000, party, build)
         rows.push({
             world,
             bossLevel,
@@ -657,6 +686,8 @@ export interface CampaignOptions {
     grindBudgetSeconds?: number
     /** Ceiling for the level search. A stage needing more than this reads as unclearable. */
     maxLevel?: number
+    /** Kit, class and shop growth across the walk (`SimProgression`). Without one the party never changes. */
+    progression?: SimProgression
 }
 
 export interface CampaignReport {
@@ -672,6 +703,8 @@ export interface CampaignReport {
     totalGold: number
     /** Full ten-world loops finished, i.e. prestiges earned. */
     prestigesCompleted: number
+    /** What each prestige paid and bought; empty without a `progression`. */
+    prestiges: SimPrestigeRow[]
 }
 
 /**
@@ -762,6 +795,209 @@ function farmStageFor(hero: HeroSnapshot, prestige: number, world: number, stage
 }
 
 /**
+ * What a player gains between and during runs, for the campaign walk past a first prestige. Each
+ * part is off unless its flag asks for it, so the walk still reads as it was tuned:
+ *
+ * - **Kit** (`--kit-ramp`): the `--kit` spec swapped for a better one at set account ages, written
+ *   `spec@days` (`epic:0:1@7,legendary:0:1@30`). Seal income is unreconciled (#23), so what a player
+ *   owns at day 30 is an input, not a projection; `open-items.md` #36 measured Rare 0★ Lv1 by day 1
+ *   and Epic 0★ Lv1 by day 7 on a first run. A grind that crosses an upgrade stops there and the
+ *   stage is retried on the new kit.
+ * - **Class** (`--classes`): every prestige's class token, spent the moment it is paid, on the unseen
+ *   node one below a node already reached whose best class (itself or anything under it) deals the
+ *   most party DPS on the next run's first Stage 9. A token can be spent from any node reached, since switching
+ *   back is free (`open-items.md` #42), so once a path is mastered the tokens open the next one
+ *   toward the Ascendant, which wants a prestige completed as each of the six masters. The walk
+ *   plays a newly bought class only if it beats the one being played, and finishes each run as a
+ *   master it has not prestiged with yet, which costs nothing.
+ * - **Shop** (`--shop`): every prestige's Void Shards, on Champion, Skill and Artifact slots,
+ *   cheapest level first, saving for them until all three are maxed, then on the four stat tracks. A Champion slot
+ *   fields one more stand-in, or one more real Champion under a kit.
+ *
+ * Changes land only at a prestige or a kit age, so `fieldAt` is what the walk asks for every stage.
+ */
+export interface SimProgressionOptions {
+    classId: ClassId
+    /** Total units at the start, Hero included, as `--party` gives it. */
+    party: number
+    traits: readonly TraitRoll[]
+    /** The kit from account start, then each upgrade by account age. `none` for no kit. */
+    kit: readonly { spec: string, atSeconds: number }[]
+    classes: boolean
+    shop: boolean
+}
+
+export interface SimPrestigeRow {
+    /** Prestiges completed, counting this one. */
+    prestige: number
+    atSeconds: number
+    level: number
+    shardsEarned: Decimal
+    /** The class the next run is played as. */
+    classId: ClassId
+    /** The node the token bought, when it bought one the walk does not play yet. */
+    tokenSpentOn: ClassId | null
+    champions: number
+    skillSlots: number
+    artifactSlots: number
+    statLevels: number
+    kit: string
+}
+
+type SimShopTrack = 'championSlots' | 'skillSlots' | 'artifactSlots' | 'statPwr' | 'statDef' | 'statImp' | 'statVit'
+
+const SIM_SLOT_TRACKS: readonly SimShopTrack[] = ['championSlots', 'skillSlots', 'artifactSlots']
+const SIM_STAT_TRACKS: readonly SimShopTrack[] = ['statPwr', 'statDef', 'statImp', 'statVit']
+
+export class SimProgression {
+    private classId: ClassId
+    private ascendantSkillIds: string[] = []
+    private readonly seen = new Set<ClassId>()
+    private readonly prestigedAs = new Set<ClassId>()
+    private shards = ZERO
+    private readonly levels: Record<SimShopTrack, number> = {
+        championSlots: 0, skillSlots: 0, artifactSlots: 0, statPwr: 0, statDef: 0, statImp: 0, statVit: 0
+    }
+
+    constructor(private readonly options: SimProgressionOptions) {
+        this.classId = options.classId
+        for (const node of classPath(options.classId)) this.seen.add(node.id)
+    }
+
+    /** The kit spec in force at `clockSeconds` of account age. */
+    kitAt(clockSeconds: number): string {
+        let spec = 'none'
+        for (const step of this.options.kit) if (step.atSeconds <= clockSeconds + 1e-6) spec = step.spec
+        return spec
+    }
+
+    /** Account age of the next kit upgrade after `clockSeconds`, or Infinity. */
+    nextChangeAfter(clockSeconds: number): number {
+        return this.options.kit.find(step => step.atSeconds > clockSeconds + 1e-6)?.atSeconds ?? Number.POSITIVE_INFINITY
+    }
+
+    fieldAt(level: number, xp: Decimal, clockSeconds: number): HeroSnapshot {
+        return this.field(this.classId, this.ascendantSkillIds, level, xp, this.kitAt(clockSeconds))
+    }
+
+    private field(classId: ClassId, ascendantSkillIds: readonly string[], level: number, xp: Decimal, kit: string): HeroSnapshot {
+        const champions = Math.min(MAX_CHAMPION_SLOTS, Math.max(0, this.options.party - 1) + this.levels.championSlots)
+        const party = makeParty(classId, level, champions + 1, {
+            heroXp: xp,
+            traits: this.options.traits,
+            ascendantSkillIds,
+            shopStatLevels: {
+                pwr: this.levels.statPwr,
+                def: this.levels.statDef,
+                imp: this.levels.statImp,
+                vit: this.levels.statVit
+            }
+        })
+        return withSimTree(withSimKit(party, kit, {
+            skills: BASE_SKILL_SLOTS + this.levels.skillSlots,
+            artifacts: BASE_ARTIFACT_SLOTS + this.levels.artifactSlots
+        }))
+    }
+
+    /** A prestige just completed: credit the class, pay and spend the shards, spend the token. */
+    prestiged(prestigeCompleted: number, level: number, xp: Decimal, clockSeconds: number): SimPrestigeRow {
+        const earned = voidShardsFor(prestigeCompleted - 1)
+        let tokenSpentOn: ClassId | null = null
+        if (this.options.classes) {
+            const playedNewMaster = getClass(this.classId).tier === 'master' && !this.prestigedAs.has(this.classId)
+            this.prestigedAs.add(playedNewMaster
+                ? this.classId
+                : MASTER_IDS.find(id => this.seen.has(id) && !this.prestigedAs.has(id)) ?? this.classId)
+        }
+        if (this.options.shop) {
+            this.shards = this.shards.add(earned)
+            this.spend(SIM_SLOT_TRACKS)
+            // Saved for slots until all three are maxed: a stat level is +1%, a slot is a unit.
+            if (SIM_SLOT_TRACKS.every(track => shopTrackCost(track, this.levels[track]) === null)) this.spend(SIM_STAT_TRACKS)
+        }
+        if (this.options.classes) tokenSpentOn = this.spendToken(prestigeCompleted, level, xp, clockSeconds)
+
+        return {
+            prestige: prestigeCompleted,
+            atSeconds: clockSeconds,
+            level,
+            shardsEarned: earned,
+            classId: this.classId,
+            tokenSpentOn,
+            champions: Math.min(MAX_CHAMPION_SLOTS, Math.max(0, this.options.party - 1) + this.levels.championSlots),
+            skillSlots: BASE_SKILL_SLOTS + this.levels.skillSlots,
+            artifactSlots: BASE_ARTIFACT_SLOTS + this.levels.artifactSlots,
+            statLevels: SIM_STAT_TRACKS.reduce((total, track) => total + this.levels[track], 0),
+            kit: this.kitAt(clockSeconds)
+        }
+    }
+
+    /** Cheapest next level among `tracks` until none is affordable or all are capped. */
+    private spend(tracks: readonly SimShopTrack[]) {
+        for (;;) {
+            let cheapest: { track: SimShopTrack, cost: number } | null = null
+            for (const track of tracks) {
+                const cost = shopTrackCost(track, this.levels[track])
+                if (cost !== null && (!cheapest || cost < cheapest.cost)) cheapest = { track, cost }
+            }
+            if (!cheapest || this.shards.lt(cheapest.cost)) return
+            this.shards = this.shards.sub(cheapest.cost)
+            this.levels[cheapest.track]++
+        }
+    }
+
+    private spendToken(prestigeCompleted: number, level: number, xp: Decimal, clockSeconds: number): ClassId | null {
+        const kit = this.kitAt(clockSeconds)
+        // Lower is better: party DPS on the next run's first Stage 9, at the level it starts on. DPS
+        // rather than seconds per kill, which floors at `MIN_SECONDS_PER_KILL` and ties every class
+        // on a stage the party out-levels; a stage far past the level, where the mitigation clamp
+        // flattens the classes, would rank them wrongly instead.
+        const rate = (classId: ClassId, picks: readonly string[]) => -analyzeStage(this.field(classId, picks, level, xp, kit),
+            prestigeCompleted, 1, STAGES_PER_WORLD - 1, SIM_MATURE_TENURE_DAYS).partyDps.max(1).log10().toNumber()
+
+        const reachable = CLASS_NODES.filter(node => !this.seen.has(node.id)
+            && (node.parentId ? this.seen.has(node.parentId) : node.id === ASCENDANT_ID && MASTER_IDS.every(id => this.prestigedAs.has(id))))
+        if (!reachable.length) return null
+
+        const rates = new Map<ClassId, number>()
+        const rateOf = (id: ClassId) => {
+            if (!rates.has(id)) rates.set(id, rate(id, id === ASCENDANT_ID ? this.ascendantPicksFor(rate) : []))
+            return rates.get(id)!
+        }
+        // A node is worth the best class it leads to: a base class can trail the Beginner while
+        // its master doubles it, so a one-step pick would never leave the root.
+        const promise = (id: ClassId) => Math.min(...CLASS_NODES
+            .filter(node => node.id === id || (node.tier !== 'capstone' && isDescendantOf(node.id, id)))
+            .map(node => rateOf(node.id)))
+        const depth = (id: ClassId) => classPath(id).length
+        const pick = [...reachable].sort((a, b) => promise(a.id) - promise(b.id) || depth(b.id) - depth(a.id))[0]!
+        this.seen.add(pick.id)
+
+        if (rateOf(pick.id) < rate(this.classId, this.ascendantSkillIds)) {
+            this.classId = pick.id
+            this.ascendantSkillIds = pick.id === ASCENDANT_ID ? this.ascendantPicksFor(rate) : []
+            return null
+        }
+        return pick.id
+    }
+
+    /** The Ascendant's picks, greedily, one slot at a time, by the same rate. */
+    private ascendantPicksFor(rate: (classId: ClassId, picks: readonly string[]) => number): string[] {
+        const picks: string[] = []
+        for (let slot = 0; slot < ASCENDANT_KIT_SIZE; slot++) {
+            let best: { id: string, value: number } | null = null
+            for (const skill of ASCENDANT_PICKABLE) {
+                if (picks.includes(skill.id)) continue
+                const value = rate(ASCENDANT_ID, [...picks, skill.id])
+                if (!best || value < best.value) best = { id: skill.id, value }
+            }
+            if (best) picks.push(best.id)
+        }
+        return picks
+    }
+}
+
+/**
  * Walk stages → worlds → prestiges until the run cannot continue.
  *
  * Unlike `analyzeWorld`, a failed stage does not end the walk. The run falls back and farms
@@ -796,7 +1032,9 @@ export function analyzeCampaign(
 
     const rows: CampaignWorldRow[] = []
     const grinds: GrindEvent[] = []
-    const at = () => ({ ...hero, heroLevel: level, heroXp: xp })
+    const prestiges: SimPrestigeRow[] = []
+    const progression = options.progression
+    const at = (clock: number) => progression ? progression.fieldAt(level, xp, clock) : { ...hero, heroLevel: level, heroXp: xp }
 
     let wall: CampaignWall | null = null
 
@@ -810,12 +1048,16 @@ export function analyzeCampaign(
             let completed = true
 
             for (let stage = 1; stage <= STAGES_PER_WORLD; stage++) {
+                const clock = () => fightSeconds + worldFight + grindSeconds + worldGrind
                 // Conservative, exactly as `settleHq` is: the clock as the stage opens.
-                const tenureDays = (fightSeconds + worldFight + grindSeconds + worldGrind) / 86_400
-                let row = analyzeStage(at(), prestige, world, stage, tenureDays)
+                const tenureDays = clock() / 86_400
+                let row = analyzeStage(at(clock()), prestige, world, stage, tenureDays)
+                let stageGrind = 0
 
-                if (row.verdict !== 'clear') {
-                    const detour = resolveBlock(at(), prestige, world, stage, row, level, xp, maxLevel, grindBudget, tenureDays)
+                // More than one detour only when a grind stops at a kit upgrade to retry on it.
+                while (row.verdict !== 'clear') {
+                    const untilChange = progression ? progression.nextChangeAfter(clock()) - clock() : Number.POSITIVE_INFINITY
+                    const detour = resolveBlock(at(clock()), prestige, world, stage, row, level, xp, maxLevel, grindBudget - stageGrind, tenureDays, untilChange)
                     if ('wall' in detour) {
                         wall = detour.wall
                         completed = false
@@ -825,12 +1067,13 @@ export function analyzeCampaign(
                     level = detour.level
                     xp = detour.xp
                     worldGrind += detour.event.seconds
+                    stageGrind += detour.event.seconds
                     worldGold += detour.event.gold
                     worldGrinds++
                     grinds.push(detour.event)
 
-                    row = analyzeStage(at(), prestige, world, stage, tenureDays)
-                    if (row.verdict !== 'clear') {
+                    row = analyzeStage(at(clock()), prestige, world, stage, tenureDays)
+                    if (!detour.partial && row.verdict !== 'clear') {
                         // Levelled past the searched threshold and still stuck: only reachable if
                         // clearing is non-monotonic in level, which would be a combat-math bug.
                         wall = {
@@ -848,6 +1091,7 @@ export function analyzeCampaign(
                         break
                     }
                 }
+                if (wall) break
 
                 const kills = killsFor(row)
                 worldFight += row.clearSeconds
@@ -872,7 +1116,10 @@ export function analyzeCampaign(
                 completed
             })
 
-            if (completed && world === WORLD_COUNT) prestigesCompleted++
+            if (completed && world === WORLD_COUNT) {
+                prestigesCompleted++
+                if (progression) prestiges.push(progression.prestiged(prestige + 1, level, xp, fightSeconds + grindSeconds))
+            }
         }
     }
 
@@ -897,7 +1144,8 @@ export function analyzeCampaign(
         grindSeconds,
         totalSeconds: fightSeconds + grindSeconds,
         totalGold,
-        prestigesCompleted
+        prestigesCompleted,
+        prestiges
     }
 }
 
@@ -917,8 +1165,10 @@ function resolveBlock(
     xp: Decimal,
     maxLevel: number,
     grindBudget: number,
-    tenureDays: number
-): { level: number; xp: Decimal; event: GrindEvent } | { wall: CampaignWall } {
+    tenureDays: number,
+    /** Seconds until the kit next improves. A grind that would outlast it stops there instead. */
+    untilChange = Number.POSITIVE_INFINITY
+): { level: number; xp: Decimal; event: GrindEvent; partial: boolean } | { wall: CampaignWall } {
     const base: Omit<CampaignWall, 'reason' | 'requiredLevel' | 'detail'> = {
         prestige,
         world,
@@ -929,7 +1179,9 @@ function resolveBlock(
     }
 
     const required = minLevelToClear(hero, prestige, world, stage, level + 1, maxLevel)
-    if (required === null) {
+    const farm = farmStageFor(hero, prestige, world, stage, tenureDays)
+    const pending = farm !== null && untilChange <= grindBudget
+    if (required === null && !pending) {
         return {
             wall: {
                 ...base,
@@ -940,7 +1192,6 @@ function resolveBlock(
         }
     }
 
-    const farm = farmStageFor(hero, prestige, world, stage, tenureDays)
     if (!farm) {
         return {
             wall: {
@@ -953,17 +1204,25 @@ function resolveBlock(
     }
 
     const perKill = xpPerKill(prestige, farm.world, farm.stage)
-    const deficit = totalXpForLevel(required).sub(totalXpForLevel(level).add(xp))
-    const kills = deficit.lte(0) ? 0 : deficit.div(perKill).ceil().toNumber()
-    const seconds = kills * secondsPerFarmedKill(farm)
+    let kills = Number.POSITIVE_INFINITY
+    if (required !== null) {
+        const deficit = totalXpForLevel(required).sub(totalXpForLevel(level).add(xp))
+        kills = deficit.lte(0) ? 0 : deficit.div(perKill).ceil().toNumber()
+    }
+    let seconds = kills * secondsPerFarmedKill(farm)
 
-    if (!Number.isFinite(seconds) || seconds > grindBudget) {
+    // The kit improves before the grind would end: farm until it does, and let the walk retry.
+    const partial = pending && !(seconds <= untilChange)
+    if (partial) {
+        kills = Math.floor(untilChange / secondsPerFarmedKill(farm))
+        seconds = untilChange
+    } else if (required === null || !Number.isFinite(seconds) || seconds > grindBudget) {
         return {
             wall: {
                 ...base,
                 reason: 'grind_budget',
                 requiredLevel: required,
-                detail: `needs level ${required} (from ${level}) — ${formatGrind(seconds)} of farming W${farm.world}S${farm.stage}, over the ${formatGrind(grindBudget)} budget`
+                detail: `needs level ${required} (from ${level}) — ${formatGrind(seconds)} of farming W${farm.world}S${farm.stage}, over the ${formatGrind(grindBudget)} budget left`
             }
         }
     }
@@ -972,6 +1231,7 @@ function resolveBlock(
     return {
         level: levelled.level,
         xp: levelled.xp,
+        partial,
         event: {
             prestige,
             world,
@@ -1008,9 +1268,9 @@ export interface ClassRow {
 }
 
 /** Every class side by side at the same level and stage. Shows whether the paths diverge. */
-export function compareClasses(prestige: number, world: number, stage: number, level: number, party = 1): ClassRow[] {
+export function compareClasses(prestige: number, world: number, stage: number, level: number, party = 1, build: PartyBuilder = makeParty): ClassRow[] {
     return CLASS_NODES.map((node) => {
-        const report = analyzeStage(makeParty(node.id, level, party), prestige, world, stage, SIM_MATURE_TENURE_DAYS)
+        const report = analyzeStage(build(node.id, level, party), prestige, world, stage, SIM_MATURE_TENURE_DAYS)
         return {
             classId: node.id,
             name: node.name,

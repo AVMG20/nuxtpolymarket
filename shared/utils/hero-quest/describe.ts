@@ -200,6 +200,8 @@ export function describeAbility(skill: ClassSkill, options: AbilityDescribeOptio
         if (e.status) parts.push(statusSentence(e.status, who, v.pwr, self ? own : null))
     }
     if (e.selfStatus) parts.push(statusSentence(e.selfStatus, v.self, v.pwr, own))
+    if (e.partyHeal) parts.push(`Heals ${ALLY_TARGET.ally_all} for ${hqPct(e.partyHeal)} of ${v.pwr}.`)
+    if (e.partyStatus) parts.push(statusSentence(e.partyStatus, ALLY_TARGET.ally_all, v.pwr, null))
     if (e.goldBurstMinutes) parts.push(`Grants ${hqNumber(e.goldBurstMinutes)} minutes of your Gold income.`)
     if (e.xpBurstMinutes) parts.push(`Grants ${hqNumber(e.xpBurstMinutes)} minutes of your XP income.`)
     if (parts.length === 0) parts.push('Does nothing.')

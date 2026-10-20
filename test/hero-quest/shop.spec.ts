@@ -7,7 +7,8 @@ import {
     maxLevelFor,
     shopStatLevels,
     shopStatModifiers,
-    shopTrackCost
+    shopTrackCost,
+    voidShardsFor
 } from '#shared/utils/hero-quest/content/shop'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { makeParty } from '../../scripts/hero-quest/sim'
@@ -25,7 +26,9 @@ import {
     OFFLINE_EFFICIENCY_BASE_COST,
     PRESTIGE_STAT_BASE_COST,
     PRESTIGE_STAT_COST_GROWTH,
-    PRESTIGE_STAT_PER_LEVEL
+    PRESTIGE_STAT_PER_LEVEL,
+    VOID_SHARD_BASE,
+    VOID_SHARD_GROWTH
 } from '#shared/utils/hero-quest/constants'
 import { offlineCapHours, offlineEfficiency } from '#shared/utils/hero-quest/settle'
 
@@ -205,5 +208,12 @@ describe('hero-quest prestige shop', () => {
         it('treats a nonsense owned level as zero rather than pricing off it', () => {
             expect(shopTrackCost('offlineEfficiency', -5)).toBe(OFFLINE_EFFICIENCY_BASE_COST)
         })
+    })
+
+    it('pays whole Void Shards at every prestige', () => {
+        // Decimal's pow is inexact: unrounded, prestige 4 paid 799.999… and missed an 800 price.
+        for (let prestige = 0; prestige <= 40; prestige++) {
+            expect(voidShardsFor(prestige).toNumber()).toBe(VOID_SHARD_BASE * VOID_SHARD_GROWTH ** prestige)
+        }
     })
 })

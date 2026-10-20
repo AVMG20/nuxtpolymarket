@@ -31,6 +31,7 @@
 
 import {
     CHAMPION_PASSIVE_PER_POINT,
+    CLASS_TIER_PWR_MULTIPLIER,
     DPS_STAT_EXPONENT,
     ENEMY_STEP_BASE,
     HP_PER_VIT,
@@ -69,7 +70,7 @@ import {
 import { mergeTotals, sumModifiers } from './modifiers'
 import { D, ONE, decPow, formatHq } from './numbers'
 import type { Decimal } from './numbers'
-import type { ChampionArchetype, ChampionSnapshot, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
+import type { ChampionArchetype, ChampionSnapshot, ClassTier, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
 
 const STAT_KEYS: readonly HqStatKey[] = ['pwr', 'spd', 'lck', 'imp', 'vit', 'def']
 
@@ -108,7 +109,7 @@ export interface StatPart {
     amount: number
 }
 
-export type StageId = 'base' | 'level' | 'collection' | 'investment' | 'passives'
+export type StageId = 'base' | 'level' | 'tier' | 'collection' | 'investment' | 'passives'
 
 export interface StatStage {
     id: StageId
@@ -273,6 +274,20 @@ function levelStage(key: HqStatKey, base: Decimal, heroLevel: number): StatStage
             ? []
             : [{ label: `flat +${STAT_PER_LEVEL_FLAT}/level`, amount: STAT_PER_LEVEL_FLAT * steps }],
         formula: `${growth.toFixed(6)}^${steps}`
+    }
+}
+
+/** The Hero's class tier, on PWR alone (`CLASS_TIER_PWR_MULTIPLIER`). */
+function tierStage(running: Decimal, tier: ClassTier): StatStage {
+    const factor = D(CLASS_TIER_PWR_MULTIPLIER[tier])
+    return {
+        id: 'tier',
+        label: `Class tier: ${tier.charAt(0).toUpperCase()}${tier.slice(1)}`,
+        factor,
+        running: running.mul(factor),
+        unbounded: false,
+        parts: [],
+        formula: `×${factor.toNumber()}`
     }
 }
 
@@ -518,8 +533,9 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
         key => path.map(ancestor => ({ name: ancestor.name, delta: ancestor.delta[key] ?? 0 })),
         hero.heroLevel,
         (key, running) => {
-            const collection = collectionStage(running, hero, key)
-            return [collection, passiveStage(
+            const tier = key === 'pwr' ? [tierStage(running, node.tier)] : []
+            const collection = collectionStage(tier.at(-1)?.running ?? running, hero, key)
+            return [...tier, collection, passiveStage(
                 collection.running, key, D(heroTotals.stats[key]), passiveSources(hero, key, null)
             )]
         },

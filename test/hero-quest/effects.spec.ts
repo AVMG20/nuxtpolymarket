@@ -205,10 +205,18 @@ describe('the nine skills the docs described', () => {
     })
 
     it('points the party-or-battlefield abilities at the party', () => {
-        for (const classId of ['class_shaman', 'class_witch_doctor', 'class_paladin'] as const) {
+        for (const classId of ['class_shaman', 'class_paladin'] as const) {
             const target = skillOf(classId).effect?.target
             expect(['ally_all', 'self'], classId).toContain(target)
         }
+    })
+
+    it('has Raise Dead strike every enemy and mend the whole party', () => {
+        const raise = skillOf('class_witch_doctor')
+        expect(raise.effect?.target).toBe('enemy_all')
+        expect(raise.abilityMultiplier).toBeGreaterThan(0)
+        expect(raise.effect?.partyHeal).toBeGreaterThan(0)
+        expect(raise.effect?.partyStatus?.kind).toBe('hot')
     })
 })
 

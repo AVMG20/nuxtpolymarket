@@ -2,6 +2,7 @@
 import {
     BASE_TRAIT_SAVE_SLOTS,
     MAX_TRAIT_SAVE_SLOTS,
+    TRAIT_AUTO_ROLL_RESERVE,
     TRAIT_ROLL_BASE_COST,
     TRAIT_ROLL_COST_PER_LOCK,
     TRAIT_SAVE_LOAD_COST,
@@ -45,7 +46,7 @@ const maxRoll = TRAIT_ROLL_BASE_COST + (TRAIT_SLOT_COUNT - 1) * TRAIT_ROLL_COST_
 const buttons = [
     { term: 'Roll', text: `Rerolls every slot you have not locked, all at once, for ${TRAIT_ROLL_BASE_COST} Trait Gems plus ${TRAIT_ROLL_COST_PER_LOCK} per locked slot (up to ${maxRoll}). Your first Roll fills all ${TRAIT_SLOT_COUNT}. With every slot locked it reads ALL LOCKED. Press during the spin to skip it.`, tone: 'text-primary' },
     { term: 'Padlock', text: 'Beside each slot. Locks the slot so Rolls leave it alone; press again to unlock. Locking is free, but makes each Roll dearer. Shut and gold when locked, open and grey when not.', tone: 'text-warning' },
-    { term: 'Auto', text: 'Rolls again and again, at the normal price each time, until any rerolled slot lands at or above the grade on the chip beside it, or you run out of Trait Gems. While it runs the button reads Stop: press it to end after the current batch.', tone: 'text-success' },
+    { term: 'Auto', text: `Rolls again and again, at the normal price each time, until any rerolled slot lands at or above the grade on the chip beside it, or the next Roll would leave fewer than ${TRAIT_AUTO_ROLL_RESERVE} Trait Gems, which it keeps so you can load a saved board if the run made yours worse. While it runs the button reads Stop: press it to end after the current batch.`, tone: 'text-success' },
     { term: 'Grade chip', text: `Sets the grade Auto stops at, from ${autoGrades[0]} to ${autoGrades[autoGrades.length - 1]}. The + means that grade or better.` }
 ]
 

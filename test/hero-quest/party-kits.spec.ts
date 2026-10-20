@@ -72,3 +72,18 @@ describe('partyKits', () => {
         })
     })
 })
+
+describe('Raise Dead in a real fight', () => {
+    it('strikes the enemy and lands its heal over time on every living ally at once', () => {
+        const hero = { ...party(40), classId: 'class_witch_doctor' as const }
+        const fight = runFight({ hero, position: { prestige: 0, world: 2, stage: 5, killsInStage: 0 }, seed: 777 })
+        const cast = fight.events.find(e => e.skillId === 'skill_raise_dead')
+        expect(cast).toBeDefined()
+        const at = fight.events.filter(e => e.at === cast!.at)
+        expect(at.some(e => e.kind === 'skill' && e.skillId === 'skill_raise_dead' && Number(e.damage) > 0)).toBe(true)
+        // its status events name it by `statusId`
+        const mended = new Set(at.filter(e => e.kind === 'status_applied' && e.statusId === 'skill_raise_dead' && !e.onEnemy).map(e => e.unitIndex))
+        const living = [0, 1, 2, 3].filter(i => !fight.events.some(e => e.kind === 'unit_down' && e.unitIndex === i && e.at <= cast!.at))
+        expect([...mended].sort()).toEqual(living)
+    })
+})
