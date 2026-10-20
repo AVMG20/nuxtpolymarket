@@ -36,8 +36,6 @@ import {
     STAGES_PER_WORLD,
     SUPER_BOSS_STAGE,
     TEN_PULL_SIZE,
-    VOID_SHARD_BASE,
-    VOID_SHARD_GROWTH,
     WORLD_COUNT
 } from '#shared/utils/hero-quest/constants'
 import {
@@ -130,7 +128,7 @@ import {
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { readLoadoutSnapshot, type LiveLoadoutColumns, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
-import { D, ZERO, decPow, fromStore, roundHq, roundHqFraction, toStore } from '#shared/utils/hero-quest/numbers'
+import { D, ZERO, fromStore, roundHq, roundHqFraction, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
@@ -555,11 +553,6 @@ export function sealGrantSet(amount: number) {
         skillSeals: sql`${hqState.skillSeals} + ${by}`,
         excavationSeals: sql`${hqState.excavationSeals} + ${by}`
     }
-}
-
-/** Payout for completing a prestige, `VOID_SHARD_BASE × VOID_SHARD_GROWTH^prestigeCompleted`. */
-export function voidShardsFor(prestigeCompleted: number) {
-    return D(VOID_SHARD_BASE).mul(decPow(VOID_SHARD_GROWTH, Math.max(0, prestigeCompleted)))
 }
 
 export interface SettleOutcome {

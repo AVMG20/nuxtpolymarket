@@ -58,6 +58,8 @@ export interface TraitsView {
     rerolls: number
     /** The Trait Gems cover a Roll. */
     affordable: boolean
+    /** They cover a Roll and still leave the reserve an Auto Roll keeps. */
+    autoAffordable: boolean
     sets: readonly TraitSetView[]
     saves: readonly TraitSaveView[]
     /** Trait Gems a store or a load costs, and whether they are there. */
@@ -225,7 +227,8 @@ export function traitsTargetAt(view: TraitsView, w: number, x: number, y: number
 export function traitsTargetEnabled(view: TraitsView, target: TraitsTarget, busy: boolean): boolean {
     if (target === 'skip' || target === 'shut' || target === 'stop') return true
     if (busy) return false
-    if (target === 'roll' || target === 'auto') return view.rerolls > 0 && view.affordable
+    if (target === 'roll') return view.rerolls > 0 && view.affordable
+    if (target === 'auto') return view.rerolls > 0 && view.autoAffordable
     if (target === 'grade' || target.startsWith('grade:')) return true
     const [kind, n] = target.split(':') as [string, string]
     const i = Number(n)

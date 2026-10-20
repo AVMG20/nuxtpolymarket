@@ -46,6 +46,7 @@ const buttons = [
     { term: 'Craft', text: 'Spend Essence on this exact item: a first copy if you have none, otherwise one more copy, the same as pulling a duplicate. Hidden once the item is maxed, greyed out when you are short.', tone: 'text-primary' },
     { term: 'Equip (Gear)', text: 'Puts the piece on at once, replacing what its slot wore. A slot is never empty, so there is no unequip: it reads Equipped while worn. Next to it, a green ▲ or red ▼ with a percentage compares it with what you wear.', tone: 'text-success' },
     { term: 'Equip (others)', text: 'Opens a picker for a Champion, a Skill or an Artifact, below.', tone: 'text-success' },
+    { term: 'Arrows', text: 'Beside the ×. Step to the previous or next entry of the tab, in grid order, wrapping round at either end. The arrow keys and a sideways swipe do the same. Not while a picker is open.' },
     { term: 'Red ×', text: 'Closes the detail. So does pressing the open tab.', tone: 'text-error' }
 ]
 

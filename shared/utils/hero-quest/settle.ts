@@ -25,6 +25,7 @@ import {
     ENEMY_HP_STEP_EXPONENT,
     ENEMY_PRESTIGE_STEP_MULT,
     ENEMY_STEP_BASE,
+    FIGHT_LENGTH_DRIFT,
     GOLD_BOUND_HORIZON_DAYS,
     GOLD_PLATFORM_DISCOUNT,
     GOLD_STEP_BASE,
@@ -39,6 +40,7 @@ import {
     OFFLINE_CAP_MAX_HOURS,
     OFFLINE_EFFICIENCY_PER_LEVEL,
     PACK_LIVE_STREAM_FRACTION,
+    PRESTIGE_DRIFT_CARRY,
     PRESTIGE_INDEX_STEPS,
     STAGES_PER_WORLD,
     SUPER_BOSS_HP_MULT,
@@ -127,10 +129,23 @@ export function stageStatMultiplier(stage: number): { hp: number; atk: number; d
  * the shared curve. HP is read against *DPS*, which is a product of two level-scaled stats and
  * therefore grows at `DPS_COVERAGE_PER_STAGE`. On the plain curve the party would outrun enemy
  * HP every stage and pin every wave stage to `MIN_SECONDS_PER_KILL`.
+ *
+ * Each finished run sheds all but `PRESTIGE_DRIFT_CARRY` of its `FIGHT_LENGTH_DRIFT`, so fight
+ * length mostly starts over with every run instead of compounding across prestiges.
  */
 export function enemyHpMultiplier(prestige: number, world: number, stage: number): Decimal {
     return decPow(ENEMY_STEP_BASE, curveIndex(prestige, world, stage) * ENEMY_HP_STEP_EXPONENT)
         .mul(decPow(ENEMY_PRESTIGE_STEP_MULT, prestige))
+        .div(prestigeDriftShed(prestige))
+}
+
+/**
+ * What enemy HP has shed by `prestige`: the drift every finished run left behind, less the share
+ * `PRESTIGE_DRIFT_CARRY` keeps. The raids multiply it back, since their ladders are endless and
+ * must keep growing by one factor a level across a prestige's index.
+ */
+export function prestigeDriftShed(prestige: number): Decimal {
+    return decPow(ENEMY_STEP_BASE, (1 - PRESTIGE_DRIFT_CARRY) * Math.max(0, prestige) * PRESTIGE_INDEX_STEPS * FIGHT_LENGTH_DRIFT)
 }
 
 export function enemyStatsAt(pos: RunPosition): EnemyStats {

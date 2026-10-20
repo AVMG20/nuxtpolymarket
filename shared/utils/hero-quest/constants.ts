@@ -21,7 +21,7 @@
  * set directly.
  */
 
-import type { HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
+import type { ClassTier, HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
 import type { HolidayId } from './content/holidays'
 
 // ── Run structure ──────────────────────────────────  core-progression-and-prestige.md §2
@@ -547,6 +547,30 @@ export const DELTA_NORMAL = 4 // TUNED ✓
 export const DELTA_EXTREME = 8 // TUNED ✓
 
 /**
+ * The Hero's PWR by the tier of the class played (the user's call, 2026-10-20, issues #45 and #47):
+ * every class token is an upgrade, and a master out-damages an elite at any kit.
+ *
+ * Without it the Beginner (two strikes, `high` SPD, Haste) out-damaged every base class and
+ * several elites and masters, so a first token made the Hero weaker; and with strong kit the
+ * Shaman's party buff carried an elite past the Beast Master. A tier is a multiplier on the
+ * Hero's PWR, after the level curve, so the first run (played as the Beginner) is untouched.
+ *
+ * Measured with `--report=classes` on the baseline (party of 3, Traits, tree, Rare 0★ Lv2, prestige
+ * 1, level 446) and on strong kit (party of 4, Legendary 3★ Lv5, prestige 3, level 1,296): every
+ * class out-damages its parent at both, and the Beast Master every elite at the second. The
+ * smallest ladder that does is 2.4 / 2.8 / 3.2 / 3.6; the Warrior line binds it (Warrior over the
+ * Beginner, Knight over the Warrior). Off the baseline, without the Passive Skill Tree, the
+ * Warrior still trails the Beginner by 6–12%. Moving it re-paces every run after the first.
+ */
+export const CLASS_TIER_PWR_MULTIPLIER: Readonly<Record<ClassTier, number>> = { // UNTUNED ╧
+    beginner: 1,
+    base: 2.5,
+    elite: 3,
+    master: 3.5,
+    capstone: 4
+}
+
+/**
  * What every class's and archetype's **accumulated** LCK base is multiplied by.
  *
  * Applied after the tier value and the class path's deltas, so it lowers starting crit chance
@@ -820,6 +844,23 @@ export const FIGHT_LENGTH_DRIFT = 0.35 // TUNED ✓
 
 /** The exponent enemy HP rides on the shared curve index. Derived — move `FIGHT_LENGTH_DRIFT`. */
 export const ENEMY_HP_STEP_EXPONENT = DPS_COVERAGE_PER_STAGE + FIGHT_LENGTH_DRIFT
+
+/**
+ * **How much of a run's `FIGHT_LENGTH_DRIFT` the next run inherits** (the user's call, 2026-10-20,
+ * issue #44). 1 is the old continuous curve; 0 starts every run's fights as long as the first's.
+ *
+ * Carried in full, the drift compounded across prestiges: each one made every fight
+ * `1.08^(0.35 × 100)` ≈ 15× longer against the same level pace, so the second prestige took about
+ * two months and an eighth was out of reach. The rest of the enemy block, and enemy HP's share of
+ * the party's DPS growth, still ride the whole index, so nothing but fight length resets.
+ *
+ * Set so the eighth prestige, which every Champion, Skill and Artifact slot takes, is reachable in
+ * about six months (the user's call). On the baseline walk with class tokens and Void Shards spent
+ * (`--classes --shop --grind-hours=20000`) and a fixed Rare 0★ Lv2 kit, 0.3 lands the prestiges
+ * on days 1.7, 4.5, 5.8, 7.9, 13.6, 29.6, 71.9 and **183**; 0.25 put the eighth at day 64 and 0.35
+ * at day 544. Better kit than the walk's fixed one gets there sooner.
+ */
+export const PRESTIGE_DRIFT_CARRY = 0.3 // locked 2026-10-20, the user's call
 
 // ── Gold ───────────────────────────────────────────  gold-economy.md §3–4
 
@@ -1895,6 +1936,27 @@ export const GOLD_BURST_MINUTES: readonly number[] = [ // UNTUNED ╧
 export const GOLD_BURST_COOLDOWN_SECONDS = 120 // UNTUNED ╧
 
 /**
+ * Treasure Hunter's Gambit's Gold burst, in minutes of current income: 4.8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Epic 3 minutes.
+ *
+ * Unlike Coin Toss it is a damage Active on the shared ladder cadence, so the Epic ladder
+ * stretches it to ~8.3 seconds of income every ~11 seconds, +75% Gold while equipped (4.8 over
+ * `SKILL_BASE_COOLDOWN_SECONDS`, since the ladder stretches both alike). The Epic ladder value on
+ * that cadence was ~5.2 minutes every ~11 seconds, close to +2,800%.
+ */
+export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 // locked 2026-10-20, the user's call
+
+/**
+ * King's Ransom's Gold and XP bursts, each in minutes of current income: 8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Mythic 8 minutes.
+ *
+ * The same fix as Treasure Hunter's Gambit, for the same reason: a damage Active on the shared
+ * ladder cadence. The Mythic ladder stretches it to ~20 seconds of income every ~16 seconds,
+ * about +125% Gold and +125% XP while equipped, down from close to +7,500% of each.
+ */
+export const KINGS_RANSOM_BURST_MINUTES = 8 / 60 // locked 2026-10-20, the user's call
+
+/**
  * How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as.
  *
  * Executioner's Edge, Ragnarok Strike and Fortune's Gambit carry such a clause, and there is no
@@ -2059,6 +2121,13 @@ export const TRAIT_SAVE_LOAD_COST = 100
  * how many requests a long run makes. Not a price: every Roll still costs what a Roll costs.
  */
 export const TRAIT_AUTO_ROLL_BATCH = 10 // locked 2026-10-11, the user's call
+
+/**
+ * Trait Gems an Auto Roll never spends (the user's call, 2026-10-19, issue #50): the price of
+ * loading a saved board, so a run that rolls the board worse can always be undone. A single Roll
+ * can still spend down to zero.
+ */
+export const TRAIT_AUTO_ROLL_RESERVE = TRAIT_SAVE_LOAD_COST
 
 // ── Prestige shop stat tracks ──────────────────────  open-items.md #41
 

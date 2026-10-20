@@ -93,6 +93,13 @@ export interface AbilityEffect {
     status?: StatusSpec
     /** Landed on the caster, whatever the pattern selected. */
     selfStatus?: StatusSpec
+    /**
+     * Healing, as a multiple of the caster's PWR, on every living ally, whatever the pattern
+     * selected — so an ability aimed at the enemy can mend the party too (Raise Dead).
+     */
+    partyHeal?: number
+    /** Landed on every living ally, whatever the pattern selected, with `partyHeal`. */
+    partyStatus?: StatusSpec
     /** Damage scales up as the target's HP falls — Execute Strike. Fraction at 0% HP. */
     executeBonus?: number
     /**
@@ -301,6 +308,8 @@ export function scaleEffect(effect: AbilityEffect, potency: number): AbilityEffe
             : { revive: Math.min(1, effect.revive * potency) }),
         ...(effect.status === undefined ? {} : { status: scaleStatus(effect.status)! }),
         ...(effect.selfStatus === undefined ? {} : { selfStatus: scaleStatus(effect.selfStatus)! }),
+        ...(effect.partyHeal === undefined ? {} : { partyHeal: effect.partyHeal * potency }),
+        ...(effect.partyStatus === undefined ? {} : { partyStatus: scaleStatus(effect.partyStatus)! }),
         ...(effect.escalation === undefined
             ? {}
             : {
@@ -345,6 +354,8 @@ export function stretchEffect(effect: AbilityEffect, factor: number): AbilityEff
         ...(effect.extendDebuffs === undefined ? {} : { extendDebuffs: scaled(effect.extendDebuffs) }),
         ...(effect.status === undefined ? {} : { status: stretchStatus(effect.status) }),
         ...(effect.selfStatus === undefined ? {} : { selfStatus: stretchStatus(effect.selfStatus) }),
+        ...(effect.partyHeal === undefined ? {} : { partyHeal: scaled(effect.partyHeal) }),
+        ...(effect.partyStatus === undefined ? {} : { partyStatus: stretchStatus(effect.partyStatus) }),
         ...(effect.escalation === undefined
             ? {}
             : { escalation: { ...effect.escalation, status: stretchStatus(effect.escalation.status) } })

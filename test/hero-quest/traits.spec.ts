@@ -11,6 +11,7 @@ import { makeHero, makeParty } from '../../scripts/hero-quest/sim'
 import {
     MAX_EVASION,
     MAX_TRAIT_SAVE_SLOTS,
+    TRAIT_AUTO_ROLL_RESERVE,
     TRAIT_GRADE_RATES,
     TRAIT_SET_TIERS,
     TRAIT_SLOT_COUNT,
@@ -160,23 +161,31 @@ describe('rolling and locking', () => {
 
         it('stops on the first Roll that lands a slot at the grade, paying for each Roll', () => {
             // every draw near 1: the last stat and Set, and SSS
-            const run = autoRollTraitBoard(unlockedBoard(), 100, 'S', 1000, () => 0.99999)
+            const run = autoRollTraitBoard(unlockedBoard(), TRAIT_AUTO_ROLL_RESERVE + 100, 'S', 1000, () => 0.99999)
             expect(run).toMatchObject({ rolls: 1, spent: 5, stoppedBy: 'hit' })
             expect(run.board.every(slot => slot?.grade === 'SSS')).toBe(true)
         })
 
-        it('stops when the next Roll is more than the Trait Gems left, or at the cap', () => {
+        it('stops when the next Roll would dip into the reserve, or at the cap', () => {
             // every draw at 0.5: grade E, never S
-            expect(autoRollTraitBoard(unlockedBoard(), 23, 'S', 1000, () => 0.5)).toMatchObject({ rolls: 4, spent: 20, stoppedBy: 'gems' })
+            expect(autoRollTraitBoard(unlockedBoard(), TRAIT_AUTO_ROLL_RESERVE + 23, 'S', 1000, () => 0.5)).toMatchObject({ rolls: 4, spent: 20, stoppedBy: 'reserve' })
             expect(autoRollTraitBoard(unlockedBoard(), 1000, 'S', 7, () => 0.5)).toMatchObject({ rolls: 7, spent: 35, stoppedBy: 'cap' })
+            expect(autoRollTraitBoard(unlockedBoard(), TRAIT_AUTO_ROLL_RESERVE + 4, 'S', 1000, () => 0.5)).toMatchObject({ rolls: 0, spent: 0, stoppedBy: 'reserve' })
+        })
+
+        it('keeps the reserve whole, and tells a short balance from one held back by the reserve', () => {
+            // a Roll fits but would eat into the reserve; then not even a Roll fits
+            expect(autoRollTraitBoard(unlockedBoard(), TRAIT_AUTO_ROLL_RESERVE, 'S', 1000, () => 0.5)).toMatchObject({ rolls: 0, stoppedBy: 'reserve' })
             expect(autoRollTraitBoard(unlockedBoard(), 4, 'S', 1000, () => 0.5)).toMatchObject({ rolls: 0, spent: 0, stoppedBy: 'gems' })
+            const run = autoRollTraitBoard(unlockedBoard(), TRAIT_AUTO_ROLL_RESERVE + 5, 'S', 1000, () => 0.5)
+            expect(run).toMatchObject({ rolls: 1, spent: 5, stoppedBy: 'reserve' })
         })
 
         it('prices every Roll by the locks, never rerolls a locked slot, and never stops on one', () => {
             const board = unlockedBoard()
             board[2] = { ...roll('trait_atk', 'SSS', 'set_aggression'), locked: true }
-            const run = autoRollTraitBoard(board, 30, 'S', 1000, () => 0.5)
-            expect(run).toMatchObject({ rolls: 3, spent: 30, stoppedBy: 'gems' })
+            const run = autoRollTraitBoard(board, TRAIT_AUTO_ROLL_RESERVE + 30, 'S', 1000, () => 0.5)
+            expect(run).toMatchObject({ rolls: 3, spent: 30, stoppedBy: 'reserve' })
             expect(run.board[2]).toEqual(board[2])
         })
     })

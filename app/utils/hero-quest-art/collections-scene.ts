@@ -5,6 +5,7 @@
 // (`encyclopedia_detail`) in the grid's place: the entry shown large, what it does, the gacha's
 // Essence, and the buttons that equip and craft it. Equip on a Champion, Skill or Artifact opens
 // the picker over the detail: the formation or the slots, to pick where it goes or what it replaces.
+// Previous and next beside the close button step through the tab's tiles in grid order.
 
 import { C, CLEAR, RARITY_COLORS } from './palette'
 import { Surface, rect, blit, dither, ditherEllipse } from './surface'
@@ -87,8 +88,11 @@ export type DetailButton = CollectionActionId | 'craft'
 /** A press in the picker: a spot by row and place, the x that frees one, its remove button, or Cancel. */
 export type PickerTarget = `spot:${number}:${number}` | `unset:${number}:${number}` | 'remove' | 'cancel'
 
-/** What the pointer is over: a tab, a tile by index, the detail's close button or one of its buttons, or the picker's. */
-export type CollectionsHover = HqCollectionTab | number | 'close' | DetailButton | PickerTarget | null
+/** The detail's steps through the tab's tiles. */
+export type DetailNav = 'prev' | 'next'
+
+/** What the pointer is over: a tab, a tile by index, the detail's close, previous or next, one of its buttons, or the picker's. */
+export type CollectionsHover = HqCollectionTab | number | 'close' | DetailNav | DetailButton | PickerTarget | null
 
 const TAB_Y = 2
 const TAB_H = 13
@@ -105,6 +109,10 @@ const PITCH = 25
 const BOX_W = 84
 const CLOSE_W = 13
 const CLOSE_H = 11
+/** Previous and next sit left of the close button, the same size, this far apart. */
+const NAV_GAP = 2
+/** The top-right buttons' run, which a long name wraps short of: previous, next and close. */
+const CORNER_W = 3 * CLOSE_W + 2 * NAV_GAP
 const LINE_H = 7
 const SECTION_GAP = 4
 /** Room the Essence readout keeps on the footer's bottom row. */
@@ -181,10 +189,25 @@ export function collectionTileAt(w: number, h: number, count: number, x: number,
     return i < count ? i : null
 }
 
+/** Previous, then next, left of the close button. */
+function navBox(w: number, h: number, nav: DetailNav): { x: number, y: number } {
+    const b = closeBox(w, h)
+    return { x: b.x - (nav === 'next' ? 1 : 2) * (CLOSE_W + NAV_GAP), y: b.y }
+}
+
 /** Whether a point on the view is on the detail's close button. */
 export function onDetailClose(w: number, h: number, x: number, y: number): boolean {
     const b = closeBox(w, h)
     return x >= b.x && x < b.x + CLOSE_W && y >= b.y && y < b.y + CLOSE_H
+}
+
+/** The detail's previous or next button a point on the view is over. */
+export function detailNavAt(w: number, h: number, x: number, y: number): DetailNav | null {
+    for (const nav of ['prev', 'next'] as const) {
+        const b = navBox(w, h, nav)
+        if (x >= b.x && x < b.x + CLOSE_W && y >= b.y && y < b.y + CLOSE_H) return nav
+    }
+    return null
 }
 
 interface Box { x: number, y: number, w: number, h: number }
@@ -238,8 +261,8 @@ function detailBody(w: number, h: number, e: CollectionTile): Box {
     const x = p.x + 6 + BOX_W + 8
     const right = p.x + p.w - 6
     let y = p.y + 8
-    // a long name takes two lines rather than running under the close button
-    y += e.owned ? wrap(e.name.toUpperCase(), right - x - CLOSE_W - 4, 'big').length * 10 : 12
+    // a long name takes two lines rather than running under the corner's buttons
+    y += e.owned ? wrap(e.name.toUpperCase(), right - x - CORNER_W - 4, 'big').length * 10 : 12
     // the rarity row, and the rule under it
     y += 1 + 9 + 6
     const bottom = detailFooter(w, h, e).top - 3
@@ -575,8 +598,8 @@ export class CollectionsScene {
         const right = p.x + p.w - 6
         let y = p.y + 8
         if (e.owned) {
-            // a long name takes two lines rather than running under the close button
-            for (const line of wrap(e.name.toUpperCase(), right - x - CLOSE_W - 4, 'big')) {
+            // a long name takes two lines rather than running under the corner's buttons
+            for (const line of wrap(e.name.toUpperCase(), right - x - CORNER_W - 4, 'big')) {
                 drawText(s, line, x, y, C.white, { font: 'big', shadow: 1 })
                 y += 10
             }
@@ -624,6 +647,19 @@ export class CollectionsScene {
         for (let i = 0; i < 5; i++) {
             rect(s, b.x + 4 + i, b.y + 3 + i, 1, 1, C.white)
             rect(s, b.x + 8 - i, b.y + 3 + i, 1, 1, C.white)
+        }
+
+        // previous and next: a stone plate each, a white arrowhead pointing the way it steps
+        for (const nav of ['prev', 'next'] as const) {
+            const n = navBox(s.w, s.h, nav)
+            const lit = hover === nav
+            rect(s, n.x, n.y, CLOSE_W, CLOSE_H, C.ink)
+            rect(s, n.x + 1, n.y + 1, CLOSE_W - 2, CLOSE_H - 2, lit ? C.stone2 : C.stone1)
+            rect(s, n.x + 1, n.y + 1, CLOSE_W - 2, 1, lit ? C.stone3 : C.stone2)
+            for (let i = 0; i < 4; i++) {
+                const ax = nav === 'next' ? n.x + 5 + i : n.x + 7 - i
+                rect(s, ax, n.y + 2 + i, 1, 7 - 2 * i, C.white)
+            }
         }
     }
 

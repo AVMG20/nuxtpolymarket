@@ -35,6 +35,7 @@ import { RAID_KEYS_PER_DAY,
     OFFLINE_EFFICIENCY_BASE_COST,
     SEAL_LADDER_BASE_GOLD,
     TEN_PULL_SIZE,
+    TRAIT_AUTO_ROLL_RESERVE,
     TRAIT_SAVE_LOAD_COST,
     TRAIT_SAVE_SLOT_BASE_COST_GEMS,
     TRAIT_SAVE_SLOT_COST_STEP_GEMS
@@ -513,16 +514,26 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect((await getTraitBoard(USER_ID)).every(slot => slot !== null)).toBe(true)
         })
 
-        it('pays for each of a burst of Auto Rolls once, and never spends past zero', async () => {
+        it('pays for each of a burst of Auto Rolls once, and never spends into the reserve', async () => {
             await ensureHqState(USER_ID)
-            // seven Rolls' worth at nothing locked; SSS is all but out of reach, so every run spends what it can
-            await giveTraitGems(35)
+            // seven Rolls' worth above the reserve at nothing locked; SSS is all but out of reach, so every run spends what it can
+            await giveTraitGems(TRAIT_AUTO_ROLL_RESERVE + 35)
 
             const result = await burst(5, () => db.transaction(tx => autoRollTraits(tx, USER_ID, 'SSS', () => 0.5)))
 
             expect(result.ok).toBe(1)
-            expect(await traitGemsOf()).toBe(0)
+            expect(await traitGemsOf()).toBe(TRAIT_AUTO_ROLL_RESERVE)
             expect((await getTraitBoard(USER_ID)).every(slot => slot?.grade === 'E')).toBe(true)
+        })
+
+        it('refuses an Auto Roll that only the reserve stops, naming the reserve', async () => {
+            await ensureHqState(USER_ID)
+            // a single Roll fits, but not above the reserve
+            await giveTraitGems(TRAIT_AUTO_ROLL_RESERVE)
+
+            await expect(db.transaction(tx => autoRollTraits(tx, USER_ID, 'SSS', () => 0.5)))
+                .rejects.toMatchObject({ statusCode: 400, statusMessage: `Auto Roll keeps ${TRAIT_AUTO_ROLL_RESERVE} Trait Gems to load a board` })
+            expect(await traitGemsOf()).toBe(TRAIT_AUTO_ROLL_RESERVE)
         })
 
         it('prices a burst of Rolls by the locks and never rerolls a locked slot', async () => {

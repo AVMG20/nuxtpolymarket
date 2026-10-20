@@ -4,7 +4,7 @@ import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import { fitStage, stagePlaceholderWidth } from '~/utils/hero-quest-art/stage-size'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
-import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
+import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, DetailNav, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView, KitTarget } from '~/utils/hero-quest-art/classes-scene'
@@ -280,7 +280,7 @@ const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
 /** What the Traits scene draws before its payload lands. */
 const EMPTY_TRAITS: TraitsView = {
-    traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, sets: [], saves: [],
+    traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [],
     saveCost: 0, saveAffordable: false, boardFull: false, gems: 0, armed: null, roll: null,
     autoGrade: 'S', gradePickerOpen: false
 }
@@ -481,7 +481,7 @@ defineExpose({ skipFight, closeIris })
  * The challenge button and the menu band live in the canvas, so the pointer is hit-tested against
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
-type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | `detail:${DetailNav}` | DetailButton
     | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
@@ -506,6 +506,26 @@ watch(detail, () => {
     picking.value = false
 })
 const openEntry = computed(() => detail.value === null ? undefined : props.collections?.entries.find(e => e.id === detail.value))
+
+/**
+ * Previous or next from the open entry, through the tab's tiles in grid order, wrapping at either
+ * end. Never while the picker is up, so it can't change what it is placing under the player.
+ */
+function stepDetail(by: -1 | 1) {
+    const entries = props.collections?.entries ?? []
+    const at = entries.findIndex(e => e.id === detail.value)
+    if (at < 0 || picking.value) return
+    detail.value = entries[(at + by + entries.length) % entries.length]!.id
+}
+
+/** The arrow keys step the open detail too; not while a field has the keys. */
+function onDetailKey(e: KeyboardEvent) {
+    if (openScene.value !== 'collections' || detail.value === null || renaming.value) return
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]')) return
+    e.preventDefault()
+    stepDetail(e.key === 'ArrowLeft' ? -1 : 1)
+}
 
 /** The loadout slot open in the detail view; the cards when null. Leaving the scene shuts it, and any rename. */
 const loadoutDetail = ref<number | null>(null)
@@ -619,6 +639,8 @@ function targetAt(e: PointerEvent): Target | null {
         if (tab) return tab !== props.collections?.tab || detail.value ? `tab:${tab}` : null
         if (detail.value) {
             if (collectionsHit.onDetailClose(presenter.w, h, x, y)) return 'close'
+            const nav = collectionsHit.detailNavAt(presenter.w, h, x, y)
+            if (nav) return `detail:${nav}`
             const button = open ? collectionsHit.detailButtonAt(presenter.w, h, open, x, y) : null
             // a button that cannot be pressed is no target
             return button?.enabled && !props.collectionsBusy ? button.id : null
@@ -736,6 +758,9 @@ function targetAt(e: PointerEvent): Target | null {
 const settingsScroll = ref(0)
 const DRAG_SLOP = 3
 let drag: { pointer: number, y: number, scroll: number, moved: boolean } | null = null
+/** A finger across an open Collections detail: sideways by at least this much, and mostly sideways, steps it. */
+const SWIPE_MIN = 24
+let swipe: { pointer: number, x: number, y: number } | null = null
 /** The scene's height under the band, set once the stage is built. */
 let sceneH = 0
 
@@ -908,6 +933,9 @@ function onPointerDown(e: PointerEvent) {
         drag = { pointer: e.pointerId, y: stageY(e), scroll: scrollNow(), moved: false }
         canvas.value?.setPointerCapture(e.pointerId)
     }
+    if (e.pointerType !== 'mouse' && openScene.value === 'collections' && detail.value !== null && !picking.value && presenter && stageY(e) < sceneH) {
+        swipe = { pointer: e.pointerId, x: stageX(e), y: stageY(e) }
+    }
     if (renaming.value) {
         draftAtPress = { ...renaming.value }
         renaming.value = null
@@ -920,6 +948,15 @@ function onPointerDown(e: PointerEvent) {
 function onPointerUp(e: PointerEvent) {
     const dragged = upOffTree(e) || (drag?.moved ?? false)
     drag = null
+    const swiped = swipe?.pointer === e.pointerId && presenter ? { dx: stageX(e) - swipe.x, dy: stageY(e) - swipe.y } : null
+    swipe = null
+    // a swipe steps the detail, and presses nothing where it let go
+    if (swiped && Math.abs(swiped.dx) >= SWIPE_MIN && Math.abs(swiped.dx) > 2 * Math.abs(swiped.dy)) {
+        pressed.value = false
+        hover.value = null
+        stepDetail(swiped.dx < 0 ? 1 : -1)
+        return
+    }
     // a drag scrolled the list or moved the tree; it presses nothing where it let go
     if (dragged) {
         pressed.value = false
@@ -1098,6 +1135,7 @@ function onPointerUp(e: PointerEvent) {
         }
     }
     else if (hit.startsWith('tile:')) detail.value = props.collections?.entries[Number(hit.slice(5))]?.id ?? null
+    else if (hit.startsWith('detail:')) stepDetail(hit === 'detail:prev' ? -1 : 1)
     else {
         const tab = hit.slice(4) as HqCollectionTab
         if (tab === props.collections?.tab) detail.value = null
@@ -1125,6 +1163,7 @@ function onPointerLeave(e?: PointerEvent) {
         upOffTree(e)
     }
     drag = null
+    swipe = null
     hover.value = null
     pressed.value = false
     // a press that left the canvas still committed the name it took the focus from
@@ -1170,6 +1209,7 @@ const bandHover = computed(() => HQ_MENU_SCENES.find(s => s === hover.value) ?? 
 const collectionsHover = computed<CollectionsHover>(() => {
     const h = hover.value
     if (h === 'close' || (h && isDetailButton(h))) return h
+    if (h === 'detail:prev' || h === 'detail:next') return h.slice(7) as DetailNav
     if (h?.startsWith('tile:')) return Number(h.slice(5))
     if (h?.startsWith('picker:') && h !== 'picker:outside') return h.slice(7) as PickerTarget
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
@@ -1478,6 +1518,7 @@ onMounted(async () => {
     observer.observe(frame.value!)
     // a window only made shorter leaves the frame's width alone
     window.addEventListener('resize', fit)
+    window.addEventListener('keydown', onDetailKey)
     fit()
     ready.value = true
 })
@@ -1490,6 +1531,7 @@ onBeforeUnmount(() => {
     stage?.dispose()
     observer?.disconnect()
     window.removeEventListener('resize', fit)
+    window.removeEventListener('keydown', onDetailKey)
 })
 </script>
 

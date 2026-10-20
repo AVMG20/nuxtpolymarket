@@ -293,6 +293,24 @@ export function runDuel(input: DuelInput): DuelResult {
                     events.push({ at: elapsed, kind: 'status_applied', ...on(side, index), statusId: skillId ?? 'autoattack' })
                 }
 
+                /** `partyHeal` and `partyStatus`: every living ally, whatever the pattern selected. */
+                const landOnParty = () => {
+                    if (!effect.partyHeal && !effect.partyStatus) return
+                    own.forEach((ally, allyIndex) => {
+                        if (!alive(ally)) return
+                        if (effect.partyHeal) {
+                            const before = ally.hp
+                            const healed = ally.hp.add(unit.stats.pwr.mul(effect.partyHeal).mul(pace))
+                            ally.hp = healed.gt(ally.stats.maxHp) ? ally.stats.maxHp : healed
+                            events.push({ at: elapsed, kind: 'heal', ...on(side, allyIndex), ...(skillId === undefined ? {} : { skillId }), damage: ally.hp.sub(before).toString(), remainingHp: ally.hp.toString() })
+                        }
+                        if (effect.partyStatus) {
+                            applyStatus(ally.statuses, { ...statusFrom(effect.partyStatus), id: `${skillId ?? 'autoattack'}_party` })
+                            events.push({ at: elapsed, kind: 'status_applied', ...on(side, allyIndex), statusId: skillId ?? 'autoattack' })
+                        }
+                    })
+                }
+
                 // a cast that dealt no damage still shows up, so a replay sees it fire
                 let dealtDamage = false
                 const noteUtilityCast = () => {
@@ -343,6 +361,7 @@ export function runDuel(input: DuelInput): DuelResult {
                         }
                     }
                     landSelfStatus()
+                    landOnParty()
                     noteUtilityCast()
                     return true
                 }
@@ -380,7 +399,10 @@ export function runDuel(input: DuelInput): DuelResult {
                         }
                     }
                 }
-                if (alive(unit)) landSelfStatus()
+                if (alive(unit)) {
+                    landSelfStatus()
+                    landOnParty()
+                }
                 noteUtilityCast()
                 return true
             }

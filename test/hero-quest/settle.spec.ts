@@ -3,6 +3,7 @@ import {
     applyXp,
     cappedOfflineSeconds,
     curveIndex,
+    enemyHpMultiplier,
     enemyMultiplier,
     enemyPackAt,
     enemyStatsAt,
@@ -11,6 +12,7 @@ import {
     goldProgressionFactor,
     goldTenureCeiling,
     platformCeiling,
+    prestigeDriftShed,
     killsBeforeWipe,
     killsRequired,
     maxGoldPerHour,
@@ -32,7 +34,10 @@ import {
     BASE_KILL_COUNT,
     BOSS_STAGE,
     ENEMY_CURVE_T,
+    ENEMY_HP_STEP_EXPONENT,
     ENEMY_STEP_BASE,
+    FIGHT_LENGTH_DRIFT,
+    PRESTIGE_DRIFT_CARRY,
     BASE_GOLD,
     GOLD_BOUND_HORIZON_DAYS,
     GOLD_PLATFORM_DISCOUNT,
@@ -1181,5 +1186,27 @@ describe('walkWall', () => {
 
     it('lands nothing for a party that dies before its first kill', () => {
         expect(walkWall(0, 0, 3600, 0, 2)).toEqual({ kills: 0, killsInStage: 0, recoverySeconds: 0 })
+    })
+})
+
+describe('the drift a finished run sheds (PRESTIGE_DRIFT_CARRY)', () => {
+    const hpStep = (from: [number, number, number], to: [number, number, number]) =>
+        enemyHpMultiplier(...to).div(enemyHpMultiplier(...from)).toNumber()
+
+    it('sheds nothing inside a first run', () => {
+        expect(prestigeDriftShed(0).toNumber()).toBe(1)
+        expect(enemyHpMultiplier(0, 4, 7).toNumber()).toBeCloseTo(Math.pow(ENEMY_STEP_BASE, curveIndex(0, 4, 7) * ENEMY_HP_STEP_EXPONENT), 6)
+    })
+
+    it('grows enemy HP by the same step at every stage within a run, whatever the prestige', () => {
+        const step = Math.pow(ENEMY_STEP_BASE, ENEMY_HP_STEP_EXPONENT)
+        for (const prestige of [0, 1, 5]) expect(hpStep([prestige, 3, 4], [prestige, 3, 5])).toBeCloseTo(step, 9)
+    })
+
+    it('drops at a prestige by all but the carried share of the run\'s drift', () => {
+        const kept = Math.pow(ENEMY_STEP_BASE, ENEMY_HP_STEP_EXPONENT - (1 - PRESTIGE_DRIFT_CARRY) * PRESTIGE_INDEX_STEPS * FIGHT_LENGTH_DRIFT)
+        expect(hpStep([0, WORLD_COUNT, STAGES_PER_WORLD], [1, 1, 1])).toBeCloseTo(kept, 9)
+        // the matched stats never shed: only fight length starts over
+        expect(enemyMultiplier(1, 1, 1).div(enemyMultiplier(0, WORLD_COUNT, STAGES_PER_WORLD)).toNumber()).toBeCloseTo(ENEMY_STEP_BASE, 9)
     })
 })

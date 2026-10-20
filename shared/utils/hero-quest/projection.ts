@@ -287,8 +287,14 @@ export function projectAbilities(
                 ? (isEnemyStatus(effect) ? enemyCoverage : friendlyCoverage)
                 : 0)
             applyStatusSpec(effect.selfStatus, 1 / Math.max(1, units.length))
+            applyStatusSpec(effect.partyStatus, effect.partyStatus ? 1 : 0)
 
             // A cast heal is worth its amount spread over the cooldown it waits through.
+            if (effect.partyHeal) {
+                healingPerSecond = healingPerSecond.add(
+                    stats.pwr.mul(effect.partyHeal).div(cooldown).mul(units.length)
+                )
+            }
             if (effect.heal) {
                 healingPerSecond = healingPerSecond.add(
                     stats.pwr.mul(effect.heal)

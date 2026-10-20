@@ -527,7 +527,8 @@ describe('hero-quest seeded fights', () => {
 describe('hero-quest Ascendant in a fight', () => {
     it('fires Convergence as every master skill on one tick, inside the boss timer', () => {
         const ascendant: HeroSnapshot = { ...hero(20, ASCENDANT_ID), ascendantSkillIds: ['skill_haste', 'skill_kill_shot'] }
-        const result = runFight({ hero: ascendant, position: at(2, 5), seed: 7 })
+        // a World deeper than its picks' test: at the capstone's PWR a World 2 boss falls mid-volley
+        const result = runFight({ hero: ascendant, position: at(3, 5), seed: 7 })
         const masterSkills = new Set(MASTER_IDS.map(id => getClass(id).skill.id))
         const casts = result.events.filter(event => event.unitIndex === 0 && event.skillId !== undefined && masterSkills.has(event.skillId))
         const first = Math.min(...casts.map(event => event.at))
