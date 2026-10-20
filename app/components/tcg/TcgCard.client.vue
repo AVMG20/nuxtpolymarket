@@ -4,6 +4,7 @@ import type { TcgWearSpec } from '#shared/types/tcg'
 import { ASPECT, resolve, resolveLegacy, makeLoader, makeMaterial, loadCard } from '~/utils/tcg/foil'
 import { makeWearMaterial, makeEraserMaterial } from '~/utils/tcg/wear'
 import { etchFor } from '~/utils/tcg/etch'
+import { isLandscapeBundle } from '#shared/utils/tcg/landscape'
 
 const props = withDefaults(defineProps<{
     bundle: string
@@ -105,7 +106,30 @@ onMounted(async () => {
     geometry = new THREE.PlaneGeometry(ASPECT, 1, 1, 1)
     material = makeMaterial(r.uniforms)
     const mesh = new THREE.Mesh(geometry, material)
-    scene.add(mesh)
+    // The tilt goes on a pivot rather than the card, so a card laid on its
+    // side still tilts in screen space — rotation.z on the mesh itself would
+    // turn its tilt axes with it.
+    const pivot = new THREE.Group()
+    pivot.add(mesh)
+    scene.add(pivot)
+
+    // LEGEND and BREAK faces are drawn a quarter turn clockwise inside the
+    // portrait frame. Turn the card to match and shrink it to the box's
+    // width, so the page keeps its portrait slot and the card sits in it
+    // lying down: ASPECT wide, ASPECT² of the box tall.
+    const landscape = isLandscapeBundle(props.bundle)
+    if (landscape) {
+        mesh.rotation.z = -Math.PI / 2
+        mesh.scale.setScalar(ASPECT)
+    }
+    // Box coordinates (0..1, v up) to the card's own uv. Upright they are the
+    // same; on its side the card spans the box's full width but only ASPECT²
+    // of its height, and its own up points right.
+    const SIDE = ASPECT * ASPECT
+    function toCard(u: number, v: number): [number, number] {
+        if (!landscape) return [u, v]
+        return [1 - (0.5 + (v - 0.5) / SIDE), u]
+    }
 
     const TILT = 0.5
     const EASE = 0.028
@@ -117,21 +141,24 @@ onMounted(async () => {
 
     function frame() {
         const dt = Math.min(clock.getDelta(), 0.1)
-        mesh.rotation.x += (target.rx - mesh.rotation.x) * EASE
-        mesh.rotation.y += (target.ry - mesh.rotation.y) * EASE
+        pivot.rotation.x += (target.rx - pivot.rotation.x) * EASE
+        pivot.rotation.y += (target.ry - pivot.rotation.y) * EASE
         // The light comes from the card's rotation, so it can only move as
-        // fast as the card turns.
-        r.uniforms.uPointer.value.set(
-            0.5 + mesh.rotation.y / TILT,
-            0.5 - mesh.rotation.x / TILT
-        )
+        // fast as the card turns. Worked out in the box, then turned into the
+        // card's own frame, so a sideways card's foil answers the same tilt.
+        // In the box the light sits at (px, py); the card's own up points
+        // right, so in its frame that is (1 - py, px).
+        const px = 0.5 + pivot.rotation.y / TILT
+        const py = 0.5 - pivot.rotation.x / TILT
+        if (landscape) r.uniforms.uPointer.value.set(1 - py, px)
+        else r.uniforms.uPointer.value.set(px, py)
         r.uniforms.uLocal.value.lerp(want, EASE)
         if (hovering) r.uniforms.uTime.value += dt
 
         ren.render(scene, camera)
         const moving = hovering
-            || Math.abs(mesh.rotation.x - target.rx) > SETTLED
-            || Math.abs(mesh.rotation.y - target.ry) > SETTLED
+            || Math.abs(pivot.rotation.x - target.rx) > SETTLED
+            || Math.abs(pivot.rotation.y - target.ry) > SETTLED
         pending = moving && !document.hidden ? requestAnimationFrame(frame) : 0
     }
 
@@ -149,7 +176,7 @@ onMounted(async () => {
         const v = 1 - (e.clientY - b.top) / b.height
         hovering = u >= 0 && u <= 1 && v >= 0 && v <= 1
         if (hovering) {
-            want.set(u, v)
+            want.set(...toCard(u, v))
             target.ry = (u - 0.5) * TILT
             target.rx = (0.5 - v) * TILT
         } else {
