@@ -34,6 +34,7 @@ import {
     GOLD_BURST_COOLDOWN_SECONDS,
     GOLD_BURST_MINUTES,
     KINGS_RANSOM_BURST_MINUTES,
+    KINGS_RANSOM_GOLD_BURST_MINUTES,
     SKILL_BASE_ABILITY_MULTIPLIER,
     SKILL_BASE_COOLDOWN_SECONDS,
     SKILL_BUFF_FRACTION,
@@ -360,7 +361,7 @@ export const SKILLS: readonly SkillDefinition[] = [
         {
             target: 'enemy_single',
             wealthScaled: true,
-            goldBurstMinutes: KINGS_RANSOM_BURST_MINUTES,
+            goldBurstMinutes: KINGS_RANSOM_GOLD_BURST_MINUTES,
             xpBurstMinutes: KINGS_RANSOM_BURST_MINUTES
         }),
 
