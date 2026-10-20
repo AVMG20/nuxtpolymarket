@@ -721,8 +721,11 @@ export const XP_BASE_PER_KILL = 2 // TUNED ✓
  * on that baseline with Traits and the tree opening on their schedule (`--unlocks`), measured 4.04
  * days, and **World 1 in about 20 minutes** for a new party of three on Common 0★ Lv1 kit, measured
  * 20 min. The old pair measured 6.4 days and 45 minutes on the same walks.
+ *
+ * 38 → 86 on 2026-10-20 (the user's call): **a 4-day first prestige** again, measured 4.0 days on the
+ * baseline walk (`--unlocks`), with World 1 unchanged since its first gates need no grinding.
  */
-export const XP_TO_LEVEL_BASE = 38 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 86 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**
@@ -846,21 +849,18 @@ export const FIGHT_LENGTH_DRIFT = 0.35 // TUNED ✓
 export const ENEMY_HP_STEP_EXPONENT = DPS_COVERAGE_PER_STAGE + FIGHT_LENGTH_DRIFT
 
 /**
- * **How much of a run's `FIGHT_LENGTH_DRIFT` the next run inherits** (the user's call, 2026-10-20,
- * issue #44). 1 is the old continuous curve; 0 starts every run's fights as long as the first's.
- *
- * Carried in full, the drift compounded across prestiges: each one made every fight
- * `1.08^(0.35 × 100)` ≈ 15× longer against the same level pace, so the second prestige took about
- * two months and an eighth was out of reach. The rest of the enemy block, and enemy HP's share of
- * the party's DPS growth, still ride the whole index, so nothing but fight length resets.
- *
- * Set so the eighth prestige, which every Champion, Skill and Artifact slot takes, is reachable in
- * about six months (the user's call). On the baseline walk with class tokens and Void Shards spent
- * (`--classes --shop --grind-hours=20000`) and a fixed Rare 0★ Lv2 kit, 0.3 lands the prestiges
- * on days 1.7, 4.5, 5.8, 7.9, 13.6, 29.6, 71.9 and **183**; 0.25 put the eighth at day 64 and 0.35
- * at day 544. Better kit than the walk's fixed one gets there sooner.
+ * Enemy HP shed by each prestige, cumulative, in steps of `ENEMY_STEP_BASE` (the user's call, 2026-10-20, issue #44).
+ * Fitted on the baseline walk to land the prestiges on days 4, 9, 15, 22, 30, 60, 120 and 240; past the table each prestige repeats the last step.
  */
-export const PRESTIGE_DRIFT_CARRY = 0.3 // locked 2026-10-20, the user's call
+export const PRESTIGE_HP_SHED_STEPS: Readonly<Record<number, number>> = { // locked 2026-10-20, the user's call
+    1: 27.41,
+    2: 42.32,
+    3: 70.01,
+    4: 103.03,
+    5: 124.44,
+    6: 151.84,
+    7: 179.02
+}
 
 // ── Gold ───────────────────────────────────────────  gold-economy.md §3–4
 
@@ -919,11 +919,14 @@ export const BASE_GOLD = 1 // TUNED ✓
  * before day 90 and earns the walk's month what the 4-day pace did (1.29B against 1.38B): 50–77% of
  * platform on day one, 25–33% from day 3. Swept: 1.045 → 13–20% from day 3, 1.04 → 6–11%.
  *
+ * 1.05 → 1.065 on 2026-10-20, back on a 4-day first run (`XP_TO_LEVEL_BASE` 86): the first run's Worlds
+ * pay 26–75% of platform again (1.05 had fallen to 9–67%); past it the ceiling binds, so nothing later moves.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.05 // TUNED ✓
+export const GOLD_STEP_BASE = 1.065 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 

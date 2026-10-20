@@ -41,7 +41,7 @@ import {
     STAGES_PER_WORLD
 } from './constants'
 import { D, ZERO, type Decimal } from './numbers'
-import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp, prestigeDriftShed } from './settle'
+import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp, prestigeHpShed } from './settle'
 import { runFight, type FightEvent, type FightResult } from './fight'
 import type { EnemyPack, EnemyStats, HeroSnapshot, RunPosition } from './types'
 import type { RaidId } from './content/raids'
@@ -110,7 +110,7 @@ export function dummyPack(): EnemyPack {
  */
 function raidStatsAt(pos: RunPosition): EnemyStats {
     const stats = enemyStatsAt(pos)
-    return { ...stats, hp: stats.hp.mul(prestigeDriftShed(pos.prestige)) }
+    return { ...stats, hp: stats.hp.mul(prestigeHpShed(pos.prestige)) }
 }
 
 /** The run position at curve index `n`: the world-and-stage the dummy's level `n` stands for. */
@@ -127,7 +127,7 @@ function positionAt(n: number): RunPosition {
 export function dummyThreshold(level: number): Decimal {
     if (level <= 1) return ZERO
     const pos = positionAt((level - 1) * RAID_DUMMY_STAGES_PER_LEVEL)
-    return packHp(enemyPackAt(pos)).mul(prestigeDriftShed(pos.prestige)).mul(RAID_DUMMY_PACKS)
+    return packHp(enemyPackAt(pos)).mul(prestigeHpShed(pos.prestige)).mul(RAID_DUMMY_PACKS)
 }
 
 /**
@@ -210,7 +210,7 @@ export function digSiteStats(level: number): { boss: EnemyStats, add: EnemyStats
     const pos = positionAt((l - 1) * RAID_DIG_STAGES_PER_LEVEL + RAID_DIG_STAGES_PER_LEVEL - 1)
     const boss = raidStatsAt(pos)
     const minion = bossMinionStats(pos)
-    const add = { ...minion, hp: minion.hp.mul(prestigeDriftShed(pos.prestige)) }
+    const add = { ...minion, hp: minion.hp.mul(prestigeHpShed(pos.prestige)) }
     return {
         boss: { hp: boss.hp.mul(RAID_DIG_HP_MULT), pwr: boss.pwr.mul(RAID_DIG_PWR_MULT), def: boss.def },
         add: { ...add, hp: add.hp.mul(RAID_DIG_ADD_HP_MULT) }
