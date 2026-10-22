@@ -7,9 +7,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { analyzeCampaign, analyzeStage, compareClasses, makeHero, makeParty, minLevelToClear, setSimTreePolicy, simTraitBoard, SIM_MATURE_TENURE_DAYS, SimProgression, withSimKit, withSimTree, type SimProgressionOptions } from '../../scripts/hero-quest/sim'
+import { analyzeCampaign, analyzeStage, apportionKit, compareClasses, makeHero, makeParty, minLevelToClear, parseKitMix, setSimTreePolicy, simTraitBoard, SIM_MATURE_TENURE_DAYS, SimProgression, withSimKit, withSimTree, type SimProgressionOptions } from '../../scripts/hero-quest/sim'
 import { BASE_CHAMPION_SLOTS, MAX_CHAMPION_SLOTS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
 import { CLASS_NODES, getClass } from '#shared/utils/hero-quest/content/classes'
+import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
+import { ZERO } from '#shared/utils/hero-quest/numbers'
 
 const hero = makeHero('class_beginner', 1)
 
@@ -186,6 +188,34 @@ describe('analyzeCampaign with a SimProgression', () => {
         expect(fixed.totalSeconds).toBeGreaterThan(upgradeAt)
         expect(ramped.totalSeconds).toBeLessThan(fixed.totalSeconds)
         expect(ramped.prestigesCompleted).toBe(1)
+    })
+
+    it('fields the kit ladder by run, with at least as many Champions as it lists', () => {
+        const progression = grown({ kit: [{ spec: 'rare:0:2', atSeconds: 0 }], kitLadder: ['rare*2', 'epic*2+legendary', `mythic*${MAX_CHAMPION_SLOTS}`] })
+        const rarities = (prestige: number) => progression.fieldAt(prestige, 1, ZERO, 0).champions!
+            .map(c => CHAMPIONS.find(definition => definition.id === c.championId)!.rarity)
+
+        expect(rarities(0)).toEqual(['rare', 'rare'])
+        expect(rarities(1)).toEqual(['legendary', 'epic', 'epic'])
+        expect(rarities(5)).toEqual(Array(MAX_CHAMPION_SLOTS).fill('mythic'))
+        expect(progression.kitAt(1, 0)).toBe('epic*2+legendary:0:2')
+    })
+})
+
+describe('the kit rarity mix', () => {
+    it('spreads a mix over any slot count in proportion, highest rarity first', () => {
+        expect(apportionKit(parseKitMix('epic*2+legendary'), 6)).toEqual(['legendary', 'legendary', 'epic', 'epic', 'epic', 'epic'])
+        expect(apportionKit(parseKitMix('rare'), 3)).toEqual(['rare', 'rare', 'rare'])
+        for (let slots = 0; slots <= 8; slots++) expect(apportionKit(parseKitMix('epic+legendary*2+mythic'), slots)).toHaveLength(slots)
+    })
+
+    it('gives a tied slot to the lower rarity', () => {
+        expect(apportionKit(parseKitMix('epic+legendary*2+mythic'), 2)).toEqual(['legendary', 'epic'])
+    })
+
+    it('rejects a rarity it does not know', () => {
+        expect(() => parseKitMix('shiny*2')).toThrow()
+        expect(() => parseKitMix('epic*0')).toThrow()
     })
 })
 

@@ -17,8 +17,9 @@
  *   bun run sim:hero-quest --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
  *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
  *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:0:1 --kit-ramp=epic:0:1@7 --classes --shop
+ *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:0:2 --kit-ladder --classes --shop
  *
- * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --kit-ramp --classes --shop --boss-fights --unlocks --no-levelup --json
+ * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --kit-ramp --kit-ladder --classes --shop --boss-fights --unlocks --no-levelup --json
  *
  * `--traits` is `none` (the default), a grade for a board of that grade, `roll:N` for one seeded
  * Roll, or a board written out as `stat:grade:set` slots (`simTraitBoard`). It reaches the stage,
@@ -28,12 +29,15 @@
  * Hero levels (`SimTreePolicy`). It reaches every report.
  *
  * `--kit` is `none` (the default) or `rarity[:star[:level]]`, which fields Gear, Skills, Artifacts and
- * real Champions at that rarity and investment (`withSimKit`). It reaches every report.
+ * real Champions at that rarity and investment (`withSimKit`). It reaches every report. The rarity
+ * can be a mix, `epic*2+legendary`, spread over each gacha's slots in proportion.
  *
  * `--kit-ramp`, `--classes` and `--shop` grow the party across the campaign and Gold walks, for
  * reading pace past a first prestige (`SimProgression`): `--kit-ramp=spec@days,…` upgrades the
  * `--kit` at those account ages, `--classes` spends each prestige's class token, and `--shop` spends
- * its Void Shards on slots, then stat tracks.
+ * its Void Shards on slots, then stat tracks. `--kit-ladder` sets the Champions' rarities per run,
+ * comma-separated with the last repeating (`--kit-ladder` alone is `SIM_KIT_LADDER`), at `--kit`'s
+ * star and level, and the rest of the kit follows the same mix.
  *
  * `--unlocks` opens the Trait board and the tree on the game's `FEATURE_UNLOCKS` schedule instead of
  * from the first stage, so early Worlds are measured with what a new player fields.
@@ -75,6 +79,8 @@ const {
     setSimTreePolicy,
     withSimKit,
     withSimTree,
+    parseKitMix,
+    SIM_KIT_LADDER,
     setSimUnlocks,
     SimProgression,
     DEFAULT_CAMPAIGN_MAX_LEVEL,
@@ -137,11 +143,16 @@ const kitRamp = kitRampSpec ? kitRampSpec.split(',').map((step) => {
 kitRamp.forEach((step, i) => {
     if (i > 0 && step.atSeconds <= kitRamp[i - 1]!.atSeconds) throw new Error('--kit-ramp steps must be in order of age')
 })
+/** `--kit-ladder` alone is the baseline ladder; `--kit-ladder=rare*2,epic*2` writes one out. */
+const kitLadderSpec = flag('kit-ladder') ? SIM_KIT_LADDER.join(',') : arg('kit-ladder', '')
+const kitLadder = kitLadderSpec ? kitLadderSpec.split(',').map(run => run.trim()) : []
+kitLadder.forEach(parseKitMix)
+if (kitLadder.length && kitRamp.length) throw new Error('--kit-ladder and --kit-ramp both set the kit; pick one')
 const classes = flag('classes')
 const shop = flag('shop')
 /** A fresh one per walk: it carries what the walk has bought. Undefined keeps the party fixed. */
-const progression = () => kitRamp.length || classes || shop
-    ? new SimProgression({ classId, party, traits, kit: [{ spec: kitSpec, atSeconds: 0 }, ...kitRamp], classes, shop })
+const progression = () => kitRamp.length || kitLadder.length || classes || shop
+    ? new SimProgression({ classId, party, traits, kit: [{ spec: kitSpec, atSeconds: 0 }, ...kitRamp], kitLadder, classes, shop })
     : undefined
 /** The party every report fields, with the `--traits` board, the `--kit` and the `--tree` build on it. */
 const makeParty = (classId: ClassId, heroLevel: number, size: number) => withSimTree(withSimKit(makeBareParty(classId, heroLevel, size, { traits }), kitSpec))
@@ -167,7 +178,7 @@ function banner() {
     const tuning = describeOverrides(overrides)
     const size = party > 1 ? `  party of ${party}` : ''
     const board = traits.length ? `  traits ${traitsSpec} (${traits.map(t => `${t.stat.slice(6)}:${t.grade}`).join(' ')})` : ''
-    const tree = `${treePolicy === 'none' ? '' : `  tree ${treePolicy}`}${kitSpec === 'none' ? '' : `  kit ${kitSpec}`}${kitRampSpec ? `  kit ramp ${kitRampSpec}` : ''}${classes ? '  classes' : ''}${shop ? '  shop' : ''}${bossFights ? `  boss fights ×${bossFights}` : ''}${unlocks ? '  unlocks' : ''}`
+    const tree = `${treePolicy === 'none' ? '' : `  tree ${treePolicy}`}${kitSpec === 'none' ? '' : `  kit ${kitSpec}`}${kitRampSpec ? `  kit ramp ${kitRampSpec}` : ''}${kitLadderSpec ? `  kit ladder ${kitLadderSpec}` : ''}${classes ? '  classes' : ''}${shop ? '  shop' : ''}${bossFights ? `  boss fights ×${bossFights}` : ''}${unlocks ? '  unlocks' : ''}`
     console.log(`\n${classId} @ level ${level} — prestige ${prestige}${size}${board}${tree}${tuning ? `  [${tuning}]` : ''}`)
 }
 

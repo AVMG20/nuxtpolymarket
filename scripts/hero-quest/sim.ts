@@ -234,6 +234,9 @@ const KIT_REFERENCE = { level: 200, world: 5, stage: 9 }
  *   filled with whichever item of that rarity clears `KIT_REFERENCE` fastest given what is already
  *   picked. The picks are cached per class, party and slot count, since the walk asks every stage.
  *
+ * The rarity can be a mix, `epic*2+legendary`, which each gacha spreads over its own slots in the
+ * same proportions (`apportionKit`), so a mix sets the rarity scale and never a slot count.
+ *
  * The collections hold only what is equipped, so the collection passives are understated.
  */
 export function withSimKit(
@@ -242,18 +245,19 @@ export function withSimKit(
     slots: { skills: number, artifacts: number } = { skills: BASE_SKILL_SLOTS, artifacts: BASE_ARTIFACT_SLOTS }
 ): HeroSnapshot {
     if (spec === 'none' || spec === '') return hero
-    const [rarity, starText = '0', levelText = '1'] = spec.split(':')
+    const [mixText = '', starText = '0', levelText = '1'] = spec.split(':')
+    const mix = parseKitMix(mixText)
     const star = Number(starText)
     const level = Number(levelText)
-    if (!RARITIES.includes(rarity as Rarity) || !Number.isInteger(star) || star < 0 || star > MAX_STAR
-        || !Number.isInteger(level) || level < 1 || level > LEVELS_PER_STAR) {
+    if (!Number.isInteger(star) || star < 0 || star > MAX_STAR || !Number.isInteger(level) || level < 1 || level > LEVELS_PER_STAR) {
         throw new Error(`--kit takes rarity[:star[:level]] (${RARITIES.join(' ')}; star 0–${MAX_STAR}; level 1–${LEVELS_PER_STAR}), not "${spec}"`)
     }
-    const r = rarity as Rarity
     const copy = (contentId: string): OwnedCopy => ({ contentId, star, level })
 
     const used = new Set<string>()
-    const champions = (hero.champions ?? []).map((standIn) => {
+    const championRarities = apportionKit(mix, hero.champions?.length ?? 0)
+    const champions = (hero.champions ?? []).map((standIn, i) => {
+        const r = championRarities[i]!
         const definition = CHAMPIONS.find(c => c.archetype === standIn.archetype && c.rarity === r && !used.has(c.id))
             ?? CHAMPIONS.find(c => c.rarity === r && !used.has(c.id))!
         used.add(definition.id)
@@ -267,7 +271,8 @@ export function withSimKit(
             abilities: definition.abilities
         }
     })
-    const gear = GEAR_SLOTS.map(slot => copy(gearIdFor(slot, r)))
+    const gearRarities = apportionKit(mix, GEAR_SLOTS.length)
+    const gear = GEAR_SLOTS.map((slot, i) => copy(gearIdFor(slot, gearRarities[i]!)))
     let kitted: HeroSnapshot = {
         ...hero,
         champions,
@@ -290,10 +295,10 @@ export function withSimKit(
 
     const clearRate = (candidate: HeroSnapshot) => analyzeStage({ ...candidate, heroLevel: KIT_REFERENCE.level },
         0, KIT_REFERENCE.world, KIT_REFERENCE.stage, SIM_MATURE_TENURE_DAYS).secondsPerKill
-    const fill = (ids: readonly string[], slots: number, field: 'Skills' | 'Artifacts') => {
-        for (let slot = 0; slot < slots; slot++) {
+    const fill = (idsOf: (r: Rarity) => readonly string[], slots: number, field: 'Skills' | 'Artifacts') => {
+        for (const r of apportionKit(mix, slots)) {
             let best: { hero: HeroSnapshot, seconds: number } | null = null
-            for (const id of ids) {
+            for (const id of idsOf(r)) {
                 const equipped = kitted[`equipped${field}`] ?? []
                 if (equipped.some(c => c.contentId === id)) continue
                 const next = [...equipped, copy(id)]
@@ -304,13 +309,44 @@ export function withSimKit(
             if (best) kitted = best.hero
         }
     }
-    fill(skillsOfRarity(r).map(s => s.id), slots.skills, 'Skills')
-    fill(ARTIFACTS.filter(a => a.rarity === r).map(a => a.id), slots.artifacts, 'Artifacts')
+    fill(r => skillsOfRarity(r).map(s => s.id), slots.skills, 'Skills')
+    fill(r => ARTIFACTS.filter(a => a.rarity === r).map(a => a.id), slots.artifacts, 'Artifacts')
     kitPicks.set(key, {
         skills: (kitted.equippedSkills ?? []).map(c => c.contentId),
         artifacts: (kitted.equippedArtifacts ?? []).map(c => c.contentId)
     })
     return kitted
+}
+
+/**
+ * The Champions a run fields, by prestige, for `--kit-ladder` (the user's call, 2026-10-22): two Rare
+ * on the first run, two Epic, two Epic and a Legendary, an Epic, two Legendary and a Mythic, then every slot Mythic.
+ */
+export const SIM_KIT_LADDER: readonly string[] = ['rare*2', 'epic*2', 'epic*2+legendary', 'epic+legendary*2+mythic', `mythic*${MAX_CHAMPION_SLOTS}`]
+
+/** A kit's rarity mix, `epic*2+legendary`: one entry per unit, as `--kit` and `--kit-ladder` write it. */
+export function parseKitMix(text: string): Rarity[] {
+    return text.split('+').flatMap((part) => {
+        const [rarity, countText = '1'] = part.split('*')
+        const count = Number(countText)
+        if (!RARITIES.includes(rarity as Rarity) || !Number.isInteger(count) || count < 1) {
+            throw new Error(`a kit rarity is rarity[*count], joined with + (${RARITIES.join(' ')}), not "${text}"`)
+        }
+        return Array.from({ length: count }, () => rarity as Rarity)
+    })
+}
+
+/**
+ * Spreads a rarity mix over `slots` in its proportions, highest rarity first, by largest remainder.
+ * A tie goes to the lower rarity, so a mix never fields more of its best rarity than its share.
+ */
+export function apportionKit(mix: readonly Rarity[], slots: number): Rarity[] {
+    const rarities = RARITIES.filter(r => mix.includes(r))
+    const quotas = rarities.map(r => slots * mix.filter(m => m === r).length / mix.length)
+    const counts = quotas.map(Math.floor)
+    const byRemainder = rarities.map((_r, i) => i).sort((a, b) => (quotas[b]! - counts[b]!) - (quotas[a]! - counts[a]!) || a - b)
+    for (let left = slots - counts.reduce((sum, n) => sum + n, 0), k = 0; left > 0; left--, k++) counts[byRemainder[k]!]!++
+    return rarities.flatMap((r, i) => Array.from({ length: counts[i]! }, () => r)).reverse()
 }
 
 const kitPicks = new Map<string, { skills: string[], artifacts: string[] }>()
@@ -823,6 +859,11 @@ export interface SimProgressionOptions {
     traits: readonly TraitRoll[]
     /** The kit from account start, then each upgrade by account age. `none` for no kit. */
     kit: readonly { spec: string, atSeconds: number }[]
+    /**
+     * Champion rarities per run, from `--kit-ladder`, the last repeating; it replaces `kit`'s rarity
+     * (keeping its star and level) and sets the Champion count when that is more than the slots bought.
+     */
+    kitLadder?: readonly string[]
     classes: boolean
     shop: boolean
 }
@@ -864,11 +905,21 @@ export class SimProgression {
         for (const node of classPath(options.classId)) this.seen.add(node.id)
     }
 
-    /** The kit spec in force at `clockSeconds` of account age. */
-    kitAt(clockSeconds: number): string {
+    /** The kit spec in force on run `prestige` at `clockSeconds` of account age. */
+    kitAt(prestige: number, clockSeconds: number): string {
         let spec = 'none'
         for (const step of this.options.kit) if (step.atSeconds <= clockSeconds + 1e-6) spec = step.spec
-        return spec
+        const ladder = this.options.kitLadder
+        if (!ladder?.length) return spec
+        const [, star = '0', level = '1'] = spec === 'none' ? [] : spec.split(':')
+        return `${ladder[Math.min(prestige, ladder.length - 1)]}:${star}:${level}`
+    }
+
+    /** Champions fielded on run `prestige`: the slots bought, or the ladder's count when that is more. */
+    championsAt(prestige: number, clockSeconds: number): number {
+        const bought = Math.max(0, this.options.party - 1) + this.levels.championSlots
+        const laddered = this.options.kitLadder?.length ? parseKitMix(this.kitAt(prestige, clockSeconds).split(':')[0]!).length : 0
+        return Math.min(MAX_CHAMPION_SLOTS, Math.max(bought, laddered))
     }
 
     /** Account age of the next kit upgrade after `clockSeconds`, or Infinity. */
@@ -876,13 +927,13 @@ export class SimProgression {
         return this.options.kit.find(step => step.atSeconds > clockSeconds + 1e-6)?.atSeconds ?? Number.POSITIVE_INFINITY
     }
 
-    fieldAt(level: number, xp: Decimal, clockSeconds: number): HeroSnapshot {
-        return this.field(this.classId, this.ascendantSkillIds, level, xp, this.kitAt(clockSeconds))
+    fieldAt(prestige: number, level: number, xp: Decimal, clockSeconds: number): HeroSnapshot {
+        return this.field(this.classId, this.ascendantSkillIds, level, xp, prestige, clockSeconds)
     }
 
-    private field(classId: ClassId, ascendantSkillIds: readonly string[], level: number, xp: Decimal, kit: string): HeroSnapshot {
-        const champions = Math.min(MAX_CHAMPION_SLOTS, Math.max(0, this.options.party - 1) + this.levels.championSlots)
-        const party = makeParty(classId, level, champions + 1, {
+    private field(classId: ClassId, ascendantSkillIds: readonly string[], level: number, xp: Decimal, prestige: number, clockSeconds: number): HeroSnapshot {
+        const kit = this.kitAt(prestige, clockSeconds)
+        const party = makeParty(classId, level, this.championsAt(prestige, clockSeconds) + 1, {
             heroXp: xp,
             traits: this.options.traits,
             ascendantSkillIds,
@@ -924,11 +975,11 @@ export class SimProgression {
             shardsEarned: earned,
             classId: this.classId,
             tokenSpentOn,
-            champions: Math.min(MAX_CHAMPION_SLOTS, Math.max(0, this.options.party - 1) + this.levels.championSlots),
+            champions: this.championsAt(prestigeCompleted, clockSeconds),
             skillSlots: BASE_SKILL_SLOTS + this.levels.skillSlots,
             artifactSlots: BASE_ARTIFACT_SLOTS + this.levels.artifactSlots,
             statLevels: SIM_STAT_TRACKS.reduce((total, track) => total + this.levels[track], 0),
-            kit: this.kitAt(clockSeconds)
+            kit: this.kitAt(prestigeCompleted, clockSeconds)
         }
     }
 
@@ -947,12 +998,11 @@ export class SimProgression {
     }
 
     private spendToken(prestigeCompleted: number, level: number, xp: Decimal, clockSeconds: number): ClassId | null {
-        const kit = this.kitAt(clockSeconds)
         // Lower is better: party DPS on the next run's first Stage 9, at the level it starts on. DPS
         // rather than seconds per kill, which floors at `MIN_SECONDS_PER_KILL` and ties every class
         // on a stage the party out-levels; a stage far past the level, where the mitigation clamp
         // flattens the classes, would rank them wrongly instead.
-        const rate = (classId: ClassId, picks: readonly string[]) => -analyzeStage(this.field(classId, picks, level, xp, kit),
+        const rate = (classId: ClassId, picks: readonly string[]) => -analyzeStage(this.field(classId, picks, level, xp, prestigeCompleted, clockSeconds),
             prestigeCompleted, 1, STAGES_PER_WORLD - 1, SIM_MATURE_TENURE_DAYS).partyDps.max(1).log10().toNumber()
 
         const reachable = CLASS_NODES.filter(node => !this.seen.has(node.id)
@@ -1034,7 +1084,7 @@ export function analyzeCampaign(
     const grinds: GrindEvent[] = []
     const prestiges: SimPrestigeRow[] = []
     const progression = options.progression
-    const at = (clock: number) => progression ? progression.fieldAt(level, xp, clock) : { ...hero, heroLevel: level, heroXp: xp }
+    const at = (prestige: number, clock: number) => progression ? progression.fieldAt(prestige, level, xp, clock) : { ...hero, heroLevel: level, heroXp: xp }
 
     let wall: CampaignWall | null = null
 
@@ -1051,13 +1101,13 @@ export function analyzeCampaign(
                 const clock = () => fightSeconds + worldFight + grindSeconds + worldGrind
                 // Conservative, exactly as `settleHq` is: the clock as the stage opens.
                 const tenureDays = clock() / 86_400
-                let row = analyzeStage(at(clock()), prestige, world, stage, tenureDays)
+                let row = analyzeStage(at(prestige, clock()), prestige, world, stage, tenureDays)
                 let stageGrind = 0
 
                 // More than one detour only when a grind stops at a kit upgrade to retry on it.
                 while (row.verdict !== 'clear') {
                     const untilChange = progression ? progression.nextChangeAfter(clock()) - clock() : Number.POSITIVE_INFINITY
-                    const detour = resolveBlock(at(clock()), prestige, world, stage, row, level, xp, maxLevel, grindBudget - stageGrind, tenureDays, untilChange)
+                    const detour = resolveBlock(at(prestige, clock()), prestige, world, stage, row, level, xp, maxLevel, grindBudget - stageGrind, tenureDays, untilChange)
                     if ('wall' in detour) {
                         wall = detour.wall
                         completed = false
@@ -1072,7 +1122,7 @@ export function analyzeCampaign(
                     worldGrinds++
                     grinds.push(detour.event)
 
-                    row = analyzeStage(at(clock()), prestige, world, stage, tenureDays)
+                    row = analyzeStage(at(prestige, clock()), prestige, world, stage, tenureDays)
                     if (!detour.partial && row.verdict !== 'clear') {
                         // Levelled past the searched threshold and still stuck: only reachable if
                         // clearing is non-monotonic in level, which would be a combat-math bug.
