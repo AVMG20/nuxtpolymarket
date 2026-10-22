@@ -773,21 +773,24 @@ const detailScrollMax = () => collectionsHit && presenter && openEntry.value && 
     ? collectionsHit.detailMaxScroll(presenter.w, sceneH, openEntry.value)
     : 0
 
-/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, or nothing. */
-const scrollKind = computed<'settings' | 'detail' | null>(() => {
+/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, a 100-pull's reveal, or nothing. */
+const scrollKind = computed<'settings' | 'detail' | 'reveal' | null>(() => {
     if (!ready.value) return null
     if (openScene.value === 'settings') return settingsScrollMax() > 0 ? 'settings' : null
     if (openScene.value === 'collections') return detailScrollMax() > 0 ? 'detail' : null
+    if (openScene.value === 'gacha') return gachaHit && props.gacha?.reveal && gachaHit.revealMaxScroll(props.gacha.reveal.cards.length, sceneH) > 0 ? 'reveal' : null
     return null
 })
 const scrollsHere = computed(() => scrollKind.value !== null)
 
 function scrollNow(): number {
+    if (scrollKind.value === 'reveal') return gachaScene?.revealScroll() ?? 0
     return scrollKind.value === 'detail' ? detailScroll.value : settingsScroll.value
 }
 
 function scrollList(to: number) {
-    if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
+    if (scrollKind.value === 'reveal') gachaScene?.scrollReveal(props.gacha!, sceneH, to)
+    else if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
     else settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
 }
 

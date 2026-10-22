@@ -10,7 +10,7 @@ import { investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier } from '#shared/utils/hero-quest/stats'
 import { wealthFactorFor } from '#shared/utils/hero-quest/combat'
 import { describeAbility, describeWealth, hqNumber, hqPct, isWealthScaled, modifierLine } from '#shared/utils/hero-quest/describe'
-import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS, TRAIT_AUTO_ROLL_RESERVE } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, HUNDRED_PULL_SIZE, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS, TRAIT_AUTO_ROLL_RESERVE } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import { grantKeys, nextKeyGrantAt } from '#shared/utils/hero-quest/raids'
@@ -602,7 +602,9 @@ const gachaView = computed<GachaView>(() => {
             freeLeft: g.freePull.remaining,
             freePerDay: FREE_PULLS_PER_DAY,
             one: pullPrice(system, g, 1, gold),
-            ten: pullPrice(system, g, 10, gold)
+            ten: pullPrice(system, g, 10, gold),
+            // offered only once the banner holds its Seals, so it never buys any with Gold
+            hundred: g.seals >= g.hundredPullCost ? pullPrice(system, g, HUNDRED_PULL_SIZE, gold) : null
         })
     }
     return { notation: notation.value, banners, gold: fmt(gold), reveal: gachaReveal.value, armed: gachaArmed.value }
@@ -612,8 +614,8 @@ const gachaView = computed<GachaView>(() => {
  * What a pull costs a banner: Seals from its balance, and the rest bought off today's Gold ladder,
  * priced by the same function the server charges with.
  */
-function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number, tenPullCost: number, sealsBoughtToday: number }, count: 1 | 10, gold: number): PullPrice {
-    const cost = count === 10 ? g.tenPullCost : g.singleCost
+function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number, tenPullCost: number, hundredPullCost: number, sealsBoughtToday: number }, count: 1 | 10 | 100, gold: number): PullPrice {
+    const cost = count === HUNDRED_PULL_SIZE ? g.hundredPullCost : count === 10 ? g.tenPullCost : g.singleCost
     const fromBalance = Math.min(cost, g.seals)
     const short = cost - fromBalance
     const goldCost = short > 0 ? sealLadderTotal(system, g.sealsBoughtToday, short) : 0
@@ -628,7 +630,7 @@ function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number
 const confirm = useHqConfirm()
 const gachaArmed = computed<GachaView['armed']>(() => {
     const [kind, system, button] = confirm.armed.value?.split(':') ?? []
-    return kind === 'pull' ? { system: system as GachaSystemId, button: button as 'one' | 'ten' } : null
+    return kind === 'pull' ? { system: system as GachaSystemId, button: button as Exclude<GachaButton, 'free'> } : null
 })
 
 const gachaBusy = ref(false)
@@ -641,7 +643,7 @@ watch(() => props.scene, () => {
 
 async function onGachaAction(system: GachaSystemId, button: GachaButton) {
     // a pull that buys Seals with Gold waits for a second press, unless that is turned off in Settings
-    const price = button === 'free' ? null : gachaView.value.banners.find(b => b.system === system)?.[button]
+    const price = button === 'free' ? null : gachaView.value.banners.find(b => b.system === system)?.[button] ?? null
     const asks = button !== 'free' && !!price && price.gold > 0 && (settings.value?.confirmGoldSeals ?? true)
     if (asks && !confirm.press(`pull:${system}:${button}`)) return
     confirm.clear()
@@ -649,7 +651,7 @@ async function onGachaAction(system: GachaSystemId, button: GachaButton) {
     try {
         const result = button === 'free'
             ? await freePull(system)
-            : await pull(system, button === 'one' ? 1 : 10, price && price.gold > 0 ? price.gold : undefined)
+            : await pull(system, button === 'one' ? 1 : button === 'ten' ? 10 : HUNDRED_PULL_SIZE, price && price.gold > 0 ? price.gold : undefined)
         const cards: GachaCard[] = (result?.pulls ?? []).map(p => ({ contentId: p.contentId, rarity: p.rarity, isNew: p.isNew, level: p.level, essence: p.essence }))
         if (cards.length) gachaReveal.value = { key: ++revealKey, system, cards }
     } catch {

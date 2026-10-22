@@ -1,9 +1,10 @@
 // The Gacha scene: the four gachas as banners side by side, each a pennant in its own colour with
 // its emblem, then its level, its Seals, and its three buttons: the day's free ten, a single pull and
-// a ten-pull. A pull short of Seals buys the rest with Gold, its price on the button; with the
-// setting on, that takes a second press to confirm. Pointing at an emblem swaps the buttons for
-// the gacha's drop rates and what is collected. A pull deals its results out as cards over the
-// whole scene, each turning over to the item in its rarity's frame.
+// a ten-pull. Once a banner holds a 100-pull's Seals, that takes the single pull's place. A pull
+// short of Seals buys the rest with Gold, its price on the button; with the setting on, that takes a
+// second press to confirm. Pointing at an emblem swaps the buttons for the gacha's drop rates and
+// what is collected. A pull deals its results out as cards over the whole scene, each turning over
+// to the item in its rarity's frame; a 100-pull deals into a box that scrolls with the deal.
 
 import { C, RARITY_COLORS } from './palette'
 import { Surface, rect, px, line, tri, disc, ring, ellipse, poly, dither, ditherDisc, blit } from './surface'
@@ -21,7 +22,7 @@ import type { HqCollectionTab } from '../hero-quest-scenes'
 import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export type GachaSystemId = 'gear' | 'champion' | 'skill' | 'artifact'
-export type GachaButton = 'free' | 'one' | 'ten'
+export type GachaButton = 'free' | 'one' | 'ten' | 'hundred'
 
 export interface GachaBannerView {
     system: GachaSystemId
@@ -41,11 +42,13 @@ export interface GachaBannerView {
     freePerDay: number
     one: PullPrice
     ten: PullPrice
+    /** The 100-pull, in the single pull's place, or null while the banner holds fewer Seals than it costs. */
+    hundred: PullPrice | null
 }
 
 /** What a pull costs: the Seals it takes from the balance, and the Gold for any it is short. */
 export interface PullPrice {
-    /** Seals the pull costs in all: 1, or 9 for ten. */
+    /** Seals the pull costs in all: 1, 9 for ten, or 90 for a hundred. */
     cost: number
     /** Pulls it gives, for the struck-through "10" a ten-pull's price shows. */
     pulls: number
@@ -74,7 +77,7 @@ export interface GachaView {
     /** The pull being revealed, or null. `key` changes with every pull, so a repeat deals again. */
     reveal: { key: number, system: GachaSystemId, cards: readonly GachaCard[] } | null
     /** A pull that spends Gold, pressed once and waiting for the second press that confirms it. */
-    armed: { system: GachaSystemId, button: 'one' | 'ten' } | null
+    armed: { system: GachaSystemId, button: Exclude<GachaButton, 'free'> } | null
 }
 
 /** What the pointer is over: a banner's button, its emblem (for the rates), or the reveal. */
@@ -207,13 +210,27 @@ const FREE_H = 13
 /** A pull button is two lines: what it does, and what it costs. */
 const PULL_H = 20
 const BTN_GAP = 2
-const BUTTONS: readonly GachaButton[] = ['free', 'one', 'ten']
+/** A banner's buttons, top to bottom: the 100-pull stands in for the single pull once it is affordable. */
+function buttonsOf(b: GachaBannerView): readonly GachaButton[] {
+    return ['free', b.hundred ? 'hundred' : 'one', 'ten']
+}
+const PULL_LABELS: Readonly<Record<Exclude<GachaButton, 'free'>, string>> = { one: 'PULL 1', ten: 'PULL 10', hundred: 'PULL 100' }
 
 /** The reveal: two rows of five cards, each with its tag under it. */
 const CARD = 24
 const CARD_GAP = 8
 const CARD_ROW = 40
 const DEAL_EVERY = 0.09
+/** A reveal of more than two rows deals into a scrolling box: eight to a row, and twice as fast. */
+const BOX_PER_ROW = 8
+const BOX_CARD_GAP = 6
+const BOX_DEAL_EVERY = 0.045
+/** The box fills the scene from this far down to this far from its foot. */
+const BOX_TOP = 4
+const BOX_FOOT = 4
+/** Room over the first row for a card sliding in, and how fast the box catches up with the deal. */
+const BOX_PAD = 5
+const BOX_FOLLOW_RATE = 8
 /** A card turns over as its flash bursts: the flash spends this long charging first. */
 const FLIP_AFTER = 0.3
 const FLASH_CHARGE = 0.3
@@ -271,6 +288,7 @@ export function gachaButtonEnabled(b: GachaBannerView, button: GachaButton): boo
         case 'free': return b.free.state === 'ready'
         case 'one': return b.one.affordable
         case 'ten': return b.ten.affordable
+        case 'hundred': return b.hundred?.affordable ?? false
     }
 }
 
@@ -280,10 +298,11 @@ export function gachaHoverAt(view: GachaView, w: number, x: number, y: number): 
     for (let i = 0; i < view.banners.length; i++) {
         const col = columnBox(w, i)
         if (!inside(col, x, y)) continue
-        const system = view.banners[i]!.system
-        if (inside(emblemBox(col), x, y)) return { system, part: 'emblem' }
-        const k = BUTTONS.findIndex((_, n) => inside(buttonBox(col, n), x, y))
-        return k < 0 ? null : { system, part: BUTTONS[k]! }
+        const banner = view.banners[i]!
+        if (inside(emblemBox(col), x, y)) return { system: banner.system, part: 'emblem' }
+        const buttons = buttonsOf(banner)
+        const k = buttons.findIndex((_, n) => inside(buttonBox(col, n), x, y))
+        return k < 0 ? null : { system: banner.system, part: buttons[k]! }
     }
     return null
 }
@@ -292,6 +311,11 @@ export class GachaScene {
     /** When the reveal on screen started, in the scene's time; null before its first frame. */
     private dealtAt: number | null = null
     private dealtKey = -1
+    /** The box's scroll, eased toward the deal or set by hand, and when it was last drawn. */
+    private scroll = 0
+    private manualScroll: number | null = null
+    private scrolledAt: number | null = null
+    private layer: Surface | null = null
 
     constructor(private readonly backdrops: SceneBackdrops) {}
 
@@ -306,6 +330,16 @@ export class GachaScene {
     /** Turn every card over at once: a press during the deal skips it rather than closing it. */
     skipReveal(): void {
         this.dealtAt = -1e9
+    }
+
+    /** How far the reveal's box is scrolled now, in scene pixels. */
+    revealScroll(): number {
+        return this.scroll
+    }
+
+    /** Scroll the reveal's box by hand: from then on it stays where it is put rather than following the deal. */
+    scrollReveal(view: GachaView, h: number, to: number): void {
+        this.manualScroll = Math.min(revealMaxScroll(view.reveal?.cards.length ?? 0, h), Math.max(0, to))
     }
 
     /** `fast` turns a new deal over at once; `calm` drops the white frames and the shake. */
@@ -324,7 +358,7 @@ export class GachaScene {
         return s
     }
 
-    private drawBanner(s: Surface, col: Box, b: GachaBannerView, hover: GachaButton | 'emblem' | null, pressed: boolean, busy: boolean, armedHere: 'one' | 'ten' | null, notation: HqNotation): void {
+    private drawBanner(s: Surface, col: Box, b: GachaBannerView, hover: GachaButton | 'emblem' | null, pressed: boolean, busy: boolean, armedHere: Exclude<GachaButton, 'free'> | null, notation: HqNotation): void {
         panel(s, col.x, col.y, col.w, col.h)
         const cloth = CLOTH[b.system]
         const cx = col.x + (col.w >> 1)
@@ -366,7 +400,7 @@ export class GachaScene {
             this.drawRates(s, col, b)
             return
         }
-        BUTTONS.forEach((id, k) => {
+        buttonsOf(b).forEach((id, k) => {
             const box = buttonBox(col, k)
             const enabled = !busy && gachaButtonEnabled(b, id)
             const lit = hover === id
@@ -377,7 +411,7 @@ export class GachaScene {
                 return
             }
             const armed = armedHere === id
-            this.drawPull(s, box, b.system, id === 'one' ? b.one : b.ten, id === 'one' ? 'PULL 1' : 'PULL 10', armed, enabled, lit, pressed)
+            this.drawPull(s, box, b.system, (id === 'hundred' ? b.hundred : b[id])!, PULL_LABELS[id], armed, enabled, lit, pressed)
         })
     }
 
@@ -402,7 +436,7 @@ export class GachaScene {
         const sink = enabled && lit && pressed ? 1 : 0
         const cx = box.x + (box.w >> 1)
         const ink = enabled ? C.white : C.stone2
-        // a ten-pull says what it is: nine paid for and one on the house, the free one in the free pull's gold
+        // a ten-pull says what it is: nine paid for and one on the house, the free one in the free pull's gold; a hundred, ninety and ten
         const bonus = price.pulls - price.cost
         if (armed || bonus <= 0) drawText(s, armed ? 'CONFIRM' : label, cx, box.y + 3 + sink, ink, { align: 1, shadow: 1 })
         else {
@@ -462,24 +496,44 @@ export class GachaScene {
         if (this.dealtKey !== r.key) {
             this.dealtKey = r.key
             this.dealtAt = fast ? -1e9 : t
+            this.scroll = 0
+            // a reveal turned over at once has no deal to follow, so it opens on its first row
+            this.manualScroll = fast ? 0 : null
         }
         const since = t - (this.dealtAt ?? t)
         const beats = dealSchedule(r.cards)
         dither(s, 0, 0, s.w, s.h, C.ink, 12)
-        const perRow = Math.min(5, r.cards.length)
-        const rows = Math.ceil(r.cards.length / 5)
-        const rowW = perRow * CARD + (perRow - 1) * CARD_GAP
-        const top = ((s.h - rows * CARD_ROW) >> 1) + 4
+        const box = revealBox(r.cards.length, s.w, s.h)
+        const { perRow, gap, top, boardX, boardW, viewH } = box
+        const rowW = perRow * CARD + (perRow - 1) * gap
         // the cards sit on a solid board, so the banners under the dimming never show through a tag
-        const boardW = Math.max(rowW, 120) + 24
-        const boardX = (s.w - boardW) >> 1
-        panel(s, boardX, top - 22, boardW, rows * CARD_ROW + 34)
-        const at = (i: number) => ({ x: ((s.w - rowW) >> 1) + (i % 5) * (CARD + CARD_GAP), y: top + Math.floor(i / 5) * CARD_ROW })
+        panel(s, boardX, top - 22, boardW, viewH + 34)
+
+        // a box draws its cards on a layer clipped to its window, scrolled to follow the deal
+        let target = s
+        let dy = 0
+        if (box.scrolls) {
+            const follow = Math.min(revealMaxScroll(r.cards.length, s.h), Math.max(0, rowOf(dealHead(beats, since), perRow) * CARD_ROW + CARD_ROW + BOX_PAD - viewH))
+            const dt = this.scrolledAt === null ? 0 : Math.max(0, t - this.scrolledAt)
+            this.scroll = this.manualScroll ?? this.scroll + (follow - this.scroll) * Math.min(1, dt * BOX_FOLLOW_RATE)
+            this.layer = this.layer?.w === boardW - 4 && this.layer.h === viewH ? this.layer : new Surface(boardW - 4, viewH, 0, 0)
+            this.layer.clear()
+            target = this.layer
+            dy = BOX_PAD - Math.round(this.scroll)
+        }
+        this.scrolledAt = t
+        const ox = box.scrolls ? boardX + 2 : 0
+        const at = (i: number) => ({
+            x: ((s.w - rowW) >> 1) - ox + (i % perRow) * (CARD + gap),
+            y: (box.scrolls ? dy : top) + rowOf(i, perRow) * CARD_ROW
+        })
+        // only the cards in the window are drawn: a hundred auras a frame is too many
+        const shown = (i: number) => !box.scrolls || (at(i).y > -CARD_ROW - REVEAL_SIZE && at(i).y < viewH + REVEAL_SIZE)
 
         // a mythic, once it turns, stains the board red, fading
         const mythicAgo = latestFlip(r.cards, beats, since, 'mythic')
         if (mythicAgo !== null && mythicAgo < MYTHIC_TINT) {
-            dither(s, boardX + 2, top - 20, boardW - 4, rows * CARD_ROW + 30, C.red0, Math.round(9 * (1 - mythicAgo / MYTHIC_TINT)))
+            dither(s, boardX + 2, top - 20, boardW - 4, viewH + 30, C.red0, Math.round(9 * (1 - mythicAgo / MYTHIC_TINT)))
         }
 
         // under the cards, in each card's rarity colours: every turned card's looping aura, then the
@@ -489,11 +543,11 @@ export class GachaScene {
             const { x, y } = at(i)
             FLASH.clear()
             draw(FLASH)
-            blit(s, FLASH, x + (CARD >> 1) - (REVEAL_SIZE >> 1), y + (CARD >> 1) - (REVEAL_SIZE >> 1), REVEAL_LUT[rarity] ?? REVEAL_LUT.common)
+            blit(target, FLASH, x + (CARD >> 1) - (REVEAL_SIZE >> 1), y + (CARD >> 1) - (REVEAL_SIZE >> 1), REVEAL_LUT[rarity] ?? REVEAL_LUT.common)
         }
         r.cards.forEach((card, i) => {
             const turned = since - beats[i]!.flip
-            if (turned < 0) return
+            if (turned < 0 || !shown(i)) return
             glow(f => drawRevealAura(f, turned), i, card.rarity)
             // a mythic's aura is doubled, its rays falling between the first set's
             if (card.rarity === 'mythic') glow(f => drawRevealAura(f, turned + REVEAL_AURA_LOOP / 2), i, card.rarity)
@@ -502,22 +556,17 @@ export class GachaScene {
             // the flash charges first, so it starts that long before the card turns
             const played = since - beats[i]!.flip + FLASH_CHARGE
             const mythic = card.rarity === 'mythic'
-            if (played < 0 || played >= FLASH_FOR + (mythic ? MYTHIC_ECHO : 0)) return
+            if (played < 0 || played >= FLASH_FOR + (mythic ? MYTHIC_ECHO : 0) || !shown(i)) return
             if (r.cards.length > 1 && rarityRank(card.rarity) < 2) return
             if (played < FLASH_FOR) glow(f => drawRevealBase(f, played), i, card.rarity)
             // a mythic bursts a second time, straight after the first
             if (mythic && played >= MYTHIC_ECHO) glow(f => drawRevealBase(f, played - MYTHIC_ECHO + FLASH_CHARGE), i, card.rarity)
         })
 
-        // the title, or while one is up, the banner a legendary or a mythic raises in its place
-        const banner = bannerFor(r.cards, beats, since)
-        if (banner) drawSkillBanner(s, banner.text, s.w >> 1, top - 19, banner.ago, banner.boss, BANNER_FOR - banner.ago)
-        else drawText(s, `${NAMES[r.system]}: PULL ${r.cards.length}`, s.w >> 1, top - 15, C.gold2, { align: 1, shadow: 1 })
-
         r.cards.forEach((card, i) => {
             const beat = beats[i]!
             const landed = since - beat.land
-            if (landed < 0) return
+            if (landed < 0 || !shown(i)) return
             const { x, y } = at(i)
             if (since < beat.flip) {
                 // face down, sliding in from a few pixels above; a mythic then trembles while red builds behind it
@@ -526,23 +575,33 @@ export class GachaScene {
                 let jx = 0
                 if (mythic) {
                     const held = Math.min(1, landed / MYTHIC_HOLD)
-                    ditherDisc(s, x + (CARD >> 1), y + (CARD >> 1), 13 + held * 7, C.red1, Math.round(held * 9))
+                    ditherDisc(target, x + (CARD >> 1), y + (CARD >> 1), 13 + held * 7, C.red1, Math.round(held * 9))
                     if (held > 0.3 && Math.floor(since * 24) % 2) jx = (held > 0.7 ? 2 : 1) * (Math.floor(since * 12) % 2 ? 1 : -1)
                 }
-                rect(s, x + jx, y - lift, CARD, CARD, C.ink)
-                rect(s, x + jx + 1, y - lift + 1, CARD - 2, CARD - 2, mythic ? C.red0 : C.night2)
-                rect(s, x + jx + 3, y - lift + 3, CARD - 6, CARD - 6, C.night1)
-                drawText(s, '?', x + jx + (CARD >> 1), y - lift + 9, mythic ? C.red2 : C.stone2, { align: 1, shadow: 1 })
+                rect(target, x + jx, y - lift, CARD, CARD, C.ink)
+                rect(target, x + jx + 1, y - lift + 1, CARD - 2, CARD - 2, mythic ? C.red0 : C.night2)
+                rect(target, x + jx + 3, y - lift + 3, CARD - 6, CARD - 6, C.night1)
+                drawText(target, '?', x + jx + (CARD >> 1), y - lift + 9, mythic ? C.red2 : C.stone2, { align: 1, shadow: 1 })
                 return
             }
-            blit(s, collectionTile(TABS[r.system], { id: card.contentId, rarity: card.rarity, owned: true, mark: null }), x, y)
+            blit(target, collectionTile(TABS[r.system], { id: card.contentId, rarity: card.rarity, owned: true, mark: null }), x, y)
             // a rare or better flashes as it turns
-            if (since - beat.flip < 0.12 && rarityRank(card.rarity) >= 2) rect(s, x, y, CARD, 1, C.white)
+            if (since - beat.flip < 0.12 && rarityRank(card.rarity) >= 2) rect(target, x, y, CARD, 1, C.white)
             const [tag, c] = card.isNew ? ['NEW', C.green3] : card.essence > 0 ? [`+${formatHq(card.essence, notation)}`, C.purple2] : [`LV ${card.level}`, C.bone1]
-            drawText(s, tag, x + (CARD >> 1), y + CARD + 3, c, { align: 1, shadow: 1 })
+            drawText(target, tag, x + (CARD >> 1), y + CARD + 3, c, { align: 1, shadow: 1 })
         })
+        if (box.scrolls) {
+            blit(s, this.layer!, boardX + 2, top - BOX_PAD)
+            this.drawScrollBar(s, box, r.cards.length)
+        }
+
+        // the title, or while one is up, the banner a legendary or a mythic raises in its place
+        const banner = bannerFor(r.cards, beats, since)
+        if (banner) drawSkillBanner(s, banner.text, s.w >> 1, top - 19, banner.ago, banner.boss, BANNER_FOR - banner.ago)
+        else drawText(s, `${NAMES[r.system]}: PULL ${r.cards.length}`, s.w >> 1, top - 15, C.gold2, { align: 1, shadow: 1 })
+
         if (since >= beats[beats.length - 1]!.flip) {
-            drawText(s, 'PRESS TO CLOSE', s.w >> 1, top + rows * CARD_ROW + 2, C.stone3, { align: 1, shadow: 1 })
+            drawText(s, box.scrolls ? 'SCROLL TO LOOK, PRESS TO CLOSE' : 'PRESS TO CLOSE', s.w >> 1, top + viewH + 2, C.stone3, { align: 1, shadow: 1 })
         }
 
         // over everything: the white frame a legendary or a mythic turns on, then the whole view shakes
@@ -557,20 +616,79 @@ export class GachaScene {
             shake(s, Math.round(Math.sin(since * 97) * a), Math.round(Math.cos(since * 71) * a))
         }
     }
+
+    /** A thin track down the box's right edge, its thumb the window's share of the rows. */
+    private drawScrollBar(s: Surface, box: RevealBox, count: number): void {
+        const x = box.boardX + box.boardW - 6
+        const y = box.top - BOX_PAD
+        const content = revealMaxScroll(count, s.h) + box.viewH
+        const thumb = Math.max(6, Math.round(box.viewH * box.viewH / content))
+        const max = revealMaxScroll(count, s.h)
+        const ty = y + (max > 0 ? Math.round((box.viewH - thumb) * Math.min(1, this.scroll / max)) : 0)
+        rect(s, x, y, 2, box.viewH, C.night0)
+        rect(s, x, ty, 2, thumb, C.stone2)
+    }
+}
+
+interface RevealBox {
+    perRow: number
+    rows: number
+    gap: number
+    /** Whether the cards outrun the board and deal into a scrolling window. */
+    scrolls: boolean
+    /** The first row's top: the title sits over it and the board starts 22 above it. */
+    top: number
+    boardX: number
+    boardW: number
+    /** The height the cards are shown in: every row, or a box's window. */
+    viewH: number
+}
+
+/** Where a reveal of `count` cards sits: two rows of five on a board, or more in a box that fills the scene. */
+function revealBox(count: number, w: number, h: number): RevealBox {
+    if (count <= 10) {
+        const perRow = Math.min(5, count)
+        const rows = Math.ceil(count / 5)
+        const rowW = perRow * CARD + (perRow - 1) * CARD_GAP
+        const boardW = Math.max(rowW, 120) + 24
+        return { perRow, rows, gap: CARD_GAP, scrolls: false, top: ((h - rows * CARD_ROW) >> 1) + 4, boardX: (w - boardW) >> 1, boardW, viewH: rows * CARD_ROW }
+    }
+    const rowW = BOX_PER_ROW * CARD + (BOX_PER_ROW - 1) * BOX_CARD_GAP
+    const boardW = rowW + 24
+    const top = BOX_TOP + 22
+    return { perRow: BOX_PER_ROW, rows: Math.ceil(count / BOX_PER_ROW), gap: BOX_CARD_GAP, scrolls: true, top, boardX: (w - boardW) >> 1, boardW, viewH: h - BOX_FOOT - 12 - top }
+}
+
+/** How far a reveal of `count` cards can scroll, in scene pixels: 0 for one that fits on its board. */
+export function revealMaxScroll(count: number, h: number): number {
+    const box = revealBox(count, 0, h)
+    return box.scrolls ? Math.max(0, box.rows * CARD_ROW + BOX_PAD - box.viewH) : 0
+}
+
+function rowOf(i: number, perRow: number): number {
+    return Math.floor(i / perRow)
+}
+
+/** The last card to have landed at `since`, which the box keeps in view. */
+function dealHead(beats: readonly Beat[], since: number): number {
+    let head = 0
+    beats.forEach((beat, i) => { if (beat.land <= since) head = i })
+    return head
 }
 
 interface Beat { land: number, flip: number }
 
 /**
- * When each card lands and turns, in seconds from the deal. A mythic holds the deal: it lands,
- * trembles for `MYTHIC_HOLD`, and the next card comes only once it has turned.
+ * When each card lands and turns, in seconds from the deal, a box's twice as fast. A mythic holds
+ * the deal: it lands, trembles for `MYTHIC_HOLD`, and the next card comes only once it has turned.
  */
 function dealSchedule(cards: readonly GachaCard[]): Beat[] {
     let t = 0
+    const every = cards.length > 10 ? BOX_DEAL_EVERY : DEAL_EVERY
     return cards.map((card) => {
         const mythic = card.rarity === 'mythic'
         const beat = { land: t, flip: t + (mythic ? MYTHIC_HOLD : FLIP_AFTER) }
-        t += DEAL_EVERY + (mythic ? MYTHIC_HOLD : 0)
+        t += every + (mythic ? MYTHIC_HOLD : 0)
         return beat
     })
 }

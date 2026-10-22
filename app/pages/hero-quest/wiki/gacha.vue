@@ -4,6 +4,8 @@ import {
     DUPE_LEVEL_CAP,
     DUPE_LEVEL_FACTOR,
     ESSENCE_VALUE_PER_RARITY,
+    HUNDRED_PULL_COST,
+    HUNDRED_PULL_SIZE,
     LEVELS_PER_STAR,
     MAX_GACHA_LEVEL,
     MAX_STAR,
@@ -65,7 +67,7 @@ const dupesToMax = totalDupesToMax()
       </p>
       <HeroQuestWikiFormula
         label="Pull cost"
-        :formula="`1 pull = ${SINGLE_PULL_COST} Seal · ${TEN_PULL_SIZE}-pull = ${TEN_PULL_COST} Seals`"
+        :formula="`1 pull = ${SINGLE_PULL_COST} Seal · ${TEN_PULL_SIZE}-pull = ${TEN_PULL_COST} Seals · ${HUNDRED_PULL_SIZE}-pull = ${HUNDRED_PULL_COST} Seals`"
         :note="`The ${TEN_PULL_SIZE}-pull is a genuine discount, and it still advances your gacha level by ${TEN_PULL_SIZE} — levels count pulls made, not Seals spent.`"
       />
     </HeroQuestWikiSection>

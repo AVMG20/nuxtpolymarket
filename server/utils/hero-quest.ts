@@ -26,6 +26,7 @@ import {
     BATTLE_SPEED_DURATIONS_MINUTES,
     BATTLE_SPEED_TIERS,
     BOSS_TIMER_SECONDS,
+    HUNDRED_PULL_SIZE,
     MAX_ARTIFACT_SLOTS,
     MAX_CHAMPION_SLOTS,
     MAX_LOADOUT_SLOTS,
@@ -1316,6 +1317,7 @@ export interface GachaCommonPayload {
     dropRates: readonly number[]
     singleCost: number
     tenPullCost: number
+    hundredPullCost: number
     sealsBoughtToday: number
     nextSealPrice: number
     /** Today's free 10-pull entitlement: whether one is ready, and when the next unlocks. */
@@ -1466,6 +1468,7 @@ export function serializeGachaCommon(state: HqStateRow, system: GachaSystem): Ga
         dropRates: dropRatesFor(gachaLevel),
         singleCost: pullCost(1).seals,
         tenPullCost: pullCost(TEN_PULL_SIZE).seals,
+        hundredPullCost: pullCost(HUNDRED_PULL_SIZE).seals,
         sealsBoughtToday: bought,
         nextSealPrice: sealLadderPrice(system, bought)
     }

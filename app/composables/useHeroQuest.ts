@@ -482,7 +482,7 @@ export const useHeroQuest = () => {
      * more than that: the price the button showed. Gold then left the shared balance, so the
      * session is read back.
      */
-    async function pull(system: GachaSystem, count: 1 | 10, maxGold?: number) {
+    async function pull(system: GachaSystem, count: 1 | 10 | 100, maxGold?: number) {
         const body: HqPullRequest = maxGold === undefined ? { system, count } : { system, count, autoBuy: { maxGold } }
         const res = await call<HqPullResponse, HqPullRequest>('/api/hero-quest/gacha/pull', body, '')
         if (maxGold !== undefined) await fetchSession()

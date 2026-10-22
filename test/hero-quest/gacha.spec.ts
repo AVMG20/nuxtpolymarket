@@ -27,6 +27,7 @@ import {
 } from '#shared/utils/hero-quest/gacha'
 import {
     DROP_RATE_TABLE,
+    HUNDRED_PULL_SIZE,
     LEVELS_PER_STAR,
     MAX_GACHA_LEVEL,
     MAX_STAR,
@@ -150,6 +151,10 @@ describe('pull cost', () => {
     it('discounts the 10-pull but still credits ten pulls of progress', () => {
         expect(pullCost(1)).toEqual({ seals: 1, pulls: 1 })
         expect(pullCost(TEN_PULL_SIZE)).toEqual({ seals: 9, pulls: 10 })
+    })
+
+    it('prices the 100-pull as ten 10-pulls', () => {
+        expect(pullCost(HUNDRED_PULL_SIZE)).toEqual({ seals: 90, pulls: 100 })
     })
 
     it('escalates the Gold ladder per purchase and resets from the base', () => {

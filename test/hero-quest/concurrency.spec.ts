@@ -28,6 +28,7 @@ import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
 import { RAID_KEYS_PER_DAY,
     CALENDAR_MAKEUPS_PER_CYCLE,
+    HUNDRED_PULL_SIZE,
     LOADOUT_SLOT_BASE_COST_GEMS,
     MILESTONE_ARENA_MEDALS_BASE,
     MILESTONE_ARENA_MEDALS_STEP,
@@ -822,6 +823,17 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(state!.guildSeals).toBe(0)
             // 9 Seals bought 10 pulls, which is exactly the level-1 threshold.
             expect((state!.gachaLevels as Record<string, number>).champion).toBe(2)
+        })
+
+        it('lets one of two concurrent 100-pulls spend Seals that cover only one', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ guildSeals: 179 }).where(eq(hqState.userId, USER_ID))
+
+            const { ok } = await burst(2, () => $pull('champion', HUNDRED_PULL_SIZE))
+            expect(ok).toBe(1)
+
+            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
+            expect(state!.guildSeals).toBe(89)
         })
     })
 

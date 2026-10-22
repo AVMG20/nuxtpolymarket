@@ -61,11 +61,12 @@ describe('hero-quest request bodies', () => {
         expect(refusal({ itemId: 'x', quantity: 0 }, ARENA_SHOP_BUY_BODY)).toMatch(/^Buy between 1 and/)
     })
 
-    it('reads a flag as on only when it is true, and a pull as ten only when it asks for ten', () => {
+    it('reads a flag as on only when it is true, and a pull as ten or a hundred only when it asks for that', () => {
         expect(validateHqBody({ makeup: 'yes' }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: false })
         expect(validateHqBody({ makeup: true }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: true })
         expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
         expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
+        expect(validateHqBody({ system: 'champion', count: 100 }, PULL_BODY)).toEqual({ system: 'champion', count: 100, free: false })
     })
 
     it('needs an auto-buy\'s price, as a number or as text', () => {

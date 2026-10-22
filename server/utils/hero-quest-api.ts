@@ -26,7 +26,7 @@ import type { ArenaDefenseLoadout, ArenaShopItem } from '#shared/utils/hero-ques
 import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import type { CalendarDayState } from '#shared/utils/hero-quest/calendar'
-import { ARENA_SHOP_MAX_QUANTITY, MAX_TRAIT_SAVE_SLOTS, TEN_PULL_SIZE, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature } from '#shared/utils/hero-quest/constants'
+import { ARENA_SHOP_MAX_QUANTITY, HUNDRED_PULL_SIZE, MAX_TRAIT_SAVE_SLOTS, TEN_PULL_SIZE, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature } from '#shared/utils/hero-quest/constants'
 import { isHolidayId, type HolidayId } from '#shared/utils/hero-quest/content/holidays'
 import type { PassivePath } from '#shared/utils/hero-quest/content/passive-tree'
 import { isRaidId, type RaidId } from '#shared/utils/hero-quest/content/raids'
@@ -186,8 +186,8 @@ export const CRAFT_BODY: BodySchema<HqCraftRequest> = {
 
 export interface HqPullRequest {
     system: GachaSystem
-    /** 10 for a 10-pull; anything else is a single. A free pull is always ten and ignores it. */
-    count?: 1 | 10
+    /** 10 for a 10-pull, 100 for a 100-pull; anything else is a single. A free pull is always ten and ignores it. */
+    count?: 1 | 10 | 100
     /** Spend one of the day's free 10-pulls instead of Seals; only `true` does. */
     free?: boolean
     /** Buy the Seals the pull is short off the day's Gold ladder, at no more than `maxGold`: the price the button showed. */
@@ -195,7 +195,12 @@ export interface HqPullRequest {
 }
 export const PULL_BODY: BodySchema<HqPullRequest> = {
     system: { check: isGacha, message: 'Unknown gacha' },
-    count: { read: value => value === TEN_PULL_SIZE ? TEN_PULL_SIZE : 1, check: (value): value is 1 | 10 => value === 1 || value === 10, message: 'Pull one or ten at a time', optional: true },
+    count: {
+        read: value => value === TEN_PULL_SIZE || value === HUNDRED_PULL_SIZE ? value : 1,
+        check: (value): value is 1 | 10 | 100 => value === 1 || value === TEN_PULL_SIZE || value === HUNDRED_PULL_SIZE,
+        message: 'Pull one, ten or a hundred at a time',
+        optional: true
+    },
     free: { read: asFlag, check: isBoolean, message: 'Say whether the pull is free', optional: true },
     autoBuy: {
         // a price sent as text counts; one that is missing or not a number is refused

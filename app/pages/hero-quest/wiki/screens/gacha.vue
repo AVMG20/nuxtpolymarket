@@ -2,6 +2,8 @@
 import {
     FREE_PULLS_PER_DAY,
     FREE_PULL_COOLDOWN_MINUTES,
+    HUNDRED_PULL_COST,
+    HUNDRED_PULL_SIZE,
     MAX_GACHA_LEVEL,
     SEAL_LADDER_BASE_GOLD,
     SINGLE_PULL_COST,
@@ -40,6 +42,7 @@ const levelRows = Array.from({ length: MAX_GACHA_LEVEL }, (_, index) => {
 
 const freeLabel = `Free ${TEN_PULL_SIZE}`
 const tenLabel = `Pull ${TEN_PULL_COST} +${TEN_PULL_SIZE - TEN_PULL_COST}`
+const hundredLabel = `Pull ${HUNDRED_PULL_COST} +${HUNDRED_PULL_SIZE - HUNDRED_PULL_COST}`
 
 const buttons = [
     {
@@ -58,6 +61,11 @@ const buttons = [
         tone: 'text-success'
     },
     {
+        term: hundredLabel,
+        text: `${HUNDRED_PULL_SIZE} pulls for ${HUNDRED_PULL_COST} Seals in one press, the price of ${HUNDRED_PULL_SIZE / TEN_PULL_SIZE} ${TEN_PULL_SIZE}-pulls. It takes Pull 1's place once a banner holds ${HUNDRED_PULL_COST} Seals, and never buys Seals with Gold.`,
+        tone: 'text-success'
+    },
+    {
         term: 'Confirm',
         text: 'A pull that needs Gold asks for a second press first: the button turns gold. Settings, Gold pulls, turns this off.',
         tone: 'text-warning'
@@ -66,6 +74,7 @@ const buttons = [
 
 const reveal = [
     { term: '?', text: 'A card still face down. Press once to turn them all over, and again to close the board.' },
+    { term: 'Scrolling box', text: `A ${HUNDRED_PULL_SIZE}-pull deals into a box that scrolls to follow the deal. Scroll it with the wheel or a finger to look back; press to close.` },
     { term: 'NEW', text: 'Your first copy of this item.', tone: 'text-success' },
     { term: 'LV n', text: 'A duplicate: the copy you own has levelled, and this is its level within its current star.' },
     { term: '+n', text: 'A duplicate of a copy that was already maxed, turned into this much Essence.', tone: 'text-primary' },

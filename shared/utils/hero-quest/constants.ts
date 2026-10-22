@@ -1733,6 +1733,9 @@ export const RARITY_EPITHETS: readonly string[] = [
 export const SINGLE_PULL_COST = 1
 export const TEN_PULL_SIZE = 10
 export const TEN_PULL_COST = 9
+/** A 100-pull is ten 10-pulls in one press, offered once a banner holds its Seals (the user's call, 2026-10-22). */
+export const HUNDRED_PULL_SIZE = 100
+export const HUNDRED_PULL_COST = HUNDRED_PULL_SIZE / TEN_PULL_SIZE * TEN_PULL_COST
 
 /**
  * dupesToLevelUp(star, level) = round(min((star × 10 + level) × DUPE_LEVEL_FACTOR, DUPE_LEVEL_CAP))
