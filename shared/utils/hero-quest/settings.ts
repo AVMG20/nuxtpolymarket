@@ -1,3 +1,5 @@
+import { isHqNotation, type HqNotation } from './numbers'
+
 /**
  * The player's Hero Quest settings, chosen in the Settings scene and kept on `hq_state.settings`.
  *
@@ -27,6 +29,8 @@ export interface HqSettings {
     combatNumbers: boolean
     /** Collections details give exact multipliers and full ability text; off, the short rounded lines. */
     detailedDescriptions: boolean
+    /** How big numbers read everywhere in the game: 1.23e16 as `1.23e16`, `12.30Qa` or `12.30AA`. */
+    numberNotation: HqNotation
     /** The menu's red dots: a free pull, an upgrade, a tree node, a calendar or arena reward. */
     dotFreePulls: boolean
     dotUpgrades: boolean
@@ -46,6 +50,7 @@ export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
     skillCinematics: true,
     combatNumbers: true,
     detailedDescriptions: false,
+    numberNotation: 'scientific',
     dotFreePulls: true,
     dotUpgrades: true,
     dotTreeNodes: true,
@@ -53,18 +58,30 @@ export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
 }
 
 export type HqSettingKey = keyof HqSettings
+/** The settings that are an ON/OFF switch. */
+export type HqToggleKey = { [K in HqSettingKey]: HqSettings[K] extends boolean ? K : never }[HqSettingKey]
 
 export function isHqSettingKey(key: unknown): key is HqSettingKey {
     return typeof key === 'string' && Object.hasOwn(HQ_SETTING_DEFAULTS, key)
 }
 
-/** The stored choices over the defaults, dropping anything stored that is not a known boolean. */
+export function isHqToggleKey(key: unknown): key is HqToggleKey {
+    return isHqSettingKey(key) && typeof HQ_SETTING_DEFAULTS[key] === 'boolean'
+}
+
+/** Whether `value` is one `key` can hold: a boolean for a switch, one of its choices for a pick. */
+export function isHqSettingValue<K extends HqSettingKey>(key: K, value: unknown): value is HqSettings[K] {
+    if (key === 'numberNotation') return isHqNotation(value)
+    return typeof value === 'boolean'
+}
+
+/** The stored choices over the defaults, dropping anything stored that is not a known setting's value. */
 export function hqSettingsOf(stored: unknown): HqSettings {
-    const out = { ...HQ_SETTING_DEFAULTS }
+    const out: Record<string, unknown> = { ...HQ_SETTING_DEFAULTS }
     if (stored && typeof stored === 'object') {
         for (const [key, value] of Object.entries(stored)) {
-            if (isHqSettingKey(key) && typeof value === 'boolean') out[key] = value
+            if (isHqSettingKey(key) && isHqSettingValue(key, value)) out[key] = value
         }
     }
-    return out
+    return out as unknown as HqSettings
 }

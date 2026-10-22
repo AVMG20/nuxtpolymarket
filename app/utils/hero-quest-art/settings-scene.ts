@@ -9,7 +9,8 @@ import { panel } from './ui-art'
 import { plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
 import { HQ_STAGE_SIZES, type HqStageSize } from './stage-size'
-import type { HqSettingKey, HqSettings } from '#shared/utils/hero-quest/settings'
+import type { HqSettings, HqToggleKey } from '#shared/utils/hero-quest/settings'
+import { HQ_NOTATIONS, type HqNotation } from '#shared/utils/hero-quest/numbers'
 import { GUIDE_NAME } from '#shared/utils/hero-quest/content/tutorials'
 
 export interface SettingsView {
@@ -20,15 +21,23 @@ export interface SettingsView {
     stageSize: HqStageSize
 }
 
-/** A row's control: a switch for a setting, the one-off reset, or one of the stage sizes. */
-export type SettingsTarget = HqSettingKey | 'resetTutorials' | `stage:${HqStageSize}`
+/** A row's control: a switch for a setting, the one-off reset, one of the stage sizes or one of the notations. */
+export type SettingsTarget = HqToggleKey | 'resetTutorials' | `stage:${HqStageSize}` | `notation:${HqNotation}`
 
 /** Whether a control is one of the stage sizes, which the page keeps rather than the server. */
 export function isStageTarget(target: SettingsTarget): target is `stage:${HqStageSize}` {
     return target.startsWith('stage:')
 }
 
-interface Row { id: HqSettingKey | 'resetTutorials' | 'stageSize', name: string, line: string }
+/** Whether a control picks a number notation. */
+export function isNotationTarget(target: SettingsTarget): target is `notation:${HqNotation}` {
+    return target.startsWith('notation:')
+}
+
+/** Each notation's button, the same number written its way. */
+const NOTATION_LABELS: Record<HqNotation, string> = { scientific: '1E10', standard: '10B', alphabetical: '10AA' }
+
+interface Row { id: HqToggleKey | 'resetTutorials' | 'stageSize' | 'numberNotation', name: string, line: string }
 
 const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
     {
@@ -53,6 +62,7 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
         title: 'DISPLAY',
         rows: [
             { id: 'stageSize', name: 'SCREEN SIZE', line: 'SMALL IS THE ORIGINAL SIZE.' },
+            { id: 'numberNotation', name: 'BIG NUMBERS', line: 'SCIENTIFIC, STANDARD OR ALPHABETICAL.' },
             { id: 'reduceMotion', name: 'REDUCE MOTION', line: 'NO SCREEN SHAKE AND FEWER FLASHES.' },
             { id: 'fastReveals', name: 'FAST PULL REVEALS', line: 'A PULL SHOWS ITS CARDS AT ONCE, WITHOUT THE DEAL.' },
             { id: 'skillCinematics', name: 'SKILL CINEMATICS', line: 'THE HERO\'S SIGNATURE SKILL PLAYS ITS CINEMATIC.' },
@@ -87,14 +97,17 @@ const ON_PLATE = [C.green0, C.green1, C.green2] as const
 const OFF_PLATE = [C.night0, C.night2, C.night3] as const
 const ACT_PLATE = [C.red0, C.red1, C.red2] as const
 
-/** A row's controls, right to left from its edge: one for a switch or the reset, a button per size for the stage. */
+/** A row's controls, right to left from its edge: one for a switch or the reset, a button per choice for the stage and the notation. */
 function controlsOf(row: Row, box: Box): { id: SettingsTarget, box: Box }[] {
     const y = box.y + ((ROW_H - CTRL_H) >> 1)
     const right = box.x + box.w - 5
-    if (row.id !== 'stageSize') return [{ id: row.id, box: { x: right - CTRL_W, y, w: CTRL_W, h: CTRL_H } }]
-    const n = HQ_STAGE_SIZES.length
-    return HQ_STAGE_SIZES.map((size, i) => ({
-        id: `stage:${size}` as const,
+    const choices: readonly SettingsTarget[] | null = row.id === 'stageSize'
+        ? HQ_STAGE_SIZES.map(size => `stage:${size}` as const)
+        : row.id === 'numberNotation' ? HQ_NOTATIONS.map(n => `notation:${n}` as const) : null
+    if (!choices) return [{ id: row.id as SettingsTarget, box: { x: right - CTRL_W, y, w: CTRL_W, h: CTRL_H } }]
+    const n = choices.length
+    return choices.map((id, i) => ({
+        id,
         box: { x: right - (n - i) * CTRL_W - (n - 1 - i) * CTRL_GAP, y, w: CTRL_W, h: CTRL_H }
     }))
 }
@@ -156,6 +169,10 @@ export class SettingsScene {
                     const size = id.slice(6) as HqStageSize
                     const on = view.stageSize === size
                     plateButton(s, ctrl, size === 'mid' ? 'MID' : size.toUpperCase(), on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
+                } else if (isNotationTarget(id)) {
+                    const notation = id.slice(9) as HqNotation
+                    const on = view.settings.numberNotation === notation
+                    plateButton(s, ctrl, NOTATION_LABELS[notation], on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
                 } else if (id === 'detailedDescriptions') {
                     const on = view.settings[id]
                     plateButton(s, ctrl, on ? 'DETAILED' : 'SHORT', on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)

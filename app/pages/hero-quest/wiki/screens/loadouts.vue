@@ -7,6 +7,8 @@ import { shopTrackCost } from '#shared/utils/hero-quest/content/shop'
  * use a Loadout. Slot counts and prices come from the constants and the Shop's own price function.
  */
 
+const { fmt } = useHqNotation()
+
 const slotPrices = Array.from({ length: MAX_LOADOUT_SLOTS - BASE_LOADOUT_SLOTS }, (_, level) => ({
     slot: BASE_LOADOUT_SLOTS + level + 1,
     gems: shopTrackCost('loadoutSlots', level)
@@ -92,7 +94,7 @@ const buttons = [
           color="neutral"
           variant="subtle"
         >
-          Slot {{ row.slot }}: {{ row.gems?.toLocaleString('en-US') }} Gems
+          Slot {{ row.slot }}: {{ row.gems === null ? '' : fmt(row.gems) }} Gems
         </UBadge>
       </div>
     </HeroQuestWikiSection>

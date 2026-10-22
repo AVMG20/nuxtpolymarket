@@ -737,7 +737,7 @@ export const XP_TO_LEVEL_BASE = 86 // TUNED ✓
  *
  * The magnitude comes from compounding across the `LEVELS_PER_STAGE` levels each stage hands out.
  * At 1.05 a level-300 Hero needs ~22M XP for its next level and the first prestige ends around
- * 2.8e11, inside `formatHq`'s named-suffix ladder. Steeper values push that into scientific
+ * 2.8e11, inside the standard notation's named-suffix ladder. Steeper values push that into scientific
  * notation within a few prestiges.
  */
 export const XP_TO_LEVEL_GROWTH = 1.05 // TUNED ✓

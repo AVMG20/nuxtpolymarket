@@ -18,6 +18,7 @@ import { panel } from './ui-art'
 import { collectionTile, plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
 import type { HqCollectionTab } from '../hero-quest-scenes'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export type GachaSystemId = 'gear' | 'champion' | 'skill' | 'artifact'
 export type GachaButton = 'free' | 'one' | 'ten'
@@ -66,6 +67,8 @@ export interface GachaCard {
 }
 
 export interface GachaView {
+    /** The player's big-number notation, for the Seals and the Essence a card gave. */
+    notation: HqNotation
     banners: readonly GachaBannerView[]
     gold: string
     /** The pull being revealed, or null. `key` changes with every pull, so a repeat deals again. */
@@ -315,13 +318,13 @@ export class GachaScene {
 
         view.banners.forEach((b, i) => {
             const h = hover !== null && hover !== 'reveal' && hover.system === b.system ? hover.part : null
-            this.drawBanner(s, columnBox(s.w, i), b, h, pressed, busy, view.armed?.system === b.system ? view.armed.button : null)
+            this.drawBanner(s, columnBox(s.w, i), b, h, pressed, busy, view.armed?.system === b.system ? view.armed.button : null, view.notation)
         })
-        if (view.reveal) this.drawReveal(s, t, view.reveal, fast, calm)
+        if (view.reveal) this.drawReveal(s, t, view.reveal, fast, calm, view.notation)
         return s
     }
 
-    private drawBanner(s: Surface, col: Box, b: GachaBannerView, hover: GachaButton | 'emblem' | null, pressed: boolean, busy: boolean, armedHere: 'one' | 'ten' | null): void {
+    private drawBanner(s: Surface, col: Box, b: GachaBannerView, hover: GachaButton | 'emblem' | null, pressed: boolean, busy: boolean, armedHere: 'one' | 'ten' | null, notation: HqNotation): void {
         panel(s, col.x, col.y, col.w, col.h)
         const cloth = CLOTH[b.system]
         const cx = col.x + (col.w >> 1)
@@ -354,7 +357,7 @@ export class GachaScene {
         rect(s, bx + 1, col.y + 55, fill, 3, cloth[1])
         rect(s, bx + 1, col.y + 55, fill, 1, cloth[2])
         // the Seals a pull spends
-        const seals = String(b.seals)
+        const seals = formatHq(b.seals, notation)
         const sw = textWidth(seals) + 17
         glyph(s, CURRENCY_ICONS[`seal_${b.system}`]!, cx - (sw >> 1) + 6, col.y + 66, true)
         drawText(s, seals, cx - (sw >> 1) + 17, col.y + 63, C.bone1, { shadow: 1 })
@@ -455,7 +458,7 @@ export class GachaScene {
         })
     }
 
-    private drawReveal(s: Surface, t: number, r: NonNullable<GachaView['reveal']>, fast: boolean, calm: boolean): void {
+    private drawReveal(s: Surface, t: number, r: NonNullable<GachaView['reveal']>, fast: boolean, calm: boolean, notation: HqNotation): void {
         if (this.dealtKey !== r.key) {
             this.dealtKey = r.key
             this.dealtAt = fast ? -1e9 : t
@@ -535,7 +538,7 @@ export class GachaScene {
             blit(s, collectionTile(TABS[r.system], { id: card.contentId, rarity: card.rarity, owned: true, mark: null }), x, y)
             // a rare or better flashes as it turns
             if (since - beat.flip < 0.12 && rarityRank(card.rarity) >= 2) rect(s, x, y, CARD, 1, C.white)
-            const [tag, c] = card.isNew ? ['NEW', C.green3] : card.essence > 0 ? [`+${card.essence}`, C.purple2] : [`LV ${card.level}`, C.bone1]
+            const [tag, c] = card.isNew ? ['NEW', C.green3] : card.essence > 0 ? [`+${formatHq(card.essence, notation)}`, C.purple2] : [`LV ${card.level}`, C.bone1]
             drawText(s, tag, x + (CARD >> 1), y + CARD + 3, c, { align: 1, shadow: 1 })
         })
         if (since >= beats[beats.length - 1]!.flip) {

@@ -13,7 +13,7 @@ import { plateButton, type Box } from './collections-scene'
 import { KEY_ICON } from './raids-scene'
 import { stageNumber } from './run-director'
 import type { SceneBackdrops } from './menu-band'
-import { D } from '#shared/utils/hero-quest/numbers'
+import { D, type HqNotation } from '#shared/utils/hero-quest/numbers'
 import { getRaid, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import type { CalendarDayState } from '#shared/utils/hero-quest/calendar'
 import type { CalendarReward } from '#shared/utils/hero-quest/constants'
@@ -29,6 +29,8 @@ export interface CalendarDayView {
 }
 
 export interface CalendarView {
+    /** The player's big-number notation, for what each day pays. */
+    notation: HqNotation
     /** 0-based. */
     today: number
     days: readonly CalendarDayView[]
@@ -74,8 +76,8 @@ function iconFor(d: CalendarDayView): Glyph {
 }
 
 /** What a day pays, spelled out in full. */
-export function calendarRewardLabel(d: CalendarDayView): string {
-    const n = stageNumber(D(d.amount))
+export function calendarRewardLabel(d: CalendarDayView, notation: HqNotation): string {
+    const n = stageNumber(D(d.amount), notation)
     switch (d.kind) {
         case 'gold': return `${n} GOLD`
         case 'gems': return `${n} GEMS`
@@ -129,7 +131,7 @@ export class CalendarScene {
             const sink = today && lit && pressed && !busy ? 1 : 0
             panel(s, b.x, b.y + sink, b.w, b.h - sink, undefined, today ? C.night2 : C.night1)
             glyph(s, iconFor(d), b.x + (b.w >> 1), b.y + 14 + sink, true)
-            drawText(s, stageNumber(D(d.amount)), b.x + (b.w >> 1), b.y + 22 + sink, C.bone1, { align: 1, shadow: 1 })
+            drawText(s, stageNumber(D(d.amount), view.notation), b.x + (b.w >> 1), b.y + 22 + sink, C.bone1, { align: 1, shadow: 1 })
 
             // a day done with is dimmed under its number: checked off, or a red corner for one missed
             if (d.state === 'claimed' || d.state === 'missed') dither(s, b.x + 2, b.y + 2, b.w - 4, b.h - 4, C.ink, d.state === 'claimed' ? 9 : 10)
@@ -155,7 +157,7 @@ export class CalendarScene {
         const shown = view.days[at ?? view.today]
         if (shown) {
             const why = DAY_STATE_LINE[shown.state]
-            drawText(s, `DAY ${shown.day}: ${calendarRewardLabel(shown)}`, 6, INFO_Y, C.bone1, { shadow: 1 })
+            drawText(s, `DAY ${shown.day}: ${calendarRewardLabel(shown, view.notation)}`, 6, INFO_Y, C.bone1, { shadow: 1 })
             drawText(s, why, s.w - 6, INFO_Y, shown.state === 'today' ? C.gold3 : shown.state === 'missed' ? C.red2 : C.stone3, { align: 2, shadow: 1 })
         }
 

@@ -11,7 +11,7 @@
 //
 // Pure: no DOM, no drawing. The stage asks, this answers.
 
-import { D, ZERO, type Decimal } from '#shared/utils/hero-quest/numbers'
+import { D, ZERO, formatHqShort, type Decimal, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 /** What the stage needs of the projected run, re-sent every frame. */
 export interface RunFeed {
@@ -75,23 +75,13 @@ const RUN_AHEAD_PACKS = 2
 const LAST_BLOW_SHARE = 0.1
 
 /**
- * A damage figure the way the stage prints it: 128, 1.24K, 8.6M, 3.1T, then 4.20E15. The
- * number fonts carry digits, K/M/B/T and E only, so the game's longer suffixes are not used.
+ * A damage figure the way the stage prints it: a whole number under 1000, then three significant
+ * figures in the player's notation (1.24e3, or 1.24K). Never below 1: a hit always shows.
  */
-export function stageNumber(value: Decimal): string {
+export function stageNumber(value: Decimal, notation: HqNotation): string {
     if (value.lt(1)) return '1'
     if (value.lt(999.5)) return String(Math.round(value.toNumber()))
-    // three significant figures, rounded before the tier is chosen so 999.9K reads 1.00M
-    let exponent = value.log10().floor().toNumber()
-    let mantissa = Number(value.div(D(10).pow(exponent)).toNumber().toPrecision(3))
-    if (mantissa >= 10) {
-        mantissa /= 10
-        exponent++
-    }
-    if (exponent >= 15) return `${mantissa.toFixed(2)}E${exponent}`
-    const tier = Math.floor(exponent / 3)
-    const scaled = mantissa * 10 ** (exponent - tier * 3)
-    return `${scaled.toFixed(2 - (exponent - tier * 3))}${'KMBT'[tier - 1]}`
+    return formatHqShort(value, notation)
 }
 
 export class RunDirector {
@@ -199,7 +189,7 @@ export class RunDirector {
      * Sized so a body's hits come to its HP over the time it takes to die, crits at the real
      * multiplier.
      */
-    hit(crit: boolean): string | null {
+    hit(crit: boolean, notation: HqNotation): string | null {
         const f = this.feed
         this.hitsThisSecond++
         if (!f) return null
@@ -219,11 +209,11 @@ export class RunDirector {
         const shown = want.lt(room) ? want : room
         this.dealt = this.dealt.add(shown)
         this.last = shown
-        return stageNumber(shown)
+        return stageNumber(shown, notation)
     }
 
     /** The killing blow on the front body: the HP it had left, or null for a boss or escort whose fight already showed its numbers. */
-    finish(): string | null {
+    finish(notation: HqNotation): string | null {
         const f = this.feed
         let hp: string | null = f?.enemyHp ?? null
         if (this.carry > 0) {
@@ -239,6 +229,6 @@ export class RunDirector {
         const left = D(hp).sub(this.dealt)
         this.dealt = ZERO
         this.last = left.gt(0) ? left : D(1)
-        return stageNumber(this.last)
+        return stageNumber(this.last, notation)
     }
 }

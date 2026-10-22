@@ -82,7 +82,9 @@ const {
     DEFAULT_GRIND_BUDGET_SECONDS,
     SIM_MATURE_TENURE_DAYS
 } = await import('./hero-quest/sim')
-const { formatHq, formatSeconds } = await import('../shared/utils/hero-quest/numbers')
+const { formatHq: formatIn, formatSeconds } = await import('../shared/utils/hero-quest/numbers')
+// reports read in the short scale, whatever a player picked
+const formatHq = (value: Parameters<typeof formatIn>[0]) => formatIn(value, 'standard')
 const { explainStats, levelsToCover, stagesOfCurve } = await import('../shared/utils/hero-quest/explain')
 const {
     BASE_GOLD,

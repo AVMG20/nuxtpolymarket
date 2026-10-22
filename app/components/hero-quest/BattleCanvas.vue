@@ -280,12 +280,12 @@ const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
 /** What the Traits scene draws before its payload lands. */
 const EMPTY_TRAITS: TraitsView = {
-    traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [],
+    notation: HQ_SETTING_DEFAULTS.numberNotation, traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [],
     saveCost: 0, saveAffordable: false, boardFull: false, gems: 0, armed: null, roll: null,
     autoGrade: 'S', gradePickerOpen: false
 }
 /** What the tree scene draws before its payload lands. */
-const EMPTY_TREE: TreeView = { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
+const EMPTY_TREE: TreeView = { notation: HQ_SETTING_DEFAULTS.numberNotation, nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
 
 let stage: BattleDemo | null = null
 let backdrops: SceneBackdrops | null = null
@@ -1251,7 +1251,7 @@ const gachaHover = computed<GachaHover>(() => {
 const arenaTab = ref<HqArenaTab>('fight')
 const arenaPage = ref(0)
 const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'> = {
-    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
+    notation: HQ_SETTING_DEFAULTS.numberNotation, busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
     gems: 0, rewards: [], candidates: null, defense: null, shop: [], log: null, board: null,
     loadout: null, loadoutLive: false, loadoutSlot: null, loadoutOptions: []
 }
@@ -1459,6 +1459,7 @@ onMounted(async () => {
         stage!.calm = calm.value
         stage!.cinematics = prefs.value.skillCinematics
         stage!.numbers = prefs.value.combatNumbers
+        stage!.notation = prefs.value.numberNotation
         if (!props.fight) stage!.feedRun(feed())
         // under a scene the battle still runs and takes its feed, but is not drawn
         const scene = openScene.value
@@ -1472,10 +1473,10 @@ onMounted(async () => {
                         ? classesScene!.render(t, classesView.value, classHover.value, !!props.classesBusy, pressed.value)
                         : scene === 'shop'
                             ? shopTab.value === 'speed'
-                                ? speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
+                                ? speedScene!.render(t, props.speedView ?? { notation: prefs.value.numberNotation, multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
                                 : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0', gold: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
                             : scene === 'gacha'
-                                ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy, prefs.value.fastReveals, calm.value)
+                                ? gachaScene!.render(t, props.gacha ?? { notation: prefs.value.numberNotation, banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy, prefs.value.fastReveals, calm.value)
                                 : scene === 'raids'
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
                                     : scene === 'traits'
@@ -1485,9 +1486,9 @@ onMounted(async () => {
                                     : scene === 'tree'
                                     ? treeScene!.render(t, props.tree ?? EMPTY_TREE, treeCamera(), treeSelected.value, treeHover.value, pressed.value)
                                     : scene === 'calendar' && calendarTab.value === 'milestones'
-                                    ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
+                                    ? milestonesScene!.render(t, props.milestones ?? { rows: [], notation: prefs.value.numberNotation }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'
-                                    ? calendarScene!.render(t, props.calendar ?? { today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
+                                    ? calendarScene!.render(t, props.calendar ?? { notation: prefs.value.numberNotation, today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false, stageSize: stageSize.value }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')

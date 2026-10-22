@@ -13,7 +13,7 @@ import { glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
 import { panel } from './ui-art'
 import { goldChestBox } from './gold-chest'
-import { formatHq } from '#shared/utils/hero-quest/numbers'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 import type { HolidayId } from '#shared/utils/hero-quest/content/holidays'
 
 interface Box {
@@ -54,6 +54,8 @@ export interface GiftRewardLine {
  * lands. `key` changes with every gift opened, so a second one plays from the start.
  */
 export interface HolidayRevealView {
+    /** The player's big-number notation as the gift was opened. */
+    notation: HqNotation
     key: number
     id: HolidayId
     name: string
@@ -406,7 +408,7 @@ export class GiftReveal {
             const x0 = cols === 2 ? p.x + 8 + col * colW : cx - (colW >> 1) + 16
             const y0 = top + row * LINE_STEP + Math.round((1 - ease(clamp01(out / 0.15))) * 4)
             const counted = Math.floor(line.amount * ease(clamp01(out / COUNT_FOR)))
-            const text = `+${formatHq(counted).toUpperCase()} ${line.label}`
+            const text = `+${formatHq(counted, view.notation).toUpperCase()} ${line.label}`
             glyph(s, CURRENCY_ICONS[line.icon] ?? CURRENCY_ICONS.gold!, x0 + 4, y0 + 2, true)
             drawText(s, text, x0 + 12, y0, out < 0.1 ? C.white : C.gold3, { shadow: 1 })
             // a glint along the line as it lands

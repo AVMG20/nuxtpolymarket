@@ -23,6 +23,8 @@ import { RARITIES, totalDupesToMax } from '#shared/utils/hero-quest/gacha'
  * `totalDupesToMax` the game uses. Nothing on this page can disagree with the game.
  */
 
+const { fmt } = useHqNotation()
+
 const rarityRows = computed(() => RARITIES.map((rarity, index) => ({
     rarity,
     label: HQ_RARITY_LABEL[index] ?? rarity,
@@ -107,10 +109,10 @@ const dupesToMax = totalDupesToMax()
                 {{ hqNumber(row.statMultiplier) }}
               </td>
               <td class="py-1.5 px-3 text-right tabular-nums">
-                {{ row.essenceValue.toLocaleString('en-US') }}
+                {{ fmt(row.essenceValue) }}
               </td>
               <td class="py-1.5 pl-3 text-right tabular-nums">
-                {{ row.craftCost.toLocaleString('en-US') }}
+                {{ fmt(row.craftCost) }}
               </td>
             </tr>
           </tbody>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HqIntroRect } from '~/composables/useHqIntro'
-import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
+import { D, formatSeconds, type HqNotation } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
@@ -21,7 +21,7 @@ import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-q
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
-import { isStageTarget, type SettingsTarget, type SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import { isNotationTarget, isStageTarget, type SettingsTarget, type SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { HqStageSize } from '~/utils/hero-quest-art/stage-size'
 import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
@@ -73,6 +73,8 @@ const {
 } = useHeroQuest()
 const toast = useToast()
 const { user, fetchSession } = useAuth()
+/** Every big number on the stage reads in the player's notation; views that read `fmt` re-render when it changes. */
+const { notation, fmt } = useHqNotation()
 
 /**
  * The Collections scene's tab, off the route, and the roster it shows, with what each entry's
@@ -136,7 +138,7 @@ function activeSkillLines(e: { id: string, owned: boolean, star: number, level: 
 }
 
 function craftButton(e: { maxed: boolean, craftCost: number }, essence: number) {
-    return e.maxed ? null : { cost: formatNumber(e.craftCost), enabled: essence >= e.craftCost }
+    return e.maxed ? null : { cost: fmt(e.craftCost), enabled: essence >= e.craftCost }
 }
 
 /** The saved formation: the Hero's row and every Champion's, fielded or not. */
@@ -264,7 +266,7 @@ const collections = computed(() => {
     // common to mythic, as the encyclopedia reads; a stable sort keeps the roster's order within a rarity
     const entries = collectionTiles(tab).sort((a, b) => RARITIES.indexOf(a.rarity as Rarity) - RARITIES.indexOf(b.rarity as Rarity))
     const essence = { gear: forge, champions: guild, skills: training, artifacts: digSite }[tab].value?.essence ?? 0
-    return { tab, entries, essence: formatNumber(essence), heroClassId: hero.value?.classId ?? null }
+    return { tab, entries, essence: fmt(essence), heroClassId: hero.value?.classId ?? null }
 })
 
 /**
@@ -379,7 +381,7 @@ const loadoutsView = computed<LoadoutsView>(() => {
         const base = { slotIndex, locked, name: preset?.name ?? `Loadout ${slotIndex + 1}`, party: [], skills: [], artifacts: [], gear: [], usedBy: preset ? usedBy(slotIndex) : [] }
         if (!preset) {
             // only the next slot to buy has a price; the ones past it wait their turn
-            const price = locked && slotIndex === l.slots && l.nextSlotCostGems !== null ? formatNumber(l.nextSlotCostGems) : null
+            const price = locked && slotIndex === l.slots && l.nextSlotCostGems !== null ? fmt(l.nextSlotCostGems) : null
             return { ...base, price, empty: !locked, active: false }
         }
         const rowOf = (id: string) => preset.formation[id] ?? liveFormation[id] ?? 'front'
@@ -489,9 +491,9 @@ const prestigeView = computed<PrestigeView>(() => {
         return i < 0 ? shopOrder.value.length : i
     }
     return {
-        voidShards: formatHq(voidShards.value ?? '0'),
-        gems: formatNumber(gems),
-        gold: formatNumber(gold),
+        voidShards: fmt(voidShards.value ?? '0'),
+        gems: fmt(gems),
+        gold: fmt(gold),
         tracks: (shop.value ?? []).map(track => ({
             id: track.id,
             name: track.name,
@@ -499,7 +501,7 @@ const prestigeView = computed<PrestigeView>(() => {
             maxLevel: track.maxLevel,
             current: track.effect.current,
             next: track.effect.next,
-            cost: track.nextCost === null ? null : formatNumber(track.nextCost),
+            cost: track.nextCost === null ? null : fmt(track.nextCost),
             currency: track.currency,
             affordable: track.nextCost !== null && (track.currency === 'gems'
                 ? gems >= track.nextCost
@@ -592,7 +594,7 @@ const gachaView = computed<GachaView>(() => {
             level: g.gachaLevel,
             levelProgress: g.pullsToNextLevel ? g.gachaProgress / g.pullsToNextLevel : 1,
             seals: g.seals,
-            essence: formatNumber(g.essence),
+            essence: fmt(g.essence),
             owned: g.roster.filter(entry => entry.owned).length,
             total: g.roster.length,
             dropRates: g.dropRates,
@@ -603,7 +605,7 @@ const gachaView = computed<GachaView>(() => {
             ten: pullPrice(system, g, 10, gold)
         })
     }
-    return { banners, gold: formatNumber(gold), reveal: gachaReveal.value, armed: gachaArmed.value }
+    return { notation: notation.value, banners, gold: fmt(gold), reveal: gachaReveal.value, armed: gachaArmed.value }
 })
 
 /**
@@ -615,7 +617,7 @@ function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number
     const fromBalance = Math.min(cost, g.seals)
     const short = cost - fromBalance
     const goldCost = short > 0 ? sealLadderTotal(system, g.sealsBoughtToday, short) : 0
-    return { cost, pulls: count, fromBalance, gold: goldCost, goldText: formatNumber(goldCost), affordable: gold >= goldCost }
+    return { cost, pulls: count, fromBalance, gold: goldCost, goldText: fmt(goldCost), affordable: gold >= goldCost }
 }
 
 /**
@@ -802,7 +804,7 @@ async function onRaidEnter(raidId: RaidId) {
         fightProgress.value = { time: 0, done: false }
         // a boss raid lost pays nothing and keeps its Key; the dummy always pays
         const won = round.reward > 0
-        roundReward = { raidId, quick: false, won, level: round.level, newBest: round.newBest, reward: round.reward }
+        roundReward = { notation: notation.value, raidId, quick: false, won, level: round.level, newBest: round.newBest, reward: round.reward }
         raidRound.value = {
             raid: raidId.slice(5) as StageRaidId,
             level: round.level,
@@ -827,7 +829,7 @@ async function onRaidQuick(raidId: RaidId) {
     raidsBusy.value = true
     try {
         const cleared = await quickClearRaid(raidId)
-        if (cleared) raidReward.value = { raidId, quick: true, won: true, level: cleared.level, newBest: false, reward: cleared.reward }
+        if (cleared) raidReward.value = { notation: notation.value, raidId, quick: true, won: true, level: cleared.level, newBest: false, reward: cleared.reward }
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {
@@ -887,6 +889,7 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
         ? [...board.top, ...(board.around.length ? [{ rank: 0, name: '', rating: 0, you: false, gap: true }, ...board.around] : [])]
         : []
     return {
+        notation: notation.value,
         busy: arenaBusy.value,
         rating: a?.rating ?? 0,
         medals: a?.medals ?? 0,
@@ -906,12 +909,12 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
             dummy: c.dummy,
             name: c.name,
             rating: c.rating,
-            gpn: c.defenseGpn ? formatHq(c.defenseGpn) : null,
+            gpn: c.defenseGpn ? fmt(c.defenseGpn) : null,
             faces: c.classId ? facesOf(c.classId, c.heroRow ?? 'front', c.champions) : []
         })) ?? null,
         defense: d
             ? {
-                gpn: d.gpn ? formatHq(d.gpn) : '-',
+                gpn: d.gpn ? fmt(d.gpn) : '-',
                 faces: facesOf(hero.value?.classId ?? 'class_beginner', d.formation.hero ?? guild.value?.heroRow ?? 'front', d.partyChampionIds.map(id => ({ id, row: d.formation[id] ?? 'front' }))),
                 skills: d.equippedSkillIds.map(rarityIn(training.value?.roster)),
                 artifacts: d.equippedArtifactIds.map(rarityIn(digSite.value?.roster)),
@@ -946,7 +949,7 @@ let partyStatsRead = 0
 const partyStats = computed<PartyStatsView | null>(() => {
     if (!partyStatsOpen.value) return null
     if (!partyStatsPayload.value) return { units: null }
-    return partyStatsView(partyStatsPayload.value, liveHero.value?.className ?? '', hero.value?.classId ?? 'class_beginner', partyStatCell.value)
+    return partyStatsView(partyStatsPayload.value, liveHero.value?.className ?? '', hero.value?.classId ?? 'class_beginner', notation.value, partyStatCell.value)
 })
 
 async function openPartyStats() {
@@ -1026,7 +1029,7 @@ async function startArenaAttack(slot: number) {
     const round = await attackArena(slot, candidate.id)
     if (!round) return
     fightProgress.value = { time: 0, done: false }
-    arenaOutcome = { won: round.won, dummy: round.dummy, opponent: round.opponentName, ratingChange: round.ratingChange, rating: round.rating, medals: round.medals }
+    arenaOutcome = { notation: notation.value, won: round.won, dummy: round.dummy, opponent: round.opponentName, ratingChange: round.ratingChange, rating: round.rating, medals: round.medals }
     arenaRound.value = {
         outcome: round.outcome,
         secondsElapsed: round.secondsElapsed,
@@ -1062,6 +1065,9 @@ async function onSetting(target: SettingsTarget) {
         if (target === 'resetTutorials') {
             seenLocally.value = []
             await resetTutorials()
+        } else if (isNotationTarget(target)) {
+            const next = target.slice(9) as HqNotation
+            if (next !== notation.value) await setSetting('numberNotation', next)
         } else await setSetting(target, !settingsView.value.settings[target])
     } catch {
         // `useHeroQuest` has already shown the error
@@ -1080,6 +1086,7 @@ const calendarView = computed<CalendarView>(() => {
     return {
         today: c?.today ?? 0,
         days: c?.days ?? [],
+        notation: notation.value,
         makeupsLeft: c?.makeupsLeft ?? 0,
         makeupsPerCycle: CALENDAR_MAKEUPS_PER_CYCLE,
         makeupDay: c?.makeupDay ?? null,
@@ -1117,7 +1124,7 @@ async function onChestCollect() {
     const key = (chestToast.value?.key ?? 0) + 1
     try {
         const res = await collectChest()
-        if (res) chestToast.value = { key, text: `+${formatHq(res.collected)} GOLD`, error: false }
+        if (res) chestToast.value = { key, text: `+${fmt(res.collected)} GOLD`, error: false }
     } catch (e) {
         chestToast.value = { key, text: apiErrorMessage(e, 'Could not open the chest').toUpperCase(), error: true }
     } finally {
@@ -1154,7 +1161,7 @@ async function onHolidayOpen() {
     const gift = holidayGift.value
     if (!gift || holidayReveal.value) return
     const key = ++holidayRevealKey
-    holidayReveal.value = { key, id: gift.id, name: gift.name, lines: null }
+    holidayReveal.value = { notation: notation.value, key, id: gift.id, name: gift.name, lines: null }
     try {
         const res = await claimHoliday(gift.id)
         if (!res) return
@@ -1174,7 +1181,7 @@ async function onHolidayOpen() {
 }
 
 /** The Milestones scene: every track's next step and what's waiting. */
-const milestonesView = computed<MilestonesView>(() => ({ rows: milestones.value }))
+const milestonesView = computed<MilestonesView>(() => ({ rows: milestones.value, notation: notation.value }))
 const milestonesBusy = ref(false)
 
 async function onClaimMilestones(track: string) {
@@ -1237,7 +1244,7 @@ async function runAutoRoll(): Promise<string> {
 
 /** What an Auto Roll came to, for the scene's bottom line. */
 function autoRollNote(res: AutoRollTotal): string {
-    const rolls = `${res.rolls} ROLL${res.rolls === 1 ? '' : 'S'}, ${formatNumber(res.spent)} TRAIT GEMS`
+    const rolls = `${res.rolls} ROLL${res.rolls === 1 ? '' : 'S'}, ${fmt(res.spent)} TRAIT GEMS`
     if (res.stoppedBy === 'hit') {
         const best = res.slots.reduce<TraitGrade>((top, slot) => slot && TRAIT_GRADES.indexOf(slot.grade) > TRAIT_GRADES.indexOf(top) ? slot.grade : top, 'F')
         return `GRADE ${best} AFTER ${rolls}!`
@@ -1255,10 +1262,11 @@ const traitsView = computed<TraitsView>(() => {
     const gems = user.value?.gems ?? 0
     const armed = confirm.armed.value?.startsWith('trait:') ? confirm.armed.value.slice(6) as TraitsTarget : null
     if (!t) {
-        return { traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [], saveCost: 0, saveAffordable: false, boardFull: false, gems, armed, roll: null, autoGrade: traitAutoGrade.value, gradePickerOpen: false }
+        return { notation: notation.value, traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [], saveCost: 0, saveAffordable: false, boardFull: false, gems, armed, roll: null, autoGrade: traitAutoGrade.value, gradePickerOpen: false }
     }
     return {
-        traitGems: formatNumber(traitAutoGems.value ?? t.traitGems),
+        notation: notation.value,
+        traitGems: fmt(traitAutoGems.value ?? t.traitGems),
         slots: t.slots.map(slot => slot && {
             statName: slot.statName,
             value: `+${hqPercent(slot.value)}`,
@@ -1285,7 +1293,7 @@ const traitsView = computed<TraitsView>(() => {
             return {
                 index: slot.index,
                 unlocked: slot.unlocked,
-                price: next === null ? null : formatNumber(next),
+                price: next === null ? null : fmt(next),
                 priceGems: next,
                 grades: slot.slots ? slot.slots.map(s => s?.grade ?? 'F') : null
             }
@@ -1355,10 +1363,11 @@ const treeBusy = ref(false)
 const treeView = computed<TreeView>(() => {
     const t = passiveTree.value
     const armed = confirm.armed.value === 'tree:respec'
-    if (!t) return { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed, busy: treeBusy.value }
+    if (!t) return { notation: notation.value, nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed, busy: treeBusy.value }
     return {
+        notation: notation.value,
         nodes: t.nodes,
-        points: formatNumber(t.pointsLeft),
+        points: fmt(t.pointsLeft),
         respecFree: t.respecFree,
         respecGems: t.respecGems,
         respecAffordable: (user.value?.gems ?? 0) >= t.respecGems,
@@ -1406,7 +1415,8 @@ const speedView = computed<SpeedView>(() => {
     return {
         multiplier: running,
         left: running > 1 ? speedLeft.value : null,
-        gems: formatNumber(gems),
+        notation: notation.value,
+        gems: fmt(gems),
         gemCount: gems,
         offlineEfficiency: run.value?.offlineEfficiency ?? 1,
         tiers: battleSpeed.value?.tiers ?? [],
@@ -1484,7 +1494,7 @@ const shownRun = computed(() => run.value && bossHeld.value && !run.value.bossLo
 const { liveRun, liveHero, speedNow, goldSincePayload } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
 
 /** The chest's Gold as of now: the last read's, and what the run has banked in it since. */
-const chestPreview = computed(() => goldChest.value ? `${formatHq(D(chestGold.value).add(goldSincePayload.value).floor())} GOLD` : null)
+const chestPreview = computed(() => goldChest.value ? `${fmt(D(chestGold.value).add(goldSincePayload.value).floor())} GOLD` : null)
 
 /**
  * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
@@ -1678,7 +1688,7 @@ watch(wantGate, async (want) => {
     if (wantGate.value) showGate.value = true
 })
 
-/** What the prestige paid, spelled out, for the bridge to raise over the Hero. */
+/** What the prestige paid, as a Decimal string, for the bridge to raise over the Hero. */
 const earnedShards = ref<string | null>(null)
 
 async function beginAgain() {
@@ -1687,7 +1697,7 @@ async function beginAgain() {
     earnedShards.value = null
     try {
         const result = await prestige()
-        if (result) earnedShards.value = formatHq(result.voidShardsEarned)
+        if (result) earnedShards.value = result.voidShardsEarned
         crossing.value = true
     } catch {
         holdGate.value = false
@@ -1799,9 +1809,9 @@ const welcomeView = computed<WelcomeView | null>(() => {
     return {
         away: stageDuration(r.awaySeconds),
         counted: stageDuration(r.effectiveSeconds),
-        gold: `+${formatNumber(r.goldEarned)}`,
-        xp: `+${formatHq(D(r.xpEarned).floor())}`,
-        kills: `${formatNumber(r.kills)} KILLS`,
+        gold: `+${fmt(r.goldEarned)}`,
+        xp: `+${fmt(D(r.xpEarned).floor())}`,
+        kills: `${fmt(r.kills)} KILLS`,
         level: r.levelsGained > 0 ? `LEVEL ${r.heroLevel - r.levelsGained} > ${r.heroLevel}` : null,
         stage: moved ? `WORLD ${r.from.world} STAGE ${r.from.stage} > WORLD ${r.to.world} STAGE ${r.to.stage}` : null,
         notes
@@ -1833,8 +1843,8 @@ function closeWelcome() {
           :party="gateParty"
           :pending="prestiging"
           :crossing="crossing"
-          :earned="earnedShards"
-          :reward="formatHq(nextPrestigeReward)"
+          :earned="earnedShards === null ? null : fmt(earnedShards)"
+          :reward="fmt(nextPrestigeReward)"
           :menu-scenes="menuScenes"
           :guide="guideView"
           @begin="beginAgain"

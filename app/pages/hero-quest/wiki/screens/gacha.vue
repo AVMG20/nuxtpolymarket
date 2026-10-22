@@ -15,6 +15,8 @@ import { GACHA_SYSTEMS, RARITIES, dropRatesFor, pullsToNextLevel, type GachaSyst
  * `dropRatesFor`, the function a pull rolls against.
  */
 
+const { fmt } = useHqNotation()
+
 /** The names over the banners (`gacha-scene.ts`), and what each pays out. */
 const BANNER: Readonly<Record<GachaSystem, { name: string, pays: string }>> = {
     gear: { name: 'Forge', pays: 'Gear' },
@@ -130,7 +132,7 @@ const reveal = [
         The price line shows Seals with a dot in the banner's colour. If you are short, the pull
         still works: the missing Seals are bought with Gold, shown after a
         <strong class="text-default">+</strong> with a coin. Gold-bought Seals start at
-        {{ formatNumber(SEAL_LADDER_BASE_GOLD) }} each and get dearer with every one bought that
+        {{ fmt(SEAL_LADDER_BASE_GOLD) }} each and get dearer with every one bought that
         day, on each banner separately, until midnight UTC. A pull you cannot cover is greyed out.
       </p>
     </HeroQuestWikiSection>

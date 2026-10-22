@@ -586,7 +586,7 @@ async function sendGift() {
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
                 <UIcon name="i-lucide-sword" class="size-4 text-warning" />
                 <span class="flex-1 text-sm">Hero Quest power</span>
-                <span class="font-semibold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn) : '—' }}</span>
+                <span class="font-semibold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn, 'standard') : '—' }}</span>
               </div>
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
                 <UIcon name="i-lucide-bot" class="size-4 text-info" />

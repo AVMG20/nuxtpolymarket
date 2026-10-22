@@ -68,7 +68,8 @@ import { ENTRY_SETTLED } from './boss-kit'
 import { RunDirector, stageNumber, type RunFeed } from './run-director'
 import { hitsParty, scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '#shared/utils/hero-quest/fight'
-import { D, ZERO, type Decimal } from '#shared/utils/hero-quest/numbers'
+import { D, ZERO, type Decimal, type HqNotation } from '#shared/utils/hero-quest/numbers'
+import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { dummyLevelFor, dummyThreshold, landsOnEnemy, rampageThreshold } from '#shared/utils/hero-quest/raids'
 import { raidBossSpecials } from '#shared/utils/hero-quest/content/boss-specials'
 import { attackIntervalFor } from '#shared/utils/hero-quest/combat'
@@ -659,13 +660,6 @@ const NUM_TEXT: Readonly<Record<string, readonly string[]>> = {
 /** What each damage text is worth, for the Training Grounds tally. */
 const NUM_VALUE = new Map([...NUM_TEXT.normal!, ...NUM_TEXT.crit!].map(t => [t, parseFloat(t) * (t.includes('K') ? 1000 : 1)]))
 
-/** A damage total the way the numbers show it: 950, 12.4K, 1.20M. */
-function compact(n: number): string {
-    if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`
-    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
-    return String(Math.round(n))
-}
-
 function frameAt(b: Baked, t: number): Surface {
     const n = b.frames.length
     let f = Math.floor(t * b.fps + 1e-6)
@@ -1065,7 +1059,7 @@ export class BattleDemo {
             this.gpnAt = this.gainAt = this.changeAt = this.levelAt = -1
             this.badge = {
                 portrait: badgePortrait(headOf(`hero/${this.classId}`)),
-                gpn: stageNumber(D(10).pow(to)),
+                gpn: stageNumber(D(10).pow(to), this.notationNow),
                 level: feed.heroLevel,
                 stage: this.label,
                 sinceGain: -1,
@@ -1121,7 +1115,7 @@ export class BattleDemo {
         if (!b) return null
         // formatting allocates, so only while the count runs and once as it lands
         if (this.gpnAt >= 0) {
-            b.gpn = stageNumber(D(10).pow(this.gpnShown()))
+            b.gpn = stageNumber(D(10).pow(this.gpnShown()), this.notationNow)
             if (this.time - this.gpnAt >= GPN_TWEEN) this.gpnAt = -1
         }
         b.stage = this.label
@@ -1489,7 +1483,7 @@ export class BattleDemo {
         if (key !== this.tallyKey) {
             this.tallyKey = key
             // nothing landed yet reads 0: the number font's formatter floors every figure at 1
-            this.tally = `${rr.dealt.lt(1) ? '0' : stageNumber(rr.dealt)} DMG  LV ${rr.level}`
+            this.tally = `${rr.dealt.lt(1) ? '0' : stageNumber(rr.dealt, this.notationNow)} DMG  LV ${rr.level}`
         }
     }
 
@@ -1741,7 +1735,7 @@ export class BattleDemo {
         if (!t || quiet || t.state === U.Gone) return
         const dmg = D(h.damage ?? 0)
         const y = t.y - t.chest
-        if (dmg.gt(0)) this.number(t.x, y - 8, h.crit ? 'crit' : 'normal', false, h.crit ? `${stageNumber(dmg)}!` : stageNumber(dmg))
+        if (dmg.gt(0)) this.number(t.x, y - 8, h.crit ? 'crit' : 'normal', false, h.crit ? `${stageNumber(dmg, this.notationNow)}!` : stageNumber(dmg, this.notationNow))
         this.particles.burst(t.x - 4, y, h.crit ? 14 : 8, h.crit ? 70 : 45, 0.5, 'spark', 120, t.y)
         if (h.crit) this.shake(JUICE.crit.shake, JUICE.crit.shakeFor)
         // a basic attack on a boss doesn't shake: with a party swinging, the screen never stopped (the user's call)
@@ -1810,7 +1804,7 @@ export class BattleDemo {
                     if (f && n !== undefined) this.revive(f, `e${e.enemyIndex}`, n)
                     else if (f && down(f)) return
                     this.setFoeHp(f, e.enemyIndex, e.remainingHp)
-                    if (f && !quiet && f.state !== U.Gone && D(e.damage ?? 0).gt(0)) this.number(f.x + 6, f.y - f.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
+                    if (f && !quiet && f.state !== U.Gone && D(e.damage ?? 0).gt(0)) this.number(f.x + 6, f.y - f.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!), this.notationNow)}`)
                     return
                 }
                 const t = this.partyUnit(e.unitIndex)
@@ -1818,7 +1812,7 @@ export class BattleDemo {
                 else if (t && down(t)) return
                 this.setPartyHp(e.unitIndex, e.remainingHp)
                 if (!t) return
-                if (!quiet && D(e.damage ?? 0).gt(0)) this.number(t.x - 6, t.y - t.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
+                if (!quiet && D(e.damage ?? 0).gt(0)) this.number(t.x - 6, t.y - t.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!), this.notationNow)}`)
                 return
             }
             case 'shield': {
@@ -1840,7 +1834,7 @@ export class BattleDemo {
                 const t = this.foeUnit(e.enemyIndex)
                 this.setFoeHp(t, e.enemyIndex, e.remainingHp)
                 const dmg = D(e.damage ?? 0)
-                if (t && !quiet && t.state !== U.Gone && dmg.gt(0)) this.number(t.x + 6, t.y - t.chest - 4, 'normal', false, stageNumber(dmg))
+                if (t && !quiet && t.state !== U.Gone && dmg.gt(0)) this.number(t.x + 6, t.y - t.chest - 4, 'normal', false, stageNumber(dmg, this.notationNow))
                 return
             }
             case 'enemy_down':
@@ -2194,7 +2188,7 @@ export class BattleDemo {
         const key = Math.ceil(r.clock) * 1e9 + r.dmg
         if (key !== this.tallyKey) {
             this.tallyKey = key
-            this.tally = `${compact(r.dmg)} DMG  0:${String(Math.ceil(r.clock)).padStart(2, '0')}`
+            this.tally = `${r.dmg < 1 ? '0' : stageNumber(D(r.dmg), this.notationNow)} DMG  0:${String(Math.ceil(r.clock)).padStart(2, '0')}`
         }
     }
 
@@ -2434,7 +2428,7 @@ export class BattleDemo {
 
     /** The blow that drops the front body: what HP it had left, and the kill. */
     private lastBlow(tgt: Unit, crit: boolean, sweep = false): void {
-        const text = this.run!.finish()
+        const text = this.run!.finish(this.notationNow)
         const y = tgt.y - tgt.chest
         if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
         this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
@@ -2471,7 +2465,7 @@ export class BattleDemo {
             this.cleave(tgt, crit)
             return
         }
-        const text = r.hit(crit)
+        const text = r.hit(crit, this.notationNow)
         this.paintFront()
         if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
         this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
@@ -2589,7 +2583,7 @@ export class BattleDemo {
             const dmg = D(h.damage ?? 0)
             if (!t || this.replay?.quiet !== false || dmg.lte(0)) continue
             if (!c.first) c.first = t
-            this.number(t.x, t.y - t.crown - t.stack * 7, 'crit', true, stageNumber(dmg))
+            this.number(t.x, t.y - t.crown - t.stack * 7, 'crit', true, stageNumber(dmg, this.notationNow))
             t.stack++
         }
         // the deaths go once, after the last hit; past that the drawn impacts land nothing
@@ -2685,7 +2679,7 @@ export class BattleDemo {
         if (i === 0) this.cineTotal = ZERO
         const crit = Math.random() < (r.feed?.critChance ?? 0)
         const due = r.due() > 0
-        const text = due ? r.finish() : r.hit(crit)
+        const text = due ? r.finish(this.notationNow) : r.hit(crit, this.notationNow)
         if (!due) this.paintFront()
         if (text) {
             this.number(tgt.x, tgt.y - tgt.crown - tgt.stack * 7, crit ? 'crit' : 'normal', true, crit ? `${text}!` : text)
@@ -2704,7 +2698,7 @@ export class BattleDemo {
         }
         if (i === c.hits.length - 1 && this.cineTotal.gt(0)) {
             const f = c.first
-            this.number(f.x + 6, f.y - f.crown - f.stack * 7 - 8, 'total', true, stageNumber(this.cineTotal))
+            this.number(f.x + 6, f.y - f.crown - f.stack * 7 - 8, 'total', true, stageNumber(this.cineTotal, this.notationNow))
         }
     }
 
@@ -2979,6 +2973,20 @@ export class BattleDemo {
     calm = false
     cinematics = true
     numbers = true
+    private notationNow: HqNotation = HQ_SETTING_DEFAULTS.numberNotation
+
+    /** The player's big-number notation, for every figure the stage prints. */
+    get notation(): HqNotation {
+        return this.notationNow
+    }
+
+    set notation(next: HqNotation) {
+        if (next === this.notationNow) return
+        this.notationNow = next
+        // the badge and the tally only reprint on a change of their own, so they are told here
+        if (this.badge) this.badge.gpn = stageNumber(D(10).pow(this.gpnShown()), next)
+        this.tallyKey = -1
+    }
 
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()

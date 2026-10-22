@@ -37,7 +37,7 @@ import { isGachaSystem, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import { isLoadoutTarget, type LoadoutPreferences, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
 import type { MilestoneReward, MilestoneRow } from '#shared/utils/hero-quest/milestones'
 import type { PassiveBuyBlock } from '#shared/utils/hero-quest/passive-tree'
-import { isHqSettingKey, type HqSettingKey, type HqSettings } from '#shared/utils/hero-quest/settings'
+import { isHqSettingKey, isHqSettingValue, type HqSettingKey, type HqSettings } from '#shared/utils/hero-quest/settings'
 import { isTutorialRecord, type TutorialRecord } from '#shared/utils/hero-quest/tutorials'
 import type { TraitAutoRollStop } from '#shared/utils/hero-quest/traits'
 import type {
@@ -297,13 +297,22 @@ export const RAID_BODY: BodySchema<HqRaidRequest> = {
     raidId: { check: isRaidId, message: 'Unknown raid' }
 }
 
-export interface HqSettingRequest {
+/** One setting and its new value, the value of that setting's own kind (`isHqSettingValue`). */
+export type HqSettingRequest = { [K in HqSettingKey]: { key: K, value: HqSettings[K] } }[HqSettingKey]
+interface HqSettingFields {
     key: HqSettingKey
-    value: boolean
+    value: HqSettings[HqSettingKey]
 }
-export const SETTING_BODY: BodySchema<HqSettingRequest> = {
+const SETTING_FIELDS: BodySchema<HqSettingFields> = {
     key: { check: isHqSettingKey, message: 'Unknown setting' },
-    value: { check: isBoolean, message: 'Unknown setting' }
+    value: { check: (value): value is HqSettings[HqSettingKey] => isBoolean(value) || isString(value), message: 'Unknown setting' }
+}
+
+/** The fields alone cannot say a switch takes only a boolean and a pick only its choices: the pair is checked here. */
+export function validateSettingBody(body: unknown): HqSettingRequest {
+    const { key, value } = validateHqBody(body, SETTING_FIELDS)
+    if (!isHqSettingValue(key, value)) throw createError({ statusCode: 400, statusMessage: 'Unknown setting' })
+    return { key, value } as HqSettingRequest
 }
 
 export interface HqShopBuyRequest {
@@ -769,7 +778,7 @@ export interface HqStatsResponse {
         label: string
         role: string | null
         heroLevel: number
-        derived: { key: string, label: string, value: string, formula: string, note?: string }[]
+        derived: { key: string, label: string, value: string, amount?: string, formula: string, note?: string }[]
         stats: {
             key: HqStatKey
             label: string

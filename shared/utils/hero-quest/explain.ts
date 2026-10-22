@@ -69,6 +69,7 @@ import {
 } from './stats'
 import { mergeTotals, sumModifiers } from './modifiers'
 import { D, ONE, decPow, formatHq } from './numbers'
+import { HQ_SETTING_DEFAULTS } from './settings'
 import type { Decimal } from './numbers'
 import type { ChampionArchetype, ChampionSnapshot, ClassTier, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
 
@@ -155,6 +156,8 @@ export interface DerivedBreakdown {
     key: string
     label: string
     value: string
+    /** A big value's exact Decimal string, for a client to spell out in the player's notation; `value` is the default notation's. */
+    amount?: string
     /** The formula with real numbers in it, not symbols. */
     formula: string
     /**
@@ -385,7 +388,8 @@ function derivedFor(unit: UnitStats, block: Record<HqStatKey, Decimal>): Derived
         {
             key: 'maxHp',
             label: 'Max HP',
-            value: formatHq(unit.maxHp),
+            value: formatHq(unit.maxHp, HQ_SETTING_DEFAULTS.numberNotation),
+            amount: unit.maxHp.toString(),
             formula: `(BASE_HP ${BASE_HP} + vit ${block.vit.toFixed(2)} × ${HP_PER_VIT}) × maxHpFactor`,
             // The one place a *flat* constant meets the compounding curve, so it is worth saying
             // out loud which of the two is currently carrying the pool.
