@@ -649,7 +649,7 @@ function holidayGiftAssets(): ArtAsset[] {
             rect(d, 0, 0, d.w, d.h, C.night2)
             // a fresh reveal per frame, opened at 0 and handed its lines at 0.6, so any frame renders alone
             const reveal = new GiftReveal()
-            const view = (lines: GiftRewardLine[] | null) => ({ key: 1, id: 'holiday_christmas' as const, name: 'Christmas', lines })
+            const view = (lines: GiftRewardLine[] | null) => ({ notation: 'standard' as const, key: 1, id: 'holiday_christmas' as const, name: 'Christmas', lines })
             reveal.render(d, 0, view(null), false, false)
             if (t >= 0.6) reveal.render(d, 0.6, view(GIFT_SAMPLE), false, false)
             rect(d, 0, 0, d.w, d.h, C.night2)

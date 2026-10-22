@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
-import { SETTING_BODY, readHqBody, type HqSettingResponse } from '#server/utils/hero-quest-api'
+import { validateSettingBody, type HqSettingResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Change one setting. The new value is merged into the stored ones in the UPDATE itself, so two
@@ -12,7 +12,7 @@ import { SETTING_BODY, readHqBody, type HqSettingResponse } from '#server/utils/
  */
 export default defineEventHandler(async (event): Promise<HqSettingResponse> => {
     const userId = await requireUserId(event)
-    const { key, value } = await readHqBody(event, SETTING_BODY)
+    const { key, value } = validateSettingBody(await readBody<unknown>(event))
 
     const [updated] = await db.update(hqState)
         .set({ settings: sql`${hqState.settings} || ${JSON.stringify({ [key]: value })}::jsonb` })

@@ -724,8 +724,11 @@ export const XP_BASE_PER_KILL = 2 // TUNED ✓
  *
  * 38 → 86 on 2026-10-20 (the user's call): **a 4-day first prestige** again, measured 4.0 days on the
  * baseline walk (`--unlocks`), with World 1 unchanged since its first gates need no grinding.
+ *
+ * 86 → 115 on 2026-10-22 (the user's call: players level too quickly): XP ×0.75 stretches every
+ * prestige alike, measured on days 5.4, 12.1, 20.2, 29.6, 40.2, 81, 160 and 321 on the kit ladder.
  */
-export const XP_TO_LEVEL_BASE = 86 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 115 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**
@@ -737,7 +740,7 @@ export const XP_TO_LEVEL_BASE = 86 // TUNED ✓
  *
  * The magnitude comes from compounding across the `LEVELS_PER_STAGE` levels each stage hands out.
  * At 1.05 a level-300 Hero needs ~22M XP for its next level and the first prestige ends around
- * 2.8e11, inside `formatHq`'s named-suffix ladder. Steeper values push that into scientific
+ * 2.8e11, inside the standard notation's named-suffix ladder. Steeper values push that into scientific
  * notation within a few prestiges.
  */
 export const XP_TO_LEVEL_GROWTH = 1.05 // TUNED ✓
@@ -850,16 +853,17 @@ export const ENEMY_HP_STEP_EXPONENT = DPS_COVERAGE_PER_STAGE + FIGHT_LENGTH_DRIF
 
 /**
  * Enemy HP shed by each prestige, cumulative, in steps of `ENEMY_STEP_BASE` (the user's call, 2026-10-20, issue #44).
- * Fitted on the baseline walk to land the prestiges on days 4, 9, 15, 22, 30, 60, 120 and 240; past the table each prestige repeats the last step.
+ * Fitted on the baseline walk's kit ladder (`--kit-ladder`, 2026-10-22) at `XP_TO_LEVEL_BASE` 86 to days 4, 9, 15, 22, 30, 60, 120 and 240, which its cut to 115 stretches ×1.35.
+ * Past the table each prestige repeats the last step.
  */
 export const PRESTIGE_HP_SHED_STEPS: Readonly<Record<number, number>> = { // locked 2026-10-20, the user's call
-    1: 27.41,
-    2: 42.32,
-    3: 70.01,
-    4: 103.03,
-    5: 124.44,
-    6: 151.84,
-    7: 179.02
+    1: 23.82,
+    2: 37.87,
+    3: 66.39,
+    4: 92.96,
+    5: 114.35,
+    6: 140.74,
+    7: 168.57
 }
 
 // ── Gold ───────────────────────────────────────────  gold-economy.md §3–4
@@ -1729,6 +1733,9 @@ export const RARITY_EPITHETS: readonly string[] = [
 export const SINGLE_PULL_COST = 1
 export const TEN_PULL_SIZE = 10
 export const TEN_PULL_COST = 9
+/** A 100-pull is ten 10-pulls in one press, offered once a banner holds its Seals (the user's call, 2026-10-22). */
+export const HUNDRED_PULL_SIZE = 100
+export const HUNDRED_PULL_COST = HUNDRED_PULL_SIZE / TEN_PULL_SIZE * TEN_PULL_COST
 
 /**
  * dupesToLevelUp(star, level) = round(min((star × 10 + level) × DUPE_LEVEL_FACTOR, DUPE_LEVEL_CAP))

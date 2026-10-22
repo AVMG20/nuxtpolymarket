@@ -23,6 +23,7 @@ const {
 // hand-typed URL should land somewhere honest rather than on a page of dead buttons.
 if (!devMode) throw createError({ statusCode: 404, statusMessage: 'Not found' })
 
+const { fmt } = useHqNotation()
 const busy = ref(false)
 const lastSkip = ref<HqDevSkipResponse | null>(null)
 
@@ -263,10 +264,10 @@ async function doReset() {
           class="rounded border border-primary/40 bg-primary/5 p-3 text-xs space-y-1"
         >
           <p class="text-default">
-            {{ formatNumber(lastSkip.kills) }} kills ·
-            {{ formatNumber(lastSkip.goldEarned) }} Gold ·
+            {{ fmt(lastSkip.kills) }} kills ·
+            {{ fmt(lastSkip.goldEarned) }} Gold ·
             +{{ lastSkip.levelsGained }} levels ·
-            now W{{ lastSkip.world }}-{{ lastSkip.stage }} at level {{ formatNumber(lastSkip.heroLevel) }}
+            now W{{ lastSkip.world }}-{{ lastSkip.stage }} at level {{ lastSkip.heroLevel }}
           </p>
           <p
             v-if="lastSkip.blockedAtBoss"
@@ -320,7 +321,7 @@ async function doReset() {
         </div>
         <p class="text-xs text-muted">
           Seals and Essence pay all four systems at once, like every milestone grant.
-          Void Shards: {{ formatNumber(Number(voidShards)) }}.
+          Void Shards: {{ fmt(voidShards ?? '0') }}.
         </p>
       </section>
 

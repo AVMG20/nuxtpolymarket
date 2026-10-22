@@ -8,7 +8,7 @@ import { drawText, textWidth } from './font'
 import { panel } from './ui-art'
 import { stageNumber } from './run-director'
 import { headOf, HEAD } from './demo'
-import { D, hqNumber } from '#shared/utils/hero-quest/numbers'
+import { D, hqNumber, type HqNotation } from '#shared/utils/hero-quest/numbers'
 import { CHAMPION_BY_ID } from '#shared/utils/hero-quest/content/champions'
 
 /** One fielded unit's column: its portrait's art asset, its name, and each row's value already spelled out. */
@@ -52,7 +52,7 @@ export interface PartyStatsPayload {
             final: string
             stages: readonly { id: string, label: string, factor: string, parts: readonly { label: string, amount: number }[] }[]
         }[]
-        derived: readonly { key: string, value: string }[]
+        derived: readonly { key: string, value: string, amount?: string }[]
     }[]
 }
 
@@ -72,17 +72,17 @@ const ROWS: readonly { label: string, stat?: string, derived?: string }[] = [
 ]
 
 /** A stat as the popup prints it: a decimal under 100, the stage's own figure above. */
-function statNumber(value: string): string {
+function statNumber(value: string, notation: HqNotation): string {
     const v = D(value)
     if (v.lt(100)) return String(Number(v.toNumber().toFixed(1)))
-    return stageNumber(v)
+    return stageNumber(v, notation)
 }
 
 /** A stage's factor: the base as a figure, every later stage as the multiplier it applied. */
-function factorText(factor: string, base: boolean): string {
-    if (base) return statNumber(factor)
-    const value = Number(factor)
-    return Number.isFinite(value) ? `×${hqNumber(value)}` : `×${stageNumber(D(factor))}`
+function factorText(factor: string, base: boolean, notation: HqNotation): string {
+    if (base) return statNumber(factor, notation)
+    const value = D(factor)
+    return value.lt(1000) ? `×${hqNumber(value.toNumber())}` : `×${stageNumber(value, notation)}`
 }
 
 /** A part as an addend: points on the base, a percentage everywhere else, so nobody multiplies them. */
@@ -100,7 +100,7 @@ function unitName(unit: PartyStatsPayload['units'][number], heroName: string): s
  * The popup's columns from the stats read, Hero first as it sends them, the Hero named and drawn by
  * its class. `cell` is the base stat whose sources are open, by its row and its unit's column.
  */
-export function partyStatsView(payload: PartyStatsPayload, heroName: string, heroClassId: string, cell: { row: number, unit: number } | null = null): PartyStatsView {
+export function partyStatsView(payload: PartyStatsPayload, heroName: string, heroClassId: string, notation: HqNotation, cell: { row: number, unit: number } | null = null): PartyStatsView {
     const units = payload.units.map(unit => ({
         asset: unit.role === null ? `hero/${heroClassId}` : `champion/${unit.label}`,
         name: unitName(unit, heroName),
@@ -108,15 +108,17 @@ export function partyStatsView(payload: PartyStatsPayload, heroName: string, her
         values: ROWS.map((row) => {
             if (row.stat) {
                 const stat = unit.stats.find(s => s.key === row.stat)
-                return stat ? statNumber(stat.final) : '-'
+                return stat ? statNumber(stat.final, notation) : '-'
             }
-            return (unit.derived.find(d => d.key === row.derived)?.value ?? '-').toUpperCase()
+            const derived = unit.derived.find(d => d.key === row.derived)
+            if (!derived) return '-'
+            return (derived.amount === undefined ? derived.value : stageNumber(D(derived.amount), notation)).toUpperCase()
         })
     }))
-    return { units, detail: cell ? statDetail(payload, heroName, cell) : null }
+    return { units, detail: cell ? statDetail(payload, heroName, cell, notation) : null }
 }
 
-function statDetail(payload: PartyStatsPayload, heroName: string, cell: { row: number, unit: number }): PartyStatDetail | null {
+function statDetail(payload: PartyStatsPayload, heroName: string, cell: { row: number, unit: number }, notation: HqNotation): PartyStatDetail | null {
     const unit = payload.units[cell.unit]
     const key = ROWS[cell.row]?.stat
     const stat = key ? unit?.stats.find(s => s.key === key) : undefined
@@ -124,12 +126,12 @@ function statDetail(payload: PartyStatsPayload, heroName: string, cell: { row: n
     const lines: PartyStatLine[] = []
     for (const stage of stat.stages) {
         const base = stage.id === 'base'
-        lines.push({ label: stage.label.toUpperCase(), value: factorText(stage.factor, base), part: false })
+        lines.push({ label: stage.label.toUpperCase(), value: factorText(stage.factor, base, notation), part: false })
         for (const part of stage.parts) {
             if (part.amount !== 0) lines.push({ label: part.label.toUpperCase(), value: partText(part.amount, base), part: true })
         }
     }
-    return { title: `${unitName(unit, heroName)}: ${ROWS[cell.row]!.label}`, final: statNumber(stat.final), lines }
+    return { title: `${unitName(unit, heroName)}: ${ROWS[cell.row]!.label}`, final: statNumber(stat.final, notation), lines }
 }
 
 /** Whether a row opens its sources: the base stats do, the derived ones have none of their own. */

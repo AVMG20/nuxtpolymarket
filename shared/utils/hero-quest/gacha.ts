@@ -27,6 +27,8 @@ import {
     RARITY_STAT_MULTIPLIERS,
     SEAL_LADDER_BASE_GOLD,
     SEAL_LADDER_GROWTH,
+    HUNDRED_PULL_COST,
+    HUNDRED_PULL_SIZE,
     SINGLE_PULL_COST,
     TEN_PULL_COST,
     TEN_PULL_SIZE
@@ -185,6 +187,7 @@ export interface PullCost {
 
 export function pullCost(count: number): PullCost {
     if (count === TEN_PULL_SIZE) return { seals: TEN_PULL_COST, pulls: TEN_PULL_SIZE }
+    if (count === HUNDRED_PULL_SIZE) return { seals: HUNDRED_PULL_COST, pulls: HUNDRED_PULL_SIZE }
     const pulls = Math.max(1, Math.floor(count))
     return { seals: pulls * SINGLE_PULL_COST, pulls }
 }

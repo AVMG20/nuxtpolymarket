@@ -19,6 +19,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, FORGE_MASTER, RAMPANT } from './
 import type { SceneBackdrops } from './menu-band'
 import { RAIDS, paysEveryRun, type RaidFightType, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export interface RaidsView {
     /** The raid shown on the right. */
@@ -349,6 +350,8 @@ export class RaidsScene {
 
 /** What a round or a quick-clear paid, for the popup that says so. */
 export interface RaidRewardView {
+    /** The player's big-number notation as the reward landed. */
+    notation: HqNotation
     raidId: RaidId
     /** A quick-clear took the best's reward without a round. */
     quick: boolean
@@ -396,7 +399,7 @@ export function drawRaidReward(s: Surface, view: RaidRewardView, lit: boolean, p
     } else {
         if (view.newBest) drawText(s, 'NEW BEST', cx, b.y + 23, C.green3, { align: 1, shadow: 1 })
         // what it paid, its currency's icon before it
-        const paid = `+${view.reward} ${raid.reward.toUpperCase()}`
+        const paid = `+${formatHq(view.reward, view.notation)} ${raid.reward.toUpperCase()}`
         const pw = textWidth(paid) + 15
         const py = b.y + 33
         glyph(s, CURRENCY_ICONS[REWARD_ICON[view.raidId]]!, cx - (pw >> 1) + 5, py + 2, true)

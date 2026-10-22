@@ -51,7 +51,7 @@ const BIG: Record<string, string> = {
 
 // 5×7, the 3×5's letterforms at about 1.5×: every vertical stroke two pixels wide, every
 // horizontal one pixel, so it reads as the same typeface a size up rather than a new one. Only
-// what a crit or a total prints: digits, the K/M/B/T suffixes, E, and . + - !
+// what a crit or a total prints: digits, A–Z for every notation's suffixes and its e, and . + - !
 const MID: Record<string, string> = {
     '0': '11111110111101111011110111101111111',
     '1': '00110011100011000110001100011011111',
@@ -68,8 +68,28 @@ const MID: Record<string, string> = {
     M: '11011111111111111011110111101111011',
     B: '11110110111101111110110111101111110',
     T: '11111001100011000110001100011000110',
-    // past the trillions the game's numbers print as 4.20E15
     E: '11111110001100011110110001100011111',
+    A: '01110110111101111111110111101111011',
+    C: '01111110001100011000110001100001111',
+    D: '11110110111101111011110111101111110',
+    F: '11111110001100011110110001100011000',
+    G: '01111110001100011011110111101101111',
+    H: '11011110111101111111110111101111011',
+    I: '11111001100011000110001100011011111',
+    J: '00011000110001100011000111101101110',
+    L: '11000110001100011000110001100011111',
+    N: '11110110111101111011110111101111011',
+    O: '01110110111101111011110111101101110',
+    P: '11110110111101111110110001100011000',
+    Q: '01110110111101111011110111111001111',
+    R: '11110110111101111110111101101111011',
+    S: '01111110001100001110000110001111110',
+    U: '11011110111101111011110111101101110',
+    V: '11011110111101111011110110111000100',
+    W: '11011110111101111011111111111111011',
+    X: '11011110110111000100011101101111011',
+    Y: '11011110111101101110001100011000110',
+    Z: '11111000110001100110011001100011111',
     '+': '00000001100011011111001100011000000',
     '-': '00000000000000011111000000000000000',
     '!': '11000110001100011000000001100011000',
@@ -106,6 +126,13 @@ function norm(code: number): number {
     if (code >= 97 && code <= 122) return code - 32
     if (code === 215) return 215
     return code & 255
+}
+
+/** Whether `font` has a glyph for every character of `text`; a missing one draws as nothing. */
+export function fontCovers(text: string, font: FontName): boolean {
+    const f = FONTS[font]
+    for (let i = 0; i < text.length; i++) if (!f.widths[norm(text.charCodeAt(i))]) return false
+    return true
 }
 
 export function textWidth(text: string, font: FontName = 'small', scale = 1): number {

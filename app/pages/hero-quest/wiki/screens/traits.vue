@@ -18,6 +18,8 @@ import type { TraitGrade } from '#shared/utils/hero-quest/types'
  * repeating them.
  */
 
+const { fmt } = useHqNotation()
+
 /** The colour of a slot's frame at each grade, as the game draws it. */
 const GRADE_COLOUR: Readonly<Record<TraitGrade, string>> = {
     F: 'stone grey',
@@ -116,7 +118,7 @@ const symbols = [
           color="neutral"
           variant="subtle"
         >
-          Board {{ row.board }}: {{ row.gems?.toLocaleString('en-US') }} Gems
+          Board {{ row.board }}: {{ row.gems === null ? '' : fmt(row.gems) }} Gems
         </UBadge>
       </div>
     </HeroQuestWikiSection>

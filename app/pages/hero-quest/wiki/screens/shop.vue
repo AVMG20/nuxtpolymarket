@@ -9,24 +9,27 @@ import { battleSpeedPrice } from '#shared/utils/hero-quest/battle-speed'
  * charge.
  */
 
+const { fmt } = useHqNotation()
+
 const CURRENCY: Readonly<Record<ShopCurrency, string>> = { voidShards: 'Void Shards', gems: 'Gems', gold: 'Gold' }
 
-const trackRows = SHOP_TRACKS.map((track) => {
+// a computed so the prices follow the player's notation
+const trackRows = computed(() => SHOP_TRACKS.map((track) => {
     const first = shopTrackCost(track.id, 0) ?? 0
     const second = shopTrackCost(track.id, 1)
     const rule = track.costStep === undefined
         ? `×${Number(track.costGrowth.toFixed(2))} a level`
-        : `+${track.costStep.toLocaleString('en-US')} a level`
+        : `+${fmt(track.costStep)} a level`
     return {
         id: track.id,
         name: track.name,
         description: track.description,
         currency: CURRENCY[track.currency],
         levels: Number.isFinite(track.maxLevel) ? String(track.maxLevel) : 'No limit',
-        first: formatNumber(first),
+        first: fmt(first),
         rule: second === null ? 'One level' : rule
     }
-})
+}))
 
 const durationLabel = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${minutes / 60} h`)
 
@@ -148,7 +151,7 @@ const speed = [
                 :key="index"
                 class="py-1.5 px-3 text-right tabular-nums"
               >
-                {{ price.toLocaleString('en-US') }}
+                {{ fmt(price) }}
               </td>
             </tr>
           </tbody>

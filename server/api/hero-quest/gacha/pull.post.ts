@@ -28,7 +28,7 @@ import {
 } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
 import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content/gear'
-import { TEN_PULL_SIZE } from '#shared/utils/hero-quest/constants'
+import { HUNDRED_PULL_SIZE, TEN_PULL_SIZE } from '#shared/utils/hero-quest/constants'
 import { randomFloat } from '#shared/utils/random'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -106,10 +106,10 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
     // A free pull is always the full ten — the entitlement exists for the 10-pull moment, and
     // letting it be spent as a single would quietly make it worth a ninth of itself.
     const free = body.free === true
-    const requested = free || body.count === TEN_PULL_SIZE ? TEN_PULL_SIZE : 1
+    const requested = free ? TEN_PULL_SIZE : body.count ?? 1
     const cost = pullCost(requested)
-    // a free pull never buys Seals, whatever it was sent with
-    const autoBuy = free ? undefined : body.autoBuy
+    // a free pull never buys Seals, and a 100-pull is only offered once its Seals are held
+    const autoBuy = free || requested === HUNDRED_PULL_SIZE ? undefined : body.autoBuy
 
     // Bank progress first so the pull can't be used to dodge a settle, and so the Seals a
     // milestone just granted are visible to this request.
@@ -142,10 +142,13 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
         const pulls: HqPullRecord[] = []
         let essenceGained = 0
 
+        let rollLevel = gachaLevel
         for (let index = 0; index < cost.pulls; index++) {
+            // a 100-pull rolls each ten at the level the tens before it reached, exactly as ten 10-pulls would
+            if (index > 0 && index % TEN_PULL_SIZE === 0) rollLevel = applyPulls(gachaLevel, progress[system] ?? 0, index).level
             // Rarity from the level's drop table, then a uniform pick inside it. Every roster
             // populates every rarity, so a rolled rarity is the rarity paid out.
-            const rarity = rarityFromRoll(gachaLevel, randomFloat())
+            const rarity = rarityFromRoll(rollLevel, randomFloat())
             const definition = content.fromRoll(rarity, randomFloat())
 
             const before = entries.get(definition.id)

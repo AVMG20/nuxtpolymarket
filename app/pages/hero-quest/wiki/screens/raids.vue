@@ -8,6 +8,8 @@ import { RAID_KEY_CAP, raidReward } from '#shared/utils/hero-quest/raids'
  * `raidReward`, the function that pays them, so a retuned ladder shows up here unedited.
  */
 
+const { fmt } = useHqNotation()
+
 const FIGHT: Readonly<Record<RaidFightType, string>> = {
     solo_boss: `One boss, alone. Bring it down within ${RAID_ENRAGE_SECONDS} seconds.`,
     training_dummy: `A dummy that never falls and never hits back. Deal as much damage as you can in ${RAID_DUMMY_SECONDS} seconds: the damage decides the level reached.`,
@@ -95,7 +97,7 @@ const result = [
               v-for="reward in raid.rewards"
               :key="reward.level"
               class="ml-2"
-            >{{ reward.level }}: {{ reward.amount.toLocaleString('en-US') }}</span>
+            >{{ reward.level }}: {{ fmt(reward.amount) }}</span>
           </p>
         </div>
       </div>

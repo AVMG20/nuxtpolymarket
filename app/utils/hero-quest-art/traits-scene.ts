@@ -17,6 +17,7 @@ import { plateButton, type Box } from './collections-scene'
 import { drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import type { SceneBackdrops } from './menu-band'
 import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS } from '#shared/utils/hero-quest/content/traits'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export interface TraitSlotView {
     statName: string
@@ -51,6 +52,8 @@ export interface TraitSaveView {
 }
 
 export interface TraitsView {
+    /** The player's big-number notation, for the Trait Gem prices. */
+    notation: HqNotation
     traitGems: string
     slots: readonly (TraitSlotView | null)[]
     rollCost: number
@@ -352,7 +355,7 @@ export class TraitsScene {
         view.sets.forEach((set, k) => this.drawSet(s, k, set, hover === `set:${k}`))
 
         header(s, 'SAVED BOARDS', SAVES_Y - 9)
-        const cost = `${view.saveCost} EACH`
+        const cost = `${formatHq(view.saveCost, view.notation)} EACH`
         drawText(s, cost, s.w - 6, SAVES_Y - 9, C.stone3, { align: 2, shadow: 1 })
         glyph(s, CURRENCY_ICONS.trait_gems!, s.w - 6 - textWidth(cost) - 7, SAVES_Y - 7, true)
         for (const save of view.saves) this.drawSave(s, view, save, hover, pressed, busy)
@@ -372,7 +375,7 @@ export class TraitsScene {
 
         const best = this.rollNote(view, t) ?? this.rollBest(view, t)
         const auto = autoRolling(view) ? view.roll!.auto! : null
-        if (auto) drawText(s, fit(`AUTO ROLLING: ${auto.rolls} ROLLS, ${auto.spent} TRAIT GEMS. STOP ENDS IT.`, s.w - 12), LEFT_X, INFO_Y, C.bone1, { shadow: 1 })
+        if (auto) drawText(s, fit(`AUTO ROLLING: ${auto.rolls} ROLLS, ${formatHq(auto.spent, view.notation)} TRAIT GEMS. STOP ENDS IT.`, s.w - 12), LEFT_X, INFO_Y, C.bone1, { shadow: 1 })
         else if (revealing && !best) drawText(s, 'ROLLING...', LEFT_X, INFO_Y, C.stone3, { shadow: 1 })
         else if (best && !hover) drawText(s, fit(best, s.w - 12), LEFT_X, INFO_Y, C.gold3, { shadow: 1 })
         else drawText(s, fit(this.info(view, hover), s.w - 12), LEFT_X, INFO_Y, hover ? C.bone1 : C.stone2, { shadow: 1 })
@@ -456,7 +459,7 @@ export class TraitsScene {
         const lit = hover === 'roll'
         plateButton(s, ROLL, '', ROLL_PLATE, enabled, lit, pressed)
         // the price beside the gem that pays it, centred
-        const label = view.rerolls === 0 ? 'ALL LOCKED' : `ROLL ${view.rollCost}`
+        const label = view.rerolls === 0 ? 'ALL LOCKED' : `ROLL ${formatHq(view.rollCost, view.notation)}`
         const lw = textWidth(label) + (view.rerolls === 0 ? 0 : 13)
         const sink = enabled && lit && pressed ? 1 : 0
         const x0 = ROLL.x + ((ROLL.w - lw) >> 1)
@@ -552,10 +555,10 @@ export class TraitsScene {
         switch (kind) {
             case 'roll':
                 if (view.rerolls === 0) return 'EVERY SLOT IS LOCKED: UNLOCK ONE TO ROLL.'
-                return `ROLL ${view.rerolls} SLOT${view.rerolls === 1 ? '' : 'S'} FOR ${view.rollCost} TRAIT GEMS. EACH LOCK ADDS 5.`
+                return `ROLL ${view.rerolls} SLOT${view.rerolls === 1 ? '' : 'S'} FOR ${formatHq(view.rollCost, view.notation)} TRAIT GEMS. EACH LOCK ADDS 5.`
             case 'auto':
                 if (view.rerolls === 0) return 'EVERY SLOT IS LOCKED: UNLOCK ONE TO ROLL.'
-                return `ROLL UNTIL A SLOT LANDS AT ${view.autoGrade} OR BETTER, ${view.rollCost} TRAIT GEMS A ROLL.`
+                return `ROLL UNTIL A SLOT LANDS AT ${view.autoGrade} OR BETTER, ${formatHq(view.rollCost, view.notation)} TRAIT GEMS A ROLL.`
             case 'grade':
                 return n ? `STOP AT ${n} OR BETTER.` : `AUTO ROLL STOPS AT ${view.autoGrade} OR BETTER. PRESS TO CHANGE.`
             case 'slot': {
@@ -578,10 +581,10 @@ export class TraitsScene {
             }
             case 'save':
                 if (!view.boardFull) return 'ROLL YOUR TRAITS BEFORE STORING THEM.'
-                return `STORE THIS BOARD IN BOARD ${i + 1} FOR ${view.saveCost} TRAIT GEMS${view.saves[i]?.grades ? ', OVER WHAT IT HOLDS' : ''}.`
+                return `STORE THIS BOARD IN BOARD ${i + 1} FOR ${formatHq(view.saveCost, view.notation)} TRAIT GEMS${view.saves[i]?.grades ? ', OVER WHAT IT HOLDS' : ''}.`
             case 'load':
                 if (!view.saves[i]?.grades) return `BOARD ${i + 1} IS EMPTY.`
-                return `LOAD BOARD ${i + 1} OVER YOUR TRAITS FOR ${view.saveCost} TRAIT GEMS.`
+                return `LOAD BOARD ${i + 1} OVER YOUR TRAITS FOR ${formatHq(view.saveCost, view.notation)} TRAIT GEMS.`
             case 'buy':
                 return `BUY BOARD ${i + 1} FOR ${view.saves[i]?.price ?? ''} GEMS.`
         }

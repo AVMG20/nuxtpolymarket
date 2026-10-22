@@ -79,7 +79,7 @@ import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
-import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
+import type { HqSettingKey, HqSettings } from '#shared/utils/hero-quest/settings'
 import type { TutorialRecord } from '#shared/utils/hero-quest/tutorials'
 import type { SkipMode } from '#server/utils/hero-quest-dev'
 import type { TraitGrade } from '#shared/utils/hero-quest/types'
@@ -352,8 +352,8 @@ export const useHeroQuest = () => {
         return call<HqArenaClaimResponse>('/api/hero-quest/arena/claim-season', {}, '')
     }
 
-    async function setSetting(key: HqSettingKey, value: boolean) {
-        return call<HqSettingResponse, HqSettingRequest>('/api/hero-quest/settings/set', { key, value }, '')
+    async function setSetting<K extends HqSettingKey>(key: K, value: HqSettings[K]) {
+        return call<HqSettingResponse, HqSettingRequest>('/api/hero-quest/settings/set', { key, value } as HqSettingRequest, '')
     }
 
     /** The guide's tutorial `id` was read or skipped. */
@@ -482,7 +482,7 @@ export const useHeroQuest = () => {
      * more than that: the price the button showed. Gold then left the shared balance, so the
      * session is read back.
      */
-    async function pull(system: GachaSystem, count: 1 | 10, maxGold?: number) {
+    async function pull(system: GachaSystem, count: 1 | 10 | 100, maxGold?: number) {
         const body: HqPullRequest = maxGold === undefined ? { system, count } : { system, count, autoBuy: { maxGold } }
         const res = await call<HqPullResponse, HqPullRequest>('/api/hero-quest/gacha/pull', body, '')
         if (maxGold !== undefined) await fetchSession()

@@ -10,8 +10,11 @@ import { glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
 import { plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export interface SpeedView {
+    /** The player's big-number notation, for the Gem prices. */
+    notation: HqNotation
     /** The speed running now; 1 when no block is. */
     multiplier: number
     /** The running block's time left, spelled out; null when none runs. */
@@ -102,7 +105,7 @@ export class SpeedScene {
                 }
                 plateButton(s, box, '', BUY_PLATE, enabled, lit, pressed)
                 // the price beside the Gem that pays it, centred on the button
-                const label = String(block.gems)
+                const label = formatHq(block.gems, view.notation)
                 const lw = textWidth(label) + GEM_GAP
                 const sink = enabled && lit && pressed ? 1 : 0
                 const x0 = box.x + ((box.w - lw) >> 1)
@@ -114,7 +117,7 @@ export class SpeedScene {
         const armed = view.armed
         const armedPrice = armed ? view.tiers.find(t => t.speed === armed.speed)?.blocks.find(b => b.minutes === armed.minutes)?.gems : undefined
         const notes = armed && armedPrice !== undefined
-            ? [`PRESS AGAIN TO BUY ${armed.speed}X FOR ${durationLabel(armed.minutes)}: ${armedPrice} GEMS.`]
+            ? [`PRESS AGAIN TO BUY ${armed.speed}X FOR ${durationLabel(armed.minutes)}: ${formatHq(armedPrice, view.notation)} GEMS.`]
             : ['WAVES EARN FASTER. A BOSS FIGHT ONLY PLAYS FASTER.']
         if (view.multiplier > 1) notes.push(`BUY ${view.multiplier}X AGAIN TO EXTEND IT. OTHER SPEEDS WAIT FOR IT TO END.`)
         if (view.offlineEfficiency < 1) notes.push(`AWAY, A BOOST PAYS AT YOUR ${Math.round(view.offlineEfficiency * 100)}% OFFLINE RATE.`)
