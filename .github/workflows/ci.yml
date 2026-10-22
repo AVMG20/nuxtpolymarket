@@ -224,7 +224,7 @@ jobs:
             echo "COOLIFY_WEBHOOK is not set — image published, deploy not triggered."
             exit 0
           fi
-          code=$(curl -s -o /tmp/deploy.out -w '%{http_code}' -X GET "$WEBHOOK" \
+          code=$(curl -s -o /tmp/deploy.out -w '%{http_code}' -X POST "$WEBHOOK" \
             -H "Authorization: Bearer $TOKEN")
           echo "coolify responded $code"
           cat /tmp/deploy.out
