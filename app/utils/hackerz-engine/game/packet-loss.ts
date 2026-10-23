@@ -4,7 +4,7 @@ import { FIELD_SCALE } from '../constants'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
 import { _v } from './tuning'
-import { bodyPoint, enemyCentreY, placeEnemy } from './bodies'
+import { bodyPoint, placeEnemy } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** PACKET LOSS: how long the board's picture freezes, and the gap between freezes, give or take. */
@@ -94,10 +94,7 @@ export class PacketLoss {
         this.game.sysLog.lagSpike()
         // The spike drops the lock: the rail keeps firing at the last spot it
         // saw its target, while the target walks on out of it.
-        if (this.game.rail.target) {
-            this.game.rail.lockSpot = { u: this.game.rail.target.u, d: this.game.rail.target.d, y: enemyCentreY(this.game.rail.target) }
-            this.game.rail.target = null
-        }
+        this.game.rail.slip()
     }
 
     /** Like `enemyWorld`, but where the unit is seen: its frozen picture during a packet-loss spike. */

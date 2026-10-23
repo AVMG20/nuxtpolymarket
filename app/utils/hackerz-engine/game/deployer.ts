@@ -1,14 +1,8 @@
 import * as THREE from 'three'
 import { randomInt } from '../rng'
 import {
-    HACKERZ_HACKER_ID,
-    HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDeployable,
-    hackerzDeployableStats,
-    hackerzEmptyStock,
-    hackerzIsAirborne,
-    type HackerzDeployableId,
-    type HackerzDeployableStock
+    HACKERZ_HACKER_ID, HACKERZ_PORTSCAN_REPING_MS, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
+    hackerzIsAirborne, type HackerzDeployableId, type HackerzDeployableStock
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE } from '../constants'
 import { clamp } from '../math'
@@ -56,7 +50,7 @@ export class Deployer {
         }
         if (this.armed === id) return
         this.armed = id
-        if (id) this.game.rail.target = null
+        if (id) this.game.rail.lock(null)
         this.showGhost(id)
         this.game.callbacks.onArm?.(id)
     }

@@ -13,7 +13,7 @@ import {
 import { AMBER, CYAN } from '../scene'
 import type { EnemyEntity, RouteGoal } from '../types'
 import { PER_WORLD, _v, _w, ZONE_TICK_MS, GLITCH_FADE_MS, HACK_TEAM, HACK_REACH, PING_REVEAL_MS } from './tuning'
-import { burrowing, enemyCentreY, enemyWorld, glitchOf, placeEnemy, underground, unitSize } from './bodies'
+import { burrowing, enemyWorld, glitchOf, placeEnemy, underground, unitSize } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
 /** With a node's team full (`HACK_TEAM`), how much further out the next hacker waits for a free terminal. */
@@ -251,10 +251,7 @@ export class EnemyAi {
             if (enemy.litMs) enemy.litMs = Math.max(0, enemy.litMs - dtMs)
             enemy.rig.reveal.value += ((enemy.revealMs > 0 || enemy.litMs ? 1 : 0) - enemy.rig.reveal.value) * Math.min(1, dt * 5)
             // Into the dark the lock slips: the rail keeps firing where it last saw its target.
-            if (this.game.rail.target === enemy && this.game.combat.inTheDark(enemy)) {
-                this.game.rail.lockSpot = { u: enemy.u, d: enemy.d, y: enemyCentreY(enemy) }
-                this.game.rail.target = null
-            }
+            if (this.game.rail.target === enemy && this.game.combat.inTheDark(enemy)) this.game.rail.slip()
             // A cloaked unit still disturbs the grid: a faint shimmer where it walks.
             if (cloakedAway && Math.random() < dt * 5) {
                 this.game.particles.emit(enemyWorld(enemy, randRange(5, enemy.rig.height * PER_WORLD), _v), _w.set(0, 1.2, 0), enemy.def.hex,
