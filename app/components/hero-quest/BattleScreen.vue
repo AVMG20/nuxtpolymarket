@@ -10,7 +10,7 @@ import { investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier } from '#shared/utils/hero-quest/stats'
 import { wealthFactorFor } from '#shared/utils/hero-quest/combat'
 import { describeAbility, describeWealth, hqNumber, hqPct, isWealthScaled, modifierLine } from '#shared/utils/hero-quest/describe'
-import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, HUNDRED_PULL_SIZE, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS, TRAIT_AUTO_ROLL_RESERVE } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, HUNDRED_PULL_SIZE, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS, TRAIT_AUTO_ROLL_RESERVE, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import { grantKeys, nextKeyGrantAt } from '#shared/utils/hero-quest/raids'
@@ -731,7 +731,7 @@ const raidRound = ref<StageRaid | null>(null)
 const raidsBusy = ref(false)
 /** What the round on the stage paid, held until its replay ends and the popup says so. */
 let roundReward: RaidRewardView | null = null
-/** The reward popup, after a round's replay ends or a quick-clear lands; its button puts it (and the round) away. */
+/** The reward popup, after a round's replay ends or a quick-clear lands; Continue puts it (and the round) away. */
 const raidReward = ref<RaidRewardView | null>(null)
 /** A beat between the round's last blow and the popup, so the end is seen. */
 const RAID_REWARD_DELAY_MS = 900
@@ -798,15 +798,18 @@ onUnmounted(() => {
     if (loadoutSession.value) void $fetch('/api/hero-quest/raid/leave', { method: 'POST' }).catch(() => {})
 })
 
-async function onRaidEnter(raidId: RaidId) {
+/** Fight a raid round; resolves whether one started. */
+async function onRaidEnter(raidId: RaidId): Promise<boolean> {
     raidsBusy.value = true
     try {
         const round = await engageRaid(raidId)
-        if (!round) return
+        if (!round) return false
         fightProgress.value = { time: 0, done: false }
+        // a refight swaps the popup for the new round in one go, so the round under it never shows bare
+        raidReward.value = null
         // a boss raid lost pays nothing and keeps its Key; the dummy always pays
         const won = round.reward > 0
-        roundReward = { notation: notation.value, raidId, quick: false, won, level: round.level, newBest: round.newBest, reward: round.reward }
+        roundReward = { notation: notation.value, raidId, quick: false, count: 1, won, level: round.level, newBest: round.newBest, reward: round.reward }
         raidRound.value = {
             raid: raidId.slice(5) as StageRaidId,
             level: round.level,
@@ -820,18 +823,28 @@ async function onRaidEnter(raidId: RaidId) {
             enemyMaxHps: round.enemyMaxHps
         }
         emit('scene', 'battle')
+        return true
     } catch {
         // `useHeroQuest` has already shown the error
+        return false
     } finally {
         raidsBusy.value = false
     }
 }
 
-async function onRaidQuick(raidId: RaidId) {
+/** The popup's Fight next / Fight again: the finished round (or the Raids scene) stays up through the engage, so the raid's Loadout session is never left. */
+async function onRaidRefight() {
+    const reward = raidReward.value
+    if (!reward || raidsBusy.value) return
+    // refused (no Key, the raid shut): put the popup away as Continue would
+    if (!await onRaidEnter(reward.raidId)) closeRaidReward()
+}
+
+async function onRaidQuick(raidId: RaidId, count: RaidQuickClearCount) {
     raidsBusy.value = true
     try {
-        const cleared = await quickClearRaid(raidId)
-        if (cleared) raidReward.value = { notation: notation.value, raidId, quick: true, won: true, level: cleared.level, newBest: false, reward: cleared.reward }
+        const cleared = await quickClearRaid(raidId, count)
+        if (cleared) raidReward.value = { notation: notation.value, raidId, quick: true, count: cleared.count, won: true, level: cleared.level, newBest: false, reward: cleared.reward }
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {
@@ -1646,7 +1659,7 @@ watch(() => fight.value !== null && fightProgress.value.done, (done) => {
 })
 onUnmounted(() => { if (fightHold) clearTimeout(fightHold) })
 
-// the round's last blow lands, then its reward goes up; the popup's button brings the run back
+// the round's last blow lands, then its reward goes up; the popup's Continue brings the run back
 watch(() => fightProgress.value.done, (done) => {
     if (!done || (!raidRound.value && !arenaRound.value)) return
     if (raidHold) clearTimeout(raidHold)
@@ -1939,6 +1952,7 @@ function closeWelcome() {
           @raid-quick="onRaidQuick"
           @raid-loadout="onRaidLoadout"
           @raid-reward-close="closeRaidReward"
+          @raid-refight="onRaidRefight"
           @welcome-close="closeWelcome"
           @arena-action="onArenaAction"
           @arena-tab="onArenaTab"

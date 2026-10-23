@@ -26,10 +26,11 @@ import type { ArenaDefenseLoadout, ArenaShopItem } from '#shared/utils/hero-ques
 import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import type { CalendarDayState } from '#shared/utils/hero-quest/calendar'
-import { ARENA_SHOP_MAX_QUANTITY, HUNDRED_PULL_SIZE, MAX_TRAIT_SAVE_SLOTS, TEN_PULL_SIZE, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature } from '#shared/utils/hero-quest/constants'
+import { ARENA_SHOP_MAX_QUANTITY, HUNDRED_PULL_SIZE, MAX_TRAIT_SAVE_SLOTS, RAID_QUICK_CLEAR_COUNTS, TEN_PULL_SIZE, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { isHolidayId, type HolidayId } from '#shared/utils/hero-quest/content/holidays'
 import type { PassivePath } from '#shared/utils/hero-quest/content/passive-tree'
 import { isRaidId, type RaidId } from '#shared/utils/hero-quest/content/raids'
+import { isRaidQuickClearCount } from '#shared/utils/hero-quest/raids'
 import { isShopTrackId, type ShopCurrency, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { isTraitGrade } from '#shared/utils/hero-quest/content/traits'
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
@@ -300,6 +301,16 @@ export interface HqRaidRequest {
 }
 export const RAID_BODY: BodySchema<HqRaidRequest> = {
     raidId: { check: isRaidId, message: 'Unknown raid' }
+}
+
+export interface HqQuickClearRequest {
+    raidId: RaidId
+    /** How many clears to take at once, each its own Key; 1 when left out. */
+    count?: RaidQuickClearCount
+}
+export const QUICK_CLEAR_BODY: BodySchema<HqQuickClearRequest> = {
+    raidId: { check: isRaidId, message: 'Unknown raid' },
+    count: { check: isRaidQuickClearCount, message: `Quick-clear ${RAID_QUICK_CLEAR_COUNTS.join(' / ')} at a time`, optional: true }
 }
 
 /** One setting and its new value, the value of that setting's own kind (`isHqSettingValue`). */
@@ -907,6 +918,9 @@ export interface HqSpeedBuyResponse {
 export interface HqQuickClearResponse {
     raidId: RaidId
     level: number
+    /** The clears taken, each a Key. */
+    count: number
+    /** What all of them paid together. */
     reward: number
     keys: number
 }

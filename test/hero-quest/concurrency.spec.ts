@@ -15,19 +15,19 @@ import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqSho
 import { autoRollTraits, getTraitSaves, loadTraitBoard, rollTraits, serializeTraits, setTraitLock, storeTraitBoard } from '#server/utils/hero-quest-traits'
 import { engageRaid, quickClearRaid, serializeRaids } from '#server/utils/hero-quest-raids'
 import { RAIDS } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEY_CAP } from '#shared/utils/hero-quest/raids'
-import { claimCalendar } from '#server/utils/hero-quest-calendar'
+import { RAID_KEY_CAP, raidReward } from '#shared/utils/hero-quest/raids'
+import { calendarGoldPerHour, claimCalendar } from '#server/utils/hero-quest-calendar'
 import { claimHoliday } from '#server/utils/hero-quest-holidays'
 import { leaveLoadoutSession, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
 import { loadoutSessionOf } from '#shared/utils/hero-quest/loadout-session'
 import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
 import { holidayGift, holidayGiftGold } from '#shared/utils/hero-quest/holidays'
-import { calendarGoldPerHour } from '#server/utils/hero-quest-calendar'
 import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
 import { RAID_KEYS_PER_DAY,
     CALENDAR_MAKEUPS_PER_CYCLE,
+    type RaidQuickClearCount,
     HUNDRED_PULL_SIZE,
     LOADOUT_SLOT_BASE_COST_GEMS,
     MILESTONE_ARENA_MEDALS_BASE,
@@ -172,6 +172,77 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
             expect(result.ok).toBe(RAID_KEYS_PER_DAY - 1)
             expect(await skillSeals()).toBeGreaterThan(before)
+        })
+
+        describe('multi quick-clear', () => {
+            const best = 4
+            const each = raidReward('raid_training_grounds', best)
+            const seed = (keys: number) => db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', highestLevel: best, keyBalance: keys })
+
+            it('spends a Key per clear and pays the best\'s reward that many times', async () => {
+                await ensureHqState(USER_ID)
+                await seed(12)
+                const before = await skillSeals()
+
+                const five = await db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', 5))
+                expect(five).toEqual({ raidId: 'raid_training_grounds', level: best, count: 5, reward: 5 * each, keys: 7 })
+                expect((await raidRow()).keyBalance).toBe(7)
+                expect(await skillSeals()).toBe(before + 5 * each)
+
+                const one = await db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds'))
+                expect(one).toMatchObject({ count: 1, reward: each, keys: 6 })
+                expect(await skillSeals()).toBe(before + 6 * each)
+            })
+
+            it('refuses a clear count it holds too few Keys for, and changes nothing', async () => {
+                await ensureHqState(USER_ID)
+                await seed(9)
+                const before = await skillSeals()
+
+                await expect(db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', 10))).rejects.toMatchObject({ statusCode: 400, statusMessage: expect.stringMatching(/^Not enough/) })
+                expect((await raidRow()).keyBalance).toBe(9)
+                expect((await raidRow()).highestLevel).toBe(best)
+                expect(await skillSeals()).toBe(before)
+            })
+
+            it('refuses a count that is not 1, 5 or 10, and changes nothing', async () => {
+                await ensureHqState(USER_ID)
+                await seed(12)
+                const before = await skillSeals()
+
+                for (const count of [0, 2, 3, 11, -5]) {
+                    await expect(db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', count as RaidQuickClearCount))).rejects.toMatchObject({ statusCode: 400 })
+                }
+                expect((await raidRow()).keyBalance).toBe(12)
+                expect(await skillSeals()).toBe(before)
+            })
+
+            it('lets one ×5 of a burst through on exactly five Keys, and pays it once', async () => {
+                await ensureHqState(USER_ID)
+                await seed(5)
+                const before = await skillSeals()
+
+                const result = await burst(6, () => db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', 5)))
+
+                expect(result.ok).toBe(1)
+                expect((await raidRow()).keyBalance).toBe(0)
+                expect(await skillSeals()).toBe(before + 5 * each)
+            })
+
+            it('never spends past the Keys when ×10 and ×5 race on fifteen', async () => {
+                await ensureHqState(USER_ID)
+                await seed(15)
+                const before = await skillSeals()
+
+                const counts: RaidQuickClearCount[] = [10, 10, 5, 5, 5]
+                const results = await Promise.allSettled(counts.map(count => db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', count))))
+
+                // whatever order the lock serves them in, the clears that land take the fifteen exactly
+                const taken = results.flatMap(r => r.status === 'fulfilled' ? [r.value.count] : []).reduce((a, b) => a + b, 0)
+                expect(taken).toBe(15)
+                expect((await raidRow()).keyBalance).toBe(0)
+                expect(await skillSeals()).toBe(before + 15 * each)
+            })
         })
 
         it('grants the Keys owed since the last visit under the lock, once', async () => {
@@ -661,7 +732,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
     })
 
     describe('battle speed', () => {
-        const gemsOf =async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
         const expiryOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.speedBoostExpiresAt!.getTime()
 
         it('sells one block, not N, for one block of Gems', async () => {

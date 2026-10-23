@@ -15,6 +15,7 @@ import {
     LOADOUT_SAVE_BODY,
     LOADOUT_SET_BODY,
     PULL_BODY,
+    QUICK_CLEAR_BODY,
     TRAIT_LOCK_BODY,
     validateHqBody,
     validateSettingBody,
@@ -67,6 +68,13 @@ describe('hero-quest request bodies', () => {
         expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
         expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
         expect(validateHqBody({ system: 'champion', count: 100 }, PULL_BODY)).toEqual({ system: 'champion', count: 100, free: false })
+    })
+
+    it('takes a quick-clear as 1, 5 or 10 at a time, 1 when left out, and nothing else', () => {
+        expect(validateHqBody({ raidId: 'raid_guild' }, QUICK_CLEAR_BODY)).toEqual({ raidId: 'raid_guild' })
+        for (const count of [1, 5, 10]) expect(validateHqBody({ raidId: 'raid_guild', count }, QUICK_CLEAR_BODY)).toEqual({ raidId: 'raid_guild', count })
+        for (const count of [0, 2, 3, 11, 5.5, '5', null, -1]) expect(refusal({ raidId: 'raid_guild', count }, QUICK_CLEAR_BODY)).toBe('Quick-clear 1 / 5 / 10 at a time')
+        expect(refusal({ raidId: 'nope', count: 5 }, QUICK_CLEAR_BODY)).toBe('Unknown raid')
     })
 
     it('needs an auto-buy\'s price, as a number or as text', () => {

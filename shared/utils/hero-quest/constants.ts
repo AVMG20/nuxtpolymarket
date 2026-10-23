@@ -1081,6 +1081,9 @@ export const BATTLE_SPEED_PRICE_ROUNDING = 5
 /** Keys granted per raid per day, banking up to `RAID_KEY_BANK_DAYS` of them (21). Locked, §3. */
 export const RAID_KEYS_PER_DAY = 3
 export const RAID_KEY_BANK_DAYS = 7
+/** How many quick-clears one press takes, each its own Key (§4). */
+export const RAID_QUICK_CLEAR_COUNTS = [1, 5, 10] as const // locked 2026-10-23, the user's call
+export type RaidQuickClearCount = typeof RAID_QUICK_CLEAR_COUNTS[number]
 
 /**
  * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`, each raid

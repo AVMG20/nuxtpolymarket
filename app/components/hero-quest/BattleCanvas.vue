@@ -16,7 +16,7 @@ import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/
 import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-quest-art/tree-scene'
-import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
+import type { RaidLoadoutOption, RaidRefightView, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { WelcomeView } from '~/utils/hero-quest-art/welcome-card'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
@@ -26,7 +26,7 @@ import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/pa
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
-import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { LOADOUT_NAME_MAX_LENGTH, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { D } from '#shared/utils/hero-quest/numbers'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
@@ -138,7 +138,7 @@ const props = defineProps<{
     chestToast?: ChestToast | null
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
     raidRound?: StageRaid | null
-    /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
+    /** What a raid round or quick-clear paid, shown over the stage until one of its buttons is pressed. */
     raidReward?: RaidRewardView | null
     /** The welcome-back card: what the last stretch away banked, over the battle until it is put away. */
     welcome?: WelcomeView | null
@@ -213,13 +213,16 @@ const emit = defineEmits<{
     gachaClose: []
     /** A setting's control was pressed. */
     setting: [target: SettingsTarget]
-    /** A raid's enter or quick-clear button was pressed. */
+    /** A raid's enter button was pressed. */
     raidEnter: [raidId: RaidId]
-    raidQuick: [raidId: RaidId]
+    /** A quick-clear button was pressed: the raid, and how many clears it takes. */
+    raidQuick: [raidId: RaidId, count: RaidQuickClearCount]
     /** A line of a raid's preferred-Loadout list was pressed: the slot to point at, or null for none. */
     raidLoadout: [raidId: RaidId, slotIndex: number | null]
-    /** The reward popup's button was pressed. */
+    /** The reward popup's Continue (or OK) button was pressed. */
     raidRewardClose: []
+    /** The reward popup's Fight next / Fight again button was pressed: another round of the same raid. */
+    raidRefight: []
     welcomeClose: []
     /** An Arena button was pressed: an attack, a purchase, a defence copy or a claim. */
     arenaAction: [target: ArenaTarget]
@@ -484,7 +487,7 @@ defineExpose({ skipFight, closeIris })
 type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | `detail:${DetailNav}` | DetailButton
     | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'reward:refight' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
@@ -601,8 +604,12 @@ function targetAt(e: PointerEvent): Target | null {
         if (!giftReveal.done(props.holidayReveal, sceneTime)) return 'gift:skip'
         return giftHit.onRevealButton(presenter.w, sceneH, x, y) ? 'gift:ok' : null
     }
-    // the reward popup takes every press: only its button does anything
-    if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    // the reward popup takes every press: only its buttons do anything, and neither while a refight is on its way
+    if (props.raidReward) {
+        const at = raidsHit?.raidRewardHoverAt(presenter.w, sceneH, x, y) ?? null
+        if (at === 'ok') return props.raidsBusy ? null : 'reward:ok'
+        return at === 'refight' && refightNow()?.enabled ? 'reward:refight' : null
+    }
     if (props.welcome) return welcomeHit?.onWelcomeButton(presenter.w, sceneH, props.welcome, x, y) ? 'welcome:ok' : null
     if (props.arenaResult) return arenaHit?.onArenaResultButton(presenter.w, sceneH, x, y) ? 'result:ok' : null
     // the party's stats take every press: their close button, or anywhere beside them, shuts them
@@ -690,7 +697,7 @@ function targetAt(e: PointerEvent): Target | null {
     if (openScene.value === 'raids' && raidsHit) {
         const at = raidsHit.raidsHoverAt(raidsView.value, x, y)
         // the enter button waits for the fights; until then only the rows are pressed
-        if (at === 'enter' || at === 'quick') return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
+        if (at === 'enter' || raidsHit.isRaidQuickHover(at)) return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
         if (at === 'loadout') return raidsHit.raidLoadoutEnabled(raidsView.value) || raidPicker.value ? 'raid:loadout' : null
         if (at?.startsWith('pick:') && props.raidsBusy) return null
         return at ? `raid:${at}` : null
@@ -1020,6 +1027,7 @@ function onPointerUp(e: PointerEvent) {
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit === 'reward:refight') emit('raidRefight')
     else if (hit === 'welcome:ok') emit('welcomeClose')
     else if (hit === 'result:ok') emit('arenaResultClose')
     else if (hit === 'stats:open') emit('partyStatsOpen')
@@ -1069,7 +1077,7 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('raid:')) {
         const id = hit.slice(5) as Exclude<RaidsHover, null>
         if (id === 'enter') emit('raidEnter', raidSelected.value)
-        else if (id === 'quick') emit('raidQuick', raidSelected.value)
+        else if (raidsHit?.isRaidQuickHover(id)) emit('raidQuick', raidSelected.value, raidsHit.raidQuickCount(id))
         else if (id === 'loadout') raidPicker.value = !raidPicker.value
         else if (id === 'shut') raidPicker.value = false
         else if (id.startsWith('pick:')) {
@@ -1286,6 +1294,13 @@ watch(openScene, () => { raidPicker.value = false })
 const traitGradePicker = ref(false)
 watch(openScene, () => { traitGradePicker.value = false })
 const traitsView = computed<TraitsView | null>(() => props.traits ? { ...props.traits, gradePickerOpen: traitGradePicker.value } : null)
+/** The reward popup's next-fight button off the live rows, so it goes dark once the engage spends the last Key. */
+function refightNow(): RaidRefightView | null {
+    const reward = props.raidReward
+    if (!reward || !raidsHit) return null
+    return raidsHit.raidRefight(reward, props.raids?.find(r => r.id === reward.raidId), !!props.raidsBusy)
+}
+
 const raidsView = computed<RaidsView>(() => ({
     selected: raidSelected.value,
     raids: props.raids ?? [],
@@ -1507,7 +1522,7 @@ onMounted(async () => {
             if (scene === 'battle') chestHit.drawChestToast(view, props.chestToast, t - chestToastAt)
         }
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
-        else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
+        else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, refightNow()!, hover.value === 'reward:ok' ? 'ok' : hover.value === 'reward:refight' ? 'refight' : null, pressed.value, !!props.raidsBusy)
         else if (props.welcome && welcomeHit) welcomeHit.drawWelcome(view, props.welcome, hover.value === 'welcome:ok', pressed.value)
         if (props.arenaResult && arenaHit) arenaHit.drawArenaResult(view, props.arenaResult, hover.value === 'result:ok', pressed.value)
         if (props.partyStats && partyStatsHit) partyStatsHit.drawPartyStats(view, props.partyStats, hover.value?.startsWith('stats:') ? hover.value.slice(6) as PartyStatsTarget : null)
