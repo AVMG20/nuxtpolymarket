@@ -46,6 +46,7 @@ import type {
     HqPrestigeResponse,
     HqPullRequest,
     HqPullResponse,
+    HqQuickClearRequest,
     HqQuickClearResponse,
     HqRaidLeaveResponse,
     HqRaidRequest,
@@ -74,6 +75,7 @@ import type {
 } from '#server/utils/hero-quest-api'
 import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import type { BattleSpeedDuration, BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
+import type { RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import type { HolidayId } from '#shared/utils/hero-quest/content/holidays'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
@@ -286,9 +288,9 @@ export const useHeroQuest = () => {
         return call<HqRaidRoundResponse, HqRaidRequest>('/api/hero-quest/raid/engage', { raidId }, '')
     }
 
-    /** Spend a Key on the best level's reward, without a round. */
-    async function quickClearRaid(raidId: RaidId) {
-        return call<HqQuickClearResponse, HqRaidRequest>('/api/hero-quest/raid/quick-clear', { raidId }, '')
+    /** Spend a Key per clear on the best level's reward, without a round. */
+    async function quickClearRaid(raidId: RaidId, count: RaidQuickClearCount = 1) {
+        return call<HqQuickClearResponse, HqQuickClearRequest>('/api/hero-quest/raid/quick-clear', { raidId, count }, '')
     }
 
     async function loadArenaCandidates() {

@@ -1280,9 +1280,10 @@ export class BattleDemo {
      * as the log says, the readout counting the damage and the level it reaches. `endRaid` goes back.
      */
     playRaid(raid: StageRaid): void {
-        const run = this.run
-        const party = this.party
-        if (!run || !party || this.raidRound) return
+        // a refight takes over the round still up, keeping the run it goes back to
+        const run = this.raidRound?.run ?? this.run
+        const party = this.raidRound?.party ?? this.party
+        if (!run || !party) return
         if (this.exit) this.irisIntoWorld()
         if (this.iris?.swap) this.shutIris()
         this.raidRound = { run, party, events: raid.events, cursor: 0, dealt: ZERO, level: 1, final: raid.level, left: raid.timer, timer: raid.timer, toNext: 0, rampage: 1, gauge: null }

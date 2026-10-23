@@ -34,11 +34,13 @@ import {
     RAID_KNIGHT_STAGES_PER_LEVEL,
     RAID_KEY_BANK_DAYS,
     RAID_KEYS_PER_DAY,
+    RAID_QUICK_CLEAR_COUNTS,
     RAID_REWARD_BASE,
     RAID_REWARD_GROWTH,
     RAID_REWARD_SHAPE,
     RAID_REWARD_STEP_LEVELS,
-    STAGES_PER_WORLD
+    STAGES_PER_WORLD,
+    type RaidQuickClearCount
 } from './constants'
 import { D, ZERO, type Decimal } from './numbers'
 import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp, prestigeHpShed } from './settle'
@@ -63,6 +65,11 @@ export function raidReward(raid: RaidId, level: number, shape: 'exponential' | '
 
 /** How many Keys a raid can bank. */
 export const RAID_KEY_CAP = RAID_KEYS_PER_DAY * RAID_KEY_BANK_DAYS
+
+/** One of the quick-clear counts a press may take; anything else (2, '5', 5.5) is refused. */
+export function isRaidQuickClearCount(value: unknown): value is RaidQuickClearCount {
+    return (RAID_QUICK_CLEAR_COUNTS as readonly unknown[]).includes(value)
+}
 
 /** The UTC day a moment falls on, counted from the epoch. */
 function utcDay(at: number): number {
