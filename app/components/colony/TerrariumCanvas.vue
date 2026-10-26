@@ -3,13 +3,15 @@
 
 import { deriveTrackModifiers } from '#shared/utils/colony'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   bugs: any[]
   isStarving: boolean
   hasSpareBugs: boolean
   upgrades: any[]
   habitatLevel: number
-}>()
+  /** The bottom-left legend; the parent hides it while the docked loot chest would cover it. */
+  showLegend?: boolean
+}>(), { showLegend: true })
 
 // Habitat stat readout (top-left overlay) — mirrors the Foraging Yield /
 // Foraging Speed / Nutrition Efficiency tracks on /colony/habitat so the
@@ -23,9 +25,9 @@ const trackLevels = computed<Record<string, number>>(() =>
 const habitatStats = computed(() => {
   const { yieldLevelBonus, speedBonusPct, feedMultiplier } = deriveTrackModifiers(trackLevels.value)
   return [
-    { key: 'yield', icon: 'i-lucide-trending-up', label: 'Yield', value: `+${yieldLevelBonus}`, color: 'text-info' },
-    { key: 'speed', icon: 'i-lucide-zap', label: 'Speed', value: `${Math.round(speedBonusPct)}%`, color: 'text-warning' },
-    { key: 'nutrition', icon: 'i-lucide-leaf', label: 'Nutrition', value: `-${Math.round((1 - feedMultiplier) * 100)}%`, color: 'text-success' }
+    { key: 'yield', icon: 'i-lucide-trending-up', label: 'Yield', value: `+${yieldLevelBonus}`, color: 'text-sky-300' },
+    { key: 'speed', icon: 'i-lucide-zap', label: 'Speed', value: `+${Math.round(speedBonusPct)}%`, color: 'text-yellow-300' },
+    { key: 'nutrition', icon: 'i-lucide-leaf', label: 'Appetite', value: `−${Math.round((1 - feedMultiplier) * 100)}%`, color: 'text-green-300' }
   ]
 })
 
@@ -148,12 +150,25 @@ function yieldHaloColor(level: number) {
   return colors[level] ?? colors[0]!
 }
 
+// The same T1-T6 ramp the Colony cards frame their bugs in (see colony.css).
+const TIER_GLOW: Record<number, number> = {
+  1: 0x4ade80,
+  2: 0x60a5fa,
+  3: 0xfacc15,
+  4: 0xc084fc,
+  5: 0xfb923c,
+  6: 0xf87171
+}
+
 function drawBugHalo(halo: any, live: LiveBug) {
   const size = bugFontSize(live.tier)
+  const glow = TIER_GLOW[live.tier] ?? live.color
   halo.clear()
+  // A soft tier-coloured glow under the bug, ringed in its yield colour.
+  halo.circle(0, 0, size * 1.25).fill({ color: glow, alpha: 0.08 })
   halo
     .circle(0, 0, size * 0.95)
-    .fill({ color: live.color, alpha: 0.14 })
+    .fill({ color: glow, alpha: 0.16 })
     .stroke({ color: yieldHaloColor(live.yield), width: 1.5, alpha: 0.82 })
 }
 
@@ -774,87 +789,69 @@ onUnmounted(() => {
 <template>
   <div
     ref="canvasWrap"
-    class="terrarium-soil relative w-full rounded-2xl border border-default overflow-hidden shadow-inner"
+    class="terrarium-soil relative w-full overflow-hidden"
     :class="bugs.length ? 'cursor-crosshair' : ''"
     @pointermove="onPointerMove"
     @pointerleave="onPointerLeave"
     @pointerdown="onPointerDown"
   >
-    <div
-      class="pointer-events-none absolute top-3 left-3 z-10 flex flex-col gap-1 rounded-xl border border-default/70 bg-default/65 px-2.5 py-1.5 text-[10px] font-semibold text-muted backdrop-blur-sm"
-    >
-      <span class="flex items-center gap-1.5">
-        <UIcon
-          name="i-lucide-castle"
-          class="size-3 shrink-0 text-primary"
-        />
-        <span class="text-highlighted">Habitat Lv {{ habitatLevel }}</span>
-      </span>
-      <span
-        v-for="stat in habitatStats"
-        :key="stat.key"
-        class="flex items-center gap-1.5"
-      >
-        <UIcon
-          :name="stat.icon"
-          class="size-3 shrink-0"
-          :class="stat.color"
-        />
-        <span class="flex-1">{{ stat.label }}</span>
-        <span class="font-mono text-highlighted">{{ stat.value }}</span>
+    <div class="cl-plaque top-3 left-3 flex items-center gap-2.5">
+      <span class="cl-lvl w-8 h-9 text-base">{{ habitatLevel }}</span>
+      <span class="grid gap-0.5">
+        <span class="cl-display text-[13px] font-semibold">Habitat Lv {{ habitatLevel }}</span>
+        <span class="hidden sm:flex gap-2.5 text-xs cl-num">
+          <span
+            v-for="stat in habitatStats"
+            :key="stat.key"
+            :class="stat.color"
+          >{{ stat.label }} {{ stat.value }}</span>
+        </span>
       </span>
     </div>
     <div
-      v-if="bugs.length"
-      class="pointer-events-none absolute top-3 right-3 z-10 hidden sm:flex items-center gap-1.5 rounded-full border border-default/70 bg-default/65 px-2.5 py-1 text-[10px] font-semibold text-muted backdrop-blur-sm"
-    >
-      <UIcon
-        name="i-lucide-mouse-pointer-click"
-        class="size-3 text-primary"
-      />
-      Click to drop a snack
-    </div>
-    <div
-      v-if="bugs.length"
-      class="pointer-events-none absolute right-3 bottom-3 z-10 hidden sm:flex items-center gap-3 rounded-full border border-default/60 bg-default/55 px-3 py-1.5 text-[10px] text-muted backdrop-blur-sm"
+      v-if="bugs.length && showLegend"
+      class="cl-plaque left-3 bottom-3 hidden md:flex items-center gap-3 text-[11.5px] text-muted"
     >
       <span class="inline-flex items-center gap-1"><UIcon
         name="i-lucide-users"
-        class="size-3 text-success"
-      /> Social bugs cluster</span>
+        class="size-3.5 text-green-400"
+      /> Social bugs huddle</span>
       <span class="inline-flex items-center gap-1"><UIcon
         name="i-lucide-user"
-        class="size-3 text-warning"
+        class="size-3.5 text-orange-400"
       /> Solitary bugs roam</span>
+      <span class="inline-flex items-center gap-1"><UIcon
+        name="i-lucide-mouse-pointer-click"
+        class="size-3.5 text-amber-300"
+      /> Tap to drop a snack</span>
     </div>
     <div
       v-if="!bugs.length"
-      class="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center p-6"
+      class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-center p-6"
     >
-      <UIcon
-        name="i-lucide-bug-off"
-        class="size-8 text-muted/40"
-      />
-      <p class="text-sm text-muted">
-        The terrarium is empty.
+      <span class="text-5xl opacity-60">🕳️</span>
+      <p class="cl-display text-lg font-semibold">
+        The terrarium is empty
       </p>
-      <p class="text-xs text-muted/60 max-w-60">
-        {{ hasSpareBugs ? 'Place a bug from your inventory to start foraging.' : 'Buy your first bugs in the Market.' }}
+      <p class="text-sm text-muted max-w-64">
+        {{ hasSpareBugs ? 'Tap a spare bug in the Burrow to send it foraging.' : 'Hatch your first bugs in the Market.' }}
       </p>
-      <UButton
+      <NuxtLink
         v-if="!hasSpareBugs"
-        size="xs"
-        variant="soft"
-        icon="i-lucide-store"
         to="/colony/market"
+        class="cl-btn cl-btn-green cl-btn-sm mt-1"
       >
-        Open Market
-      </UButton>
+        <UIcon
+          name="i-lucide-egg"
+          class="size-4"
+        />
+        Visit the Hatchery
+      </NuxtLink>
     </div>
     <div
       v-for="f in bugFloats"
       :key="f.id"
-      class="colony-float pointer-events-none absolute z-30 text-sm font-semibold"
+      class="colony-float pointer-events-none absolute z-30"
       :style="{ left: f.x + 'px', top: f.y + 'px' }"
     >
       {{ f.text }}
@@ -874,8 +871,12 @@ onUnmounted(() => {
 .colony-float {
   animation: colony-float-up 1.3s ease-out forwards;
   transform: translate(-50%, -100%);
-  color: white;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  font-family: 'Fredoka', 'Public Sans', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  color: #fff7e6;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), 0 0 10px rgba(251, 191, 36, 0.7);
 }
 
 .food-drop {
@@ -892,26 +893,19 @@ onUnmounted(() => {
 
 .terrarium-soil {
   height: clamp(460px, 62vh, 680px);
-  background-color: color-mix(in srgb, var(--ui-bg-elevated) 76%, #523824 24%);
+  /* Soil strata: a mossy surface band, then darker layers the deeper it goes. */
+  background-color: #24190f;
   background-image:
     radial-gradient(circle at 14% 24%, rgba(186, 137, 84, 0.13) 0 2px, transparent 3px),
-    radial-gradient(circle at 72% 66%, rgba(54, 32, 21, 0.17) 0 3px, transparent 4px),
+    radial-gradient(circle at 72% 66%, rgba(20, 12, 8, 0.35) 0 3px, transparent 4px),
     radial-gradient(circle at 44% 82%, rgba(212, 167, 111, 0.08) 0 1px, transparent 2px),
-    linear-gradient(145deg, rgba(91, 58, 37, 0.16), transparent 42%, rgba(38, 25, 18, 0.2));
+    linear-gradient(180deg, #2a3a22 0%, #1f2a1a 7%, #4a3221 7.6%, #3d2a1c 30%, #33231a 30.5%, #2b1e15 58%, #24190f 58.6%, #1b130d 100%);
   background-size: 43px 47px, 67px 61px, 29px 31px, 100% 100%;
-}
-
-.terrarium-soil::after {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  box-shadow: inset 0 0 80px rgba(19, 12, 8, 0.35), inset 0 1px rgba(255, 255, 255, 0.05);
 }
 
 @media (max-width: 639px) {
   .terrarium-soil {
-    height: 460px;
+    height: 340px;
   }
 }
 

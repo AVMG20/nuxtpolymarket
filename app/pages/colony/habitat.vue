@@ -1,13 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { getItem, BUG_TYPES, HABITAT_BUILDER_JOB_ID } from '#shared/utils/colony'
-import { tierColor } from '#shared/utils/xeno'
+import { getItem, BUG_TYPES, HABITAT_BUILDER_JOB_ID, TIER_NAMES, bugsByTier } from '#shared/utils/colony'
 import { formatDuration, progressPct } from '~/lib/colony-format'
-
-// Rich stat-block tooltip content, matching the terrarium page's convention —
-// UTooltip's default content class clips multi-line #content slots to a
-// fixed 24px height, so it needs overriding to size to content.
-const TOOLTIP_CONTENT_UI = 'h-auto max-w-64 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
 
 function foragedBy(itemId: string) {
   return BUG_TYPES.find(b => b.itemId === itemId)
@@ -40,19 +34,50 @@ function jobReady(job: BuilderJob) {
   return now.value >= new Date(job.completesAt).getTime()
 }
 
-/** One card per builder — busy ones first, then an idle card for each free builder. */
+/** One card per builder — ready ones first, then busy, then an idle card for each free builder. */
 const builderSlots = computed<{ key: string, job: BuilderJob | null }[]>(() => [
-  ...builders.value.map(job => ({ key: job.id, job })),
+  ...builders.value.filter(jobReady).map(job => ({ key: job.id, job })),
+  ...builders.value.filter(job => !jobReady(job)).map(job => ({ key: job.id, job })),
   ...Array.from({ length: buildersFree.value }, (_, i) => ({ key: `idle-${i}`, job: null }))
 ])
 
+const collecting = ref<string | null>(null)
+async function collect(job: BuilderJob) {
+  if (collecting.value) return
+  collecting.value = job.id
+  try {
+    await colony.collectUpgrade(job.trackId)
+  } catch {
+    // useColony already showed the error
+  } finally {
+    collecting.value = null
+  }
+}
+
+// ─── Dig site ───────────────────────────────────────────────────────────────
+// Flavour names for the six strata; each Habitat Level digs one layer deeper.
+const LAYER_NAMES = ['Topsoil', 'Root Layer', 'Clay Galleries', 'Stone Hollows', 'Ember Vents', 'Royal Chamber']
+
+const strata = computed(() => Array.from({ length: maxTier.value }, (_, i) => {
+  const level = i + 1
+  return {
+    level,
+    name: LAYER_NAMES[i] ?? `Layer ${level}`,
+    rarity: TIER_NAMES[level] ?? '',
+    emojis: bugsByTier(level).map(b => b.emoji).join(''),
+    reached: level <= habitatLevel.value,
+    here: level === habitatLevel.value,
+    next: level === habitatLevel.value + 1
+  }
+}))
+
+const nextLayer = computed(() => strata.value.find(s => s.next) ?? null)
+
 const tracksMeetingRequirement = computed(() => upgrades.value.filter((t: any) => t.meetsHabitatRequirement).length)
 const habitatUpgradeReady = computed(() => tracksMeetingRequirement.value === upgrades.value.length && upgrades.value.length > 0)
-const canAffordHabitatLevelUp = computed(() =>
-  habitatLevelUpCost.value !== null
-  && balance.value >= habitatLevelUpCost.value
-  && gems.value >= (habitatLevelUpGemCost.value ?? 0)
-)
+const canAffordCoins = computed(() => habitatLevelUpCost.value !== null && balance.value >= habitatLevelUpCost.value)
+const canAffordGems = computed(() => gems.value >= (habitatLevelUpGemCost.value ?? 0))
+const canAffordHabitatLevelUp = computed(() => canAffordCoins.value && canAffordGems.value)
 const habitatUnderConstruction = computed(() => busyTrackIds.value.has(HABITAT_BUILDER_JOB_ID))
 const canStartHabitatLevelUp = computed(() =>
   habitatUpgradeReady.value
@@ -61,13 +86,39 @@ const canStartHabitatLevelUp = computed(() =>
   && buildersFree.value > 0
 )
 
-/** Why a track's Build button is disabled, or null when it can be started. */
-function buildBlockedReason(track: UpgradeTrack): string | null {
-  if (busyTrackIds.value.has(track.id)) return 'Under construction'
+const habitatButtonLabel = computed(() => {
+  const short = upgrades.value.length - tracksMeetingRequirement.value
+  if (!upgrades.value.length) return 'Found your colony first'
+  if (habitatUnderConstruction.value) return 'The dig is under way'
+  if (!habitatUpgradeReady.value) return `${short} ${short === 1 ? 'track' : 'tracks'} short`
   if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
-  if (!affordCost(track.nextCost)) return 'Not enough resources'
-  return null
+  if (!canAffordHabitatLevelUp.value) return `Not enough ${canAffordCoins.value ? 'gems' : 'coins'}`
+  return `Dig to Level ${habitatLevel.value + 1}`
+})
+
+const digging = ref(false)
+async function startDig() {
+  if (!canStartHabitatLevelUp.value || digging.value) return
+  digging.value = true
+  try {
+    await colony.upgradeHabitatLevel()
+  } catch {
+    // useColony already showed the error
+  } finally {
+    digging.value = false
+  }
 }
+
+/** Pip classes for a requirement row: filled to the track's level, the required one outlined in gold. */
+function requirementPips(track: UpgradeTrack) {
+  const length = Math.max(track.requiredLevel, 1)
+  return Array.from({ length }, (_, i) => ({
+    on: i < track.level,
+    req: i === track.requiredLevel - 1
+  }))
+}
+
+// ─── Tracks ─────────────────────────────────────────────────────────────────
 
 function ownedQty(itemTypeId: string) {
   const owned = inventory.value.find((i: any) => i.id === itemTypeId)
@@ -79,330 +130,431 @@ function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity
   if (balance.value < cost.coins) return false
   return cost.items.every(need => ownedQty(need.itemTypeId) >= need.quantity)
 }
+
+/** Why a track's Build button is disabled, or null when it can be started. */
+function buildBlockedReason(track: UpgradeTrack): string | null {
+  if (busyTrackIds.value.has(track.id)) return 'Under construction'
+  if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
+  if (!affordCost(track.nextCost)) {
+    const cost = track.nextCost
+    if (!cost) return 'Not enough resources'
+    const missing = cost.items.filter(need => ownedQty(need.itemTypeId) < need.quantity).map(need => getItem(need.itemTypeId)?.emoji ?? '?')
+    if (balance.value < cost.coins) missing.unshift('coins')
+    return `Short on ${missing.join(' ')}`
+  }
+  return null
+}
+
+const startingTrack = ref<string | null>(null)
+async function startTrack(track: UpgradeTrack) {
+  if (buildBlockedReason(track) || startingTrack.value) return
+  startingTrack.value = track.id
+  try {
+    await colony.startUpgrade(track.id)
+  } catch {
+    // useColony already showed the error
+  } finally {
+    startingTrack.value = null
+  }
+}
+
+function trackPips(track: UpgradeTrack) {
+  return Array.from({ length: track.maxLevel }, (_, i) => ({
+    on: i < track.level,
+    req: habitatLevel.value < maxTier.value && i === track.requiredLevel - 1
+  }))
+}
 </script>
 
 <template>
-  <div class="p-4 md:p-6 w-full space-y-4">
-    <div class="flex items-center justify-between flex-wrap gap-2">
-      <div>
-        <h1 class="text-lg font-bold flex items-center gap-2">
-          <UIcon
-            name="i-lucide-home"
-            class="text-primary"
-          />
-          Habitat
-        </h1>
-        <p class="text-sm text-muted">
-          Every track has to reach its required level before you can raise your Habitat Level and unlock the next bug tier.
-        </p>
-      </div>
-      <UBadge
-        color="neutral"
-        variant="subtle"
-        size="lg"
-        class="gap-1.5"
+  <div class="max-w-[1440px] mx-auto px-4 py-4 md:p-6 space-y-6">
+    <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-5 items-stretch">
+      <!-- Dig site depth meter -->
+      <section class="cl-panel p-4 flex flex-col gap-2.5">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="cl-eyebrow">
+              Dig site
+            </p>
+            <h1 class="cl-display text-2xl font-bold">
+              Habitat depth
+            </h1>
+          </div>
+          <span class="cl-lvl w-14 h-[62px] text-[26px]">{{ habitatLevel }}</span>
+        </div>
+        <ol class="flex flex-col gap-1">
+          <li
+            v-for="layer in strata"
+            :key="layer.level"
+            class="relative flex items-center gap-3 px-3 py-2.5 rounded-xl border"
+            :class="[
+              `cl-t${layer.level}`,
+              layer.here ? 'border-yellow-400/60 bg-[color-mix(in_srgb,var(--tc)_10%,transparent)]'
+              : layer.reached ? 'border-[#5a4431]/50 bg-[color-mix(in_srgb,var(--tc)_7%,transparent)]'
+                : 'border-[#5a4431]/50 bg-[color-mix(in_srgb,var(--tc)_4%,transparent)] opacity-60'
+            ]"
+          >
+            <span class="cl-display cl-num w-6 text-xl font-bold cl-tc">{{ layer.level }}</span>
+            <span class="flex-1 min-w-0">
+              <span class="cl-display block font-semibold text-[15px]">{{ layer.name }}</span>
+              <span class="text-xs text-muted">
+                {{ layer.rarity }}{{ layer.reached ? ' species unlocked' : ' · locked' }}<template v-if="layer.here">
+                  · <span class="font-extrabold text-amber-400">You are here</span>
+                </template>
+              </span>
+            </span>
+            <span
+              class="text-[22px] tracking-wider"
+              :class="!layer.reached && 'cl-silhouette'"
+              aria-hidden="true"
+            >{{ layer.emojis }}</span>
+          </li>
+        </ol>
+      </section>
+
+      <!-- Next dig -->
+      <section
+        v-if="habitatLevel < maxTier"
+        class="cl-panel p-4 sm:p-[18px] flex flex-col gap-3.5"
       >
-        <UIcon
-          name="i-lucide-hammer"
-          class="size-4"
-        />
-        {{ builders.length }} / {{ builderCount }} builder{{ builderCount === 1 ? '' : 's' }} busy
-      </UBadge>
+        <div class="flex items-center gap-3.5 flex-wrap">
+          <span class="cl-lvl cl-lvl-dark w-16 h-[72px] text-3xl">{{ habitatLevel + 1 }}</span>
+          <div class="flex-[1_1_220px] min-w-0">
+            <p class="cl-eyebrow">
+              Next dig
+            </p>
+            <h2 class="cl-display text-xl sm:text-[26px] font-bold leading-tight">
+              Habitat Level {{ habitatLevel + 1 }} · {{ nextLayer?.name }}
+            </h2>
+            <p class="text-[13px] text-muted">
+              Unlocks {{ TIER_NAMES[habitatLevel + 1] }} species <span class="text-base">{{ nextLayer?.emojis }}</span>
+            </p>
+          </div>
+          <div class="text-right">
+            <p
+              class="cl-display cl-num text-3xl font-bold"
+              :class="habitatUpgradeReady ? 'text-green-400' : 'text-amber-400'"
+            >
+              {{ tracksMeetingRequirement }} / {{ upgrades.length }}
+            </p>
+            <p class="text-xs font-bold text-muted">
+              tracks ready
+            </p>
+          </div>
+        </div>
+
+        <div class="grid gap-2">
+          <div
+            v-for="track in upgrades"
+            :key="track.id"
+            class="cl-inset grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[200px_minmax(0,1fr)_96px] gap-x-3.5 gap-y-2 items-center px-3 py-2.5"
+          >
+            <span class="flex items-center gap-2 font-bold min-w-0">
+              <UIcon
+                :name="track.icon"
+                class="size-4 shrink-0 text-amber-300"
+              />
+              <span class="truncate">{{ track.name }}</span>
+            </span>
+            <span
+              class="cl-num text-right font-extrabold sm:order-last"
+              :class="track.meetsHabitatRequirement ? 'text-green-400' : 'text-red-300'"
+            >
+              Lv {{ track.level }} / {{ track.requiredLevel }}
+              <UIcon
+                v-if="track.meetsHabitatRequirement"
+                name="i-lucide-check"
+                class="size-3.5 align-[-2px]"
+              />
+            </span>
+            <span class="cl-seg-pips col-span-2 sm:col-span-1">
+              <span
+                v-for="(pip, i) in requirementPips(track)"
+                :key="i"
+                class="cl-seg-pip"
+                :class="[pip.on && 'cl-seg-pip-on', pip.req && 'cl-seg-pip-req']"
+              />
+            </span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <span
+            class="cl-cost"
+            :class="canAffordCoins ? 'cl-cost-ok' : 'cl-cost-short'"
+          >
+            <ColonyCurrencyIcon :size="14" />
+            {{ formatNumber(habitatLevelUpCost ?? 0) }}
+          </span>
+          <span
+            class="cl-cost"
+            :class="canAffordGems ? 'cl-cost-ok' : 'cl-cost-short'"
+          >
+            <ColonyCurrencyIcon
+              kind="gem"
+              :size="14"
+            />
+            {{ formatNumber(habitatLevelUpGemCost ?? 0) }}
+          </span>
+          <span class="cl-cost cl-cost-ok">
+            <UIcon
+              name="i-lucide-clock"
+              class="size-3.5"
+            />
+            {{ formatDuration(habitatLevelUpDurationMs ?? 0) }}
+          </span>
+          <span class="flex-1" />
+          <button
+            type="button"
+            class="cl-btn cl-btn-gold w-full sm:w-auto"
+            :class="canStartHabitatLevelUp && 'cl-btn-pulse'"
+            :disabled="!canStartHabitatLevelUp || digging"
+            @click="startDig"
+          >
+            <UIcon
+              :name="digging ? 'i-lucide-loader-circle' : 'i-lucide-shovel'"
+              class="size-4"
+              :class="digging && 'animate-spin'"
+            />
+            {{ habitatButtonLabel }}
+          </button>
+        </div>
+      </section>
+      <section
+        v-else
+        class="cl-panel p-6 flex flex-col items-center justify-center gap-2 text-center"
+      >
+        <span class="text-5xl">👑</span>
+        <h2 class="cl-display text-2xl font-bold text-amber-200">
+          The Royal Chamber
+        </h2>
+        <p class="text-sm text-muted max-w-sm">
+          Your burrow is as deep as it goes. Keep the tracks climbing to grow the colony further.
+        </p>
+      </section>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <!-- Habitat Level -->
-      <UCard>
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-sm font-medium text-muted flex items-center gap-1.5">
-            <UIcon
-              name="i-lucide-castle"
-              class="size-4"
-            />
-            Habitat Level
-          </span>
-          <span class="text-lg font-bold font-mono">{{ habitatLevel }} <span class="text-muted text-sm font-normal">/ {{ maxTier }}</span></span>
-        </div>
-
-        <div
-          v-if="habitatLevel < maxTier"
-          class="space-y-3"
-        >
-          <p class="text-xs text-muted uppercase tracking-wider font-medium">
-            Requirements for Level {{ habitatLevel + 1 }}
-          </p>
-          <div class="space-y-1.5">
-            <div
-              v-for="track in upgrades"
-              :key="track.id"
-              class="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-              :class="track.meetsHabitatRequirement ? 'bg-success/10' : 'bg-elevated'"
-            >
-              <span class="flex items-center gap-2">
-                <UIcon
-                  :name="track.icon"
-                  class="size-3.5 text-muted"
-                />
-                {{ track.name }}
-              </span>
-              <span
-                class="flex items-center gap-1.5 font-mono text-xs"
-                :class="track.meetsHabitatRequirement ? 'text-success' : 'text-error'"
-              >
-                Lv {{ track.level }} / {{ track.requiredLevel }}
-                <UIcon
-                  :name="track.meetsHabitatRequirement ? 'i-lucide-check-circle-2' : 'i-lucide-x-circle'"
-                  class="size-4"
-                />
-              </span>
-            </div>
-          </div>
-          <UButton
-            block
-            size="sm"
-            color="primary"
-            :disabled="!canStartHabitatLevelUp"
-            @click="colony.upgradeHabitatLevel"
-          >
-            <span v-if="!habitatUpgradeReady">Requirements not met</span>
-            <span v-else-if="habitatUnderConstruction">Under construction</span>
-            <span v-else-if="buildersFree === 0">{{ builderCount === 1 ? 'Builder busy' : 'All builders busy' }}</span>
-            <span
-              v-else
-              class="flex items-center gap-1 flex-wrap justify-center"
-            >
-              Build Level {{ habitatLevel + 1 }} — <CoinBalance
-                :value="habitatLevelUpCost ?? 0"
-                :show-icon="false"
-              /> + {{ formatNumber(habitatLevelUpGemCost ?? 0, false) }} 💎 · {{ formatDuration(habitatLevelUpDurationMs ?? 0) }}{{ canAffordHabitatLevelUp ? '' : ' (not enough)' }}
-            </span>
-          </UButton>
-        </div>
-        <p
-          v-else
-          class="text-sm text-center text-muted py-2"
-        >
-          Habitat is at maximum level.
-        </p>
-      </UCard>
-
-      <!-- Builders — one card per builder, busy first then idle -->
-      <div class="space-y-3">
-        <UCard
+    <!-- Builders -->
+    <section>
+      <div class="flex items-baseline gap-2.5 mb-2.5 flex-wrap">
+        <h2 class="cl-display text-[22px] font-bold">
+          Builders
+        </h2>
+        <span class="text-[13px] text-muted">
+          {{ builderCount }} {{ builderCount === 1 ? 'worker' : 'workers' }} · the Labour Contract in the Prestige Shop hires more
+        </span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-3.5">
+        <template
           v-for="slot in builderSlots"
           :key="slot.key"
         >
-          <div class="flex items-center gap-2 mb-2">
-            <UIcon
-              name="i-lucide-hammer"
-              class="text-primary size-4"
-            />
-            <!-- No number: builders are interchangeable and the cards are
-                 ordered by job start, so "Builder 2" would rename itself
-                 every time a job finishes or a new one starts. -->
-            <span class="text-sm font-medium text-muted">
-              Builder
-            </span>
-          </div>
-          <template v-if="slot.job">
-            <p class="text-sm font-medium mb-1.5">
-              Building {{ slot.job.trackName }} → Level {{ slot.job.level }}
-            </p>
-            <div class="h-2 rounded-full bg-elevated overflow-hidden mb-1.5">
-              <div
-                class="h-full bg-primary transition-all"
-                :style="{ width: progressPct(slot.job.startedAt, slot.job.completesAt, now) + '%' }"
-              />
-            </div>
-            <p class="text-xs text-muted mb-3">
-              {{ jobReady(slot.job) ? 'Ready to collect!' : formatDuration(new Date(slot.job.completesAt).getTime() - now) + ' remaining' }}
-            </p>
-            <UButton
-              block
-              size="sm"
-              color="primary"
-              :disabled="!jobReady(slot.job)"
-              @click="colony.collectUpgrade(slot.job.trackId)"
-            >
-              Collect
-            </UButton>
-          </template>
           <div
-            v-else
-            class="flex flex-col items-center justify-center py-4 gap-1.5 text-center"
+            v-if="slot.job && jobReady(slot.job)"
+            class="cl-panel cl-ready-glow px-4 py-3.5 flex gap-3.5 items-center"
           >
-            <UIcon
-              name="i-lucide-coffee"
-              class="size-6 text-muted"
-            />
-            <p class="text-sm text-muted">
-              Idle — start an upgrade below.
-            </p>
-          </div>
-        </UCard>
-      </div>
-    </div>
-
-    <!-- Tracks -->
-    <div>
-      <h2 class="text-sm font-semibold text-muted uppercase tracking-wider mb-2">
-        Upgrade Tracks
-      </h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        <UCard
-          v-for="track in upgrades"
-          :key="track.id"
-          :ui="{ body: 'p-0' }"
-        >
-          <div class="p-3 space-y-2.5">
-            <div class="flex items-center gap-2.5">
-              <div class="flex flex-col items-center leading-none shrink-0 w-9">
-                <span class="text-[9px] font-bold text-muted uppercase tracking-wider">Lv</span>
-                <span class="text-2xl font-black text-primary tabular-nums">{{ track.level }}</span>
-              </div>
-              <div class="size-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <UIcon
-                  :name="track.icon"
-                  class="size-4.5 text-primary"
+            <span class="cl-bounce inline-block text-[40px]">🐜</span>
+            <div class="flex-1 min-w-0">
+              <p class="cl-display text-[17px] font-semibold text-green-300">
+                {{ slot.job.trackName }} → Lv {{ slot.job.level }} is done!
+              </p>
+              <div class="cl-bar mt-2">
+                <div
+                  class="cl-bar-fill"
+                  style="width: 100%"
                 />
               </div>
-              <div class="min-w-0 flex-1">
-                <p class="font-semibold text-sm">
-                  {{ track.name }}
-                  <span
-                    v-if="track.atMax"
-                    class="text-[10px] text-muted font-normal"
-                  >(max)</span>
-                </p>
-                <p class="text-xs text-muted mt-0.5 line-clamp-1">
-                  {{ track.description }}
-                </p>
+            </div>
+            <button
+              type="button"
+              class="cl-btn cl-btn-green cl-btn-pulse"
+              :disabled="collecting === slot.job.id"
+              @click="collect(slot.job)"
+            >
+              Collect
+            </button>
+          </div>
+          <div
+            v-else-if="slot.job"
+            class="cl-panel px-4 py-3.5 flex gap-3.5 items-center"
+          >
+            <span class="text-[40px]">⛏️</span>
+            <div class="flex-1 min-w-0">
+              <p class="cl-display text-[17px] font-semibold truncate">
+                Digging {{ slot.job.trackName }} → Lv {{ slot.job.level }}
+              </p>
+              <div class="cl-bar cl-bar-stripes mt-2">
+                <div
+                  class="cl-bar-fill cl-bar-fill-gold"
+                  :style="{ width: progressPct(slot.job.startedAt, slot.job.completesAt, now) + '%' }"
+                />
+              </div>
+              <div class="cl-num flex justify-between text-[12.5px] mt-1.5">
+                <span class="text-muted">{{ Math.floor(progressPct(slot.job.startedAt, slot.job.completesAt, now)) }}%</span>
+                <span class="font-extrabold">{{ formatDuration(new Date(slot.job.completesAt).getTime() - now) }} left</span>
               </div>
             </div>
+          </div>
+          <div
+            v-else
+            class="cl-panel border-dashed px-4 py-3.5 flex gap-3.5 items-center"
+          >
+            <span class="text-[40px] opacity-55">🐜</span>
+            <div class="flex-1 min-w-0">
+              <p class="cl-display text-[17px] font-semibold">
+                Idle builder
+              </p>
+              <p class="text-[12.5px] text-muted">
+                Pick a track below to start digging.
+              </p>
+            </div>
+            <span class="cl-chip">Zzz</span>
+          </div>
+        </template>
+      </div>
+    </section>
 
-            <div class="rounded-lg bg-elevated p-2 space-y-1">
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-muted">Currently</span>
-                <span class="font-mono font-medium text-highlighted">{{ track.currentEffect }}</span>
-              </div>
-              <div
-                v-if="!track.atMax"
-                class="flex items-center justify-between text-xs"
-              >
-                <span class="text-muted flex items-center gap-1">
-                  <UIcon
-                    name="i-lucide-arrow-right"
-                    class="size-3"
-                  />
-                  Next level
-                </span>
-                <span class="font-mono font-medium text-primary">{{ track.nextEffect }}</span>
-              </div>
+    <!-- Tracks -->
+    <section>
+      <h2 class="cl-display text-[22px] font-bold mb-2.5">
+        Upgrade tracks
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+        <article
+          v-for="track in upgrades"
+          :key="track.id"
+          class="cl-panel p-4 flex flex-col gap-3"
+        >
+          <div class="flex items-center gap-3">
+            <span class="size-12 rounded-[14px] grid place-items-center bg-black/40 border border-[#5a4431] shrink-0">
+              <UIcon
+                :name="track.icon"
+                class="size-6 text-amber-300"
+              />
+            </span>
+            <div class="flex-1 min-w-0">
+              <h3 class="cl-display text-lg font-semibold">
+                {{ track.name }}
+              </h3>
+              <p class="text-[12.5px] text-muted">
+                {{ track.description }}
+              </p>
             </div>
+            <span class="cl-lvl w-[42px] h-12 text-[19px]">{{ track.level }}</span>
+          </div>
+
+          <div>
+            <span class="cl-seg-pips">
+              <span
+                v-for="(pip, i) in trackPips(track)"
+                :key="i"
+                class="cl-seg-pip"
+                :class="[pip.on && 'cl-seg-pip-on', pip.req && 'cl-seg-pip-req']"
+              />
+            </span>
+            <div class="cl-num flex justify-between gap-2 text-xs font-bold mt-1.5">
+              <span class="text-muted">Lv {{ track.level }} / {{ track.maxLevel }}</span>
+              <span
+                v-if="habitatLevel < maxTier"
+                :class="track.meetsHabitatRequirement ? 'text-green-400' : 'text-amber-400'"
+              >
+                Habitat {{ habitatLevel + 1 }} needs Lv {{ track.requiredLevel }}{{ track.meetsHabitatRequirement ? ' ✓' : '' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="cl-inset flex items-center justify-between gap-2 px-3 py-2.5">
+            <span class="cl-display cl-num text-[15px] sm:text-[17px] font-semibold">{{ track.currentEffect }}</span>
+            <template v-if="!track.atMax">
+              <UIcon
+                name="i-lucide-arrow-right"
+                class="size-5 text-green-400 shrink-0"
+              />
+              <span class="cl-display cl-num text-[15px] sm:text-[17px] font-bold text-green-400 text-right">{{ track.nextEffect }}</span>
+            </template>
           </div>
 
           <template v-if="!track.atMax">
-            <USeparator />
-            <div class="p-3 space-y-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <UBadge
-                  :color="balance >= (track.nextCost?.coins ?? 0) ? 'success' : 'neutral'"
-                  variant="subtle"
-                  size="lg"
-                  class="text-sm font-semibold"
-                >
-                  <CoinBalance
-                    :value="track.nextCost?.coins ?? 0"
-                    :compact="false"
-                  />
-                </UBadge>
-                <UTooltip
-                  v-for="need in track.nextCost?.items ?? []"
-                  :key="need.itemTypeId"
-                  :delay-duration="150"
-                  :content="{ side: 'top', sideOffset: 6 }"
-                  :ui="{ content: TOOLTIP_CONTENT_UI }"
-                >
-                  <template #content>
-                    <div class="flex items-center gap-2 mb-1.5">
-                      <span class="text-xl leading-none">{{ getItem(need.itemTypeId)?.emoji }}</span>
-                      <div class="min-w-0">
-                        <p class="font-bold text-sm flex items-center gap-1.5">
-                          {{ getItem(need.itemTypeId)?.name }}
-                          <span
-                            class="text-xs font-black"
-                            :class="tierColor(getItem(need.itemTypeId)?.tier ?? 1)"
-                          >T{{ getItem(need.itemTypeId)?.tier }}</span>
-                        </p>
-                      </div>
-                    </div>
-                    <USeparator class="mb-1.5" />
-                    <div class="w-full space-y-1 text-xs">
-                      <div class="flex justify-between gap-4">
-                        <span class="text-muted uppercase tracking-wider font-semibold">Foraged by</span>
-                        <span class="font-mono">{{ foragedBy(need.itemTypeId)?.emoji }} {{ foragedBy(need.itemTypeId)?.name ?? '???' }}</span>
-                      </div>
-                      <div class="flex justify-between gap-4">
-                        <span class="text-muted uppercase tracking-wider font-semibold">Have</span>
-                        <span class="font-mono">{{ formatNumber(ownedQty(need.itemTypeId), false) }} / {{ formatNumber(need.quantity, false) }}</span>
-                      </div>
-                      <div class="flex justify-between gap-4">
-                        <span class="text-muted uppercase tracking-wider font-semibold">Sells for</span>
-                        <CoinBalance
-                          class="font-mono"
-                          :value="getItem(need.itemTypeId)?.sellValue ?? 0"
-                          :compact="false"
-                        />
-                      </div>
-                    </div>
-                  </template>
-                  <UBadge
-                    :color="ownedQty(need.itemTypeId) >= need.quantity ? 'success' : 'neutral'"
-                    variant="subtle"
-                    size="lg"
-                    class="text-sm font-semibold cursor-default"
-                  >
-                    {{ getItem(need.itemTypeId)?.emoji }} {{ formatNumber(ownedQty(need.itemTypeId), false) }}/{{ formatNumber(need.quantity, false) }}
-                  </UBadge>
-                </UTooltip>
-                <UBadge
-                  color="neutral"
-                  variant="subtle"
-                  size="lg"
-                  class="text-sm font-semibold"
-                >
-                  <UIcon
-                    name="i-lucide-clock"
-                    class="size-4 mr-1"
-                  />
-                  {{ formatDuration(track.nextDurationMs ?? 0) }}
-                </UBadge>
-              </div>
-              <UButton
-                block
-                size="sm"
-                color="primary"
-                :disabled="!!buildBlockedReason(track)"
-                @click="colony.startUpgrade(track.id)"
+            <div class="flex gap-1.5 flex-wrap">
+              <span
+                class="cl-cost"
+                :class="balance >= (track.nextCost?.coins ?? 0) ? 'cl-cost-ok' : 'cl-cost-short'"
               >
-                {{ buildBlockedReason(track) ?? 'Build' }}
-              </UButton>
+                <ColonyCurrencyIcon :size="14" />
+                {{ formatNumber(track.nextCost?.coins ?? 0) }}
+              </span>
+              <UTooltip
+                v-for="need in track.nextCost?.items ?? []"
+                :key="need.itemTypeId"
+                :delay-duration="150"
+                :content="{ side: 'top', sideOffset: 6 }"
+                :ui="{ content: 'cl-theme cl-tooltip h-auto max-w-64 p-3 flex-col items-start rounded-xl z-50' }"
+              >
+                <template #content>
+                  <p class="cl-display font-semibold text-sm mb-1.5">
+                    {{ getItem(need.itemTypeId)?.emoji }} {{ getItem(need.itemTypeId)?.name }}
+                    <span
+                      class="cl-tc"
+                      :class="`cl-t${getItem(need.itemTypeId)?.tier ?? 1}`"
+                    >T{{ getItem(need.itemTypeId)?.tier }}</span>
+                  </p>
+                  <dl class="w-full space-y-1 text-xs">
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-muted">
+                        Foraged by
+                      </dt>
+                      <dd class="font-bold">
+                        {{ foragedBy(need.itemTypeId)?.emoji }} {{ foragedBy(need.itemTypeId)?.name ?? '???' }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-muted">
+                        Have
+                      </dt>
+                      <dd class="cl-num font-bold">
+                        {{ formatNumber(ownedQty(need.itemTypeId), false) }} / {{ formatNumber(need.quantity, false) }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                      <dt class="text-muted">
+                        Sells for
+                      </dt>
+                      <dd class="cl-num font-bold">
+                        {{ formatNumber(getItem(need.itemTypeId)?.sellValue ?? 0, false) }}
+                      </dd>
+                    </div>
+                  </dl>
+                </template>
+                <span
+                  class="cl-cost cursor-default"
+                  :class="ownedQty(need.itemTypeId) >= need.quantity ? 'cl-cost-met' : 'cl-cost-short'"
+                >
+                  {{ getItem(need.itemTypeId)?.emoji }} {{ formatNumber(ownedQty(need.itemTypeId)) }}/{{ formatNumber(need.quantity) }}
+                </span>
+              </UTooltip>
             </div>
+            <button
+              type="button"
+              class="cl-btn w-full mt-auto"
+              :class="buildBlockedReason(track) ? 'cl-btn-ghost' : 'cl-btn-green'"
+              :disabled="!!buildBlockedReason(track) || startingTrack === track.id"
+              @click="startTrack(track)"
+            >
+              <span class="truncate">{{ buildBlockedReason(track) ?? `Build Lv ${track.level + 1} · ${formatDuration(track.nextDurationMs ?? 0)}` }}</span>
+            </button>
           </template>
-          <div
+          <p
             v-else
-            class="p-4"
+            class="cl-chip cl-chip-green self-start mt-auto"
           >
-            <p class="text-xs text-success flex items-center gap-1">
-              <UIcon
-                name="i-lucide-check-circle"
-                class="size-3.5"
-              />
-              Maxed out
-            </p>
-          </div>
-        </UCard>
+            <UIcon
+              name="i-lucide-check"
+              class="size-3.5"
+            />
+            Maxed out
+          </p>
+        </article>
       </div>
-    </div>
+    </section>
   </div>
 </template>

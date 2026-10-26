@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MAX_TRAIT_PCT, MAX_GEMS_PER_DAY } from '#shared/utils/colony'
-import { tierColor, tierBg } from '#shared/utils/xeno'
+import { BUG_TYPES, MAX_GEMS_PER_DAY, TIER_NAMES } from '#shared/utils/colony'
 import { formatDuration } from '~/lib/colony-format'
 
 const colony = useColony()
@@ -10,18 +9,45 @@ const { speciesCatalog, inventory } = colony
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 
-const tab = ref('buy')
-const tabItems = [
-  { label: 'Buy bugs', value: 'buy', icon: 'i-lucide-shopping-basket' },
-  { label: 'Sell items', value: 'sell', icon: 'i-lucide-coins' }
+const route = useRoute()
+const router = useRouter()
+type ShopTab = 'hatchery' | 'trading'
+const tab = computed<ShopTab>({
+  get: () => route.query.tab === 'trading' ? 'trading' : 'hatchery',
+  set: value => void router.replace({ query: { ...route.query, tab: value === 'trading' ? 'trading' : undefined } })
+})
+
+// ── Hatchery ────────────────────────────────────────────────────────────────
+type HatchFilter = 'all' | 'owned' | 'affordable'
+const hatchFilter = ref<HatchFilter>('all')
+const hatchFilters: { label: string, value: HatchFilter }[] = [
+  { label: 'All tiers', value: 'all' },
+  { label: 'Owned', value: 'owned' },
+  { label: 'Affordable', value: 'affordable' }
 ]
+const visibleSpecies = computed(() => speciesCatalog.value.filter((species: any) => {
+  if (hatchFilter.value === 'owned') return species.owned > 0
+  if (hatchFilter.value === 'affordable') return species.buyable && balance.value >= species.spawnCost
+  return true
+}))
 
 const buyingId = ref<string | null>(null)
+interface HatchPop { id: number, typeId: string }
+const hatchPops = ref<HatchPop[]>([])
+let popSeq = 0
+
 async function handleBuy(typeId: string) {
   if (buyingId.value) return
   buyingId.value = typeId
   try {
     await colony.buyBug(typeId)
+    const id = popSeq++
+    hatchPops.value.push({ id, typeId })
+    setTimeout(() => {
+      hatchPops.value = hatchPops.value.filter(p => p.id !== id)
+    }, 1500)
+  } catch {
+    // useColony already showed the error
   } finally {
     buyingId.value = null
   }
@@ -33,11 +59,11 @@ function baseFeedPerHour(species: any): number {
   return (species.eatMin / species.baseTickMs) * 3_600_000
 }
 
+// ── Trading post ────────────────────────────────────────────────────────────
 const sellableItems = computed(() => inventory.value.filter((i: any) => i.quantity > 0))
 const emptyItems = computed(() => inventory.value.filter((i: any) => i.quantity <= 0))
 const totalSellValue = computed(() => sellableItems.value.reduce((sum: number, i: any) => sum + i.quantity * i.sellValue, 0))
 
-// ── Search / tier filter ────────────────────────────────────────────────────
 const sellSearch = ref('')
 const sellTierFilter = ref(0)
 
@@ -49,15 +75,18 @@ const filteredSellItems = computed(() => {
       if (q && !i.name.toLowerCase().includes(q)) return false
       return true
     })
-    .sort((a: any, b: any) => b.tier !== a.tier ? b.tier - a.tier : b.sellValue - a.sellValue)
+    .sort((a: any, b: any) => Number(b.quantity > 0) - Number(a.quantity > 0) || b.tier - a.tier || b.sellValue - a.sellValue)
 })
 
-// ── Keep setting (cookie-persisted, mirrors Xeno market) ────────────────────
+function foragedBy(itemId: string) {
+  return BUG_TYPES.find(b => b.itemId === itemId && !b.prestigeOnly)
+}
+
+// Keep setting (cookie-persisted, mirrors Xeno market)
 const keepAmount = useCookie<number>('colony_market_keep', { default: () => 0 })
-const keepInput = computed({
-  get: () => keepAmount.value,
-  set: (v) => { keepAmount.value = Math.max(0, Math.floor(Number(v) || 0)) }
-})
+const keepModel = ref(Math.max(0, Math.floor(Number(keepAmount.value) || 0)))
+watch(keepModel, (v) => { keepAmount.value = Math.max(0, Math.floor(v || 0)) })
+const keepText = useAmountInput(keepModel, { integer: true, shorthand: true })
 
 function keepSellQty(item: any): number {
   return Math.max(0, item.quantity - keepAmount.value)
@@ -81,6 +110,12 @@ const confirmSell = ref<{ item: any, qty: number } | null>(null)
 function requestSell(item: any, qty: number) {
   if (qty >= item.quantity) confirmSell.value = { item, qty }
   else doSell(item.id, qty)
+}
+function confirmSellStack() {
+  if (!confirmSell.value) return
+  const { item } = confirmSell.value
+  confirmSell.value = null
+  doSell(item.id, item.quantity)
 }
 
 const sellingKeep = ref<Record<string, boolean>>({})
@@ -112,417 +147,401 @@ async function doSellKeepAll() {
 </script>
 
 <template>
-  <div>
-    <UContainer class="py-4 space-y-4">
-      <UTabs
-        v-model="tab"
-        :items="tabItems"
-        class="w-full"
-      />
+  <div class="max-w-[1440px] mx-auto px-4 py-4 md:p-6 space-y-4">
+    <!-- Shop signs -->
+    <div
+      class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5"
+      role="tablist"
+      aria-label="Market"
+    >
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'hatchery'"
+        class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
+        :class="tab === 'hatchery' ? 'cl-ready-glow' : 'opacity-80 hover:opacity-100'"
+        @click="tab = 'hatchery'"
+      >
+        <span class="text-3xl sm:text-[38px]">🥚</span>
+        <span class="min-w-0">
+          <span class="cl-display block text-xl sm:text-2xl font-bold">Hatchery</span>
+          <span class="text-[13px] text-muted">Buy bugs. Each egg rolls its own speed and yield.</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'trading'"
+        class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
+        :class="tab === 'trading' ? 'cl-ready-glow' : 'opacity-80 hover:opacity-100'"
+        @click="tab = 'trading'"
+      >
+        <span class="text-3xl sm:text-[38px]">⚖️</span>
+        <span class="min-w-0 flex-1">
+          <span class="cl-display block text-xl sm:text-2xl font-bold">Trading Post</span>
+          <span class="text-[13px] text-muted">Sell forage for coins, or hoard it for Habitat builds.</span>
+        </span>
+        <span
+          v-if="totalSellValue > 0"
+          class="cl-chip cl-chip-gold cl-num shrink-0 hidden min-[420px]:inline-flex"
+        >≈ {{ formatNumber(totalSellValue) }}</span>
+      </button>
+    </div>
 
-      <!-- Buy -->
-      <template v-if="tab === 'buy'">
-        <p class="text-xs text-muted">
-          Every bug rolls a Speed trait (faster cycles) and a Yield level (each cycle drops 1 up to that level+1 items, never a percentage) within its species' current roll range — every species starts at 0-{{ MAX_TRAIT_PCT }}% speed / 1-2 yield. Sacrifice spare bugs on the
-          <NuxtLink
+    <!-- Hatchery -->
+    <template v-if="tab === 'hatchery'">
+      <div class="flex gap-2 flex-wrap items-center">
+        <button
+          v-for="f in hatchFilters"
+          :key="f.value"
+          type="button"
+          class="cl-chip"
+          :class="hatchFilter === f.value && 'cl-chip-gold'"
+          :aria-pressed="hatchFilter === f.value"
+          @click="hatchFilter = f.value"
+        >
+          {{ f.label }}
+        </button>
+        <span class="flex-1" />
+        <p class="text-[13px] text-muted w-full sm:w-auto">
+          Rolls widen with <NuxtLink
             to="/colony/research"
-            class="text-primary underline"
-          >Research</NuxtLink> page to permanently widen a species' range. Bought bugs land in your inventory; place them from the Terrarium page.
+            class="text-amber-400 underline"
+          >Research</NuxtLink>. New bugs land in the Burrow.
         </p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <UCard
-            v-for="species in speciesCatalog"
-            :key="species.id"
-            :class="!species.buyable && 'opacity-60'"
-            :ui="{ body: 'p-0' }"
-          >
-            <div class="p-3 space-y-3">
-              <div class="flex items-start gap-3">
-                <span
-                  class="text-3xl leading-none size-12 flex items-center justify-center rounded-xl border shrink-0"
-                  :class="tierBg(species.tier)"
-                >{{ species.buyable ? species.emoji : '❔' }}</span>
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-1.5">
-                    <p class="font-semibold text-sm truncate">
-                      {{ species.buyable ? species.name : 'Unknown species' }}
-                    </p>
-                    <span
-                      class="text-xs font-black"
-                      :class="tierColor(species.tier)"
-                    >T{{ species.tier }}</span>
-                  </div>
-                  <div
-                    v-if="species.buyable"
-                    class="flex flex-wrap gap-1.5 mt-1.5"
-                  >
-                    <UBadge
-                      size="sm"
-                      variant="subtle"
-                      :color="species.social ? 'success' : 'warning'"
-                      :icon="species.social ? 'i-lucide-users' : 'i-lucide-user'"
-                    >
-                      {{ species.social ? 'Social' : 'Solitary' }}
-                    </UBadge>
-                    <UBadge
-                      v-if="species.producesGems"
-                      size="sm"
-                      variant="subtle"
-                      color="info"
-                      icon="i-lucide-gem"
-                    >
-                      Gem forager
-                    </UBadge>
-                    <UBadge
-                      v-if="species.researchLevel > 0"
-                      size="sm"
-                      variant="subtle"
-                      color="primary"
-                    >
-                      Research {{ species.researchLevel }}
-                    </UBadge>
-                  </div>
-                </div>
-              </div>
+      </div>
 
-              <p class="text-xs text-muted min-h-8">
-                {{ species.buyable ? species.description : `Reach Habitat Level ${species.tier} to reveal and buy this species.` }}
-              </p>
-
-              <div
+      <div
+        v-if="visibleSpecies.length"
+        class="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4"
+      >
+        <article
+          v-for="species in visibleSpecies"
+          :key="species.id"
+          class="cl-bug pb-3"
+          :class="[`cl-t${species.tier}`, species.producesGems && 'cl-tgem', !species.buyable && 'cl-bug-dim']"
+        >
+          <span class="cl-bug-tier">T{{ species.tier }} · {{ TIER_NAMES[species.tier] }}</span>
+          <span
+            v-if="species.researchLevel > 0 && species.buyable"
+            class="cl-bug-qty text-green-300"
+            :title="`Research level ${species.researchLevel}`"
+          >R{{ species.researchLevel }}</span>
+          <div class="cl-bug-art h-[96px] mt-5">
+            <span
+              class="cl-bug-emoji text-[56px]"
+              :class="!species.buyable && 'cl-silhouette'"
+            >{{ species.emoji }}</span>
+            <span
+              v-for="p in hatchPops.filter(pop => pop.typeId === species.id)"
+              :key="p.id"
+              class="cl-float top-2 left-1/2"
+            >+1 {{ species.emoji }}</span>
+          </div>
+          <div class="px-3.5 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="cl-display text-xl font-bold truncate">{{ species.buyable ? species.name : '???' }}</span>
+              <span
                 v-if="species.buyable"
-                class="grid grid-cols-2 gap-2"
+                class="cl-chip shrink-0"
+                :class="species.social ? 'cl-chip-green' : 'cl-chip-warn'"
               >
-                <div class="rounded-lg bg-elevated/70 p-2">
-                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                <UIcon
+                  :name="species.social ? 'i-lucide-users' : 'i-lucide-user'"
+                  class="size-3"
+                />
+                {{ species.social ? 'Social' : 'Solitary' }}
+              </span>
+            </div>
+            <p class="text-[12.5px] text-muted min-h-[34px]">
+              {{ species.buyable ? species.description : `Dig to Habitat ${species.tier} to meet this ${TIER_NAMES[species.tier]?.toLowerCase()} forager.` }}
+            </p>
+
+            <template v-if="species.buyable">
+              <div class="grid grid-cols-2 gap-1.5">
+                <div class="cl-inset px-2 py-1.5">
+                  <p class="cl-eyebrow text-[10px]">
                     Cycle
                   </p>
-                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
-                    <UIcon
-                      name="i-lucide-timer"
-                      class="size-3 text-warning"
-                    />
+                  <p class="cl-num font-extrabold">
                     {{ formatDuration(species.baseTickMs) }}
                   </p>
                 </div>
-                <div class="rounded-lg bg-elevated/70 p-2">
-                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                <div class="cl-inset px-2 py-1.5">
+                  <p class="cl-eyebrow text-[10px]">
                     Speed roll
                   </p>
-                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
-                    <UIcon
-                      name="i-lucide-zap"
-                      class="size-3 text-primary"
-                    />
-                    {{ species.producesGems ? 'Fixed cycle' : `${species.speedMin}–${species.speedMax}%` }}
+                  <p class="cl-num font-extrabold text-yellow-300">
+                    {{ species.producesGems ? 'Fixed' : `${species.speedMin}–${species.speedMax}%` }}
                   </p>
                 </div>
-                <div class="rounded-lg bg-elevated/70 p-2">
-                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                <div class="cl-inset px-2 py-1.5">
+                  <p class="cl-eyebrow text-[10px]">
                     Output
                   </p>
-                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
-                    <UIcon
-                      :name="species.producesGems ? 'i-lucide-gem' : 'i-lucide-package-plus'"
-                      class="size-3 text-success"
-                    />
-                    {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Yield ${species.yieldMin}–${species.yieldMax} · ×${species.resourceMultiplier}` }}
+                  <p class="cl-num font-extrabold text-sky-300">
+                    {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Y${species.yieldMin}–${species.yieldMax} · ×${species.resourceMultiplier}` }}
                   </p>
                 </div>
-                <div class="rounded-lg bg-elevated/70 p-2">
-                  <p class="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                <div class="cl-inset px-2 py-1.5">
+                  <p class="cl-eyebrow text-[10px]">
                     Appetite
                   </p>
-                  <p class="text-xs font-bold mt-0.5 flex items-center gap-1">
-                    <UIcon
-                      name="i-lucide-utensils"
-                      class="size-3 text-muted"
-                    />
+                  <p
+                    class="cl-num font-extrabold"
+                    :title="`At least ~${formatNumber(Math.round(baseFeedPerHour(species)), false)} nutrition per hour`"
+                  >
                     {{ species.eatMin }}–{{ species.eatMax }} / cycle
                   </p>
                 </div>
               </div>
-
-              <div
-                v-if="species.buyable"
-                class="border-t border-default pt-2.5 space-y-1 text-xs"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-muted">Forages</span>
-                  <span class="font-medium truncate">{{ species.itemEmoji }} {{ species.itemName }}</span>
-                </div>
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-muted">Baseline appetite</span>
-                  <span class="font-mono">~{{ formatNumber(Math.round(baseFeedPerHour(species)), false) }}/hr</span>
-                </div>
-                <div class="flex items-center justify-between gap-3">
-                  <span class="text-muted">Owned</span>
-                  <span class="font-mono">{{ species.owned }}</span>
-                </div>
+              <div class="flex justify-between gap-2 text-[12.5px]">
+                <span class="text-muted truncate">Forages {{ species.itemEmoji }} {{ species.itemName }}</span>
+                <span class="cl-num font-extrabold shrink-0">Owned {{ species.owned }}</span>
               </div>
-            </div>
-
-            <div class="border-t border-default p-3">
-              <UButton
-                v-if="species.buyable"
-                block
-                size="sm"
-                color="primary"
-                :loading="buyingId === species.id"
-                :disabled="balance < species.spawnCost"
+              <button
+                type="button"
+                class="cl-btn cl-btn-green w-full"
+                :disabled="balance < species.spawnCost || !!buyingId"
                 @click="handleBuy(species.id)"
               >
-                <span class="flex items-center gap-1">
-                  Buy — <CoinBalance
-                    :value="species.spawnCost"
-                  />
-                </span>
-              </UButton>
-              <UButton
-                v-else
-                block
-                size="sm"
-                color="neutral"
-                variant="soft"
-                icon="i-lucide-lock"
+                <UIcon
+                  v-if="buyingId === species.id"
+                  name="i-lucide-loader-circle"
+                  class="size-4 animate-spin"
+                />
+                <ColonyCurrencyIcon
+                  v-else
+                  :size="18"
+                />
+                Hatch · {{ formatNumber(species.spawnCost) }}
+              </button>
+            </template>
+            <template v-else>
+              <div class="cl-inset p-2.5 text-center text-[12.5px] text-muted">
+                Costs <span class="cl-num font-extrabold text-default">{{ formatNumber(species.spawnCost) }}</span> once unlocked
+              </div>
+              <button
+                type="button"
+                class="cl-btn cl-btn-ghost w-full"
                 disabled
               >
-                Requires Habitat {{ species.tier }}
-              </UButton>
-            </div>
-          </UCard>
-        </div>
-      </template>
+                <UIcon
+                  name="i-lucide-lock"
+                  class="size-4"
+                />
+                Habitat {{ species.tier }} unlocks
+              </button>
+            </template>
+          </div>
+        </article>
+      </div>
+      <p
+        v-else
+        class="text-sm text-muted text-center py-12"
+      >
+        {{ hatchFilter === 'owned' ? 'You don\'t own any bugs yet.' : 'Nothing you can afford right now.' }}
+      </p>
+    </template>
 
-      <!-- Sell -->
-      <template v-if="tab === 'sell'">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <p class="text-xs text-muted">
-            Sell foraged items for coins — or hoard them for Habitat upgrades, which get item-hungry fast.
+    <!-- Trading post -->
+    <template v-if="tab === 'trading'">
+      <div class="cl-panel px-4 py-3.5 sm:px-[18px] sm:py-4 flex flex-wrap gap-4 items-center border-amber-400/45">
+        <div class="flex-[1_1_200px]">
+          <p class="cl-eyebrow">
+            Stores worth
           </p>
-          <div class="text-right shrink-0">
-            <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">
-              Portfolio value
-            </p>
-            <CoinBalance
-              :value="totalSellValue"
-              :compact="false"
-              class="text-base font-black"
-            />
-          </div>
+          <p class="cl-display cl-num text-3xl sm:text-[34px] font-bold text-amber-400 leading-tight">
+            {{ formatNumber(Math.round(totalSellValue), false) }}
+          </p>
         </div>
-
-        <!-- Filters -->
-        <div class="flex gap-2">
-          <UInput
-            v-model="sellSearch"
-            placeholder="Search items…"
-            icon="i-lucide-search"
-            size="sm"
-            class="flex-1"
-          />
-          <USelect
-            v-model="sellTierFilter"
-            :items="[
-              { label: 'All tiers', value: 0 },
-              { label: 'T1', value: 1 },
-              { label: 'T2', value: 2 },
-              { label: 'T3', value: 3 },
-              { label: 'T4', value: 4 },
-              { label: 'T5', value: 5 },
-              { label: 'T6', value: 6 }
-            ]"
-            size="sm"
-            class="w-28"
-          />
-        </div>
-
-        <!-- Sell settings bar -->
-        <div class="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-default bg-elevated/50">
-          <UIcon
-            name="i-lucide-settings-2"
-            class="size-3.5 text-muted shrink-0"
-          />
-          <span class="text-xs text-muted font-medium shrink-0">Keep per stack</span>
-          <UInput
-            v-model="keepInput"
-            type="number"
-            min="0"
-            size="xs"
-            class="w-20"
-          />
-          <div class="flex-1" />
-          <CoinBalance
-            v-if="keepSellTotalValue > 0"
-            :value="keepSellTotalValue"
-            :compact="false"
-            class="text-xs text-muted shrink-0"
-          />
-          <UButton
-            size="xs"
-            color="error"
-            variant="soft"
-            icon="i-lucide-trending-down"
-            :label="`Sell All — keep ${keepAmount}`"
-            :disabled="keepSellableItems.length === 0 || sellingKeepAll"
-            :loading="sellingKeepAll"
-            @click="confirmKeepSellAll = true"
-          />
-        </div>
-
-        <div class="space-y-2">
-          <div
-            v-if="!filteredSellItems.length"
-            class="text-sm text-muted py-12 text-center"
-          >
-            No items match your filter.
-          </div>
-
-          <div
-            v-for="item in filteredSellItems"
-            :key="item.id"
-            class="rounded-xl border border-default px-4 py-3 flex items-center gap-4 transition-colors hover:border-primary/60 hover:bg-primary/5"
-            :class="[tierBg(item.tier), item.quantity <= 0 && 'opacity-50']"
-          >
-            <!-- Emoji + qty -->
-            <div class="shrink-0 flex items-center gap-2">
-              <span
-                class="text-2xl leading-none size-11 flex items-center justify-center rounded-xl border shrink-0"
-                :class="tierBg(item.tier)"
-              >{{ item.emoji }}</span>
-              <span class="text-sm font-black text-primary tabular-nums leading-none">×{{ formatNumber(item.quantity, false) }}</span>
-            </div>
-
-            <!-- Item info -->
-            <div class="flex-1 min-w-0">
-              <p class="font-bold text-sm flex items-center gap-1.5">
-                {{ item.name }}
-                <span
-                  class="text-xs font-black"
-                  :class="tierColor(item.tier)"
-                >T{{ item.tier }}</span>
-              </p>
-            </div>
-
-            <!-- Total + price per unit -->
-            <div class="text-right shrink-0 hidden sm:flex flex-col items-end gap-0.5">
-              <CoinBalance
-                :value="item.quantity * item.sellValue"
-                :compact="false"
-                class="text-sm font-bold"
-              />
-              <span class="text-xs text-muted tabular-nums flex items-center gap-1">
-                <CoinBalance
-                  :value="item.sellValue"
-                  :compact="false"
-                /> ea
-              </span>
-            </div>
-
-            <!-- Sell buttons -->
-            <div class="flex gap-1 shrink-0">
-              <UButton
-                v-for="qty in [1, 10, 50]"
-                :key="qty"
-                size="xs"
-                variant="soft"
-                color="error"
-                :disabled="item.quantity === 0"
-                :loading="sellingId[`${item.id}-${Math.min(qty, item.quantity)}`]"
-                @click="requestSell(item, Math.min(qty, item.quantity))"
+        <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          <label class="flex items-center gap-2 text-[13px] font-bold text-muted">
+            Keep per stack
+            <UInput
+              v-model="keepText"
+              inputmode="decimal"
+              size="md"
+              class="w-28"
+              placeholder="0"
+            >
+              <template
+                v-if="amountPreview(keepText, true)"
+                #trailing
               >
-                <span class="tabular-nums font-semibold">×{{ qty }}</span>
-              </UButton>
-              <UButton
-                size="xs"
-                variant="soft"
-                color="error"
-                :disabled="keepSellQty(item) === 0"
-                :loading="sellingKeep[item.id]"
-                :label="`−${keepAmount}`"
-                @click="doSellKeep(item)"
-              />
-            </div>
-          </div>
+                <span class="text-xs tabular-nums text-muted">{{ amountPreview(keepText, true) }}</span>
+              </template>
+            </UInput>
+          </label>
+          <button
+            type="button"
+            class="cl-btn cl-btn-gold flex-1 sm:flex-none"
+            :class="keepSellTotalValue > 0 && 'cl-btn-pulse'"
+            :disabled="!keepSellableItems.length || sellingKeepAll"
+            @click="confirmKeepSellAll = true"
+          >
+            <UIcon
+              v-if="sellingKeepAll"
+              name="i-lucide-loader-circle"
+              class="size-4 animate-spin"
+            />
+            Sell all · keep {{ formatNumber(keepAmount) }}<template v-if="keepSellTotalValue > 0">
+              · +{{ formatNumber(keepSellTotalValue) }}
+            </template>
+          </button>
         </div>
-      </template>
-    </UContainer>
+      </div>
 
-    <!-- Confirm sell-all stack modal -->
-    <UModal
-      :open="!!confirmSell"
-      title="Sell all of this stack?"
-      @update:open="(v) => { if (!v) confirmSell = null }"
-    >
-      <template #body>
+      <div class="flex gap-2 flex-wrap items-center">
+        <UInput
+          v-model="sellSearch"
+          placeholder="Search items…"
+          icon="i-lucide-search"
+          size="md"
+          class="w-full sm:w-64"
+        />
+        <div class="flex gap-1.5 flex-wrap">
+          <button
+            v-for="t in [0, 1, 2, 3, 4, 5, 6]"
+            :key="t"
+            type="button"
+            class="cl-chip"
+            :class="sellTierFilter === t ? 'cl-chip-gold' : t ? `cl-t${t} cl-tc` : ''"
+            :aria-pressed="sellTierFilter === t"
+            @click="sellTierFilter = t"
+          >
+            {{ t ? `T${t}` : 'All' }}
+          </button>
+        </div>
+      </div>
+
+      <div
+        v-if="filteredSellItems.length"
+        class="grid grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 sm:gap-3.5"
+      >
         <div
-          v-if="confirmSell"
-          class="space-y-4"
+          v-for="item in filteredSellItems"
+          :key="item.id"
+          class="cl-crate gap-1.5 px-3 pt-3.5 pb-3"
+          :class="[`cl-t${item.tier}`, item.quantity <= 0 && 'cl-crate-empty']"
         >
-          <p class="text-sm text-muted">
-            You're about to sell all <span class="font-bold text-default">{{ confirmSell.item.quantity }}× {{ confirmSell.item.name }}</span>.
-            This will leave you with <span class="font-bold text-error">0</span> of this stack.
-          </p>
-          <div class="flex items-center gap-1.5 text-sm font-semibold">
-            <span>Total:</span>
-            <CoinBalance
-              :value="confirmSell.item.quantity * confirmSell.item.sellValue"
-              :compact="false"
-            />
+          <span class="self-stretch flex justify-between text-xs font-extrabold cl-num">
+            <span class="cl-tc">T{{ item.tier }}</span>
+            <span class="text-muted truncate">by {{ foragedBy(item.id)?.name ?? '???' }}</span>
+          </span>
+          <span class="text-[40px] sm:text-[44px] leading-tight">{{ item.emoji }}</span>
+          <span class="cl-display text-[15px] sm:text-base font-semibold text-center leading-tight">{{ item.name }}</span>
+          <span class="cl-display cl-num text-2xl sm:text-[26px] font-bold">{{ formatNumber(item.quantity, false) }}</span>
+          <span class="cl-num text-[12px] font-bold text-muted text-center">
+            {{ formatNumber(item.sellValue) }} each · <span class="text-amber-400">{{ item.quantity > 0 ? formatNumber(item.quantity * item.sellValue) : 'none' }}</span>
+          </span>
+          <div class="flex gap-1.5 self-stretch mt-1">
+            <button
+              type="button"
+              class="cl-btn cl-btn-ghost cl-btn-sm flex-1 min-w-0 px-1.5"
+              :disabled="keepSellQty(item) === 0 || sellingKeep[item.id]"
+              :title="`Sell all but ${formatNumber(keepAmount, false)}`"
+              @click="doSellKeep(item)"
+            >
+              <span class="truncate">−{{ formatNumber(keepSellQty(item)) }}</span>
+            </button>
+            <button
+              type="button"
+              class="cl-btn cl-btn-gold cl-btn-sm flex-1 min-w-0 px-1.5"
+              :disabled="item.quantity === 0"
+              @click="requestSell(item, item.quantity)"
+            >
+              Sell all
+            </button>
           </div>
-          <div class="flex gap-2 justify-end">
-            <UButton
-              variant="ghost"
-              color="neutral"
-              label="Cancel"
-              @click="confirmSell = null"
-            />
-            <UButton
-              color="error"
-              label="Sell All"
-              :loading="sellingId[`${confirmSell.item.id}-${confirmSell.item.quantity}`]"
-              @click="doSell(confirmSell.item.id, confirmSell.item.quantity)"
-            />
+          <div class="flex gap-1 self-stretch">
+            <button
+              v-for="qty in [1, 10, 50]"
+              :key="qty"
+              type="button"
+              class="cl-btn cl-btn-ghost cl-btn-xs flex-1 min-w-0 px-1"
+              :disabled="item.quantity === 0 || sellingId[`${item.id}-${Math.min(qty, item.quantity)}`]"
+              :aria-label="`Sell ${qty} ${item.name}`"
+              @click="requestSell(item, Math.min(qty, item.quantity))"
+            >
+              ×{{ qty }}
+            </button>
           </div>
         </div>
-      </template>
-    </UModal>
+      </div>
+      <p
+        v-else
+        class="text-sm text-muted py-12 text-center"
+      >
+        No items match your filter.
+      </p>
+    </template>
 
-    <!-- Confirm sell-all keep N modal -->
-    <UModal
-      :open="confirmKeepSellAll"
-      :title="`Sell all — keep ${keepAmount} per stack?`"
-      @update:open="(v) => { if (!v) confirmKeepSellAll = false }"
+    <!-- Confirm selling a whole stack -->
+    <ColonyConfirmSheet
+      :open="!!confirmSell"
+      title="Sell the whole stack?"
+      @close="confirmSell = null"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-muted">
-            Selling surplus from <span class="font-bold text-default">{{ keepSellableItems.length }} stack{{ keepSellableItems.length === 1 ? '' : 's' }}</span>,
-            keeping up to <span class="font-bold text-default">{{ keepAmount }}</span> of each.
-          </p>
-          <div class="flex items-center gap-1.5 text-sm font-semibold">
-            <span>You'll receive:</span>
-            <CoinBalance
-              :value="keepSellTotalValue"
-              :compact="false"
-            />
-          </div>
-          <div class="flex gap-2 justify-end">
-            <UButton
-              variant="ghost"
-              color="neutral"
-              label="Cancel"
-              @click="confirmKeepSellAll = false"
-            />
-            <UButton
-              color="error"
-              icon="i-lucide-trending-down"
-              :label="`Sell — keep ${keepAmount}`"
-              @click="doSellKeepAll"
-            />
-          </div>
-        </div>
+      <div
+        v-if="confirmSell"
+        class="cl-inset px-3.5 py-3 flex items-center gap-3"
+      >
+        <span class="text-3xl">{{ confirmSell.item.emoji }}</span>
+        <span class="flex-1 min-w-0">
+          <span class="block font-bold">{{ formatNumber(confirmSell.item.quantity, false) }}× {{ confirmSell.item.name }}</span>
+          <span class="text-xs text-muted">Leaves you with none of this stack.</span>
+        </span>
+        <span class="cl-display cl-num text-xl font-bold text-amber-400">+{{ formatNumber(confirmSell.item.quantity * confirmSell.item.sellValue) }}</span>
+      </div>
+      <template #actions="{ ready }">
+        <button
+          type="button"
+          class="cl-btn cl-btn-ghost"
+          @click="confirmSell = null"
+        >
+          Keep it
+        </button>
+        <button
+          type="button"
+          class="cl-btn cl-btn-gold"
+          @click="ready && confirmSellStack()"
+        >
+          Sell all
+        </button>
       </template>
-    </UModal>
+    </ColonyConfirmSheet>
+
+    <!-- Confirm sell-all, keeping N per stack -->
+    <ColonyConfirmSheet
+      :open="confirmKeepSellAll"
+      :title="`Sell all, keep ${formatNumber(keepAmount, false)}?`"
+      :description="`Sells the surplus from ${keepSellableItems.length} ${keepSellableItems.length === 1 ? 'stack' : 'stacks'}, keeping up to ${formatNumber(keepAmount, false)} of each.`"
+      @close="confirmKeepSellAll = false"
+    >
+      <div class="cl-inset px-3.5 py-3 flex justify-between items-center font-extrabold">
+        <span>You'll receive</span>
+        <span class="cl-display cl-num text-xl text-amber-400 flex items-center gap-1.5">
+          <ColonyCurrencyIcon :size="18" />
+          {{ formatNumber(Math.round(keepSellTotalValue), false) }}
+        </span>
+      </div>
+      <template #actions="{ ready }">
+        <button
+          type="button"
+          class="cl-btn cl-btn-ghost"
+          @click="confirmKeepSellAll = false"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="cl-btn cl-btn-gold"
+          @click="ready && doSellKeepAll()"
+        >
+          Sell · keep {{ formatNumber(keepAmount) }}
+        </button>
+      </template>
+    </ColonyConfirmSheet>
   </div>
 </template>
