@@ -164,6 +164,12 @@ const selectedRank = computed(() => {
   return u ? (users.value?.findIndex(x => x.id === u.id) ?? -1) + 1 : 0
 })
 
+/** The details hero wears the podium colours for the top three. */
+const heroBg = computed(() => {
+  const rank = selectedRank.value
+  return rank >= 1 && rank <= 3 ? podiumBg[rank - 1] : 'bg-gradient-to-b from-primary/10 to-transparent border-default'
+})
+
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
   giftCoinsInput.value = ''
@@ -447,152 +453,214 @@ async function sendGift() {
       icon="i-lucide-users"
     />
 
-    <UModal v-model:open="detailsOpen" :title="selectedUser?.name ?? 'Player details'" description="Player progression and balances">
-      <template v-if="selectedUser" #body>
-        <div class="space-y-5">
-          <div class="flex items-center gap-3">
-            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" :prestige="selectedUser.prestige" class="size-12 text-lg" />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <p class="truncate font-semibold">{{ selectedUser.name }}</p>
-                <PrestigeBadge :level="selectedUser.prestige" size="sm" />
+    <UModal
+      v-model:open="detailsOpen"
+      :title="selectedUser?.name ?? 'Player details'"
+      description="Player progression and balances"
+      :ui="{ content: 'sm:max-w-4xl' }"
+    >
+      <template #content="{ close }">
+        <div v-if="selectedUser" class="overflow-y-auto">
+          <!-- Hero -->
+          <div class="border-b px-4 pb-5 pt-4 sm:px-6" :class="heroBg">
+            <div class="flex items-center justify-between gap-2">
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-default bg-default/60 px-2.5 py-1 text-xs">
+                <LeaderboardMedal v-if="selectedRank >= 1 && selectedRank <= 3" :rank="selectedRank - 1" size="size-4" />
+                <UIcon v-else name="i-lucide-trophy" class="size-4 text-muted" />
+                <span class="font-mono font-bold">#{{ selectedRank }}</span>
+                <span class="text-muted">of {{ users?.length ?? 0 }}</span>
+              </span>
+              <div class="flex items-center gap-1">
+                <UButton :to="`/players/${selectedUser.id}`" icon="i-lucide-external-link" size="sm" variant="soft" color="neutral" label="Profile" />
+                <UButton icon="i-lucide-x" size="sm" variant="ghost" color="neutral" aria-label="Close" @click="close" />
               </div>
-              <p class="text-xs text-muted">Rank #{{ selectedRank }} of {{ users?.length ?? 0 }}</p>
-            </div>
-            <UButton :to="`/players/${selectedUser.id}`" icon="i-lucide-external-link" size="xs" variant="soft" color="neutral" label="Profile" />
-          </div>
-
-          <div class="grid grid-cols-2 gap-2">
-            <div class="rounded-lg border border-default bg-elevated/40 p-3">
-              <p class="text-[10px] font-medium uppercase tracking-wide text-muted">Upgrades</p>
-              <p class="text-lg font-bold tabular-nums text-primary">{{ formatNumber(selectedUser.totalUpgrades, false) }}</p>
-            </div>
-            <div class="rounded-lg border border-default bg-elevated/40 p-3">
-              <p class="text-[10px] font-medium uppercase tracking-wide text-muted">Net worth</p>
-              <CoinBalance :value="selectedUser.totalWealth" :danger="selectedUser.totalWealth < 0" class="text-lg font-bold" />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-3 gap-2 text-sm font-semibold">
-            <div class="rounded-lg border border-default p-2.5">
-              <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Wallet</p>
-              <CoinBalance :value="selectedUser.balance" :danger="selectedUser.inDebt" />
-            </div>
-            <div class="rounded-lg border border-default p-2.5">
-              <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Bank</p>
-              <BankBalance :value="selectedUser.bankBalance" />
-            </div>
-            <div class="rounded-lg border border-default p-2.5">
-              <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Gems</p>
-              <GemBalance :value="selectedUser.gems" />
-              <p class="mt-0.5 text-[10px] font-normal text-muted">≈ {{ formatNumber(selectedUser.gemValue) }} coins</p>
-            </div>
-          </div>
-
-          <div v-if="selectedUser.bailoutActive" class="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
-            <UIcon name="i-lucide-life-buoy" class="size-4 shrink-0 text-warning" />
-            <span class="text-muted">Bail-out running —</span>
-            <CoinBalance :value="selectedUser.bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="font-semibold" />
-            <span class="text-muted">left to levy back</span>
-          </div>
-
-          <div v-if="me && !selectedUser.isCurrentUser" class="rounded-lg border border-primary/30 bg-primary/5 p-3">
-            <div class="mb-3 flex items-center gap-2">
-              <UIcon name="i-lucide-gift" class="size-4 text-primary" />
-              <p class="text-xs font-medium uppercase tracking-wide text-muted">Gift {{ selectedUser.name }}</p>
             </div>
 
-            <form class="space-y-3" @submit.prevent="sendGift">
-              <div class="space-y-1.5">
-                <UInput
-                  v-model="giftCoinsInput"
-                  placeholder="Coins — e.g. 200k, 2.5m, 2b"
-                  icon="i-lucide-coins"
-                  autocomplete="off"
-                  class="w-full"
-                  :color="giftCoins === null || coinsTooMany ? 'error' : undefined"
-                >
-                  <template v-if="giftCoins" #trailing>
-                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftCoins, false) }}</span>
-                  </template>
-                </UInput>
-                <div class="flex flex-wrap gap-1">
-                  <UButton v-for="p in coinPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setCoins(p)">{{ p }}</UButton>
-                  <UButton size="xs" variant="soft" color="neutral" :disabled="balanceNum <= 0" @click="allCoins">All</UButton>
-                </div>
-                <p v-if="coinsTooMany" class="text-xs text-error">You only have <CoinBalance :value="me.balance" :compact="false" /></p>
-              </div>
-
-              <div class="space-y-1.5">
-                <UInput
-                  v-model="giftGemsInput"
-                  placeholder="Gems — e.g. 50, 1k"
-                  icon="i-lucide-gem"
-                  autocomplete="off"
-                  class="w-full"
-                  :color="giftGems === null || gemsTooMany ? 'error' : undefined"
-                >
-                  <template v-if="giftGems" #trailing>
-                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftGems, false) }}</span>
-                  </template>
-                </UInput>
-                <div class="flex flex-wrap gap-1">
-                  <UButton v-for="p in gemPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setGems(p)">{{ p }}</UButton>
-                  <UButton size="xs" variant="soft" color="neutral" :disabled="myGems <= 0" @click="allGems">All</UButton>
-                </div>
-                <p v-if="gemsTooMany" class="text-xs text-error">You only have <GemBalance :value="myGems" :compact="false" /></p>
-              </div>
-
-              <UButton type="submit" icon="i-lucide-gift" block :disabled="!canGift" :loading="gifting">
-                Send gift
-              </UButton>
-            </form>
-          </div>
-
-          <div>
-            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Upgrades by game</p>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <div v-for="group in detailGroups" :key="group.key" class="rounded-lg border border-default bg-elevated/40 p-3">
-                <div class="mb-2 flex items-center gap-2">
-                  <UIcon :name="group.icon" class="size-4" :class="group.text" />
-                  <span class="flex-1 text-sm font-semibold">{{ group.label }}</span>
-                  <span class="font-bold tabular-nums" :class="group.text">{{ formatNumber(group.total, false) }}</span>
-                </div>
-                <div class="space-y-1 text-xs">
-                  <div v-for="row in group.rows" :key="row.label" class="flex items-center gap-2 text-muted">
-                    <UIcon :name="row.icon" class="size-3.5" />
-                    <span class="flex-1">{{ row.label }}</span>
-                    <span class="font-semibold tabular-nums text-default">{{ formatNumber(row.value, false) }}{{ 'suffix' in row ? row.suffix : '' }}</span>
+            <div class="mt-4 flex flex-col gap-5 md:flex-row md:items-center">
+              <div class="flex min-w-0 flex-1 items-center gap-4">
+                <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" :prestige="selectedUser.prestige" class="size-16 text-xl sm:size-20 sm:text-2xl" />
+                <div class="min-w-0">
+                  <div class="flex min-w-0 items-center gap-2">
+                    <p class="truncate text-xl font-black sm:text-2xl">{{ selectedUser.name }}</p>
+                    <LeaderboardYouBadge :show="selectedUser.isCurrentUser" />
+                  </div>
+                  <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                    <PrestigeBadge :level="selectedUser.prestige" size="md" />
                   </div>
                 </div>
               </div>
+
+              <div class="grid grid-cols-2 gap-2 md:w-80">
+                <div class="rounded-xl border border-default bg-default/60 px-3 py-2.5">
+                  <p class="text-[10px] font-medium uppercase tracking-wide text-muted">Upgrades</p>
+                  <p class="text-2xl font-black tabular-nums text-primary">{{ formatNumber(selectedUser.totalUpgrades, false) }}</p>
+                </div>
+                <div class="rounded-xl border border-default bg-default/60 px-3 py-2.5">
+                  <p class="text-[10px] font-medium uppercase tracking-wide text-muted">Net worth</p>
+                  <CoinBalance :value="selectedUser.totalWealth" :danger="selectedUser.totalWealth < 0" class="text-2xl font-black" />
+                </div>
+              </div>
+            </div>
+
+            <div v-if="selectedUser.totalUpgrades > 0" class="mt-4">
+              <div class="flex h-2 overflow-hidden rounded-full bg-elevated">
+                <UTooltip
+                  v-for="seg in upgradeSegments(selectedUser)"
+                  :key="seg.key"
+                  :text="`${seg.label}: ${formatNumber(seg.amount, false)} upgrades`"
+                >
+                  <span class="h-full" :class="seg.bar" :style="{ width: `${(seg.amount / selectedUser.totalUpgrades) * 100}%` }" />
+                </UTooltip>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                <span v-for="seg in upgradeSegments(selectedUser)" :key="seg.key" class="inline-flex items-center gap-1.5">
+                  <span class="size-2.5 rounded-sm" :class="seg.bar" />{{ seg.label }}
+                  <span class="font-semibold tabular-nums text-default">{{ formatNumber(seg.amount, false) }}</span>
+                </span>
+              </div>
             </div>
           </div>
 
-          <div>
-            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Other games <span class="normal-case tracking-normal">(not ranked)</span></p>
-            <div class="divide-y divide-default overflow-hidden rounded-lg border border-default">
-              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
-                <UIcon name="i-lucide-shield" class="size-4 text-primary" />
-                <span class="flex-1 text-sm">HackOps power</span>
-                <span class="font-semibold tabular-nums">{{ formatNumber(selectedUser.hackPower, false) }}</span>
-              </div>
-              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
-                <UIcon name="i-lucide-swords" class="size-4 text-secondary" />
-                <span class="flex-1 text-sm">Battler rating</span>
-                <span class="text-xs text-muted">{{ selectedUser.battlerBattlesWon }}–{{ selectedUser.battlerBattlesLost }} · {{ selectedUser.battlerRunsWon }} runs won</span>
-                <span class="font-semibold tabular-nums">{{ selectedUser.battlerRating ?? '—' }}</span>
-              </div>
-              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
-                <UIcon name="i-lucide-sword" class="size-4 text-warning" />
-                <span class="flex-1 text-sm">Hero Quest power</span>
-                <span class="font-semibold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn, 'standard') : '—' }}</span>
-              </div>
-              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
-                <UIcon name="i-lucide-bot" class="size-4 text-info" />
-                <span class="flex-1 text-sm">AI prompts used</span>
-                <span class="font-semibold tabular-nums">{{ formatNumber(selectedUser.aiPromptsUsed, false) }}</span>
-              </div>
+          <div class="grid gap-5 p-4 sm:p-6 md:grid-cols-2 md:items-start">
+            <div class="space-y-5">
+              <section>
+                <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Balances</h3>
+                <div class="grid grid-cols-3 gap-2 text-sm font-bold">
+                  <div class="min-w-0 rounded-xl border border-default bg-elevated/40 p-2.5 sm:p-3">
+                    <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Wallet</p>
+                    <CoinBalance :value="selectedUser.balance" :danger="selectedUser.inDebt" class="sm:text-base" />
+                    <p v-if="selectedUser.inDebt" class="mt-0.5 text-[10px] font-normal text-error">Owes the bank</p>
+                  </div>
+                  <div class="min-w-0 rounded-xl border border-default bg-elevated/40 p-2.5 sm:p-3">
+                    <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Bank</p>
+                    <BankBalance :value="selectedUser.bankBalance" class="sm:text-base" />
+                  </div>
+                  <div class="min-w-0 rounded-xl border border-default bg-elevated/40 p-2.5 sm:p-3">
+                    <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted">Gems</p>
+                    <GemBalance :value="selectedUser.gems" class="sm:text-base" />
+                    <p class="mt-0.5 truncate text-[10px] font-normal text-muted">≈ {{ formatNumber(selectedUser.gemValue) }} coins</p>
+                  </div>
+                </div>
+
+                <div v-if="selectedUser.bailoutActive" class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
+                  <UIcon name="i-lucide-life-buoy" class="size-4 shrink-0 text-warning" />
+                  <span class="text-muted">Bail-out running —</span>
+                  <CoinBalance :value="selectedUser.bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="font-semibold" />
+                  <span class="text-muted">left to levy back</span>
+                </div>
+              </section>
+
+              <LeaderboardIncomeCard :user-id="selectedUser.id" />
+
+              <section v-if="me && !selectedUser.isCurrentUser" class="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                <div class="mb-3 flex items-center gap-2.5">
+                  <div class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15">
+                    <UIcon name="i-lucide-gift" class="size-4 text-primary" />
+                  </div>
+                  <p class="min-w-0 truncate text-sm font-semibold">Gift {{ selectedUser.name }}</p>
+                </div>
+
+                <form class="space-y-3" @submit.prevent="sendGift">
+                  <div class="space-y-1.5">
+                    <UInput
+                      v-model="giftCoinsInput"
+                      placeholder="Coins — e.g. 200k, 2.5m, 2b"
+                      icon="i-lucide-coins"
+                      autocomplete="off"
+                      class="w-full"
+                      :color="giftCoins === null || coinsTooMany ? 'error' : undefined"
+                    >
+                      <template v-if="giftCoins" #trailing>
+                        <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftCoins, false) }}</span>
+                      </template>
+                    </UInput>
+                    <div class="flex flex-wrap gap-1">
+                      <UButton v-for="p in coinPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setCoins(p)">{{ p }}</UButton>
+                      <UButton size="xs" variant="soft" color="neutral" :disabled="balanceNum <= 0" @click="allCoins">All</UButton>
+                    </div>
+                    <p v-if="coinsTooMany" class="text-xs text-error">You only have <CoinBalance :value="me.balance" :compact="false" /></p>
+                  </div>
+
+                  <div class="space-y-1.5">
+                    <UInput
+                      v-model="giftGemsInput"
+                      placeholder="Gems — e.g. 50, 1k"
+                      icon="i-lucide-gem"
+                      autocomplete="off"
+                      class="w-full"
+                      :color="giftGems === null || gemsTooMany ? 'error' : undefined"
+                    >
+                      <template v-if="giftGems" #trailing>
+                        <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftGems, false) }}</span>
+                      </template>
+                    </UInput>
+                    <div class="flex flex-wrap gap-1">
+                      <UButton v-for="p in gemPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setGems(p)">{{ p }}</UButton>
+                      <UButton size="xs" variant="soft" color="neutral" :disabled="myGems <= 0" @click="allGems">All</UButton>
+                    </div>
+                    <p v-if="gemsTooMany" class="text-xs text-error">You only have <GemBalance :value="myGems" :compact="false" /></p>
+                  </div>
+
+                  <UButton type="submit" icon="i-lucide-gift" block :disabled="!canGift" :loading="gifting">
+                    Send gift
+                  </UButton>
+                </form>
+              </section>
+            </div>
+
+            <div class="space-y-5">
+              <section>
+                <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Upgrades by game</h3>
+                <div class="divide-y divide-default overflow-hidden rounded-xl border border-default bg-elevated/40">
+                  <div v-for="group in detailGroups" :key="group.key" class="px-3 py-3">
+                    <div class="flex items-center gap-2.5">
+                      <div class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-default/70">
+                        <UIcon :name="group.icon" class="size-4" :class="group.text" />
+                      </div>
+                      <span class="flex-1 text-sm font-semibold">{{ group.label }}</span>
+                      <span class="font-bold tabular-nums" :class="group.text">{{ formatNumber(group.total, false) }}</span>
+                    </div>
+                    <div class="mt-2 grid gap-x-4 gap-y-1 pl-9.5 text-xs sm:grid-cols-2">
+                      <div v-for="row in group.rows" :key="row.label" class="flex min-w-0 items-center gap-1.5 text-muted">
+                        <UIcon :name="row.icon" class="size-3.5 shrink-0" />
+                        <span class="flex-1 truncate">{{ row.label }}</span>
+                        <span class="font-semibold tabular-nums text-default">{{ formatNumber(row.value, false) }}{{ 'suffix' in row ? row.suffix : '' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <h3 class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Other games <span class="normal-case tracking-normal text-dimmed">(not ranked)</span></h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
+                    <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      <UIcon name="i-lucide-shield" class="size-3.5 text-primary" />HackOps power
+                    </p>
+                    <p class="mt-1 font-bold tabular-nums">{{ formatNumber(selectedUser.hackPower, false) }}</p>
+                  </div>
+                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
+                    <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      <UIcon name="i-lucide-swords" class="size-3.5 text-secondary" />Battler rating
+                    </p>
+                    <p class="mt-1 font-bold tabular-nums">{{ selectedUser.battlerRating ?? '—' }}</p>
+                    <p class="text-[10px] text-muted">{{ selectedUser.battlerBattlesWon }}–{{ selectedUser.battlerBattlesLost }} · {{ selectedUser.battlerRunsWon }} runs won</p>
+                  </div>
+                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
+                    <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      <UIcon name="i-lucide-sword" class="size-3.5 text-warning" />Hero Quest power
+                    </p>
+                    <p class="mt-1 truncate font-bold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn, 'standard') : '—' }}</p>
+                  </div>
+                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
+                    <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                      <UIcon name="i-lucide-bot" class="size-3.5 text-info" />AI prompts used
+                    </p>
+                    <p class="mt-1 font-bold tabular-nums">{{ formatNumber(selectedUser.aiPromptsUsed, false) }}</p>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
         </div>
