@@ -47,12 +47,12 @@ const loop = [
         <p class="cl-eyebrow">
           Field guide
         </p>
-        <h1 class="cl-display text-3xl sm:text-[34px] font-bold">
+        <h1 class="cl-display text-3xl sm:text-[34px] font-semibold">
           Colonopedia
         </h1>
       </div>
       <div class="cl-panel px-4 py-3 w-full sm:w-auto sm:min-w-64">
-        <div class="flex justify-between font-extrabold">
+        <div class="flex justify-between font-semibold">
           <span>Species discovered</span>
           <span class="cl-display cl-num text-amber-400">{{ discovered }} / {{ book.length }}</span>
         </div>
@@ -67,7 +67,7 @@ const loop = [
 
     <!-- The loop -->
     <section class="cl-panel p-4 sm:p-[18px]">
-      <h2 class="cl-display text-[22px] font-bold mb-3.5">
+      <h2 class="cl-display text-[22px] font-semibold mb-3.5">
         The colony loop
       </h2>
       <ol class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:items-center gap-2.5">
@@ -99,7 +99,7 @@ const loop = [
 
     <!-- Traits -->
     <section>
-      <h2 class="cl-display text-[22px] font-bold mb-3">
+      <h2 class="cl-display text-[22px] font-semibold mb-3">
         What makes a good bug
       </h2>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
@@ -110,7 +110,7 @@ const loop = [
           >
             <span class="flex-1 h-[30%] rounded-t-md rounded-b-sm bg-[#3b2d22]" />
             <span class="flex-1 h-[55%] rounded-t-md rounded-b-sm bg-yellow-700" />
-            <span class="flex-1 h-full rounded-t-md rounded-b-sm bg-linear-to-b from-yellow-300 to-yellow-600 shadow-[0_0_12px_rgba(250,204,21,0.5)]" />
+            <span class="flex-1 h-full rounded-t-md rounded-b-sm bg-yellow-400" />
           </div>
           <h3 class="cl-display text-[19px] font-semibold mt-2.5 text-yellow-300">
             Speed
@@ -178,7 +178,7 @@ const loop = [
 
     <!-- Species book -->
     <section>
-      <h2 class="cl-display text-[22px] font-bold mb-3">
+      <h2 class="cl-display text-[22px] font-semibold mb-3">
         Species
       </h2>
       <div class="grid grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3 sm:gap-3.5">
@@ -191,12 +191,12 @@ const loop = [
           <span class="cl-bug-tier">T{{ entry.tier }}</span>
           <div class="cl-bug-art h-[84px] mt-4">
             <span
-              class="cl-bug-emoji text-[46px]"
+              class="cl-bug-emoji text-[40px]"
               :class="!entry.discovered && 'cl-silhouette'"
             >{{ entry.emoji }}</span>
           </div>
           <span class="cl-bug-name text-base">{{ entry.discovered ? entry.name : '???' }}</span>
-          <span class="text-center text-xs font-bold text-muted mt-0.5 px-2">
+          <span class="text-center text-xs font-semibold text-muted mt-0.5 px-2">
             {{ entry.discovered ? entry.detail : `${TIER_NAMES[entry.tier]} · Habitat ${entry.tier}` }}
           </span>
         </div>

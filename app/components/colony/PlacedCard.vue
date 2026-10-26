@@ -58,7 +58,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Speed · Yield · Eats
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ bug.speed }}% · {{ bug.yield }}/{{ MAX_YIELD_LEVEL }} · {{ bug.eat }}
             </dd>
           </div>
@@ -66,7 +66,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Cycle
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ formatDuration(bug.tickMs) }}
             </dd>
           </div>
@@ -74,7 +74,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Per cycle
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ bug.itemEmoji }} {{ perCycle() }}
             </dd>
           </div>
@@ -82,7 +82,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Per hour
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ bug.itemEmoji }} {{ formatNumber(Math.round(bug.itemsPerHour), false) }}
             </dd>
           </div>
@@ -93,7 +93,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Coins / hr
             </dt>
-            <dd class="cl-num font-bold text-amber-300">
+            <dd class="cl-num font-semibold text-amber-300">
               {{ formatNumber(coinsPerHour, false) }}
             </dd>
           </div>
@@ -101,7 +101,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Eats / hr
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ formatNumber(Math.round(bug.feedPerHour), false) }}
             </dd>
           </div>
@@ -112,7 +112,7 @@ function perCycle(): string {
             <dt class="text-muted">
               Research
             </dt>
-            <dd class="cl-num font-bold text-green-400">
+            <dd class="cl-num font-semibold text-green-400">
               ×{{ bug.resourceMultiplier }} forage
             </dd>
           </div>
@@ -124,7 +124,7 @@ function perCycle(): string {
               Neighbour speed
             </dt>
             <dd
-              class="cl-num font-bold"
+              class="cl-num font-semibold"
               :class="socialPct > 0 ? 'text-green-400' : 'text-red-400'"
             >
               {{ socialPct > 0 ? '+' : '' }}{{ socialPct }}%
@@ -187,7 +187,7 @@ function perCycle(): string {
           <span class="cl-bug-emoji text-[28px] sm:text-[32px]">{{ bug.emoji }}</span>
         </span>
         <span class="cl-bug-name text-[13px] sm:text-sm">{{ bug.name }}</span>
-        <span class="flex justify-center gap-1.5 mt-0.5 text-[11.5px] font-extrabold cl-num">
+        <span class="flex justify-center gap-1.5 mt-0.5 text-[11.5px] font-semibold cl-num">
           <span>{{ bug.itemEmoji }} {{ perCycle() }}</span>
           <span
             v-if="socialPct !== 0"
@@ -211,9 +211,9 @@ function perCycle(): string {
       <button
         v-if="!prestige && !pending"
         type="button"
-        class="absolute z-[4] top-7 right-1.5 flex items-center justify-center gap-1 h-6 min-w-6 px-1 rounded-lg text-[11px] font-extrabold transition-all"
+        class="absolute z-[4] top-7 right-1.5 flex items-center justify-center gap-1 h-6 min-w-6 px-1 rounded-lg text-[11px] font-semibold transition-all"
         :class="armed
-          ? 'bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.7)]'
+          ? 'bg-red-500 text-white'
           : 'bg-black/45 text-muted hover:bg-red-500/80 hover:text-white sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100'"
         :aria-label="armed ? `Tap again to release this ${bug.name} for a refund` : `Release this ${bug.name} for a refund`"
         :title="armed ? 'Tap again to release' : 'Release for 50% of its spawn cost, plus credit for the current cycle'"

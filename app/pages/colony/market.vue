@@ -159,12 +159,12 @@ async function doSellKeepAll() {
         role="tab"
         :aria-selected="tab === 'hatchery'"
         class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
-        :class="tab === 'hatchery' ? 'cl-ready-glow' : 'opacity-80 hover:opacity-100'"
+        :class="tab === 'hatchery' ? 'cl-selected' : 'opacity-75 hover:opacity-100'"
         @click="tab = 'hatchery'"
       >
-        <span class="text-3xl sm:text-[38px]">🥚</span>
+        <span class="text-2xl sm:text-3xl">🥚</span>
         <span class="min-w-0">
-          <span class="cl-display block text-xl sm:text-2xl font-bold">Hatchery</span>
+          <span class="cl-display block text-xl sm:text-2xl font-semibold">Hatchery</span>
           <span class="text-[13px] text-muted">Buy bugs. Each egg rolls its own speed and yield.</span>
         </span>
       </button>
@@ -173,12 +173,12 @@ async function doSellKeepAll() {
         role="tab"
         :aria-selected="tab === 'trading'"
         class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
-        :class="tab === 'trading' ? 'cl-ready-glow' : 'opacity-80 hover:opacity-100'"
+        :class="tab === 'trading' ? 'cl-selected' : 'opacity-75 hover:opacity-100'"
         @click="tab = 'trading'"
       >
-        <span class="text-3xl sm:text-[38px]">⚖️</span>
+        <span class="text-2xl sm:text-3xl">⚖️</span>
         <span class="min-w-0 flex-1">
-          <span class="cl-display block text-xl sm:text-2xl font-bold">Trading Post</span>
+          <span class="cl-display block text-xl sm:text-2xl font-semibold">Trading Post</span>
           <span class="text-[13px] text-muted">Sell forage for coins, or hoard it for Habitat builds.</span>
         </span>
         <span
@@ -229,7 +229,7 @@ async function doSellKeepAll() {
           >R{{ species.researchLevel }}</span>
           <div class="cl-bug-art h-[96px] mt-5">
             <span
-              class="cl-bug-emoji text-[56px]"
+              class="cl-bug-emoji text-[44px]"
               :class="!species.buyable && 'cl-silhouette'"
             >{{ species.emoji }}</span>
             <span
@@ -240,7 +240,7 @@ async function doSellKeepAll() {
           </div>
           <div class="px-3.5 flex flex-col gap-2">
             <div class="flex items-center justify-between gap-2">
-              <span class="cl-display text-xl font-bold truncate">{{ species.buyable ? species.name : '???' }}</span>
+              <span class="cl-display text-xl font-semibold truncate">{{ species.buyable ? species.name : '???' }}</span>
               <span
                 v-if="species.buyable"
                 class="cl-chip shrink-0"
@@ -263,7 +263,7 @@ async function doSellKeepAll() {
                   <p class="cl-eyebrow text-[10px]">
                     Cycle
                   </p>
-                  <p class="cl-num font-extrabold">
+                  <p class="cl-num font-semibold">
                     {{ formatDuration(species.baseTickMs) }}
                   </p>
                 </div>
@@ -271,7 +271,7 @@ async function doSellKeepAll() {
                   <p class="cl-eyebrow text-[10px]">
                     Speed roll
                   </p>
-                  <p class="cl-num font-extrabold text-yellow-300">
+                  <p class="cl-num font-semibold text-yellow-300">
                     {{ species.producesGems ? 'Fixed' : `${species.speedMin}–${species.speedMax}%` }}
                   </p>
                 </div>
@@ -279,7 +279,7 @@ async function doSellKeepAll() {
                   <p class="cl-eyebrow text-[10px]">
                     Output
                   </p>
-                  <p class="cl-num font-extrabold text-sky-300">
+                  <p class="cl-num font-semibold text-sky-300">
                     {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Y${species.yieldMin}–${species.yieldMax} · ×${species.resourceMultiplier}` }}
                   </p>
                 </div>
@@ -288,7 +288,7 @@ async function doSellKeepAll() {
                     Appetite
                   </p>
                   <p
-                    class="cl-num font-extrabold"
+                    class="cl-num font-semibold"
                     :title="`At least ~${formatNumber(Math.round(baseFeedPerHour(species)), false)} nutrition per hour`"
                   >
                     {{ species.eatMin }}–{{ species.eatMax }} / cycle
@@ -297,7 +297,7 @@ async function doSellKeepAll() {
               </div>
               <div class="flex justify-between gap-2 text-[12.5px]">
                 <span class="text-muted truncate">Forages {{ species.itemEmoji }} {{ species.itemName }}</span>
-                <span class="cl-num font-extrabold shrink-0">Owned {{ species.owned }}</span>
+                <span class="cl-num font-semibold shrink-0">Owned {{ species.owned }}</span>
               </div>
               <button
                 type="button"
@@ -319,7 +319,7 @@ async function doSellKeepAll() {
             </template>
             <template v-else>
               <div class="cl-inset p-2.5 text-center text-[12.5px] text-muted">
-                Costs <span class="cl-num font-extrabold text-default">{{ formatNumber(species.spawnCost) }}</span> once unlocked
+                Costs <span class="cl-num font-semibold text-default">{{ formatNumber(species.spawnCost) }}</span> once unlocked
               </div>
               <button
                 type="button"
@@ -351,12 +351,12 @@ async function doSellKeepAll() {
           <p class="cl-eyebrow">
             Stores worth
           </p>
-          <p class="cl-display cl-num text-3xl sm:text-[34px] font-bold text-amber-400 leading-tight">
+          <p class="cl-display cl-num text-3xl sm:text-[34px] font-semibold text-amber-400 leading-tight">
             {{ formatNumber(Math.round(totalSellValue), false) }}
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-          <label class="flex items-center gap-2 text-[13px] font-bold text-muted">
+          <label class="flex items-center gap-2 text-[13px] font-semibold text-muted">
             Keep per stack
             <UInput
               v-model="keepText"
@@ -376,7 +376,6 @@ async function doSellKeepAll() {
           <button
             type="button"
             class="cl-btn cl-btn-gold flex-1 sm:flex-none"
-            :class="keepSellTotalValue > 0 && 'cl-btn-pulse'"
             :disabled="!keepSellableItems.length || sellingKeepAll"
             @click="confirmKeepSellAll = true"
           >
@@ -425,14 +424,14 @@ async function doSellKeepAll() {
           class="cl-crate gap-1.5 px-3 pt-3.5 pb-3"
           :class="[`cl-t${item.tier}`, item.quantity <= 0 && 'cl-crate-empty']"
         >
-          <span class="self-stretch flex justify-between text-xs font-extrabold cl-num">
+          <span class="self-stretch flex justify-between text-xs font-semibold cl-num">
             <span class="cl-tc">T{{ item.tier }}</span>
             <span class="text-muted truncate">by {{ foragedBy(item.id)?.name ?? '???' }}</span>
           </span>
           <span class="text-[40px] sm:text-[44px] leading-tight">{{ item.emoji }}</span>
           <span class="cl-display text-[15px] sm:text-base font-semibold text-center leading-tight">{{ item.name }}</span>
-          <span class="cl-display cl-num text-2xl sm:text-[26px] font-bold">{{ formatNumber(item.quantity, false) }}</span>
-          <span class="cl-num text-[12px] font-bold text-muted text-center">
+          <span class="cl-display cl-num text-2xl sm:text-[26px] font-semibold">{{ formatNumber(item.quantity, false) }}</span>
+          <span class="cl-num text-[12px] font-semibold text-muted text-center">
             {{ formatNumber(item.sellValue) }} each · <span class="text-amber-400">{{ item.quantity > 0 ? formatNumber(item.quantity * item.sellValue) : 'none' }}</span>
           </span>
           <div class="flex gap-1.5 self-stretch mt-1">
@@ -489,10 +488,10 @@ async function doSellKeepAll() {
       >
         <span class="text-3xl">{{ confirmSell.item.emoji }}</span>
         <span class="flex-1 min-w-0">
-          <span class="block font-bold">{{ formatNumber(confirmSell.item.quantity, false) }}× {{ confirmSell.item.name }}</span>
+          <span class="block font-semibold">{{ formatNumber(confirmSell.item.quantity, false) }}× {{ confirmSell.item.name }}</span>
           <span class="text-xs text-muted">Leaves you with none of this stack.</span>
         </span>
-        <span class="cl-display cl-num text-xl font-bold text-amber-400">+{{ formatNumber(confirmSell.item.quantity * confirmSell.item.sellValue) }}</span>
+        <span class="cl-display cl-num text-xl font-semibold text-amber-400">+{{ formatNumber(confirmSell.item.quantity * confirmSell.item.sellValue) }}</span>
       </div>
       <template #actions="{ ready }">
         <button
@@ -519,7 +518,7 @@ async function doSellKeepAll() {
       :description="`Sells the surplus from ${keepSellableItems.length} ${keepSellableItems.length === 1 ? 'stack' : 'stacks'}, keeping up to ${formatNumber(keepAmount, false)} of each.`"
       @close="confirmKeepSellAll = false"
     >
-      <div class="cl-inset px-3.5 py-3 flex justify-between items-center font-extrabold">
+      <div class="cl-inset px-3.5 py-3 flex justify-between items-center font-semibold">
         <span>You'll receive</span>
         <span class="cl-display cl-num text-xl text-amber-400 flex items-center gap-1.5">
           <ColonyCurrencyIcon :size="18" />

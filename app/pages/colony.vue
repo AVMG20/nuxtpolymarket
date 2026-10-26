@@ -76,7 +76,7 @@ useHead({
             </svg>
           </span>
           <span class="flex flex-col leading-tight">
-            <span class="cl-display text-xl font-bold">Colony</span>
+            <span class="cl-display text-xl font-semibold">Colony</span>
             <span class="text-[11px] font-semibold text-muted hidden md:block">Forage · Feed · Dig deeper</span>
           </span>
         </NuxtLink>

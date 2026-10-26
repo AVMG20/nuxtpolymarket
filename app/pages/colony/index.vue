@@ -403,11 +403,11 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
       <div class="cl-panel px-5 py-8 sm:p-10 text-center flex flex-col items-center gap-4 overflow-hidden">
         <div class="cl-jar w-full max-w-sm">
           <div class="cl-scene h-36 terrarium-preview grid place-items-center">
-            <span class="text-6xl cl-bounce">🐛</span>
+            <span class="text-6xl">🐛</span>
           </div>
         </div>
         <div>
-          <h1 class="cl-display text-3xl font-bold">
+          <h1 class="cl-display text-3xl font-semibold">
             Found your colony
           </h1>
           <p class="text-sm text-muted max-w-sm mt-2">
@@ -464,11 +464,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
         />
 
         <!-- The terrarium jar -->
-        <div class="cl-jar p-2 sm:p-3 mb-5 sm:mb-9">
-          <span class="cl-jar-rivet top-1 left-4" />
-          <span class="cl-jar-rivet top-1 right-4" />
-          <span class="cl-jar-rivet bottom-1 left-4" />
-          <span class="cl-jar-rivet bottom-1 right-4" />
+        <div class="cl-jar p-1.5 sm:p-2 mb-5 sm:mb-9">
           <div
             class="cl-scene"
             :class="[isStarving && bugs.length && 'cl-scene-starving', liveGemNutrition > 0 && 'cl-scene-buffed']"
@@ -502,24 +498,16 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
                   v-for="i in capacity"
                   :key="i"
                   class="h-1.5 w-2.5 rounded-sm"
-                  :class="i <= placedCount ? 'bg-green-400 shadow-[0_0_4px_rgba(74,222,128,0.6)]' : 'bg-white/15'"
+                  :class="i <= placedCount ? 'bg-green-400/80' : 'bg-white/10'"
                 />
               </div>
             </div>
 
-            <template v-if="liveGemNutrition > 0 && !isStarving">
-              <span
-                v-for="(spark, i) in [[12, 30], [38, 58], [64, 26], [86, 70], [52, 44]]"
-                :key="i"
-                class="cl-sparkle"
-                :style="{ left: `${spark[0]}%`, top: `${spark[1]}%`, animationDelay: `${i * 0.45}s` }"
-              />
-            </template>
 
             <template v-if="isStarving && bugs.length">
               <div class="cl-scene-vignette" />
-              <div class="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 z-[18] w-[min(22rem,calc(100%-2rem))] text-center px-5 py-3.5 rounded-2xl bg-[rgba(40,8,8,0.88)] border border-red-400/60">
-                <p class="cl-display text-xl sm:text-[22px] font-bold text-red-300">
+              <div class="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 z-[18] w-[min(22rem,calc(100%-2rem))] text-center px-5 py-3.5 rounded-xl bg-[rgba(30,10,8,0.9)] border border-red-400/35">
+                <p class="cl-display text-xl sm:text-[22px] font-semibold text-red-300">
                   Your colony is starving
                 </p>
                 <p class="text-[13px] text-red-200 mt-0.5">
@@ -556,7 +544,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
             <p class="cl-eyebrow">
               Income
             </p>
-            <p class="cl-display cl-num text-[22px] font-bold text-green-400 leading-tight">
+            <p class="cl-display cl-num text-[22px] font-semibold text-green-400 leading-tight">
               <template v-if="isStarving && bugs.length">
                 <span class="text-red-300">Paused</span>
               </template>
@@ -569,7 +557,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
             <p class="cl-eyebrow">
               Appetite
             </p>
-            <p class="cl-display cl-num text-[22px] font-bold leading-tight">
+            <p class="cl-display cl-num text-[22px] font-semibold leading-tight">
               {{ formatNumber(Math.round(nutritionDrainPerHour), false) }} <span class="text-[13px] text-muted">nutrition / hr</span>
             </p>
           </div>
@@ -580,7 +568,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
             <p class="cl-eyebrow">
               {{ nextGemBug.name }} {{ nextGemBug.emoji }}
             </p>
-            <p class="cl-display cl-num text-[22px] font-bold text-sky-300 leading-tight">
+            <p class="cl-display cl-num text-[22px] font-semibold text-sky-300 leading-tight">
               +{{ nextGemBug.gemsPerCycle }} <span class="text-[13px] text-muted">{{ isStarving ? 'gems, paused' : `gems in ${formatDuration(bugRemainingMs(nextGemBug))}` }}</span>
             </p>
           </div>
@@ -591,7 +579,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
             <p class="cl-eyebrow">
               Stores worth
             </p>
-            <p class="cl-display cl-num text-[22px] font-bold text-amber-400 leading-tight">
+            <p class="cl-display cl-num text-[22px] font-semibold text-amber-400 leading-tight">
               {{ formatNumber(storesValue) }} <span class="text-[13px] text-muted">coins</span>
             </p>
           </div>
@@ -605,7 +593,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
       >
         <div class="relative flex items-center justify-between gap-2.5">
           <div class="min-w-0">
-            <h2 class="cl-display text-xl font-bold">
+            <h2 class="cl-display text-xl font-semibold">
               The Burrow
             </h2>
             <p class="text-[12.5px] text-muted">
@@ -817,7 +805,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
                 <p class="cl-eyebrow text-amber-100/80">
                   {{ releaseCount ? `${formatNumber(releaseCount, false)} ${releaseCount === 1 ? 'bug' : 'bugs'} · ${Math.round(REMOVE_REFUND_RATE * 100)}% refund` : 'Nothing selected' }}
                 </p>
-                <p class="cl-display cl-num text-2xl font-bold text-amber-400 flex items-center gap-1.5">
+                <p class="cl-display cl-num text-2xl font-semibold text-amber-400 flex items-center gap-1.5">
                   <ColonyCurrencyIcon :size="20" />
                   +{{ formatNumber(Math.round(releaseTotalRefund), false) }}
                 </p>
@@ -889,13 +877,13 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
               class="cl-crate"
               :class="[`cl-t${item.tier}`, item.quantity <= 0 && 'cl-crate-empty']"
             >
-              <span class="self-stretch flex justify-between text-[11px] font-extrabold cl-num">
+              <span class="self-stretch flex justify-between text-[11px] font-semibold cl-num">
                 <span class="cl-tc">T{{ item.tier }}</span>
                 <span class="text-muted">{{ formatNumber(item.sellValue) }} ea</span>
               </span>
               <span class="text-[32px] leading-tight">{{ item.emoji }}</span>
-              <span class="cl-display cl-num text-xl font-bold">{{ formatNumber(item.quantity) }}</span>
-              <span class="text-[11.5px] font-bold text-muted text-center leading-tight">{{ item.name }}</span>
+              <span class="cl-display cl-num text-xl font-semibold">{{ formatNumber(item.quantity) }}</span>
+              <span class="text-[11.5px] font-semibold text-muted text-center leading-tight">{{ item.name }}</span>
             </div>
           </div>
           <NuxtLink
@@ -922,14 +910,14 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
           class="flex items-center gap-2.5 py-2 border-b border-[#5a4431]/50"
         >
           <span class="text-2xl">{{ row.stack.emoji }}</span>
-          <span class="flex-1 min-w-0 font-bold truncate">
+          <span class="flex-1 min-w-0 font-semibold truncate">
             {{ row.stack.name }}
             <span class="text-muted font-semibold">· {{ row.stack.speed }}% · Y{{ row.stack.yield }} · eats {{ row.stack.eat }}</span>
           </span>
-          <span class="cl-display cl-num font-bold">×{{ row.count }}</span>
-          <span class="cl-num font-extrabold text-amber-400 min-w-16 text-right">+{{ formatNumber(row.refund) }}</span>
+          <span class="cl-display cl-num font-semibold">×{{ row.count }}</span>
+          <span class="cl-num font-semibold text-amber-400 min-w-16 text-right">+{{ formatNumber(row.refund) }}</span>
         </div>
-        <div class="flex justify-between items-center pt-2.5 pb-1.5 font-extrabold">
+        <div class="flex justify-between items-center pt-2.5 pb-1.5 font-semibold">
           <span>Total refund</span>
           <span class="cl-display cl-num text-xl text-amber-400">{{ formatNumber(Math.round(releaseTotalRefund), false) }}</span>
         </div>

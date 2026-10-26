@@ -35,7 +35,7 @@ function initial(name: string) {
       <p class="cl-eyebrow">
         Deepest colonies
       </p>
-      <h1 class="cl-display text-3xl sm:text-[34px] font-bold">
+      <h1 class="cl-display text-3xl sm:text-[34px] font-semibold">
         Leaderboard
       </h1>
       <p class="text-[13px] text-muted">
@@ -61,7 +61,7 @@ function initial(name: string) {
         >
           <div class="relative">
             <span
-              class="size-12 sm:size-16 rounded-full grid place-items-center cl-display text-xl sm:text-2xl font-bold text-[#1a1205]"
+              class="size-12 sm:size-16 rounded-full grid place-items-center cl-display text-xl sm:text-2xl font-semibold text-[#1a1205]"
               :style="{ background: MEDALS[rank]!.fill, boxShadow: `0 0 0 4px #2a2019, 0 0 26px ${MEDALS[rank]!.glow}` }"
             >{{ initial(player.name) }}</span>
             <span class="cl-chip absolute left-1/2 -bottom-2.5 -translate-x-1/2 px-2 py-px text-[11px] bg-[#1e1712]">#{{ rank + 1 }}</span>
@@ -71,21 +71,21 @@ function initial(name: string) {
               :level="player.prestige"
               size="xs"
             />
-            <span class="cl-display text-[15px] sm:text-lg font-bold truncate">{{ player.name }}</span>
+            <span class="cl-display text-[15px] sm:text-lg font-semibold truncate">{{ player.name }}</span>
           </div>
           <span
             v-if="player.isCurrentUser"
             class="cl-chip cl-chip-gold -mt-1"
           >You</span>
-          <span class="cl-display cl-num text-lg sm:text-xl font-bold text-amber-400">{{ formatNumber(player.colonyValue) }}</span>
+          <span class="cl-display cl-num text-lg sm:text-xl font-semibold text-amber-400">{{ formatNumber(player.colonyValue) }}</span>
           <div
             class="cl-mound w-full grid place-items-center pt-9 sm:pt-10"
             :style="{ height: moundHeight(player, rank) }"
           >
             <span class="grid justify-items-center gap-0.5 text-center px-1">
               <span class="cl-lvl w-9 h-10 sm:w-11 sm:h-[50px] text-lg sm:text-xl">{{ player.habitatLevel }}</span>
-              <span class="text-xs font-extrabold text-amber-100/90">Habitat {{ player.habitatLevel }}</span>
-              <span class="text-[11px] sm:text-xs font-bold text-muted hidden min-[400px]:block">{{ formatNumber(player.bugCount) }} bugs · {{ player.speciesOwned }} species</span>
+              <span class="text-xs font-semibold text-amber-100/90">Habitat {{ player.habitatLevel }}</span>
+              <span class="text-[11px] sm:text-xs font-semibold text-muted hidden min-[400px]:block">{{ formatNumber(player.bugCount) }} bugs · {{ player.speciesOwned }} species</span>
             </span>
           </div>
         </div>
@@ -102,7 +102,7 @@ function initial(name: string) {
           class="cl-panel flex items-center gap-3 sm:gap-3.5 px-3.5 sm:px-4 py-3 flex-wrap"
           :class="player.isCurrentUser && 'cl-you-glow'"
         >
-          <span class="cl-display cl-num w-8 text-xl font-bold text-muted">{{ index + 4 }}</span>
+          <span class="cl-display cl-num w-8 text-xl font-semibold text-muted">{{ index + 4 }}</span>
           <span class="flex-[1_1_140px] min-w-0">
             <span class="flex items-center gap-1.5 min-w-0">
               <PrestigeBadge
@@ -132,9 +132,9 @@ function initial(name: string) {
                 :style="{ background: i < player.habitatLevel ? hex : 'rgba(255,236,210,0.1)' }"
               />
             </span>
-            <span class="cl-num text-[11.5px] font-extrabold text-muted">Habitat {{ player.habitatLevel }} / {{ MAX_TIER }}</span>
+            <span class="cl-num text-[11.5px] font-semibold text-muted">Habitat {{ player.habitatLevel }} / {{ MAX_TIER }}</span>
           </span>
-          <span class="cl-display cl-num min-w-20 text-right text-lg font-bold text-amber-400">{{ formatNumber(player.colonyValue) }}</span>
+          <span class="cl-display cl-num min-w-20 text-right text-lg font-semibold text-amber-400">{{ formatNumber(player.colonyValue) }}</span>
         </li>
       </ol>
     </template>

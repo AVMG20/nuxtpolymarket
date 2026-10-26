@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
         class="sm:hidden block mx-auto mb-3 w-10 h-1 rounded-full bg-[#5a4431]"
         aria-hidden="true"
       />
-      <h2 class="cl-display text-2xl font-bold">
+      <h2 class="cl-display text-2xl font-semibold">
         {{ title }}
       </h2>
       <p

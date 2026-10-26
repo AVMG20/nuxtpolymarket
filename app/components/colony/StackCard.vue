@@ -55,7 +55,7 @@ function onActivate() {
               Speed
             </p>
             <p
-              class="font-extrabold cl-num"
+              class="font-semibold cl-num"
               :class="speedTone(stack.speed)"
             >
               {{ stack.speed }}%
@@ -65,7 +65,7 @@ function onActivate() {
             <p class="cl-eyebrow text-[9.5px]">
               Yield
             </p>
-            <p class="font-extrabold cl-num text-sky-300">
+            <p class="font-semibold cl-num text-sky-300">
               {{ stack.yield }}/{{ MAX_YIELD_LEVEL }}
             </p>
           </div>
@@ -73,7 +73,7 @@ function onActivate() {
             <p class="cl-eyebrow text-[9.5px]">
               Eats
             </p>
-            <p class="font-extrabold cl-num">
+            <p class="font-semibold cl-num">
               {{ stack.eat }}
             </p>
           </div>
@@ -83,7 +83,7 @@ function onActivate() {
             <dt class="text-muted">
               Cycle
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ formatDuration(tickMs) }}
             </dd>
           </div>
@@ -91,7 +91,7 @@ function onActivate() {
             <dt class="text-muted">
               Per cycle
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ stack.itemEmoji }} 1–{{ stack.yield + 1 }}
             </dd>
           </div>
@@ -99,7 +99,7 @@ function onActivate() {
             <dt class="text-muted">
               Per hour
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ stack.itemEmoji }} {{ formatNumber(Math.round(itemsPerHour), false) }}
             </dd>
           </div>
@@ -107,7 +107,7 @@ function onActivate() {
             <dt class="text-muted">
               Coins / hr
             </dt>
-            <dd class="cl-num font-bold text-amber-300">
+            <dd class="cl-num font-semibold text-amber-300">
               {{ formatNumber(itemsPerHour * (stack.itemSellValue ?? 0), false) }}
             </dd>
           </div>
@@ -115,7 +115,7 @@ function onActivate() {
             <dt class="text-muted">
               Eats / hr
             </dt>
-            <dd class="cl-num font-bold">
+            <dd class="cl-num font-semibold">
               {{ formatNumber(Math.round(stack.feedPerHour), false) }}
             </dd>
           </div>
@@ -124,7 +124,7 @@ function onActivate() {
               Temperament
             </dt>
             <dd
-              class="font-bold"
+              class="font-semibold"
               :class="stack.social ? 'text-green-400' : 'text-orange-400'"
             >
               {{ stack.social ? 'Social' : 'Solitary' }}
@@ -224,10 +224,10 @@ function onActivate() {
           −
         </button>
         <span class="grid justify-items-center leading-tight min-w-0">
-          <span class="cl-display cl-num text-sm font-bold">{{ picked }}/{{ stack.quantity }}</span>
+          <span class="cl-display cl-num text-sm font-semibold">{{ picked }}/{{ stack.quantity }}</span>
           <span
             v-if="picked"
-            class="cl-num text-[10.5px] font-extrabold text-amber-400 truncate max-w-full"
+            class="cl-num text-[10.5px] font-semibold text-amber-400 truncate max-w-full"
           >+{{ formatNumber(refund) }}</span>
         </span>
         <button

@@ -176,7 +176,7 @@ function trackPips(track: UpgradeTrack) {
             <p class="cl-eyebrow">
               Dig site
             </p>
-            <h1 class="cl-display text-2xl font-bold">
+            <h1 class="cl-display text-2xl font-semibold">
               Habitat depth
             </h1>
           </div>
@@ -194,12 +194,12 @@ function trackPips(track: UpgradeTrack) {
                 : 'border-[#5a4431]/50 bg-[color-mix(in_srgb,var(--tc)_4%,transparent)] opacity-60'
             ]"
           >
-            <span class="cl-display cl-num w-6 text-xl font-bold cl-tc">{{ layer.level }}</span>
+            <span class="cl-display cl-num w-6 text-xl font-semibold cl-tc">{{ layer.level }}</span>
             <span class="flex-1 min-w-0">
               <span class="cl-display block font-semibold text-[15px]">{{ layer.name }}</span>
               <span class="text-xs text-muted">
                 {{ layer.rarity }}{{ layer.reached ? ' species unlocked' : ' · locked' }}<template v-if="layer.here">
-                  · <span class="font-extrabold text-amber-400">You are here</span>
+                  · <span class="font-semibold text-amber-400">You are here</span>
                 </template>
               </span>
             </span>
@@ -223,7 +223,7 @@ function trackPips(track: UpgradeTrack) {
             <p class="cl-eyebrow">
               Next dig
             </p>
-            <h2 class="cl-display text-xl sm:text-[26px] font-bold leading-tight">
+            <h2 class="cl-display text-xl sm:text-[26px] font-semibold leading-tight">
               Habitat Level {{ habitatLevel + 1 }} · {{ nextLayer?.name }}
             </h2>
             <p class="text-[13px] text-muted">
@@ -232,12 +232,12 @@ function trackPips(track: UpgradeTrack) {
           </div>
           <div class="text-right">
             <p
-              class="cl-display cl-num text-3xl font-bold"
+              class="cl-display cl-num text-3xl font-semibold"
               :class="habitatUpgradeReady ? 'text-green-400' : 'text-amber-400'"
             >
               {{ tracksMeetingRequirement }} / {{ upgrades.length }}
             </p>
-            <p class="text-xs font-bold text-muted">
+            <p class="text-xs font-semibold text-muted">
               tracks ready
             </p>
           </div>
@@ -249,7 +249,7 @@ function trackPips(track: UpgradeTrack) {
             :key="track.id"
             class="cl-inset grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[200px_minmax(0,1fr)_96px] gap-x-3.5 gap-y-2 items-center px-3 py-2.5"
           >
-            <span class="flex items-center gap-2 font-bold min-w-0">
+            <span class="flex items-center gap-2 font-semibold min-w-0">
               <UIcon
                 :name="track.icon"
                 class="size-4 shrink-0 text-amber-300"
@@ -257,7 +257,7 @@ function trackPips(track: UpgradeTrack) {
               <span class="truncate">{{ track.name }}</span>
             </span>
             <span
-              class="cl-num text-right font-extrabold sm:order-last"
+              class="cl-num text-right font-semibold sm:order-last"
               :class="track.meetsHabitatRequirement ? 'text-green-400' : 'text-red-300'"
             >
               Lv {{ track.level }} / {{ track.requiredLevel }}
@@ -325,7 +325,7 @@ function trackPips(track: UpgradeTrack) {
         class="cl-panel p-6 flex flex-col items-center justify-center gap-2 text-center"
       >
         <span class="text-5xl">👑</span>
-        <h2 class="cl-display text-2xl font-bold text-amber-200">
+        <h2 class="cl-display text-2xl font-semibold text-amber-200">
           The Royal Chamber
         </h2>
         <p class="text-sm text-muted max-w-sm">
@@ -337,7 +337,7 @@ function trackPips(track: UpgradeTrack) {
     <!-- Builders -->
     <section>
       <div class="flex items-baseline gap-2.5 mb-2.5 flex-wrap">
-        <h2 class="cl-display text-[22px] font-bold">
+        <h2 class="cl-display text-[22px] font-semibold">
           Builders
         </h2>
         <span class="text-[13px] text-muted">
@@ -353,7 +353,7 @@ function trackPips(track: UpgradeTrack) {
             v-if="slot.job && jobReady(slot.job)"
             class="cl-panel cl-ready-glow px-4 py-3.5 flex gap-3.5 items-center"
           >
-            <span class="cl-bounce inline-block text-[40px]">🐜</span>
+            <span class="inline-block text-[32px]">🐜</span>
             <div class="flex-1 min-w-0">
               <p class="cl-display text-[17px] font-semibold text-green-300">
                 {{ slot.job.trackName }} → Lv {{ slot.job.level }} is done!
@@ -378,7 +378,7 @@ function trackPips(track: UpgradeTrack) {
             v-else-if="slot.job"
             class="cl-panel px-4 py-3.5 flex gap-3.5 items-center"
           >
-            <span class="text-[40px]">⛏️</span>
+            <span class="text-[32px]">⛏️</span>
             <div class="flex-1 min-w-0">
               <p class="cl-display text-[17px] font-semibold truncate">
                 Digging {{ slot.job.trackName }} → Lv {{ slot.job.level }}
@@ -391,7 +391,7 @@ function trackPips(track: UpgradeTrack) {
               </div>
               <div class="cl-num flex justify-between text-[12.5px] mt-1.5">
                 <span class="text-muted">{{ Math.floor(progressPct(slot.job.startedAt, slot.job.completesAt, now)) }}%</span>
-                <span class="font-extrabold">{{ formatDuration(new Date(slot.job.completesAt).getTime() - now) }} left</span>
+                <span class="font-semibold">{{ formatDuration(new Date(slot.job.completesAt).getTime() - now) }} left</span>
               </div>
             </div>
           </div>
@@ -416,7 +416,7 @@ function trackPips(track: UpgradeTrack) {
 
     <!-- Tracks -->
     <section>
-      <h2 class="cl-display text-[22px] font-bold mb-2.5">
+      <h2 class="cl-display text-[22px] font-semibold mb-2.5">
         Upgrade tracks
       </h2>
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
@@ -452,7 +452,7 @@ function trackPips(track: UpgradeTrack) {
                 :class="[pip.on && 'cl-seg-pip-on', pip.req && 'cl-seg-pip-req']"
               />
             </span>
-            <div class="cl-num flex justify-between gap-2 text-xs font-bold mt-1.5">
+            <div class="cl-num flex justify-between gap-2 text-xs font-semibold mt-1.5">
               <span class="text-muted">Lv {{ track.level }} / {{ track.maxLevel }}</span>
               <span
                 v-if="habitatLevel < maxTier"
@@ -470,7 +470,7 @@ function trackPips(track: UpgradeTrack) {
                 name="i-lucide-arrow-right"
                 class="size-5 text-green-400 shrink-0"
               />
-              <span class="cl-display cl-num text-[15px] sm:text-[17px] font-bold text-green-400 text-right">{{ track.nextEffect }}</span>
+              <span class="cl-display cl-num text-[15px] sm:text-[17px] font-semibold text-green-400 text-right">{{ track.nextEffect }}</span>
             </template>
           </div>
 
@@ -503,7 +503,7 @@ function trackPips(track: UpgradeTrack) {
                       <dt class="text-muted">
                         Foraged by
                       </dt>
-                      <dd class="font-bold">
+                      <dd class="font-semibold">
                         {{ foragedBy(need.itemTypeId)?.emoji }} {{ foragedBy(need.itemTypeId)?.name ?? '???' }}
                       </dd>
                     </div>
@@ -511,7 +511,7 @@ function trackPips(track: UpgradeTrack) {
                       <dt class="text-muted">
                         Have
                       </dt>
-                      <dd class="cl-num font-bold">
+                      <dd class="cl-num font-semibold">
                         {{ formatNumber(ownedQty(need.itemTypeId), false) }} / {{ formatNumber(need.quantity, false) }}
                       </dd>
                     </div>
@@ -519,7 +519,7 @@ function trackPips(track: UpgradeTrack) {
                       <dt class="text-muted">
                         Sells for
                       </dt>
-                      <dd class="cl-num font-bold">
+                      <dd class="cl-num font-semibold">
                         {{ formatNumber(getItem(need.itemTypeId)?.sellValue ?? 0, false) }}
                       </dd>
                     </div>

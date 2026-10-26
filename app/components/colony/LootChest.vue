@@ -31,7 +31,7 @@ function collect() {
       v-if="total"
       class="cl-panel cl-pop-in hidden sm:flex flex-col gap-1.5 px-3 py-2.5 mb-3 border-amber-400/55 max-w-80"
     >
-      <div class="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[13px] font-extrabold cl-num">
+      <div class="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[13px] font-semibold cl-num">
         <span
           v-for="item in loot.slice(0, 6)"
           :key="item.itemTypeId"
@@ -57,19 +57,14 @@ function collect() {
     <button
       type="button"
       class="cl-chest hidden sm:grid"
-      :class="state === 'empty' && 'opacity-60'"
+      :class="state === 'empty' ? 'opacity-60' : 'cl-chest-ready'"
       :disabled="!total || busy"
       :aria-label="total ? `Collect ${formatNumber(total, false)} items from the loot chest` : 'The loot chest is empty'"
       :title="total ? undefined : 'New forage lands here as soon as a cycle completes.'"
       @click="collect"
     >
       <span
-        v-if="state === 'overflowing'"
-        class="cl-chest-rays"
-      />
-      <span
         class="relative block"
-        :class="state === 'overflowing' && 'cl-bounce'"
       >
         <ColonyChestIcon
           :open="lid"

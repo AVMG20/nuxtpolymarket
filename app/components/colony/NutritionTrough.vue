@@ -54,9 +54,9 @@ const hint = computed(() => {
 
 const tone = {
   healthy: { num: 'text-lime-200', hint: 'text-muted', orb: '', panel: '', emoji: '🍎' },
-  low: { num: 'text-orange-300', hint: 'text-orange-300', orb: 'cl-food-orb-low', panel: 'border-orange-400/50', emoji: '🍂' },
-  starving: { num: 'text-red-300', hint: 'text-red-300', orb: 'cl-food-orb-starving', panel: 'border-red-400/55', emoji: '🥀' },
-  buffed: { num: 'text-sky-300', hint: 'text-sky-300', orb: 'cl-food-orb-gem', panel: 'border-sky-400/55 shadow-[0_0_30px_-12px_rgba(56,189,248,0.7)]', emoji: '💎' }
+  low: { num: 'text-orange-300', hint: 'text-orange-300', orb: 'cl-food-orb-low', panel: 'border-orange-400/40', emoji: '🍂' },
+  starving: { num: 'text-red-300', hint: 'text-red-300', orb: 'cl-food-orb-starving', panel: 'border-red-400/45', emoji: '🥀' },
+  buffed: { num: 'text-sky-300', hint: 'text-sky-300', orb: 'cl-food-orb-gem', panel: 'border-sky-400/40', emoji: '💎' }
 } as const
 
 const feedClass = computed(() => {
@@ -83,10 +83,10 @@ const feedClass = computed(() => {
           <div class="flex items-baseline gap-x-2 gap-y-1 flex-wrap">
             <span class="cl-display text-[17px] sm:text-lg font-semibold">Colony nutrition</span>
             <span
-              class="cl-display cl-num text-xl sm:text-[22px] font-bold"
+              class="cl-display cl-num text-xl sm:text-[22px] font-semibold"
               :class="tone[status].num"
             >{{ formatNumber(Math.round(total), false) }}</span>
-            <span class="cl-num text-[13px] font-bold text-muted">/ {{ formatNumber(max, false) }}</span>
+            <span class="cl-num text-[13px] font-semibold text-muted">/ {{ formatNumber(max, false) }}</span>
             <span
               v-if="status === 'starving'"
               class="cl-chip cl-chip-red self-center"
@@ -161,7 +161,7 @@ const feedClass = computed(() => {
       </div>
     </div>
     <div
-      class="cl-tank mt-3.5 h-6 sm:h-[34px]"
+      class="cl-tank mt-3 h-2.5 sm:h-3"
       :class="status === 'starving' && 'cl-tank-empty'"
       role="meter"
       :aria-valuenow="Math.round(total)"
@@ -178,8 +178,6 @@ const feedClass = computed(() => {
         class="cl-tank-gem"
         :style="{ left: coinPct + '%', width: gemPct + '%' }"
       />
-      <div class="cl-tank-ticks" />
-      <div class="cl-tank-gloss" />
     </div>
   </section>
 </template>

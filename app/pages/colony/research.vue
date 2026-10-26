@@ -55,7 +55,7 @@ function nodeClass(species: any, i: number) {
     <div class="cl-panel px-4 py-4 sm:px-5 flex gap-4 items-center flex-wrap">
       <span class="text-[44px] hidden sm:block">🧫</span>
       <div class="flex-[1_1_320px] min-w-0">
-        <h1 class="cl-display text-2xl sm:text-[26px] font-bold">
+        <h1 class="cl-display text-2xl sm:text-[26px] font-semibold">
           Research lab
         </h1>
         <p class="text-[13.5px] text-muted">
@@ -70,7 +70,7 @@ function nodeClass(species: any, i: number) {
           <p class="cl-eyebrow text-[10px]">
             Roll range
           </p>
-          <p class="font-extrabold text-[13px] flex items-center gap-1.5 mt-0.5">
+          <p class="font-semibold text-[13px] flex items-center gap-1.5 mt-0.5">
             <span class="inline-block size-2.5 rounded-[3px] bg-green-400" /> now
             <span class="inline-block size-2.5 rounded-[3px] bg-amber-400/35 ring-[1.5px] ring-inset ring-amber-400 ml-1.5" /> next
           </p>
@@ -79,7 +79,7 @@ function nodeClass(species: any, i: number) {
           <p class="cl-eyebrow text-[10px]">
             Levels done
           </p>
-          <p class="cl-display cl-num text-xl font-bold">
+          <p class="cl-display cl-num text-xl font-semibold">
             {{ levelsDone }} / {{ levelsTotal }}
           </p>
         </div>
@@ -111,7 +111,7 @@ function nodeClass(species: any, i: number) {
             <p class="cl-num text-[12.5px] text-muted">
               Forages ×{{ species.resourceMultiplier }} {{ forageEmoji(species.typeId) }}
               <template v-if="species.nextResourceMultiplier">
-                → <span class="font-extrabold text-green-400">×{{ species.nextResourceMultiplier }}</span>
+                → <span class="font-semibold text-green-400">×{{ species.nextResourceMultiplier }}</span>
               </template>
             </p>
           </div>
@@ -141,7 +141,7 @@ function nodeClass(species: any, i: number) {
 
         <div class="grid gap-2">
           <div>
-            <div class="cl-num flex justify-between text-xs font-bold">
+            <div class="cl-num flex justify-between text-xs font-semibold">
               <span class="text-muted">Speed roll</span>
               <span>
                 {{ species.speedMin }}–{{ species.speedMax }}%
@@ -163,7 +163,7 @@ function nodeClass(species: any, i: number) {
             </div>
           </div>
           <div>
-            <div class="cl-num flex justify-between text-xs font-bold">
+            <div class="cl-num flex justify-between text-xs font-semibold">
               <span class="text-muted">Yield roll</span>
               <span>
                 Y{{ species.yieldMin }}–{{ species.yieldMax }}

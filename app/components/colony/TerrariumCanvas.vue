@@ -165,11 +165,11 @@ function drawBugHalo(halo: any, live: LiveBug) {
   const glow = TIER_GLOW[live.tier] ?? live.color
   halo.clear()
   // A soft tier-coloured glow under the bug, ringed in its yield colour.
-  halo.circle(0, 0, size * 1.25).fill({ color: glow, alpha: 0.08 })
+  halo.circle(0, 0, size * 1.2).fill({ color: glow, alpha: 0.05 })
   halo
     .circle(0, 0, size * 0.95)
-    .fill({ color: glow, alpha: 0.16 })
-    .stroke({ color: yieldHaloColor(live.yield), width: 1.5, alpha: 0.82 })
+    .fill({ color: glow, alpha: 0.1 })
+    .stroke({ color: yieldHaloColor(live.yield), width: 1.25, alpha: 0.6 })
 }
 
 function drawScenery(width: number, height: number) {
@@ -872,11 +872,11 @@ onUnmounted(() => {
   animation: colony-float-up 1.3s ease-out forwards;
   transform: translate(-50%, -100%);
   font-family: 'Fredoka', 'Public Sans', sans-serif;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
   white-space: nowrap;
   color: #fff7e6;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), 0 0 10px rgba(251, 191, 36, 0.7);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .food-drop {
