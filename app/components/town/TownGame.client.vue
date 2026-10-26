@@ -68,7 +68,7 @@ const moveSelection = ref<{ items: SceneMoveGhost[] } | null>(null)
 const marketResource = ref<string | null>(null)
 /** Counts state refreshes, so an open notification list learns a build finished under it. */
 const stateTick = ref(0)
-watch(town.state, () => { stateTick.value++ })
+watch(() => town.state.value?.serverNow, () => { stateTick.value++ })
 /** The happiness popover. Hover only. */
 const moodOpen = ref(false)
 /** The income popover. Hover only — there is nothing in it to click. */
@@ -284,11 +284,10 @@ function storedCrewIssue(item: TownStoredView): string | null {
 /** Take buildings off the map into storage, roads included. */
 function storeIds(ids: string[]) {
     if (ids.length === 0) return
-    sound.unlock()
-    run(() => town.storeBuildings(ids), () => {
-        selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
-        if (selectedBuildingId.value && ids.includes(selectedBuildingId.value)) selectedBuildingId.value = null
-    }, 'pickup')
+    const before = { ids: selectedIds.value.filter(id => ids.includes(id)), single: selectedBuildingId.value }
+    fire(() => town.storeBuildings(ids), 'pickup', () => restoreSelection(before.ids, before.single))
+    selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
+    if (selectedBuildingId.value && ids.includes(selectedBuildingId.value)) selectedBuildingId.value = null
 }
 
 const storeTip = 'Take it off the map. It makes nothing while stored; put it back from the Storage tab in Build.'
@@ -349,32 +348,25 @@ async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: 
         denyPlacement(issue, tile)
         return
     }
-    busy.value = true
-    try {
-        if (placingStored.value) {
-            const wasRoad = placingStored.value.type === 'road'
-            await town.placeStored({ buildingId: placingStored.value.id, plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation: ghostRotation.value })
-            sound.play(wasRoad ? 'road' : 'place')
-            // Stored roads come out one click at a time until the stack runs dry.
-            const nextRoad = wasRoad ? town.storage.value.items.find(s => s.type === 'road') : undefined
-            if (nextRoad) placingStored.value = nextRoad
-            else ghostType.value = null
-        } else if (movingId.value) {
-            await town.moveBuilding(movingId.value, tile.plotId, tile.tileX, tile.tileY, ghostRotation.value)
-            sound.play('place')
-            movingId.value = null
-            ghostType.value = null
-        } else {
-            const type = ghostType.value
-            await town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, type, ghostRotation.value)
-            sound.play(type === 'road' ? 'road' : 'place')
-            // The last one the town may own: nothing left to hold.
-            if (ghostType.value === type && countIssue(type)) ghostType.value = null
-        }
-    } catch {
-        sound.play('error')
-    } finally {
-        busy.value = false
+    // The town shows each of these at once, so the next click need not wait.
+    if (placingStored.value) {
+        const wasRoad = placingStored.value.type === 'road'
+        const spot = { buildingId: placingStored.value.id, plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation: ghostRotation.value }
+        fire(() => town.placeStored(spot), wasRoad ? 'road' : 'place')
+        // Stored roads come out one click at a time until the stack runs dry.
+        const nextRoad = wasRoad ? town.storage.value.items.find(s => s.type === 'road') : undefined
+        if (nextRoad) placingStored.value = nextRoad
+        else ghostType.value = null
+    } else if (movingId.value) {
+        const id = movingId.value
+        fire(() => town.moveBuilding(id, tile.plotId, tile.tileX, tile.tileY, ghostRotation.value), 'place')
+        movingId.value = null
+        ghostType.value = null
+    } else {
+        const type = ghostType.value
+        fire(() => town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, type, ghostRotation.value), type === 'road' ? 'road' : 'place')
+        // The last one the town may own: nothing left to hold.
+        if (ghostType.value === type && countIssue(type)) ghostType.value = null
     }
 }
 
@@ -601,9 +593,18 @@ function mergeDraft(saved: TownRedesignDraft, original: TownBuildingView[], stor
     return { placed, newRoads, toStore }
 }
 
-function startRedesign() {
-    if (!town.initialized.value || busy.value) return
+async function startRedesign() {
+    if (!town.initialized.value || busy.value || redesign.value) return
     sound.unlock()
+    // The redesign starts from the town as the server has it: placements still
+    // on their way carry temporary ids it could not save.
+    busy.value = true
+    try {
+        await town.idle()
+    } finally {
+        busy.value = false
+    }
+    if (redesign.value) return
     closeAll()
     const original = town.buildings.value.map(b => ({ ...b }))
     const stored = town.storage.value.items.map(s => ({ ...s }))
@@ -886,6 +887,26 @@ async function run<T>(fn: () => Promise<T>, onOk?: (res: T) => void, sfx?: Param
     }
 }
 
+/**
+ * An action the town shows before the server answers: the sound plays now and
+ * the next click is free at once. A failure is undone by the town and knocks.
+ */
+function fire(fn: () => Promise<unknown>, sfx?: Parameters<typeof sound.play>[0], onFail?: () => void) {
+    sound.unlock()
+    if (sfx) sound.play(sfx)
+    fn().catch(() => {
+        sound.play('error')
+        onFail?.()
+    })
+}
+
+/** Put a selection back after a store or demolish that failed, keeping only what is still on the map. */
+function restoreSelection(ids: string[], single: string | null) {
+    const alive = new Set(town.buildings.value.map(b => b.id))
+    selectedIds.value = [...new Set([...selectedIds.value, ...ids.filter(id => alive.has(id))])]
+    if (single && alive.has(single) && !selectedBuildingId.value) selectedBuildingId.value = single
+}
+
 // Selected building details.
 const selDef = computed(() => selectedEntry.value ? getTownBuilding(selectedEntry.value.id) ?? null : null)
 const selPending = computed(() => !!selectedBuilding.value && selectedBuilding.value.completesAt > now.value && (selectedBuilding.value.level === 0 || selectedBuilding.value.upgradingTo !== null))
@@ -1095,9 +1116,8 @@ function onPlaceLine(tiles: SceneTile[]) {
     }
     const type = ghostType.value
     const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type, rotation: p.rotation }))
-    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), () => {
-        if (ghostType.value === type && countIssue(type)) ghostType.value = null
-    }, type === 'road' ? 'road' : 'place')
+    fire(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), type === 'road' ? 'road' : 'place')
+    if (ghostType.value === type && countIssue(type)) ghostType.value = null
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -1175,16 +1195,16 @@ function demolishBulk() {
     const ids = confirmBulk.value?.ids ?? []
     confirmBulk.value = null
     if (ids.length === 0) return
-    run(() => town.demolishBuildings(ids), (res) => {
-        selectedIds.value = selectedIds.value.filter(id => !res.demolished.includes(id))
-        if (selectedBuildingId.value && res.demolished.includes(selectedBuildingId.value)) selectedBuildingId.value = null
-    }, 'demolish')
+    const before = { ids: selectedIds.value.filter(id => ids.includes(id)), single: selectedBuildingId.value }
+    fire(() => town.demolishBuildings(ids), 'demolish', () => restoreSelection(before.ids, before.single))
+    selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
+    if (selectedBuildingId.value && ids.includes(selectedBuildingId.value)) selectedBuildingId.value = null
 }
 
 function upgradeSelection() {
     const ids = selectionUpgradable.value.map(b => b.id)
     if (ids.length === 0) return
-    run(() => town.upgradeBuildings(ids), undefined, 'upgrade')
+    fire(() => town.upgradeBuildings(ids), 'upgrade')
 }
 
 // ── Group move ──────────────────────────────────────────────────────────────
@@ -1280,9 +1300,8 @@ async function commitGroupMove(tile: { plotId: string, tileX: number, tileY: num
         sound.play('place')
         return
     }
-    await run(() => town.moveBuildings(moves), () => {
-        moveSelection.value = null
-    }, 'place')
+    fire(() => town.moveBuildings(moves), 'place')
+    moveSelection.value = null
 }
 
 /** What the selected industry building does to the neighbourhood. */
@@ -1425,7 +1444,7 @@ function upgradeSelected() {
     if (selMonument.value) {
         if (monumentCrewNote.value) { toast.add({ title: monumentCrewNote.value, color: 'warning' }); return }
     } else if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
-    run(() => town.upgradeBuilding(b.id), undefined, 'upgrade')
+    fire(() => town.upgradeBuilding(b.id), 'upgrade')
 }
 function rushSelected() {
     const b = selectedBuilding.value
@@ -1437,7 +1456,8 @@ function demolishSelected() {
     const b = selectedBuilding.value
     if (!b) return
     confirmDemolish.value = false
-    run(() => town.demolishBuilding(b.id), () => { selectedBuildingId.value = null }, 'demolish')
+    fire(() => town.demolishBuilding(b.id), 'demolish', () => restoreSelection([], b.id))
+    selectedBuildingId.value = null
 }
 
 function found() {
@@ -1573,7 +1593,7 @@ function marketDayFloat(at: DOMRect | null, bonus: number | undefined) {
     setTimeout(() => fx.float(p, [{ icon: 'coin', text: `+${formatNumber(bonus)} market day`, tone: 'gold' }], { dy: -56 }), 180)
 }
 function cancelOrder(orderId: string) {
-    run(() => town.cancelOrder(orderId), undefined, 'close')
+    fire(() => town.cancelOrder(orderId), 'close')
 }
 
 // ── Milestones ──
@@ -1581,7 +1601,7 @@ const claimable = computed(() => town.claimableMilestones.value.length)
 function claimMilestone(id: string) {
     const at = pressedAt('.goal')
     run(() => town.claimMilestone(id), (res) => {
-        fx.reward(at, { coins: res.reward, gems: res.gems }, { scale: 1.3 })
+        if (res) fx.reward(at, { coins: res.reward, gems: res.gems }, { scale: 1.3 })
     }, 'bigcoin')
 }
 watch(claimable, (n, prev) => {
@@ -1591,13 +1611,19 @@ watch(claimable, (n, prev) => {
 })
 
 // ── Build completion sound ──
-const knownPending = new Set<string>()
+// The level each running job is headed for (null for a first build). An
+// upgrade undone after a failed request stops running too, but short of it.
+const knownPending = new Map<string, number | null>()
 watch(town.buildings, (list) => {
     const serverNow = town.serverNow()
     for (const b of list) {
         const pending = b.completesAt > serverNow
-        if (pending) knownPending.add(b.id)
-        else if (knownPending.has(b.id)) { knownPending.delete(b.id); sound.play('complete') }
+        if (pending) knownPending.set(b.id, b.upgradingTo)
+        else if (knownPending.has(b.id)) {
+            const target = knownPending.get(b.id) ?? null
+            knownPending.delete(b.id)
+            if (target === null || b.upgradingTo === target || b.level >= target) sound.play('complete')
+        }
     }
 }, { deep: true })
 
@@ -1858,7 +1884,7 @@ const recommendedUpgrades = computed(() => rankTownUpgrades({
 function upgradeRecommended(id: string) {
     buildersPop.value = false
     if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: id }); return }
-    run(() => town.upgradeBuilding(id), undefined, 'upgrade')
+    fire(() => town.upgradeBuilding(id), 'upgrade')
 }
 
 /**

@@ -1,4 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
+import { getBalance } from '#server/utils/balance'
 import { sellBulkToFloor } from '#server/utils/town'
 import { broadcastTownMarket } from '#server/utils/town-live'
 
@@ -10,5 +11,5 @@ export default defineEventHandler(async (event) => {
         : []
     const result = await sellBulkToFloor(userId, items)
     for (const resource of result.resources) broadcastTownMarket(resource)
-    return result
+    return { ...result, balance: await getBalance(userId) }
 })

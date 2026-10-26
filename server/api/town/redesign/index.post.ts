@@ -1,4 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
+import { getBalance } from '#server/utils/balance'
 import { redesignTown, type TownRelocation } from '#server/utils/town'
 
 function toRelocation(m: Record<string, unknown>): TownRelocation {
@@ -25,5 +26,5 @@ export default defineEventHandler(async (event) => {
         tileX: Number(r?.tileX),
         tileY: Number(r?.tileY)
     }))
-    return redesignTown(userId, { moves, roads, store, place })
+    return { ...(await redesignTown(userId, { moves, roads, store, place })), balance: await getBalance(userId) }
 })

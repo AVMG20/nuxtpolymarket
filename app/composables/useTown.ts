@@ -1,14 +1,17 @@
-// Polytown client state. One useFetch of /api/town/state is the single source
-// of truth; every action POSTs then refreshes it. Build timers count down on
-// the client from `serverOffsetMs`, and the state refetches the moment the
-// earliest build completes so finished buildings appear without polling hard.
+// Polytown client state. One fetch of /api/town/state is the single source of
+// truth. Actions whose outcome the client already knows (building, moving,
+// storing, upgrading, clearing) change the state here first and refetch once
+// every request in flight has landed; see `optimistic`. Build timers count
+// down on the client from `serverOffsetMs`, and the state refetches the moment
+// the earliest build completes so finished buildings appear without polling hard.
 //
 // The neighbours' towns come from /api/town/world, fetched only once the state
 // is in so your own town is on screen first. They are most of the bytes and
 // change slowly, so they refresh on a slower clock than the state, and right
 // after any plot action that changes who owns what.
 
-import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
+import { TOWN_BUILDINGS, TOWN_PLOT_SIZE, getTownBuilding, townBuildersBusy, townBuildingCountIssue, townBuildingMaxLevel, townLevelCost, townMonumentJob, townPlaceCost, townRoadAccess, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { townStoredIsJob, type TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 
 export interface TownBuildingView {
     id: string
@@ -300,17 +303,19 @@ export interface TownSpot { buildingId: string, plotId: string, tileX: number, t
 
 export const useTown = () => {
     const toast = useToast()
-    const { fetchSession } = useAuth()
+    const { fetchSession, setBalance, balanceNum } = useAuth()
 
-    const { data: state, refresh, pending } = useAsyncData<TownState | null>(
+    const { data: state, pending } = useAsyncData<TownState | null>(
         'town-state',
         () => $fetch<TownState>('/api/town/state' as string),
         { server: false, default: () => null }
     )
 
     const serverOffsetMs = ref(0)
-    watch(state, (s) => {
-        if (s?.serverNow) serverOffsetMs.value = s.serverNow - Date.now()
+    // Keyed on the server's clock, not the state: a local change carries the
+    // old reading along, and measuring it against a later Date.now() would drift.
+    watch(() => state.value?.serverNow, (at) => {
+        if (at) serverOffsetMs.value = at - Date.now()
     }, { immediate: true })
 
     // ── Timed boosts ──
@@ -485,29 +490,518 @@ export const useTown = () => {
         if (boostTimer) clearTimeout(boostTimer)
     })
 
-    async function call<T = unknown>(url: string, body: Record<string, unknown> = {}): Promise<T> {
+    // ── Optimistic actions ──
+    // A change the client can work out for itself is made to `state` at once,
+    // and the request goes out behind it. The town is refetched only once every
+    // request in flight has landed, and a refetch that started before a later
+    // local change is dropped (`generation`), so a poll or a build timer cannot
+    // flicker a fresh placement away. A failed action is undone from its
+    // snapshot when nothing changed since, and the refetch after it puts the
+    // server's word back either way.
+    let inFlight = 0
+    let generation = 0
+    let fetchSeq = 0
+    let appliedSeq = 0
+    /**
+     * The balance a coin-moving response reported, set once nothing is in
+     * flight. Each is read after its own commit, so with several in one burst
+     * the last to arrive need not be the newest: then the session is refetched.
+     */
+    let landedBalance: string | null = null
+    let balancesLanded = 0
+    let gemsChanged = false
+    let settling = 0
+    /** Callers waiting for the town to be idle and refetched; see `idle`. */
+    let idleWaiters: (() => void)[] = []
+
+    /** Refetch the town. Skipped while an action is in flight: its landing refetches instead. */
+    async function refresh(): Promise<void> {
+        if (inFlight > 0) return
+        const gen = generation
+        const seq = ++fetchSeq
         try {
-            const res = await $fetch<T>(url, { method: 'POST', body })
-            await Promise.all([refresh(), fetchSession()])
-            return res
-        } catch (e: unknown) {
-            const err = e as { data?: { message?: string, statusMessage?: string } }
-            toast.add({ title: err?.data?.statusMessage ?? err?.data?.message ?? 'Something went wrong', color: 'error' })
-            throw e
+            const fresh = await $fetch<TownState>('/api/town/state' as string)
+            if (gen !== generation || inFlight > 0 || seq < appliedSeq) return
+            appliedSeq = seq
+            state.value = fresh
+        } catch {
+            // Keep what is drawn; the next poll tries again.
         }
     }
 
-    /** A plot changed hands or went on the market: the map around you changed too. */
-    async function landCall<T = unknown>(url: string, body: Record<string, unknown> = {}): Promise<T> {
-        const res = await call<T>(url, body)
-        refreshWorld()
+    /** Everything in flight has landed: take the server's balance and town back. */
+    async function settle(): Promise<void> {
+        settling++
+        const sessionStale = gemsChanged || balancesLanded > 1
+        if (!sessionStale && landedBalance !== null) setBalance(landedBalance)
+        landedBalance = null
+        balancesLanded = 0
+        gemsChanged = false
+        if (sessionStale) fetchSession()
+        await refresh()
+        settling--
+        // Another action may have started meanwhile: its own landing settles again.
+        if (inFlight > 0 || settling > 0) return
+        const waiters = idleWaiters
+        idleWaiters = []
+        for (const resolve of waiters) resolve()
+    }
+
+    /** Resolves once nothing is in flight and the refetch after the last action has come in. */
+    function idle(): Promise<void> {
+        if (inFlight === 0 && settling === 0) return Promise.resolve()
+        return new Promise(resolve => idleWaiters.push(resolve))
+    }
+
+    // Requests aimed at the same building go out one after another, in the
+    // order they were made, so a move and then a store (or two moves) cannot
+    // reach the server the other way round.
+    const buildingQueue = new Map<string, Promise<void>>()
+    function inTurn<T>(ids: string[], request: () => Promise<T>): () => Promise<T> {
+        const prior = ids.flatMap(id => buildingQueue.get(id) ?? [])
+        const turn = Promise.all(prior).then(request)
+        const done = turn.then(() => {}, () => {})
+        for (const id of ids) buildingQueue.set(id, done)
+        done.then(() => {
+            for (const id of ids) if (buildingQueue.get(id) === done) buildingQueue.delete(id)
+        })
+        return () => turn
+    }
+
+    function errorToast(e: unknown) {
+        const err = e as { data?: { message?: string, statusMessage?: string } }
+        toast.add({ title: err?.data?.statusMessage ?? err?.data?.message ?? 'Something went wrong', color: 'error' })
+    }
+
+    /**
+     * Counts, prices, crews and road access, worked out again after a local
+     * change the way the state endpoint works them out. Staffing, supply and
+     * the happiness figures stay as they were until the refetch.
+     */
+    function rederive(s: TownState): TownState {
+        const now = serverNow()
+        const plotsById = new Map((s.plots ?? []).map(p => [p.id, p]))
+        const list = s.buildings ?? []
+        const sim: TownSimBuilding[] = list.map((b) => {
+            const plot = plotsById.get(b.plotId)
+            return {
+                id: b.id,
+                type: b.type as TownSimBuilding['type'],
+                level: b.level,
+                completesAt: b.completesAt,
+                upgradingTo: b.upgradingTo,
+                createdAt: b.createdAt,
+                wx: plot ? plot.x * TOWN_PLOT_SIZE + b.tileX : undefined,
+                wy: plot ? plot.y * TOWN_PLOT_SIZE + b.tileY : undefined,
+                rotation: b.rotation
+            }
+        })
+        // Stored buildings are still owned: they count toward caps and prices.
+        const countsByType: Record<string, number> = {}
+        for (const b of [...list, ...(s.storage?.items ?? [])]) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
+        const credit = s.monumentCredit ?? {}
+        const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, credit[def.id] ? { coins: 0, resources: {} } : townPlaceCost(def, countsByType[def.id] ?? 0)]))
+        return {
+            ...s,
+            countsByType,
+            nextCost,
+            builders: s.builders ? { ...s.builders, busy: townBuildersBusy(sim, now) } : s.builders,
+            monumentJob: townMonumentJob(sim, now)?.id ?? null,
+            buildings: list.map((b, i) => {
+                const connected = townRoadAccess(sim, sim[i]!)
+                return connected === b.connected ? b : { ...b, connected }
+            })
+        }
+    }
+
+    /** Swap in a locally changed town. */
+    function mutate(change: (s: TownState) => TownState) {
+        if (!state.value) return
+        state.value = rederive(change(state.value))
+        generation++
+    }
+
+    interface ActionOptions<T> {
+        /** Coins the change spends, known exactly: off the balance at once, back on a failure. */
+        coins?: number
+        /** Gems change hands: the session is refetched once everything has landed. */
+        gems?: boolean
+        /** Land changed hands: the neighbours are refetched too. */
+        world?: boolean
+        /** Resolve only once the refetched town is in, for callers that swap views on success. */
+        awaitState?: boolean
+        /** Fold the server's answer in (real ids, exact timers) before the refetch. */
+        landed?: (res: T) => void
+        failed?: () => void
+    }
+
+    async function optimistic<T>(change: ((s: TownState) => TownState) | null, request: () => Promise<T>, opts: ActionOptions<T> = {}): Promise<T> {
+        const before = state.value
+        if (change) mutate(change)
+        const mine = generation
+        if (opts.coins) setBalance(balanceNum.value - opts.coins)
+        inFlight++
+        let res: T
+        try {
+            res = await request()
+            const balance = (res as { balance?: unknown } | null)?.balance
+            if (typeof balance === 'string' || typeof balance === 'number') {
+                landedBalance = String(balance)
+                balancesLanded++
+            }
+            opts.landed?.(res)
+        } catch (e) {
+            // Undo: straight back to the snapshot when nothing else changed the
+            // town since; otherwise the refetch below sorts it out.
+            if (change && before && generation === mine) state.value = before
+            if (opts.coins) setBalance(balanceNum.value + opts.coins)
+            opts.failed?.()
+            errorToast(e)
+            throw e
+        } finally {
+            inFlight--
+            if (opts.gems) gemsChanged = true
+            if (opts.world) refreshWorld()
+            if (inFlight === 0) settle()
+        }
+        if (opts.awaitState) await idle()
         return res
+    }
+
+    function post<T>(url: string, body: Record<string, unknown> = {}): Promise<T> {
+        return $fetch<T>(url, { method: 'POST', body })
+    }
+
+    // A placement is drawn under a temporary id until the server names it.
+    // Anything aimed at it meanwhile waits for the real id; a placement that
+    // failed resolves to null and drops out.
+    let tempSeq = 0
+    const tempIds = new Map<string, Promise<string | null>>()
+    async function realIds(ids: string[]): Promise<string[]> {
+        const list = await Promise.all(ids.map(id => tempIds.get(id) ?? id))
+        return list.filter((id): id is string => !!id)
+    }
+    async function realSpots<S extends { buildingId: string }>(spots: S[]): Promise<S[]> {
+        const ids = await Promise.all(spots.map(s => tempIds.get(s.buildingId) ?? s.buildingId))
+        return spots.flatMap((s, i) => ids[i] ? [{ ...s, buildingId: ids[i]! }] : [])
+    }
+
+    /** What the town can still pay for, spent down as one action works through its list. */
+    function purse() {
+        let coins = balanceNum.value
+        const goods: Record<string, number> = { ...inventory.value }
+        return {
+            affords: (cost: { coins: number, resources: Record<string, number> }) =>
+                coins >= cost.coins && Object.entries(cost.resources).every(([id, q]) => (goods[id] ?? 0) >= q),
+            spend(cost: { coins: number, resources: Record<string, number> }) {
+                coins -= cost.coins
+                for (const [id, q] of Object.entries(cost.resources)) goods[id] = (goods[id] ?? 0) - q
+            }
+        }
+    }
+
+    function addGoods(inv: Record<string, number> | undefined, bag: Record<string, number>, sign: 1 | -1) {
+        const out = { ...(inv ?? {}) }
+        for (const [id, q] of Object.entries(bag)) out[id] = (out[id] ?? 0) + sign * q
+        return out
+    }
+
+    /** A job whose clock ran out, shown as finished; the server settles it the same way. */
+    function finished(b: TownBuildingView, now: number): TownBuildingView {
+        return b.completesAt <= now && (b.level === 0 || b.upgradingTo !== null) ? { ...b, level: b.upgradingTo ?? 1, upgradingTo: null } : b
+    }
+    function jobRunning(b: TownBuildingView, now: number) {
+        return b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)
+    }
+
+    const siteKey = (s: { plotId: string, tileX: number, tileY: number }) => `${s.plotId}:${s.tileX}:${s.tileY}`
+
+    type Placement = { plotId: string, tileX: number, tileY: number, type: string, rotation: number }
+    type PlacedSite = { buildingId: string, type: string, plotId: string, tileX: number, tileY: number, completesAt: number }
+    type PlaceResult = { placed: PlacedSite[], skipped: number, reason: string | null }
+
+    /** The sites a placement puts up, checked the way the server checks them (crews, caps, purse), and what they cost. */
+    function planPlacements(items: Placement[]) {
+        const s = state.value
+        const now = serverNow()
+        const counts = { ...countsByType.value }
+        const credit = monumentCredit.value
+        const wallet = purse()
+        let crews = buildersFree.value
+        let monumentCrew = monumentJob.value === null
+        const sites: TownBuildingView[] = []
+        const usedCredit: string[] = []
+        const goods: Record<string, number> = {}
+        let coins = 0
+        for (const item of items) {
+            const def = getTownBuilding(item.type)
+            if (!def || townBuildingCountIssue(def, counts[def.id] ?? 0)) continue
+            const road = def.kind === 'road'
+            const monument = def.kind === 'monument'
+            // Research credit puts a monument up at once, at its stage, for free.
+            const stage = monument && !usedCredit.includes(def.id) ? Math.max(0, Math.floor(credit[def.id] ?? 0)) : 0
+            if (monument && !stage && !monumentCrew) continue
+            if (!road && !monument && crews <= 0) continue
+            const cost = stage > 0 ? { coins: 0, resources: {} } : townPlaceCost(def, counts[def.id] ?? 0)
+            if (!wallet.affords(cost)) continue
+            wallet.spend(cost)
+            coins += cost.coins
+            for (const [id, q] of Object.entries(cost.resources)) goods[id] = (goods[id] ?? 0) + q
+            counts[def.id] = (counts[def.id] ?? 0) + 1
+            if (stage > 0) usedCredit.push(def.id)
+            else if (monument) monumentCrew = false
+            else if (!road) crews--
+            const instant = road || stage > 0
+            // The server's figure lands with the response; this only has to be close.
+            const buildMs = Math.round((catalogById.value.get(def.id)?.buildMs ?? 0) * (s?.mood?.buildTime ?? 1))
+            sites.push({
+                id: `opt:${++tempSeq}`,
+                plotId: item.plotId,
+                type: def.id,
+                tileX: item.tileX,
+                tileY: item.tileY,
+                rotation: item.rotation,
+                level: road ? 1 : stage,
+                upgradingTo: null,
+                completesAt: instant ? now : now + townBoostedJobMs(buildMs, now, boosts.value.build),
+                createdAt: now,
+                staffing: null,
+                connected: true,
+                district: null,
+                jobMs: instant ? null : buildMs,
+                nextUpgradeMs: null,
+                supply: null,
+                throughput: null
+            })
+        }
+        return { sites, coins, goods, usedCredit }
+    }
+
+    /** A drag (or one click): every tile it painted, laid in one transaction. */
+    function placeBuildings(items: Placement[]) {
+        const plan = planPlacements(items)
+        const request = inTurn(plan.sites.map(b => b.id), () => post<PlaceResult>('/api/town/building/place-bulk', { items }))
+        // Nothing would go up by the client's count: let the server say why.
+        if (plan.sites.length === 0) return optimistic(null, request)
+        const temps = new Map(plan.sites.map(b => [siteKey(b), b.id]))
+        const resolvers = new Map<string, (id: string | null) => void>()
+        for (const b of plan.sites) tempIds.set(b.id, new Promise(resolve => resolvers.set(b.id, resolve)))
+        const touched = new Set(plan.sites.map(b => b.plotId))
+        return optimistic((s) => {
+            const credit = { ...(s.monumentCredit ?? {}) }
+            for (const id of plan.usedCredit) delete credit[id]
+            return {
+                ...s,
+                buildings: [...(s.buildings ?? []), ...plan.sites],
+                inventory: addGoods(s.inventory, plan.goods, -1),
+                monumentCredit: credit,
+                // Building on a listed plot takes it off the market.
+                plots: s.plots?.map(p => touched.has(p.id) && p.listPrice !== null ? { ...p, listPrice: null } : p)
+            }
+        }, request, {
+            coins: plan.coins,
+            landed: (res) => {
+                const named = new Map<string, PlacedSite>()
+                for (const p of res.placed) {
+                    const temp = temps.get(siteKey(p))
+                    if (temp) named.set(temp, p)
+                }
+                for (const [temp, resolve] of resolvers) {
+                    const real = named.get(temp)?.buildingId ?? null
+                    resolve(real)
+                    // Whatever is already queued on the site waits there under its real id too.
+                    const queued = buildingQueue.get(temp)
+                    if (real && queued) buildingQueue.set(real, queued)
+                }
+                // Real ids and the server's timers in; tiles it skipped come back off.
+                mutate(s => ({
+                    ...s,
+                    buildings: (s.buildings ?? []).flatMap((b) => {
+                        if (!resolvers.has(b.id)) return [b]
+                        const p = named.get(b.id)
+                        return p ? [{ ...b, id: p.buildingId, completesAt: p.completesAt }] : []
+                    }),
+                    // A site stored before the server named it.
+                    storage: s.storage && {
+                        items: s.storage.items.flatMap((i) => {
+                            if (!resolvers.has(i.id)) return [i]
+                            const p = named.get(i.id)
+                            return p ? [{ ...i, id: p.buildingId }] : []
+                        })
+                    },
+                    monumentJob: s.monumentJob && named.has(s.monumentJob) ? named.get(s.monumentJob)!.buildingId : s.monumentJob
+                }))
+            },
+            failed: () => {
+                for (const resolve of resolvers.values()) resolve(null)
+            }
+        })
+    }
+
+    /** A whole selection moved together, all or nothing. */
+    function moveBuildings(moves: TownSpot[]) {
+        const byId = new Map(moves.map(m => [m.buildingId, m]))
+        const touched = new Set(moves.map(m => m.plotId))
+        return optimistic(s => ({
+            ...s,
+            buildings: s.buildings?.map((b) => {
+                const m = byId.get(b.id)
+                return m ? { ...b, plotId: m.plotId, tileX: m.tileX, tileY: m.tileY, rotation: m.rotation } : b
+            }),
+            plots: s.plots?.map(p => touched.has(p.id) && p.listPrice !== null ? { ...p, listPrice: null } : p)
+        }), inTurn(moves.map(m => m.buildingId), async () => post<{ moved: string[] }>('/api/town/building/move-bulk', { moves: await realSpots(moves) })))
+    }
+
+    /** Take buildings off the map into storage. Null when none of them is on the map any more. */
+    function storeBuildings(buildingIds: string[]) {
+        const ids = new Set(buildingIds)
+        if (!buildings.value.some(b => ids.has(b.id))) return Promise.resolve(null)
+        const now = serverNow()
+        return optimistic((s) => {
+            const taken = (s.buildings ?? []).filter(b => ids.has(b.id)).map(b => finished(b, now))
+            const items: TownStoredView[] = taken.map((b) => {
+                const job = b.level === 0 || b.upgradingTo !== null
+                const remainingMs = job ? Math.max(0, b.completesAt - now) : 0
+                return { id: b.id, type: b.type, level: b.level, upgradingTo: b.upgradingTo, remainingMs, storedAt: now, createdAt: b.createdAt, paused: townStoredIsJob({ level: b.level, upgradingTo: b.upgradingTo, remainingMs }) }
+            })
+            return {
+                ...s,
+                buildings: (s.buildings ?? []).filter(b => !ids.has(b.id)),
+                storage: { items: [...(s.storage?.items ?? []), ...items] }
+            }
+        }, inTurn(buildingIds, async () => post<{ stored: string[] }>('/api/town/storage/store', { buildingIds: await realIds(buildingIds) })))
+    }
+
+    /** Bring a stored building back out. Null when it already left storage. */
+    function placeStored(spot: TownSpot) {
+        const item = storage.value.items.find(i => i.id === spot.buildingId)
+        if (!item) return Promise.resolve(null)
+        const now = serverNow()
+        // A paused job picks up where it stopped.
+        const building: TownBuildingView = {
+            id: item.id,
+            plotId: spot.plotId,
+            type: item.type,
+            tileX: spot.tileX,
+            tileY: spot.tileY,
+            rotation: spot.rotation,
+            level: item.level,
+            upgradingTo: item.paused ? item.upgradingTo : null,
+            completesAt: item.paused ? now + item.remainingMs : now,
+            createdAt: item.createdAt,
+            staffing: null,
+            connected: true,
+            district: null,
+            jobMs: null,
+            nextUpgradeMs: null,
+            supply: null,
+            throughput: null
+        }
+        return optimistic(s => ({
+            ...s,
+            buildings: [...(s.buildings ?? []), building],
+            storage: { items: (s.storage?.items ?? []).filter(i => i.id !== item.id) },
+            plots: s.plots?.map(p => p.id === spot.plotId && p.listPrice !== null ? { ...p, listPrice: null } : p)
+        }), inTurn([spot.buildingId], async () => {
+            const [real] = await realSpots([spot])
+            if (!real) {
+                const message = 'That building is not in storage'
+                throw Object.assign(new Error(message), { data: { statusMessage: message } })
+            }
+            return post<{ buildingId: string }>('/api/town/storage/place', { ...real })
+        }))
+    }
+
+    /** Clear a selection. Monuments stay standing; null when nothing is left to clear. */
+    function demolishBuildings(buildingIds: string[]) {
+        const ids = new Set(buildingIds.filter(id => buildings.value.some(b => b.id === id && catalogById.value.get(b.type)?.kind !== 'monument')))
+        if (ids.size === 0) return Promise.resolve(null)
+        return optimistic(
+            s => ({ ...s, buildings: (s.buildings ?? []).filter(b => !ids.has(b.id)) }),
+            inTurn([...ids], async () => post<{ demolished: string[], types: string[] }>('/api/town/building/demolish-bulk', { buildingIds: await realIds([...ids]) }))
+        )
+    }
+
+    /**
+     * Start an upgrade on every building in a selection that can take one, in
+     * order, until the crews, coins or goods run out, the way the server does.
+     * Null when every one of them is already on a job.
+     */
+    function upgradeBuildings(buildingIds: string[]) {
+        const now = serverNow()
+        const byId = new Map(buildings.value.map(b => [b.id, b]))
+        const ids = buildingIds.filter((id) => {
+            const b = byId.get(id)
+            return !b || !jobRunning(b, now)
+        })
+        if (ids.length === 0) return Promise.resolve(null)
+        const wallet = purse()
+        let crews = buildersFree.value
+        let monumentCrew = monumentJob.value === null
+        const started = new Map<string, Partial<TownBuildingView>>()
+        const goods: Record<string, number> = {}
+        let coins = 0
+        for (const id of ids) {
+            const found = byId.get(id)
+            const b = found && finished(found, now)
+            const def = b && getTownBuilding(b.type)
+            // No quote from the server for the next level: leave this one to it.
+            if (!b || !def || b.level === 0 || b.upgradingTo !== null || def.kind === 'road' || b.level >= townBuildingMaxLevel(def) || b.nextUpgradeMs === null) continue
+            const monument = def.kind === 'monument'
+            if (monument ? !monumentCrew : crews <= 0) continue
+            const cost = townLevelCost(def, b.level + 1)
+            if (!wallet.affords(cost)) continue
+            wallet.spend(cost)
+            coins += cost.coins
+            for (const [r, q] of Object.entries(cost.resources)) goods[r] = (goods[r] ?? 0) + q
+            if (monument) monumentCrew = false
+            else crews--
+            started.set(id, {
+                level: b.level,
+                upgradingTo: b.level + 1,
+                completesAt: now + townBoostedJobMs(b.nextUpgradeMs, now, boosts.value.build),
+                jobMs: b.nextUpgradeMs
+            })
+        }
+        type UpgradeResult = { started: { buildingId: string, level: number, completesAt: number }[], skipped: number, reason: string | null }
+        const request = inTurn(ids, async () => post<UpgradeResult>('/api/town/building/upgrade-bulk', { buildingIds: await realIds(ids) }))
+        if (started.size === 0) return optimistic(null, request)
+        return optimistic(s => ({
+            ...s,
+            buildings: s.buildings?.map(b => started.has(b.id) ? { ...b, ...started.get(b.id) } : b),
+            inventory: addGoods(s.inventory, goods, -1)
+        }), request, {
+            coins,
+            landed: (res) => {
+                const at = new Map(res.started.map(u => [u.buildingId, u.completesAt]))
+                mutate(s => ({ ...s, buildings: s.buildings?.map(b => at.has(b.id) ? { ...b, completesAt: at.get(b.id)! } : b) }))
+            }
+        })
+    }
+
+    /** Finish a job for gems. Null when the building has nothing running. */
+    function rushBuilding(buildingId: string) {
+        const now = serverNow()
+        const b = buildings.value.find(x => x.id === buildingId)
+        if (b && !jobRunning(b, now)) return Promise.resolve(null)
+        return optimistic(
+            s => ({ ...s, buildings: s.buildings?.map(x => x.id === buildingId ? { ...x, level: x.upgradingTo ?? 1, upgradingTo: null, completesAt: now, jobMs: null } : x) }),
+            inTurn([buildingId], async () => post<{ gems: number, level: number }>('/api/town/building/rush', { buildingId: (await realIds([buildingId]))[0] ?? buildingId })),
+            { gems: true }
+        )
+    }
+
+    function sellGoods(items: { resource: string, quantity: number }[]) {
+        const bag: Record<string, number> = {}
+        for (const i of items) bag[i.resource] = (bag[i.resource] ?? 0) + i.quantity
+        return (s: TownState) => ({ ...s, inventory: addGoods(s.inventory, bag, -1) })
     }
 
     return {
         state,
         pending,
         refresh,
+        idle,
         serverOffsetMs,
         serverNow,
         initialized,
@@ -542,58 +1036,70 @@ export const useTown = () => {
         tierLocks,
         storage,
         redesignDraft,
-        foundTown: () => call('/api/town/init'),
+        foundTown: () => optimistic(null, () => post('/api/town/init'), { awaitState: true }),
         /** Keep a half-done redesign on the server. The town itself does not change. */
-        saveRedesignDraft: (draft: TownRedesignDraft) => call<{ savedAt: number }>('/api/town/redesign/draft', { ...draft }),
-        discardRedesignDraft: async () => {
-            try {
-                await $fetch('/api/town/redesign/draft' as string, { method: 'DELETE' })
-                await refresh()
-            } catch (e: unknown) {
-                const err = e as { data?: { statusMessage?: string } }
-                toast.add({ title: err?.data?.statusMessage ?? 'Something went wrong', color: 'error' })
-                throw e
-            }
+        saveRedesignDraft: (draft: TownRedesignDraft) => optimistic(null, () => post<{ savedAt: number }>('/api/town/redesign/draft', { ...draft })),
+        discardRedesignDraft: () => optimistic(
+            s => ({ ...s, redesignDraft: null }),
+            () => $fetch('/api/town/redesign/draft' as string, { method: 'DELETE' })
+        ),
+        storeBuildings,
+        placeStored,
+        claimMilestone: (id: string) => {
+            const goal = milestones.value.find(m => m.id === id)
+            if (goal?.claimed) return Promise.resolve(null)
+            return optimistic(
+                s => ({ ...s, milestones: s.milestones?.map(m => m.id === id ? { ...m, claimed: true } : m) }),
+                () => post<{ id: string, reward: number, gems: number, title: string }>('/api/town/milestone/claim', { id }),
+                // The reward is known: it shows at once, and comes back off if the claim fails.
+                { coins: -(goal?.reward ?? 0), gems: !!goal?.gems }
+            )
         },
-        storeBuildings: (buildingIds: string[]) => call<{ stored: string[] }>('/api/town/storage/store', { buildingIds }),
-        placeStored: (spot: TownSpot) => call<{ buildingId: string }>('/api/town/storage/place', { ...spot }),
-        claimMilestone: (id: string) => call<{ id: string, reward: number, gems: number, title: string }>('/api/town/milestone/claim', { id }),
         placeBuilding: (plotId: string, tileX: number, tileY: number, type: string, rotation = 0) =>
-            call<{ buildingId: string, completesAt: number }>('/api/town/building/place', { plotId, tileX, tileY, type, rotation }),
+            placeBuildings([{ plotId, tileX, tileY, type, rotation }]),
         moveBuilding: (buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) =>
-            call<{ buildingId: string }>('/api/town/building/move', { buildingId, plotId, tileX, tileY, rotation }),
-        /** A drag: every tile it painted, laid in one transaction. */
-        placeBuildings: (items: { plotId: string, tileX: number, tileY: number, type: string, rotation: number }[]) =>
-            call<{ placed: { buildingId: string, type: string }[], skipped: number, reason: string | null }>('/api/town/building/place-bulk', { items }),
-        /** A whole selection moved together, all or nothing. */
-        moveBuildings: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[]) =>
-            call<{ moved: string[] }>('/api/town/building/move-bulk', { moves }),
+            moveBuildings([{ buildingId, plotId, tileX, tileY, rotation }]),
+        placeBuildings,
+        moveBuildings,
         /**
          * The whole town laid out again: every kept building's new tile, roads to
          * lay fresh, buildings going into storage, and stored ones coming out.
-         * Roads left out are removed.
+         * Roads left out are removed. Resolves once the new layout is in, so the
+         * redesign view can close straight onto it.
          */
         redesign: (moves: TownSpot[], roads: { plotId: string, tileX: number, tileY: number }[], store: string[] = [], place: TownSpot[] = []) =>
-            call<{ moved: string[], removed: string[], built: string[], coins: number, stored: string[], placed: string[] }>('/api/town/redesign', { moves, roads, store, place }),
-        demolishBuildings: (buildingIds: string[]) =>
-            call<{ demolished: string[], types: string[] }>('/api/town/building/demolish-bulk', { buildingIds }),
-        upgradeBuildings: (buildingIds: string[]) =>
-            call<{ started: { buildingId: string, level: number }[], skipped: number, reason: string | null }>('/api/town/building/upgrade-bulk', { buildingIds }),
+            optimistic(null, () => post<{ moved: string[], removed: string[], built: string[], coins: number, stored: string[], placed: string[] }>('/api/town/redesign', { moves, roads, store, place }), { awaitState: true }),
+        demolishBuildings,
+        upgradeBuildings,
         sellBulk: (items: { resource: string, quantity: number }[]) =>
-            call<{ total: number, lines: { resource: string, quantity: number, total: number }[], resources: string[], marketBonus: number }>('/api/town/market/sell-bulk', { items }),
-        upgradeBuilding: (buildingId: string) => call<{ level: number, completesAt: number }>('/api/town/building/upgrade', { buildingId }),
-        rushBuilding: (buildingId: string) => call<{ gems: number, level: number }>('/api/town/building/rush', { buildingId }),
-        demolishBuilding: (buildingId: string) => call('/api/town/building/demolish', { buildingId }),
-        listPlot: (plotId: string, price: number | null) => landCall<{ plotId: string, listPrice: number | null }>('/api/town/plot/list', { plotId, price }),
-        sellPlot: (plotId: string) => landCall<{ plotId: string, refund: number }>('/api/town/plot/sell', { plotId }),
-        buyPlotFromPlayer: (plotId: string, expectedPrice: number) => landCall<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId, expectedPrice }),
-        buyPlot: (x: number, y: number) => landCall<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }),
-        hireBuilder: () => call<{ builders: number, gems: number }>('/api/town/builder'),
+            optimistic(sellGoods(items), () => post<{ total: number, lines: { resource: string, quantity: number, total: number }[], resources: string[], marketBonus: number }>('/api/town/market/sell-bulk', { items })),
+        upgradeBuilding: (buildingId: string) => upgradeBuildings([buildingId]),
+        rushBuilding,
+        demolishBuilding: (buildingId: string) => demolishBuildings([buildingId]),
+        listPlot: (plotId: string, price: number | null) =>
+            optimistic(
+                s => ({ ...s, plots: s.plots?.map(p => p.id === plotId ? { ...p, listPrice: price } : p) }),
+                () => post<{ plotId: string, listPrice: number | null }>('/api/town/plot/list', { plotId, price }),
+                { world: true }
+            ),
+        sellPlot: (plotId: string) => optimistic(null, () => post<{ plotId: string, refund: number }>('/api/town/plot/sell', { plotId }), { world: true }),
+        buyPlotFromPlayer: (plotId: string, expectedPrice: number) => optimistic(null, () => post<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId, expectedPrice }), { world: true }),
+        buyPlot: (x: number, y: number) => optimistic(null, () => post<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }), { world: true }),
+        hireBuilder: () => optimistic(null, () => post<{ builders: number, gems: number }>('/api/town/builder'), { gems: true }),
         sellToFloor: (resource: string, quantity: number) =>
-            call<{ total: number, quantity: number, toPlayers: number, toHall: number, filledByPlayers: number, marketBonus: number }>('/api/town/market/sell-floor', { resource, quantity }),
-        convertJewels: (gems: number) => call<{ gems: number, jewels: number }>('/api/town/market/convert', { gems }),
+            optimistic(sellGoods([{ resource, quantity }]), () => post<{ total: number, quantity: number, toPlayers: number, toHall: number, filledByPlayers: number, marketBonus: number }>('/api/town/market/sell-floor', { resource, quantity })),
+        convertJewels: (gems: number) => optimistic(null, () => post<{ gems: number, jewels: number }>('/api/town/market/convert', { gems }), { gems: true }),
         placeOrder: (resource: string, side: 'buy' | 'sell', price: number, quantity: number) =>
-            call<{ status: 'open' | 'filled', filled: number, coinsMoved: number }>('/api/town/market/place', { resource, side, price, quantity }),
-        cancelOrder: (orderId: string) => call('/api/town/market/cancel', { orderId })
+            optimistic(null, () => post<{ status: 'open' | 'filled', filled: number, coinsMoved: number }>('/api/town/market/place', { resource, side, price, quantity })),
+        cancelOrder: (orderId: string) => {
+            const order = myOrders.value.find(o => o.id === orderId)
+            if (!order) return Promise.resolve(null)
+            // A sell's unfilled goods come straight back; a buy's coins come with the response.
+            const back = order.side === 'sell' ? { [order.resource]: order.quantity - order.filled } : {}
+            return optimistic(
+                s => ({ ...s, myOrders: s.myOrders?.filter(o => o.id !== orderId), inventory: addGoods(s.inventory, back, 1) }),
+                () => post('/api/town/market/cancel', { orderId })
+            )
+        }
     }
 }

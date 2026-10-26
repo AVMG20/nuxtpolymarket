@@ -1027,11 +1027,27 @@ function syncBuildings() {
     const seen = new Set<string>()
     const roads = roadTiles()
     const landed: BuildingEntry[] = []
+    // A placement is drawn before the server answers, under a temporary id,
+    // and comes back under its real one on the same tile. It keeps its entry,
+    // so it does not land a second time.
+    const ids = new Set(props.buildings.map(b => b.id))
+    const orphans = [...entries].filter(([id]) => !ids.has(id))
     for (const b of props.buildings) {
         seen.add(b.id)
         const pos = worldPos(b)
         if (!pos) continue
         let e = entries.get(b.id)
+        if (!e && orphans.length) {
+            const i = orphans.findIndex(([, o]) => o.data.type === b.type && o.group.position.x === pos.x && o.group.position.z === pos.z)
+            if (i >= 0) {
+                const [oldId, o] = orphans.splice(i, 1)[0]!
+                entries.delete(oldId)
+                entries.set(b.id, o)
+                o.group.userData.buildingId = b.id
+                o.model.traverse((m) => { m.userData.buildingId = b.id })
+                e = o
+            }
+        }
         // New since the first sync, or standing somewhere else until now: the
         // player just put it down. A rebuild for a changed type is only new
         // artwork and lands silently.

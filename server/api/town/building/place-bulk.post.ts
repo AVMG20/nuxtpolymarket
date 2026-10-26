@@ -1,4 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
+import { getBalance } from '#server/utils/balance'
 import { placeBuildings, type TownPlacement } from '#server/utils/town'
 
 export default defineEventHandler(async (event) => {
@@ -12,5 +13,5 @@ export default defineEventHandler(async (event) => {
         type: String(i?.type ?? ''),
         rotation: Number(i?.rotation ?? 0)
     }))
-    return placeBuildings(userId, items)
+    return { ...(await placeBuildings(userId, items)), balance: await getBalance(userId) }
 })

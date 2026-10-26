@@ -1,4 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
+import { getBalance } from '#server/utils/balance'
 import { buyPlotFromPlayer } from '#server/utils/town'
 
 export default defineEventHandler(async (event) => {
@@ -7,9 +8,10 @@ export default defineEventHandler(async (event) => {
     // The price the buyer was looking at when they clicked. Optional so an
     // older client still works, but the panel always sends it.
     const expected = body?.expectedPrice
-    return buyPlotFromPlayer(
+    const result = await buyPlotFromPlayer(
         userId,
         String(body?.plotId ?? ''),
         typeof expected === 'number' ? expected : undefined
     )
+    return { ...result, balance: await getBalance(userId) }
 })
