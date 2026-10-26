@@ -30,7 +30,6 @@ interface LeaderboardUser {
   voidHulls: number
   voidSystemLevels: number
   voidTradeLevel: number
-  aiPromptsUsed: number
   /** Hero Quest's ranked score: Worlds cleared, every run counted, plus collection completion (0–100). */
   heroQuestScore: number
   heroQuestWorlds: number
@@ -647,17 +646,11 @@ async function sendGift() {
                     <p class="mt-1 font-bold tabular-nums">{{ selectedUser.battlerRating ?? '—' }}</p>
                     <p class="text-[10px] text-muted">{{ selectedUser.battlerBattlesWon }}–{{ selectedUser.battlerBattlesLost }} · {{ selectedUser.battlerRunsWon }} runs won</p>
                   </div>
-                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
+                  <div class="col-span-2 rounded-xl border border-default bg-elevated/40 p-3">
                     <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
                       <UIcon name="i-lucide-sword" class="size-3.5 text-warning" />Hero Quest power
                     </p>
                     <p class="mt-1 truncate font-bold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn, 'standard') : '—' }}</p>
-                  </div>
-                  <div class="rounded-xl border border-default bg-elevated/40 p-3">
-                    <p class="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-                      <UIcon name="i-lucide-bot" class="size-3.5 text-info" />AI prompts used
-                    </p>
-                    <p class="mt-1 font-bold tabular-nums">{{ formatNumber(selectedUser.aiPromptsUsed, false) }}</p>
                   </div>
                 </div>
               </section>

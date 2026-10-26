@@ -19,7 +19,6 @@ export const NAV_CATALOG: NavSection[] = [
     label: 'Platform',
     items: [
       { label: 'Games', icon: 'i-lucide-house', to: '/' },
-      { label: 'AI Assistant', icon: 'i-lucide-bot', to: '/ai' },
       { label: 'Gem Exchange', icon: 'i-lucide-gem', to: '/gem-exchange' },
       { label: 'Bank', icon: 'i-lucide-landmark', to: '/bank' },
       { label: 'Leaderboard', icon: 'i-lucide-trophy', to: '/leaderboard' },

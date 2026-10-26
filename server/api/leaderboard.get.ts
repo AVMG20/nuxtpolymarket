@@ -1,7 +1,7 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townBuildings, voidState, hqState, hqCollection } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townBuildings, voidState, hqState, hqCollection } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
@@ -12,7 +12,7 @@ import { TOWN_MONUMENT_IDS } from '#shared/utils/gamelogic/town-monuments'
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townMonumentRows, voidRows, heroQuestRows, heroQuestEntryCounts] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, battlerTotals, battlerRatings, townRows, townMonumentRows, voidRows, heroQuestRows, heroQuestEntryCounts] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -71,11 +71,6 @@ export default defineEventHandler(async (event) => {
     db.select({ userId: xenoGridSlots.userId, n: count() }).from(xenoGridSlots).groupBy(xenoGridSlots.userId),
     db.select({ userId: xenoBreederSlots.userId, n: count() }).from(xenoBreederSlots).groupBy(xenoBreederSlots.userId),
     db
-      .select({ userId: aiMessages.userId, n: count() })
-      .from(aiMessages)
-      .where(eq(aiMessages.role, 'user'))
-      .groupBy(aiMessages.userId),
-    db
       .select({
         userId: tcgBattlerRun.userId,
         runsWon: sql<number>`count(*) filter (where ${tcgBattlerRun.state} = 'won')`.mapWith(Number),
@@ -124,7 +119,6 @@ export default defineEventHandler(async (event) => {
   const xenoSpeciesByUser = new Map(xenoSpeciesCounts.map(row => [row.userId, row.n]))
   const xenoGridByUser = new Map(xenoGridCounts.map(row => [row.userId, row.n]))
   const xenoBreederByUser = new Map(xenoBreederCounts.map(row => [row.userId, row.n]))
-  const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
   const battlerByUser = new Map(battlerTotals.map(row => [row.userId, row]))
   const battlerRatingByUser = new Map(battlerRatings.map(row => [row.userId, row.rating]))
   const townMonumentsByUser = new Map<string, { type: string, level: number }[]>()
@@ -166,7 +160,6 @@ export default defineEventHandler(async (event) => {
       const xenoSpeciesUnlocked = xenoSpeciesByUser.get(u.id) ?? 0
       const xenoGridSlotsUnlocked = xenoGridByUser.get(u.id) ?? 0
       const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
-      const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
       const battler = battlerByUser.get(u.id)
       const town = townByUser.get(u.id)
       const voidRunner = voidByUser.get(u.id)
@@ -208,7 +201,6 @@ export default defineEventHandler(async (event) => {
         voidHulls: voidRunner?.hulls ?? 0,
         voidSystemLevels: voidRunner?.systems ?? 0,
         voidTradeLevel: voidRunner?.trade ?? 0,
-        aiPromptsUsed,
         heroQuestScore: heroQuest?.total ?? 0,
         heroQuestWorlds: heroQuest?.worlds ?? 0,
         heroQuestCollection: heroQuest?.collection ?? 0,
