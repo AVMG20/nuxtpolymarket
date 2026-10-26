@@ -1,0 +1,1 @@
+ALTER TABLE "user_nav_layout" ADD COLUMN "revision" integer DEFAULT 0 NOT NULL;
