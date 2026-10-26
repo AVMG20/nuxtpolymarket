@@ -67,11 +67,13 @@ function stackYieldPerCycle(stack: any): string {
 // backing panel at all. Override just enough to let it size to content.
 const TOOLTIP_CONTENT_UI = 'h-auto max-w-72 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
 
-const placingKey = ref<string | null>(null)
-const unplacingId = ref<string | null>(null)
-
 function stackKey(stack: any) {
   return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.eat}`
+}
+
+/** A placed bug the server hasn't confirmed yet: it can't be moved or released until it has. */
+function isPendingBug(bug: any): boolean {
+  return bug.id.startsWith(PENDING_BUG_PREFIX)
 }
 
 // ─── Inventory sort/filter (Inventory tab) ─────────────────────────────────
@@ -117,24 +119,15 @@ const filteredSortedBugInventory = computed(() => {
     })
 })
 
-async function handlePlace(stack: any) {
-  if (placingKey.value || placedCount.value >= capacity.value) return
-  placingKey.value = stackKey(stack)
-  try {
-    await colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.eat)
-  } finally {
-    placingKey.value = null
-  }
+// Both apply locally at once (see useColony), so the next click doesn't wait
+// on the server; a failed request is undone there.
+function handlePlace(stack: any) {
+  if (placedCount.value >= capacity.value) return
+  colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.eat).catch(() => {})
 }
 
-async function handleUnplace(bugId: string) {
-  if (unplacingId.value) return
-  unplacingId.value = bugId
-  try {
-    await colony.unplaceBug(bugId)
-  } finally {
-    unplacingId.value = null
-  }
+function handleUnplace(bugId: string) {
+  colony.unplaceBug(bugId).catch(() => {})
 }
 
 // ─── Nutrition / feeding ────────────────────────────────────────────────────
@@ -202,24 +195,31 @@ const chestBusy = ref(false)
 async function handleCollect() {
   if (chestBusy.value) return
   chestBusy.value = true
+  // The chest's contents are already known, so they float up right away; the
+  // server's list is only needed when the chest looked empty.
+  const known = pendingLoot.value.map((l: any) => ({ ...l }))
+  if (known.length) floatLoot(known)
   try {
     const res = await colony.collectLoot()
-    const collected = res?.collected ?? []
-    // stagger each popup's appearance so they don't all stack on top of
-    // each other — pushed one at a time instead of all at once
-    collected.forEach((item: any, i: number) => {
-      setTimeout(() => {
-        const id = floatSeq++
-        const x = 50 + (Math.random() - 0.5) * 70
-        chestFloats.value.push({ id, text: `+${formatNumber(item.quantity, false)} ${item.emoji}`, x, y: 0 })
-        setTimeout(() => {
-          chestFloats.value = chestFloats.value.filter(f => f.id !== id)
-        }, 1600)
-      }, i * 220)
-    })
+    if (!known.length) floatLoot(res?.collected ?? [])
   } finally {
     chestBusy.value = false
   }
+}
+
+function floatLoot(collected: any[]) {
+  // stagger each popup's appearance so they don't all stack on top of
+  // each other — pushed one at a time instead of all at once
+  collected.forEach((item: any, i: number) => {
+    setTimeout(() => {
+      const id = floatSeq++
+      const x = 50 + (Math.random() - 0.5) * 70
+      chestFloats.value.push({ id, text: `+${formatNumber(item.quantity, false)} ${item.emoji}`, x, y: 0 })
+      setTimeout(() => {
+        chestFloats.value = chestFloats.value.filter(f => f.id !== id)
+      }, 1600)
+    }, i * 220)
+  })
 }
 
 async function handleInit() {
@@ -244,15 +244,7 @@ onUnmounted(() => {
 
 /** Mirror server settlement between polls: food is spent only when a bug's
  * displayed cycle completes, with premium nutrition consumed first. */
-const liveFoodSpent = computed(() => {
-  const elapsedMs = Math.max(0, nowTick.value - serverNow.value)
-  return bugs.value.reduce((sum: number, bug: any) => {
-    if (!bug.tickMs || bug.tickMs <= 0) return sum
-    const completedCycles = Math.floor((bug.tickProgressMs + elapsedMs) / bug.tickMs)
-    const foodPerCycle = Math.round(bug.feedPerHour * bug.tickMs / 3_600_000)
-    return sum + completedCycles * foodPerCycle
-  }, 0)
-})
+const liveFoodSpent = computed(() => colonyFoodSpent(bugs.value, serverNow.value, nowTick.value))
 
 const liveGemNutrition = computed(() => {
   return Math.max(0, gemNutrition.value - liveFoodSpent.value)
@@ -676,8 +668,8 @@ function bugYieldPerCycle(bug: any): string {
 
                 <button
                   class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 disabled:opacity-50"
-                  :class="[tierBg(stack.tier), placingKey === stackKey(stack) ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/50']"
-                  :disabled="placedCount >= capacity || !!placingKey"
+                  :class="[tierBg(stack.tier), 'hover:ring-1 hover:ring-primary/50']"
+                  :disabled="placedCount >= capacity"
                   @click="handlePlace(stack)"
                 >
                   <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
@@ -824,7 +816,7 @@ function bugYieldPerCycle(bug: any): string {
 
                 <div
                   class="group relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 cursor-pointer"
-                  :class="[tierBg(bug.tier), unplacingId === bug.id ? 'opacity-50 pointer-events-none' : 'hover:ring-1 hover:ring-primary/50']"
+                  :class="[tierBg(bug.tier), isPendingBug(bug) ? 'opacity-50 pointer-events-none' : 'hover:ring-1 hover:ring-primary/50']"
                   @click="handleUnplace(bug.id)"
                 >
                   <!-- Release (hover reveal). Prestige-only species have no

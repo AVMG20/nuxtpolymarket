@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyLoot } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { settleColony, creditItems } from '#server/utils/colony'
+import { settleColony, creditItems, getUserGems } from '#server/utils/colony'
 import { getItem } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
@@ -26,6 +26,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     ok: true,
+    gems: await getUserGems(userId),
     collected: collected.map((row) => {
       const type = getItem(row.itemTypeId)
       return { itemTypeId: row.itemTypeId, name: type?.name ?? row.itemTypeId, emoji: type?.emoji ?? '❓', quantity: row.quantity }

@@ -314,6 +314,23 @@ function syncLiveBugs() {
   const height = app?.screen.height ?? 420
   const now = Date.now()
 
+  // A bug placed optimistically shows up under a stand-in id first (see
+  // useColony). When the real id replaces it, carry the live bug over instead
+  // of despawning it and spawning a new one somewhere else.
+  for (const [id, live] of [...liveBugs]) {
+    if (!id.startsWith(PENDING_BUG_PREFIX) || props.bugs.some((b: any) => b.id === id)) continue
+    const real = (props.bugs as any[]).find(b => b.typeId === live.typeId && !liveBugs.has(b.id))
+    if (!real) continue
+    liveBugs.delete(id)
+    live.id = real.id
+    liveBugs.set(real.id, live)
+    const entry = bugGfx.get(id)
+    if (entry) {
+      bugGfx.delete(id)
+      bugGfx.set(real.id, entry)
+    }
+  }
+
   for (const id of [...liveBugs.keys()]) {
     if (!props.bugs.some((b: any) => b.id === id)) {
       liveBugs.delete(id)

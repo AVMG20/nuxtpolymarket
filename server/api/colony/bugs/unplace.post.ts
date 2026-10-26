@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyBugs } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { settleColony } from '#server/utils/colony'
+import { settleColony, getUserGems } from '#server/utils/colony'
 
 /** Move one placed bug back into inventory (stops it foraging, frees a terrarium slot). */
 export default defineEventHandler(async (event) => {
@@ -18,5 +18,5 @@ export default defineEventHandler(async (event) => {
 
   await db.update(colonyBugs).set({ inTerrarium: false }).where(eq(colonyBugs.id, bug.id))
 
-  return { ok: true }
+  return { ok: true, gems: await getUserGems(userId) }
 })

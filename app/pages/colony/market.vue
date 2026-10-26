@@ -101,9 +101,10 @@ async function doSellKeepAll() {
   confirmKeepSellAll.value = false
   sellingKeepAll.value = true
   try {
-    for (const item of keepSellableItems.value) {
-      await colony.sellItem(item.id, keepSellQty(item))
-    }
+    // Each sell drops its stack locally at once, so they can all be queued
+    // together; the header is settled once when the last one is done.
+    await Promise.allSettled(keepSellableItems.value.map((item: any) => colony.sellItem(item.id, keepSellQty(item), { settleWallet: false })))
+    await colony.fetchSession()
   } finally {
     sellingKeepAll.value = false
   }

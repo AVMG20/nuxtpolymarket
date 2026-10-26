@@ -410,16 +410,18 @@ async function countSameSpeciesPlaced(userId: string, typeId: string): Promise<n
  * items credits ~9. No-op for bugs that were never placed (dormant bugs
  * never accumulate tick progress) or that just started a fresh cycle.
  * Caller must run settleColony() first so tickProgressMs is up to date, and
- * must call this before deleting the bug row.
+ * must call this before deleting the bug row, or pass `alreadyDeleted`.
  */
-export async function creditPartialTick(userId: string, bug: { typeId: string, yield: number, speed: number, tickProgressMs: number, inTerrarium: boolean }) {
+export async function creditPartialTick(userId: string, bug: { typeId: string, yield: number, speed: number, tickProgressMs: number, inTerrarium: boolean }, alreadyDeleted = false) {
   if (!bug.inTerrarium) return
   const type = getBug(bug.typeId)
   if (!type) return
 
   const levels = await getUpgradeLevels(userId)
   const mods = deriveTrackModifiers(levels)
-  const sameSpeciesCount = await countSameSpeciesPlaced(userId, bug.typeId)
+  // A caller that claimed the bug by deleting it first no longer finds it in
+  // the placed count, so add it back to price the cycle it was running.
+  const sameSpeciesCount = await countSameSpeciesPlaced(userId, bug.typeId) + (alreadyDeleted ? 1 : 0)
   const tickMs = type.producesGems
     ? gemTickMs(bug, sameSpeciesCount)
     : effectiveTickMs(bug, mods.speedBonusPct + socialSpeedBonusPct(bug.typeId, sameSpeciesCount))
@@ -434,6 +436,12 @@ export async function creditPartialTick(userId: string, bug: { typeId: string, y
     const qty = Math.round(avgTickYield(bug.yield + mods.yieldLevelBonus) * fraction)
     await addLoot(userId, type.itemId, qty)
   }
+}
+
+/** The player's gems, sent back by colony actions: settling can pay out Gem Snail gems on any of them. */
+export async function getUserGems(userId: string, ex: DbExecutor = db): Promise<number> {
+  const [row] = await ex.select({ gems: user.gems }).from(user).where(eq(user.id, userId))
+  return row?.gems ?? 0
 }
 
 /** Count of bugs currently placed in the terrarium. */
