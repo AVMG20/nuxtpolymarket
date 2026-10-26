@@ -29,18 +29,14 @@ function collect() {
     <!-- What's inside (sm+) -->
     <div
       v-if="total"
-      class="cl-panel cl-pop-in hidden sm:flex flex-col gap-1.5 px-3 py-2.5 mb-3 border-amber-400/55 max-w-80"
+      class="cl-panel cl-pop-in hidden sm:flex flex-col gap-1.5 px-3 py-2.5 mb-3 border-amber-400/55 max-w-[32rem]"
     >
       <div class="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[13px] font-semibold cl-num">
         <span
-          v-for="item in loot.slice(0, 6)"
+          v-for="item in loot"
           :key="item.itemTypeId"
           :title="item.name"
         >{{ item.emoji }} {{ formatNumber(item.quantity) }}</span>
-        <span
-          v-if="loot.length > 6"
-          class="text-muted"
-        >+{{ loot.length - 6 }}</span>
       </div>
       <button
         type="button"
