@@ -1,4 +1,4 @@
-import { avgTickYield, getBug } from '#shared/utils/colony'
+import { avgTickYield, bugStackKey, getBug, type ColonyBugStack } from '#shared/utils/colony'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -192,6 +192,19 @@ export const useColony = () => {
     return res
   }
 
+  /** Release spare bugs from the inventory: they leave at once and the refund lands with the response. */
+  async function releaseBugs(stacks: ColonyBugStack[]) {
+    const res: any = await optimistic((s) => {
+      for (const pick of stacks) {
+        const stack: any = s.bugInventory.find((b: any) => bugStackKey(b) === bugStackKey(pick))
+        if (stack) stack.quantity -= Math.min(stack.quantity, pick.quantity)
+      }
+      s.bugInventory = s.bugInventory.filter((b: any) => b.quantity > 0)
+    }, () => $fetch('/api/colony/bugs/release', { method: 'POST', body: { stacks } }))
+    applyWallet(res)
+    return res
+  }
+
   async function placeBug(typeId: string, speed: number, yield_: number, eat: number) {
     const tempId = `${PENDING_BUG_PREFIX}${++pendingSeq}`
     const res: any = await optimistic((s) => {
@@ -368,6 +381,7 @@ export const useColony = () => {
     feedSwarm,
     buyBug,
     removeBug,
+    releaseBugs,
     placeBug,
     unplaceBug,
     sellItem,

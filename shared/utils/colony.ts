@@ -780,3 +780,56 @@ export function gemFeedNutritionPerGem(nutritionMax: number): number {
 export function gemFeedCost(nutritionPoints: number, nutritionMax = NUTRITION_BASE): number {
   return Math.ceil(nutritionPoints / gemFeedNutritionPerGem(nutritionMax))
 }
+
+// ─── Releasing spare bugs ───────────────────────────────────────────────────
+
+/** A pile of identical spare bugs, as the inventory groups them. */
+export interface ColonyBugStack {
+  typeId: string
+  speed: number
+  yield: number
+  eat: number
+  quantity: number
+}
+
+export function bugStackKey(stack: Omit<ColonyBugStack, 'quantity'>): string {
+  return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.eat}`
+}
+
+/** Prestige grants were never bought, so they can't be released for a refund (see bugs/remove). */
+export function canReleaseBug(typeId: string): boolean {
+  const type = getBug(typeId)
+  return !!type && !type.prestigeOnly
+}
+
+/** Coins back for releasing `count` spare bugs of a species. */
+export function releaseRefund(typeId: string, count: number): number {
+  if (!canReleaseBug(typeId)) return 0
+  return getBug(typeId)!.spawnCost * REMOVE_REFUND_RATE * count
+}
+
+/** Higher yield first, then faster, then cheaper to feed. */
+function betterStack(a: ColonyBugStack, b: ColonyBugStack): boolean {
+  if (a.yield !== b.yield) return a.yield > b.yield
+  if (a.speed !== b.speed) return a.speed > b.speed
+  return a.eat < b.eat
+}
+
+/**
+ * How many of each stack to release so only the best stack of every species
+ * is kept, keyed by bugStackKey. Prestige species are left out entirely.
+ */
+export function releaseAllButBest(stacks: ColonyBugStack[]): Record<string, number> {
+  const best = new Map<string, ColonyBugStack>()
+  for (const stack of stacks) {
+    if (!canReleaseBug(stack.typeId)) continue
+    const cur = best.get(stack.typeId)
+    if (!cur || betterStack(stack, cur)) best.set(stack.typeId, stack)
+  }
+  const picks: Record<string, number> = {}
+  for (const stack of stacks) {
+    if (!canReleaseBug(stack.typeId) || best.get(stack.typeId) === stack) continue
+    picks[bugStackKey(stack)] = stack.quantity
+  }
+  return picks
+}

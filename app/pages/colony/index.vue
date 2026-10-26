@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { tierBg, tierColor, levelTextColor } from '#shared/utils/xeno'
-import { avgTickYield, getBug } from '#shared/utils/colony'
+import { avgTickYield, bugStackKey, getBug, releaseAllButBest, releaseRefund, REMOVE_REFUND_RATE } from '#shared/utils/colony'
 import { formatDuration, traitTextColor } from '~/lib/colony-format'
 
 const colony = useColony()
@@ -68,7 +68,7 @@ function stackYieldPerCycle(stack: any): string {
 const TOOLTIP_CONTENT_UI = 'h-auto max-w-72 p-3 flex-col items-start bg-default ring ring-default rounded-lg shadow-lg z-50'
 
 function stackKey(stack: any) {
-  return `${stack.typeId}:${stack.speed}:${stack.yield}:${stack.eat}`
+  return bugStackKey(stack)
 }
 
 /** A placed bug the server hasn't confirmed yet: it can't be moved or released until it has. */
@@ -129,6 +129,92 @@ function handlePlace(stack: any) {
 function handleUnplace(bugId: string) {
   colony.unplaceBug(bugId).catch(() => {})
 }
+
+// ─── Release mode (Inventory tab) ──────────────────────────────────────────
+// Tapping a stack picks all of it; the stepper on the card trims the count.
+// Release takes a second tap to confirm, like deleting Xeno artifacts.
+const releaseMode = ref(false)
+const releasePicks = ref<Record<string, number>>({})
+const releaseConfirm = ref(false)
+let releaseConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+const releaseCount = computed(() => Object.values(releasePicks.value).reduce((sum, n) => sum + n, 0))
+const releaseTotalRefund = computed(() => bugInventory.value.reduce((sum: number, stack: any) =>
+  sum + releaseRefund(stack.typeId, releasePicks.value[stackKey(stack)] ?? 0), 0))
+
+function resetReleaseConfirm() {
+  if (releaseConfirmTimer) clearTimeout(releaseConfirmTimer)
+  releaseConfirmTimer = null
+  releaseConfirm.value = false
+}
+function setPicks(picks: Record<string, number>) {
+  releasePicks.value = picks
+  resetReleaseConfirm()
+}
+function toggleReleaseMode() {
+  releaseMode.value = !releaseMode.value
+  setPicks({})
+}
+function pickedFor(stack: any): number {
+  return releasePicks.value[stackKey(stack)] ?? 0
+}
+function togglePick(stack: any) {
+  if (isPrestigeOnly(stack.typeId)) return
+  const { [stackKey(stack)]: current, ...rest } = releasePicks.value
+  setPicks(current ? rest : { ...rest, [stackKey(stack)]: stack.quantity })
+}
+function stepPick(stack: any, delta: number) {
+  const { [stackKey(stack)]: current = 0, ...rest } = releasePicks.value
+  const next = Math.max(0, Math.min(stack.quantity, current + delta))
+  setPicks(next ? { ...rest, [stackKey(stack)]: next } : rest)
+}
+function pickAllButBest() {
+  setPicks(releaseAllButBest(bugInventory.value as any[]))
+}
+function pickAll() {
+  setPicks(Object.fromEntries((bugInventory.value as any[])
+    .filter(stack => !isPrestigeOnly(stack.typeId))
+    .map(stack => [stackKey(stack), stack.quantity])))
+}
+
+function confirmRelease() {
+  if (!releaseCount.value) return
+  if (!releaseConfirm.value) {
+    releaseConfirm.value = true
+    releaseConfirmTimer = setTimeout(resetReleaseConfirm, 3000)
+    return
+  }
+  const stacks = (bugInventory.value as any[])
+    .filter(stack => pickedFor(stack) > 0)
+    .map(stack => ({ typeId: stack.typeId, speed: stack.speed, yield: stack.yield, eat: stack.eat, quantity: pickedFor(stack) }))
+  releaseMode.value = false
+  setPicks({})
+  colony.releaseBugs(stacks).catch(() => {})
+}
+
+/** Placing needs room in the terrarium; releasing can't take prestige grants. */
+function cardDisabled(stack: any): boolean {
+  return releaseMode.value ? isPrestigeOnly(stack.typeId) : placedCount.value >= capacity.value
+}
+function onInventoryCardClick(stack: any) {
+  if (cardDisabled(stack)) return
+  if (releaseMode.value) togglePick(stack)
+  else handlePlace(stack)
+}
+
+// Keep picks in step with the inventory: a stack that shrank or vanished
+// (placed, released elsewhere, reconciled) caps or drops its pick.
+watch(bugInventory, (inv: any[]) => {
+  if (!inv.length) releaseMode.value = false
+  const picks: Record<string, number> = {}
+  for (const stack of inv) {
+    const n = Math.min(stack.quantity, releasePicks.value[stackKey(stack)] ?? 0)
+    if (n > 0) picks[stackKey(stack)] = n
+  }
+  const keys = Object.keys(picks)
+  if (keys.length !== Object.keys(releasePicks.value).length || keys.some(k => releasePicks.value[k] !== picks[k])) setPicks(picks)
+})
+onUnmounted(resetReleaseConfirm)
 
 // ─── Nutrition / feeding ────────────────────────────────────────────────────
 // `nutrition` is only as fresh as the last server round-trip (a fetch, or
@@ -544,6 +630,52 @@ function bugYieldPerCycle(bug: any): string {
                 size="xs"
                 class="flex-1 min-w-0"
               />
+              <UTooltip :text="releaseMode ? 'Stop releasing' : 'Release spare bugs'">
+                <UButton
+                  icon="i-lucide-trash-2"
+                  size="xs"
+                  :color="releaseMode ? 'error' : 'neutral'"
+                  :variant="releaseMode ? 'solid' : 'ghost'"
+                  :aria-pressed="releaseMode"
+                  aria-label="Release spare bugs"
+                  @click="toggleReleaseMode"
+                />
+              </UTooltip>
+            </div>
+
+            <div
+              v-if="releaseMode"
+              class="px-2 py-2 border-b border-default bg-error/5 space-y-2"
+            >
+              <p class="text-xs text-muted leading-snug">
+                Tap stacks to release them for {{ Math.round(REMOVE_REFUND_RATE * 100) }}% of their spawn cost.
+              </p>
+              <div class="flex flex-wrap gap-1">
+                <UButton
+                  icon="i-lucide-crown"
+                  label="Keep best"
+                  size="xs"
+                  color="neutral"
+                  variant="soft"
+                  title="Pick every stack except the best of each species"
+                  @click="pickAllButBest"
+                />
+                <UButton
+                  label="All"
+                  size="xs"
+                  color="neutral"
+                  variant="soft"
+                  @click="pickAll"
+                />
+                <UButton
+                  label="None"
+                  size="xs"
+                  color="neutral"
+                  variant="soft"
+                  :disabled="!releaseCount"
+                  @click="setPicks({})"
+                />
+              </div>
             </div>
 
             <div
@@ -666,19 +798,62 @@ function bugYieldPerCycle(bug: any): string {
                   </div>
                 </template>
 
-                <button
-                  class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 disabled:opacity-50"
-                  :class="[tierBg(stack.tier), 'hover:ring-1 hover:ring-primary/50']"
-                  :disabled="placedCount >= capacity"
-                  @click="handlePlace(stack)"
+                <div
+                  role="button"
+                  :tabindex="cardDisabled(stack) ? -1 : 0"
+                  :aria-disabled="cardDisabled(stack)"
+                  :aria-pressed="releaseMode ? pickedFor(stack) > 0 : undefined"
+                  class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100 select-none"
+                  :class="[
+                    tierBg(stack.tier),
+                    cardDisabled(stack) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                    releaseMode && pickedFor(stack) ? 'ring-2 ring-error border-error/60'
+                    : cardDisabled(stack) ? '' : releaseMode ? 'hover:ring-1 hover:ring-error/50' : 'hover:ring-1 hover:ring-primary/50'
+                  ]"
+                  @click="onInventoryCardClick(stack)"
+                  @keydown.enter.prevent="onInventoryCardClick(stack)"
+                  @keydown.space.prevent="onInventoryCardClick(stack)"
                 >
+                  <span
+                    v-if="stack.quantity > 1 || pickedFor(stack)"
+                    class="absolute top-1 right-1 z-10 rounded-full px-1.5 text-[10px] font-black tabular-nums leading-4"
+                    :class="pickedFor(stack) ? 'bg-error text-inverted' : 'bg-black/40 text-white/80'"
+                  >{{ pickedFor(stack) ? `−${pickedFor(stack)}` : `×${stack.quantity}` }}</span>
                   <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
                     <span class="text-3xl leading-none">{{ stack.emoji }}</span>
                   </div>
                   <p class="text-xs font-bold text-center px-1 mb-1 truncate shrink-0">
                     {{ stack.name }}
                   </p>
-                  <div class="flex divide-x divide-default border-t border-default shrink-0">
+                  <div
+                    v-if="releaseMode && pickedFor(stack)"
+                    class="flex items-center border-t border-error/40 bg-error/10 shrink-0"
+                    @click.stop
+                    @keydown.stop
+                  >
+                    <button
+                      type="button"
+                      class="flex-1 flex justify-center py-1 text-error hover:bg-error/20"
+                      aria-label="Release one fewer"
+                      @click="stepPick(stack, -1)"
+                    >
+                      <UIcon name="i-lucide-minus" class="size-3" />
+                    </button>
+                    <span class="text-[10px] font-black tabular-nums text-error">{{ pickedFor(stack) }}/{{ stack.quantity }}</span>
+                    <button
+                      type="button"
+                      class="flex-1 flex justify-center py-1 text-error hover:bg-error/20 disabled:opacity-40"
+                      aria-label="Release one more"
+                      :disabled="pickedFor(stack) >= stack.quantity"
+                      @click="stepPick(stack, 1)"
+                    >
+                      <UIcon name="i-lucide-plus" class="size-3" />
+                    </button>
+                  </div>
+                  <div
+                    v-else
+                    class="flex divide-x divide-default border-t border-default shrink-0"
+                  >
                     <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
                       <UIcon
                         name="i-lucide-zap"
@@ -709,12 +884,37 @@ function bugYieldPerCycle(bug: any): string {
                       <span class="text-[10px] font-black tabular-nums text-muted">{{ stack.eat }}</span>
                     </div>
                   </div>
-                </button>
+                </div>
               </UTooltip>
             </div>
 
+            <div
+              v-if="releaseMode"
+              class="border-t border-default p-2 space-y-1.5"
+            >
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-muted">{{ releaseCount ? `${formatNumber(releaseCount, false)} selected` : 'Nothing selected' }}</span>
+                <span class="flex items-center gap-1 text-muted">
+                  Refund
+                  <CoinBalance
+                    :value="releaseTotalRefund"
+                    class="font-semibold text-default"
+                  />
+                </span>
+              </div>
+              <UButton
+                block
+                size="sm"
+                color="error"
+                icon="i-lucide-trash-2"
+                :variant="releaseConfirm ? 'solid' : 'soft'"
+                :label="releaseConfirm ? `Tap again to release ${formatNumber(releaseCount, false)}` : `Release ${formatNumber(releaseCount, false)} ${releaseCount === 1 ? 'bug' : 'bugs'}`"
+                :disabled="!releaseCount"
+                @click="confirmRelease"
+              />
+            </div>
             <p
-              v-if="bugInventory.length && placedCount >= capacity"
+              v-else-if="bugInventory.length && placedCount >= capacity"
               class="text-xs text-warning text-center px-3 py-2 border-t border-default"
             >
               Terrarium full — upgrade Capacity in the Habitat.
