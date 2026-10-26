@@ -6,7 +6,7 @@ const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
 const gems = computed(() => user.value?.gems ?? 0)
 
-const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid, upgrades, buyUpgrade, refresh, fetchSession } = useXeno()
+const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid, upgrades, buyUpgrade, fetchSession } = useXeno()
 const sound = useXenoSound()
 const fx = useXenoFx()
 
@@ -157,10 +157,10 @@ async function doSell(item: any, qty: number) {
   confirmSell.value = null
   const key = `${stackKey(item)}-${qty}`
   selling.value[key] = true
+  sound.play('coins')
+  coinsAt(lastClick, item.value * qty)
   try {
-    const res = await sellPlants(item.typeId, item.speed, item.yield, qty)
-    sound.play('coins')
-    coinsAt(lastClick, res?.total)
+    await sellPlants(item.typeId, item.speed, item.yield, qty)
   } catch { sound.play('error') } finally { delete selling.value[key] }
 }
 
@@ -169,10 +169,10 @@ async function doSellKeep(item: any) {
   if (qty <= 0) return
   const key = `keep-${stackKey(item)}`
   selling.value[key] = true
+  sound.play('coins')
+  coinsAt(lastClick, item.value * qty)
   try {
-    const res = await sellPlants(item.typeId, item.speed, item.yield, qty)
-    sound.play('coins')
-    coinsAt(lastClick, res?.total)
+    await sellPlants(item.typeId, item.speed, item.yield, qty)
   } catch { sound.play('error') } finally { delete selling.value[key] }
 }
 
@@ -180,12 +180,12 @@ async function doSellKeepAll() {
   confirmKeepSellAll.value = false
   sellingKeepAll.value = true
   try {
-    // One state refresh + one session fetch for the whole batch instead of
-    // one per stack — a 40-stack sell-all used to fire 80 follow-up requests.
+    // The stacks shrink at once and the state reconciles once every sell is
+    // back; one session fetch settles the coins for the whole batch.
     const results = await Promise.allSettled(
-      keepSellableItems.value.map((item: any) => sellPlants(item.typeId, item.speed, item.yield, keepSellQty(item), { refresh: false })),
+      keepSellableItems.value.map((item: any) => sellPlants(item.typeId, item.speed, item.yield, keepSellQty(item), { settleBalance: false })),
     )
-    await Promise.all([refresh(), fetchSession()])
+    await fetchSession()
     const total = results.reduce((s, r) => s + (r.status === 'fulfilled' ? (r.value?.total ?? 0) : 0), 0)
     const sold = results.reduce((s, r) => s + (r.status === 'fulfilled' ? (r.value?.sold ?? 0) : 0), 0)
     if (sold) {

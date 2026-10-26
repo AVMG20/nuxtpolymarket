@@ -187,8 +187,6 @@
   background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
   border-style: solid;
 }
-.xeno-plot-busy { opacity: 0.55; pointer-events: none; }
-
 /* Sprite growth: scale is driven by --growth (0.45 → 1), transitioned so
    the 500ms clock tick reads as continuous growth. */
 .xeno-plant-stage {

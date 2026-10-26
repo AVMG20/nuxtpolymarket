@@ -6,7 +6,7 @@ import {
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/lib/xeno-format'
 
 const {
-  state, refresh, breederSlots, inventory, freeArtifacts, upgrades,
+  state, reconcile, breederSlots, inventory, freeArtifacts, upgrades,
   unlockBreederSlot, startBreed, cancelBreed, collectBreed,
   attachBreederArtifact, removeBreederArtifact,
 } = useXeno()
@@ -104,15 +104,15 @@ const attachingSlot = ref<string | null>(null)
 async function handleArtifactSlotClick(slotId: string) {
   if (!selectedArtifact.value || attachingSlot.value) return
   attachingSlot.value = slotId
+  sound.play('attach')
   try {
     await attachBreederArtifact(slotId, selectedArtifact.value.id)
-    sound.play('attach')
   } catch { sound.play('error') } finally { attachingSlot.value = null }
 }
 async function doRemoveArtifact(slotId: string) {
+  sound.play('remove')
   try {
     await removeBreederArtifact(slotId)
-    sound.play('remove')
   } catch { sound.play('error') }
 }
 
@@ -184,7 +184,7 @@ watch(now, () => {
     const key = `${s.id}:${s.startedAt}`
     if (isDone(s.completesAt) && !refreshedFor.has(key)) {
       refreshedFor.add(key)
-      void refresh()
+      void reconcile()
     }
   }
 })
@@ -213,39 +213,122 @@ const unlocking = ref(false)
 
 async function doCancel(slotId: string) {
   cancelling.value.add(slotId)
+  sound.play('remove')
   try {
     await cancelBreed(slotId)
-    sound.play('remove')
   } catch { sound.play('error') } finally { cancelling.value.delete(slotId) }
 }
 
-async function doStart(slot: any) {
+async function doStart(slot: any, quiet = false) {
   const p1 = getParent(slot.id, 1)
   const p2 = getParent(slot.id, 2)
   if (!p1 || !p2 || pairBlocked(slot.id)) return
   starting.value.add(slot.id)
+  slotParents.value[slot.id] = { p1: null, p2: null }
+  if (!quiet) sound.play('breed-start')
+  const c = fx.centerOf(document.querySelector(`[data-pod="${slot.id}"]`))
+  if (c) fx.burst(c.x, c.y, { count: 10, spread: 50 })
   try {
     await startBreed(slot.id, p1.typeId, p1.speed, p1.yield, p2.typeId, p2.speed, p2.yield)
-    slotParents.value[slot.id] = { p1: null, p2: null }
-    sound.play('breed-start')
-    const c = fx.centerOf(document.querySelector(`[data-pod="${slot.id}"]`))
-    if (c) fx.burst(c.x, c.y, { count: 10, spread: 50 })
-  } catch { sound.play('error') } finally { starting.value.delete(slot.id) }
+  } catch {
+    sound.play('error')
+    slotParents.value[slot.id] = { p1, p2 }
+  } finally { starting.value.delete(slot.id) }
 }
 
-async function doCollect(slot: any) {
+async function doCollect(slot: any, quiet = false) {
   collecting.value.add(slot.id)
   const c = fx.centerOf(document.querySelector(`[data-pod="${slot.id}"]`))
   const resultTypeId = slot.resultTypeId
   const qty = slot.resultQuantity ?? 1
+  if (!quiet) sound.play('collect')
+  if (c) {
+    fx.burst(c.x, c.y, { plantId: resultTypeId, count: 14, spread: 90 })
+    fx.float(c.x, c.y - 30, qty, { plantId: resultTypeId })
+  }
   try {
     await collectBreed(slot.id)
-    sound.play('collect')
-    if (c) {
-      fx.burst(c.x, c.y, { plantId: resultTypeId, count: 14, spread: 90 })
-      fx.float(c.x, c.y - 30, qty, { plantId: resultTypeId })
-    }
   } catch { sound.play('error') } finally { collecting.value.delete(slot.id) }
+}
+
+// ── Mass actions ──────────────────────────────────────────────────────────────
+function stackKey(p: any) {
+  return `${p.typeId}:${p.speed}:${p.yield}`
+}
+/** Staged parents without creating an entry, so computeds can read it. */
+function staged(slotId: string): { p1: any; p2: any } {
+  return slotParents.value[slotId] ?? { p1: null, p2: null }
+}
+
+const idlePods = computed(() => (breederSlots.value as any[]).filter(s => podState(s) === 'idle' && !starting.value.has(s.id)))
+const readyPods = computed(() => (breederSlots.value as any[]).filter((s) => {
+  const st = podState(s)
+  return (st === 'ready' || st === 'mutation') && !collecting.value.has(s.id)
+}))
+const hasStaged = computed(() => idlePods.value.some(s => staged(s.id).p1 || staged(s.id).p2))
+
+/** Selected plants not already staged in a pod, so Fill All never stages more than are owned. */
+function unstagedQty(p: any): number {
+  const key = stackKey(p)
+  const used = idlePods.value.reduce((n, s) => {
+    const { p1, p2 } = staged(s.id)
+    return n + (p1 && stackKey(p1) === key ? 1 : 0) + (p2 && stackKey(p2) === key ? 1 : 0)
+  }, 0)
+  return stackQty(p) - used
+}
+
+const canFillAll = computed(() => {
+  if (!selectedPlant.value || unstagedQty(selectedPlant.value) < 1) return false
+  return idlePods.value.some(s => !staged(s.id).p1 || !staged(s.id).p2)
+})
+
+/** Pods whose staged pair can start, counting down each stack so a batch never asks for more plants than are owned. */
+const startablePods = computed(() => {
+  const left = new Map<string, number>()
+  return idlePods.value.filter((s) => {
+    const { p1, p2 } = staged(s.id)
+    if (!p1 || !p2) return false
+    const k1 = stackKey(p1)
+    const k2 = stackKey(p2)
+    if (!left.has(k1)) left.set(k1, stackQty(p1))
+    if (!left.has(k2)) left.set(k2, stackQty(p2))
+    if (k1 === k2 ? left.get(k1)! < 2 : left.get(k1)! < 1 || left.get(k2)! < 1) return false
+    left.set(k1, left.get(k1)! - 1)
+    left.set(k2, left.get(k2)! - 1)
+    return true
+  })
+})
+
+/** Put the selected plant in every empty parent socket of every idle pod. */
+function fillAll() {
+  const plant = selectedPlant.value
+  if (!plant || !canFillAll.value) return
+  let left = unstagedQty(plant)
+  for (const slot of idlePods.value) {
+    const parents = getSlotParents(slot.id)
+    if (!parents.p1 && left > 0) { parents.p1 = plant; left-- }
+    if (!parents.p2 && left > 0) { parents.p2 = plant; left-- }
+  }
+  sound.play('plant')
+}
+
+function clearAllStaged() {
+  for (const slot of idlePods.value) slotParents.value[slot.id] = { p1: null, p2: null }
+  sound.play('remove')
+}
+
+async function doStartAll() {
+  const pods = startablePods.value
+  if (!pods.length) return
+  sound.play('breed-start')
+  await Promise.allSettled(pods.map(s => doStart(s, true)))
+}
+
+async function doCollectAll() {
+  const pods = readyPods.value
+  if (!pods.length) return
+  sound.play(pods.some(s => s.wasMutation) ? 'mutation' : 'collect')
+  await Promise.allSettled(pods.map(s => doCollect(s, true)))
 }
 
 async function doUnlock() {
@@ -272,7 +355,50 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
             <h1 class="text-2xl font-black tracking-tight">Breeder</h1>
             <p class="text-xs text-muted mt-0.5">Splice two specimens into one. Rare pairs mutate into new species.</p>
           </div>
-          <UButton icon="i-lucide-package" label="Specimens" variant="soft" color="neutral" size="sm" class="lg:hidden" @click="mobileInventoryOpen = true" />
+          <div class="flex flex-wrap items-center gap-2">
+            <UButton
+              v-if="state"
+              icon="i-lucide-copy-plus"
+              label="Fill All"
+              variant="soft"
+              color="primary"
+              size="sm"
+              :disabled="!canFillAll"
+              title="Put the selected specimen in every empty socket"
+              @click="fillAll"
+            />
+            <UButton
+              v-if="hasStaged"
+              icon="i-lucide-eraser"
+              label="Clear"
+              variant="soft"
+              color="neutral"
+              size="sm"
+              title="Clear every staged parent"
+              @click="clearAllStaged"
+            />
+            <UButton
+              v-if="state"
+              icon="i-lucide-dna"
+              :label="startablePods.length ? `Start All (${startablePods.length})` : 'Start All'"
+              :variant="startablePods.length ? 'solid' : 'soft'"
+              color="primary"
+              size="sm"
+              :disabled="!startablePods.length"
+              @click="doStartAll"
+            />
+            <UButton
+              v-if="state"
+              icon="i-lucide-package-2"
+              :label="readyPods.length ? `Collect All (${readyPods.length})` : 'Collect All'"
+              :variant="readyPods.length ? 'solid' : 'soft'"
+              color="primary"
+              size="sm"
+              :disabled="!readyPods.length"
+              @click="doCollectAll"
+            />
+            <UButton icon="i-lucide-package" label="Specimens" variant="soft" color="neutral" size="sm" class="lg:hidden" @click="mobileInventoryOpen = true" />
+          </div>
         </div>
 
         <div v-if="!state" class="grid grid-cols-1 xl:grid-cols-2 gap-4">

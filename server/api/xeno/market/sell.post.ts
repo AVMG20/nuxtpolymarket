@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     await consumePlantsByStack(userId, body.typeId, body.speed, body.yield, qty, tx)
 
     const total = plant.value * qty
-    await credit(userId, total.toFixed(4), 'xeno', tx)
-    return { sold: qty, total }
+    const balance = await credit(userId, total.toFixed(4), 'xeno', tx)
+    return { sold: qty, total, balance }
   })
 })

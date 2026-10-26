@@ -7,7 +7,6 @@ const props = defineProps<{
   now: number
   selectedPlant: any | null
   selectedArtifact: any | null
-  busy: boolean
   unlocking: boolean
   canAffordUnlock: boolean
 }>()
@@ -100,7 +99,6 @@ const SPARKLES = [
       done ? 'xeno-plot-ready' : '',
       interactive ? 'xeno-plot-interactive' : '',
       artifactReplacing ? 'xeno-plot-replace' : artifactTargetable ? 'xeno-plot-target' : '',
-      busy ? 'xeno-plot-busy' : '',
     ]"
     :title="title"
     @click="emit('click', $event)"
@@ -172,7 +170,6 @@ const SPARKLES = [
     class="xeno-plot xeno-plot-empty aspect-square select-none flex flex-col items-center justify-center gap-1"
     :class="[
       artifactReplacing ? 'xeno-plot-replace' : (plantTargetable || artifactTargetable) ? 'xeno-plot-target xeno-plot-interactive' : '',
-      busy ? 'xeno-plot-busy' : '',
     ]"
     :title="title"
     @click="emit('click', $event)"

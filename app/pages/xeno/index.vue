@@ -4,7 +4,7 @@ import { isDone } from '~/lib/xeno-format'
 import type { HarvestDrop } from '~/components/xeno/HarvestSummary.vue'
 
 const {
-  state, pending, refresh, gridSlots, inventory, freeArtifacts,
+  state, pending, gridSlots, inventory, freeArtifacts,
   initGame, unlockGridSlot, plantInSlot, plantAllSlots, harvestSlot, removePlant,
   attachGridArtifact,
 } = useXeno()
@@ -94,12 +94,12 @@ watch(() => readySlots.value.length, (n) => {
 const autoReplant = useCookie<boolean>('xeno_auto_replant', { default: () => false })
 
 // ── Actions ──────────────────────────────────────────────────────
-const plantingSlot = ref<string | null>(null)
-const attachingSlot = ref<string | null>(null)
+// Plant, harvest, remove and attach update the grid at once (see useXeno), so
+// sounds and effects play on the click. busySlots only stops a second action
+// on a plot whose request is still out.
 const busySlots = ref(new Set<string>())
 const unlocking = ref(false)
 const initing = ref(false)
-const plantingAll = ref(false)
 const harvestingAll = ref(false)
 const mobileInventoryOpen = ref(false)
 
@@ -112,35 +112,23 @@ function tileCenter(slotId: string) {
   return fx.centerOf(document.querySelector(`[data-plot="${slotId}"]`))
 }
 
-function isBusy(cell: any): boolean {
-  const id = cell.slot?.id
-  if (!id) return false
-  return busySlots.value.has(id) || plantingSlot.value === id || attachingSlot.value === id
+async function withSlot<T>(slotId: string, run: () => Promise<T>): Promise<T> {
+  busySlots.value.add(slotId)
+  try {
+    return await run()
+  } finally {
+    busySlots.value.delete(slotId)
+  }
 }
 
-/**
- * Harvest one slot. Returns the drops and whether it was replanted. Refresh is
- * left to the caller so a full-grid harvest hits the state endpoint once.
- */
-async function harvestOne(slot: any, opts: { refresh: boolean }): Promise<{ drops: HarvestDrop[]; replanted: boolean } | null> {
+/** Harvest one slot (replanting it when auto-replant is on). Resolves with the server-rolled drops. */
+async function harvestOne(slot: any): Promise<{ drops: HarvestDrop[]; replanted: boolean }> {
   const plant = slot.plant
-  const res = await harvestSlot(slot.id, { refresh: false })
-  if (!res) return null
+  const res = await withSlot(slot.id, () => harvestSlot(slot.id, { replant: autoReplant.value }))
   const drops: HarvestDrop[] = res.drops?.length
     ? res.drops
     : [{ id: plant.typeId, name: plant.name, count: res.harvested }]
-
-  let replanted = false
-  if (autoReplant.value) {
-    // The harvest always returns at least one of the same stack (a hybrid
-    // regrows itself), so the slot can go straight back into the ground.
-    try {
-      await plantInSlot(slot.id, plant.typeId, plant.speed, plant.yield, { refresh: false })
-      replanted = true
-    } catch { /* stack was consumed elsewhere — leave the plot empty */ }
-  }
-  if (opts.refresh) await refresh()
-  return { drops, replanted }
+  return { drops, replanted: res.replanted }
 }
 
 function celebrateHarvest(slotId: string, plantId: string, drops: HarvestDrop[], at?: { x: number; y: number }) {
@@ -163,53 +151,48 @@ async function handleCellClick(cell: any, e: MouseEvent) {
     return
   }
   const { slot } = cell
-  if (!slot) return
+  if (!slot || busySlots.value.has(slot.id)) return
 
   // Harvest done plants — always takes priority
   if (slot.plant && isDone(slot.plant.completesAt)) {
-    if (busySlots.value.has(slot.id)) return
-    busySlots.value.add(slot.id)
     const plantId = slot.plant.typeId
     const at = { x: e.clientX, y: e.clientY }
+    sound.play('harvest')
+    if (autoReplant.value) setTimeout(() => sound.play('plant'), 220)
     try {
-      const res = await harvestOne(slot, { refresh: true })
-      if (res) {
-        sound.play('harvest')
-        if (res.replanted) setTimeout(() => sound.play('plant'), 220)
-        celebrateHarvest(slot.id, plantId, res.drops, at)
-      }
-    } catch { sound.play('error') } finally { busySlots.value.delete(slot.id) }
+      const res = await harvestOne(slot)
+      celebrateHarvest(slot.id, plantId, res.drops, at)
+    } catch { sound.play('error') }
     return
   }
 
   // Apply selected artifact to slot — replaces any artifact already attached
-  if (selectedArtifact.value && !attachingSlot.value) {
-    attachingSlot.value = slot.id
+  if (selectedArtifact.value) {
+    const artifactId = selectedArtifact.value.id
+    sound.play('attach')
     try {
-      await attachGridArtifact(slot.id, selectedArtifact.value.id)
-      sound.play('attach')
-    } catch { sound.play('error') } finally { attachingSlot.value = null }
+      await withSlot(slot.id, () => attachGridArtifact(slot.id, artifactId))
+    } catch { sound.play('error') }
     return
   }
 
   // Plant selected plant in empty slot
-  if (selectedPlant.value && !slot.plant && !plantingSlot.value) {
-    plantingSlot.value = slot.id
+  if (selectedPlant.value && !slot.plant) {
+    const { typeId, speed, yield: yld } = selectedPlant.value
+    sound.play('plant')
+    fx.burst(e.clientX, e.clientY + 10, { count: 6, spread: 28, color: '#a16207' })
     try {
-      await plantInSlot(slot.id, selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield)
-      sound.play('plant')
-      fx.burst(e.clientX, e.clientY + 10, { count: 6, spread: 28, color: '#a16207' })
-    } catch { sound.play('error') } finally { plantingSlot.value = null }
+      await withSlot(slot.id, () => plantInSlot(slot.id, typeId, speed, yld))
+    } catch { sound.play('error') }
   }
 }
 
 async function doRemove(slotId: string) {
   if (busySlots.value.has(slotId)) return
-  busySlots.value.add(slotId)
+  sound.play('remove')
   try {
-    await removePlant(slotId)
-    sound.play('remove')
-  } catch { sound.play('error') } finally { busySlots.value.delete(slotId) }
+    await withSlot(slotId, () => removePlant(slotId))
+  } catch { sound.play('error') }
 }
 
 async function doInit() {
@@ -221,16 +204,18 @@ async function doInit() {
 }
 
 async function doPlantAll() {
-  if (!selectedPlant.value || plantingAll.value) return
+  if (!selectedPlant.value) return
   if (!emptySlots.value.length) {
     toast.add({ title: 'No empty plots to plant', color: 'neutral' })
     return
   }
-  plantingAll.value = true
+  // Hold every empty plot until the request is back, so a quick remove can't overtake the plant.
+  const held = emptySlots.value.map(s => s.id as string).filter(id => !busySlots.value.has(id))
+  held.forEach(id => busySlots.value.add(id))
+  sound.play('plant')
   try {
     await plantAllSlots(selectedPlant.value.typeId, selectedPlant.value.speed, selectedPlant.value.yield)
-    sound.play('plant')
-  } catch { sound.play('error') } finally { plantingAll.value = false }
+  } catch { sound.play('error') } finally { held.forEach(id => busySlots.value.delete(id)) }
 }
 
 async function doHarvestAll() {
@@ -241,17 +226,20 @@ async function doHarvestAll() {
     return
   }
   harvestingAll.value = true
-  targets.forEach(s => busySlots.value.add(s.id))
-  // Capture positions before the refresh re-renders the tiles.
+  // Capture positions and plants before the optimistic update re-renders the tiles.
   const centers = new Map(targets.map(s => [s.id, tileCenter(s.id)]))
+  const plantIds = new Map(targets.map(s => [s.id, s.plant.typeId as string]))
+  targets.forEach((s, i) => {
+    const c = centers.get(s.id)
+    if (c) setTimeout(() => fx.burst(c.x, c.y, { plantId: plantIds.get(s.id), count: 8, spread: 55 }), i * 45)
+  })
   const aggregate = new Map<string, HarvestDrop>()
   let replanted = 0
   let harvested = 0
   try {
-    const results = await Promise.allSettled(targets.map(s => harvestOne(s, { refresh: false })))
-    results.forEach((r, i) => {
-      const slot = targets[i]!
-      if (r.status !== 'fulfilled' || !r.value) return
+    const results = await Promise.allSettled(targets.map(s => harvestOne(s)))
+    results.forEach((r) => {
+      if (r.status !== 'fulfilled') return
       harvested++
       if (r.value.replanted) replanted++
       for (const d of r.value.drops) {
@@ -260,11 +248,8 @@ async function doHarvestAll() {
         if (cur) cur.count += d.count
         else aggregate.set(key, { ...d })
       }
-      const c = centers.get(slot.id)
-      if (c) setTimeout(() => fx.burst(c.x, c.y, { plantId: slot.plant.typeId, count: 8, spread: 55 }), i * 45)
     })
     if (results.some(r => r.status === 'rejected')) sound.play('error')
-    await refresh()
     if (harvested) {
       const drops = [...aggregate.values()].sort((a, b) => b.count - a.count)
       const all = centers.get(targets[0]!.id)
@@ -277,15 +262,14 @@ async function doHarvestAll() {
         summaryOpen.value = true
       } else {
         sound.play('harvest')
-        targets.forEach((s) => {
+        targets.forEach((s, i) => {
           const c = centers.get(s.id)
-          const res = results[targets.indexOf(s)]
-          if (c && res?.status === 'fulfilled' && res.value) fx.floatDrops(c.x, c.y, res.value.drops)
+          const res = results[i]
+          if (c && res?.status === 'fulfilled') fx.floatDrops(c.x, c.y, res.value.drops)
         })
       }
     }
   } finally {
-    targets.forEach(s => busySlots.value.delete(s.id))
     harvestingAll.value = false
   }
 }
@@ -337,7 +321,6 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
               color="primary"
               size="sm"
               :disabled="!selectedPlant || !emptySlots.length"
-              :loading="plantingAll"
               title="Plant the selected seed in every empty plot (P)"
               @click="doPlantAll"
             />
@@ -390,7 +373,6 @@ const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.
             :now="now"
             :selected-plant="selectedPlant"
             :selected-artifact="selectedArtifact"
-            :busy="isBusy(cell)"
             :unlocking="unlocking && cell.isNextUnlock"
             :can-afford-unlock="balance >= cell.cost"
             @click="(e) => handleCellClick(cell, e)"
