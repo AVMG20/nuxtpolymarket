@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import {
-  tierLabel, tierColor, tierNameColor, levelTextColor, getPlant, getArtifact, getEffectValueFor,
-  getMutationPair, breedDuration, xenoMutationBoost,
+  getPlant, getArtifact, getEffectValueFor, breedSecs, breedDuration,
+  xenoMutationBoost, MUTATIONS, PLANT_TYPES, XENO_MAX_BREEDER_SLOTS
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/lib/xeno-format'
+import { breedOdds, formatPct, roman, tierClass, plantName } from '~/lib/xeno-ui'
+import { createReusableTemplate } from '@vueuse/core'
+import type { BreedResult } from '~/components/xeno/BreedReveal.vue'
+
+const [DefineRecipes, ReuseRecipes] = createReusableTemplate()
 
 const {
-  state, reconcile, breederSlots, inventory, freeArtifacts, upgrades,
+  state, reconcile, breederSlots, inventory, freeArtifacts, upgrades, unlockedTypeIds,
   unlockBreederSlot, startBreed, cancelBreed, collectBreed,
-  attachBreederArtifact, removeBreederArtifact,
+  attachBreederArtifact, removeBreederArtifact
 } = useXeno()
 const sound = useXenoSound()
 const fx = useXenoFx()
@@ -19,21 +24,21 @@ onMounted(() => {
   onUnmounted(() => clearInterval(t))
 })
 
-const { user } = useAuth()
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
+const { balanceNum } = useAuth()
 
-// Hybrids can't be bred — hide them from breeder parent selection.
+// Hybrids can't be bred — keep them off the Nursery shelf.
 const breedableInventory = computed(() => (inventory.value as any[]).filter(i => !i.isHybrid))
 
 const breederFreeArtifacts = computed(() =>
-  (freeArtifacts.value as any[]).filter(a => getArtifact(a.typeId)?.effects.some(e => e.type.startsWith('breeder_'))),
+  (freeArtifacts.value as any[]).filter(a => getArtifact(a.typeId)?.effects.some(e => e.type.startsWith('breeder_')))
 )
 
-// ── Selection state (sidebar-driven) ─────────────────────────────────────────
-const mobileInventoryOpen = ref(false)
-
-const selectedPlant = ref<{ typeId: string; speed: number; yield: number; name: string; emoji: string; tier: number } | null>(null)
-const selectedArtifact = ref<{ id: string; typeId: string; chargesRemaining: number } | null>(null)
+// ── Selection (shelf-driven) ────────────────────────────────────────────────
+type Held = { typeId: string, speed: number, yield: number, name: string, emoji: string, tier: number }
+const shelfOpen = ref(false)
+const shelfTab = ref<'seeds' | 'artifacts' | 'extra'>('seeds')
+const selectedPlant = ref<Held | null>(null)
+const selectedArtifact = ref<{ id: string, typeId: string, chargesRemaining: number } | null>(null)
 
 watch(inventory, (inv) => {
   if (!selectedPlant.value) return
@@ -42,24 +47,44 @@ watch(inventory, (inv) => {
 })
 watch(breederFreeArtifacts, (arts) => {
   if (!selectedArtifact.value) return
-  if (!(arts as any[]).find(a => a.id === selectedArtifact.value?.id)) {
-    const next = (arts as any[]).find(a => a.typeId === selectedArtifact.value?.typeId)
+  if (!arts.find(a => a.id === selectedArtifact.value?.id)) {
+    const next = arts.find(a => a.typeId === selectedArtifact.value?.typeId)
     selectedArtifact.value = next ? { id: next.id, typeId: next.typeId, chargesRemaining: next.chargesRemaining } : null
   }
 })
 
-function onSelectPlant(p: any) { selectedPlant.value = p; if (p) selectedArtifact.value = null; sound.play(p ? 'select' : 'deselect') }
+function onSelectPlant(p: Held | null) { selectedPlant.value = p; if (p) selectedArtifact.value = null; sound.play(p ? 'select' : 'deselect') }
 function onSelectArtifact(a: any) { selectedArtifact.value = a; if (a) selectedPlant.value = null; sound.play(a ? 'select' : 'deselect') }
+function clearSelection() {
+  if (!selectedPlant.value && !selectedArtifact.value) return
+  selectedPlant.value = null
+  selectedArtifact.value = null
+  sound.play('deselect')
+}
 
-// ── Per-pod parent staging ───────────────────────────────────────────────────
-const slotParents = ref<Record<string, { p1: any; p2: any }>>({})
+function openShelf(tab: 'seeds' | 'artifacts' | 'extra') {
+  shelfTab.value = tab
+  if (!window.matchMedia('(min-width: 1280px)').matches) shelfOpen.value = true
+}
+
+// ── Per-pod parent staging ──────────────────────────────────────────────────
+const slotParents = ref<Record<string, { p1: any, p2: any }>>({})
 
 function getSlotParents(slotId: string) {
   if (!slotParents.value[slotId]) slotParents.value[slotId] = { p1: null, p2: null }
   return slotParents.value[slotId]!
 }
+/** Staged parents without creating an entry, so computeds can read it. */
+function staged(slotId: string): { p1: any, p2: any } {
+  return slotParents.value[slotId] ?? { p1: null, p2: null }
+}
 function getParent(slotId: string, num: 1 | 2) {
-  return getSlotParents(slotId)[num === 1 ? 'p1' : 'p2']
+  return staged(slotId)[num === 1 ? 'p1' : 'p2']
+}
+/** The parent a pot shows: the running breed's, else the staged one. */
+function shownParent(slot: any, num: 1 | 2): any {
+  if (podState(slot) !== 'idle') return num === 1 ? slot.parent1 : slot.parent2
+  return getParent(slot.id, num)
 }
 function bothPicked(slotId: string) {
   return !!getParent(slotId, 1) && !!getParent(slotId, 2)
@@ -76,7 +101,6 @@ function swapParents(slotId: string) {
   sound.play('select')
 }
 
-/** Picking the same single-quantity stack for both parents can't work — the breed would need two. */
 function stackQty(p: any): number {
   if (!p) return 0
   return (inventory.value as any[]).find(i => i.typeId === p.typeId && i.speed === p.speed && i.yield === p.yield)?.quantity ?? 0
@@ -84,29 +108,38 @@ function stackQty(p: any): number {
 function sameStack(a: any, b: any) {
   return !!a && !!b && a.typeId === b.typeId && a.speed === b.speed && a.yield === b.yield
 }
+/** Picking the same single-quantity stack for both parents can't work — the breed needs two. */
 function pairBlocked(slotId: string): string | null {
   const p1 = getParent(slotId, 1)
   const p2 = getParent(slotId, 2)
   if (!p1 || !p2) return null
-  if (sameStack(p1, p2) && stackQty(p1) < 2) return 'You need two of this stack to breed it with itself'
+  if (sameStack(p1, p2) && stackQty(p1) < 2) return 'You need two of this stack to pair it with itself'
   return null
 }
 
-function handleParentSlotClick(slotId: string, num: 1 | 2) {
-  if (!selectedPlant.value) return
-  const parents = getSlotParents(slotId)
+function handlePotClick(slot: any, num: 1 | 2) {
+  if (podState(slot) !== 'idle') return
+  if (!selectedPlant.value) {
+    openShelf('seeds')
+    return
+  }
+  const parents = getSlotParents(slot.id)
   if (num === 1) parents.p1 = selectedPlant.value
   else parents.p2 = selectedPlant.value
   sound.play('plant')
 }
 
 const attachingSlot = ref<string | null>(null)
-async function handleArtifactSlotClick(slotId: string) {
-  if (!selectedArtifact.value || attachingSlot.value) return
-  attachingSlot.value = slotId
+async function handleArtifactSlotClick(slot: any) {
+  if (attachingSlot.value) return
+  if (!selectedArtifact.value) {
+    openShelf('artifacts')
+    return
+  }
+  attachingSlot.value = slot.id
   sound.play('attach')
   try {
-    await attachBreederArtifact(slotId, selectedArtifact.value.id)
+    await attachBreederArtifact(slot.id, selectedArtifact.value.id)
   } catch { sound.play('error') } finally { attachingSlot.value = null }
 }
 async function doRemoveArtifact(slotId: string) {
@@ -116,67 +149,72 @@ async function doRemoveArtifact(slotId: string) {
   } catch { sound.play('error') }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function mutationsForParents(p1: any, p2: any) {
-  if (!p1 || !p2) return []
-  return getMutationPair(p1.typeId, p2.typeId)
-}
-function baseBreedSecs(p1: any, p2: any): number {
-  const t1 = getPlant(p1.typeId)
-  const t2 = getPlant(p2.typeId)
-  if (!t1 || !t2) return 0
-  return breedDuration({ baseTime: t1.baseTime }, { baseTime: t2.baseTime })
-}
-function slotBreederSpeedBoost(slot: any): number {
+// ── Pod maths ───────────────────────────────────────────────────────────────
+function slotArtifactValue(slot: any, type: 'breeder_speed_boost' | 'breeder_mutation_boost' | 'breeder_extra_yield'): number {
   if (!slot.artifact) return 0
   const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValueFor(art, 'breeder_speed_boost', slot.artifact.gemCrafted) : 0
+  return art ? getEffectValueFor(art, type, slot.artifact.gemCrafted) : 0
 }
+const globalMutation = computed(() => xenoMutationBoost(upgrades.value.mutation))
 function slotMutationBoost(slot: any): number {
-  const globalBoost = xenoMutationBoost(upgrades.value.mutation)
-  if (!slot.artifact) return globalBoost
-  const art = getArtifact(slot.artifact.typeId)
-  return globalBoost + (art ? getEffectValueFor(art, 'breeder_mutation_boost', slot.artifact.gemCrafted) : 0)
-}
-function effectiveMutationChance(slot: any, mutation: { chance: number }): number {
-  return Math.max(0, Math.min(1, mutation.chance + slotMutationBoost(slot)))
+  return globalMutation.value + slotArtifactValue(slot, 'breeder_mutation_boost')
 }
 function slotExtraYield(slot: any): number {
-  if (!slot.artifact) return 0
-  const art = getArtifact(slot.artifact.typeId)
-  return art ? getEffectValueFor(art, 'breeder_extra_yield', slot.artifact.gemCrafted) : 0
+  return slotArtifactValue(slot, 'breeder_extra_yield')
 }
-function effectiveBreedSecs(slot: any): number {
-  return Math.round(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2)) * (1 - slotBreederSpeedBoost(slot)) * (1 - (upgrades.value.speed * 0.05)))
+/** The pair a pod is showing: the running breed's parents, or the staged ones. */
+function podPair(slot: any): [any, any] | null {
+  if (podState(slot) !== 'idle') return slot.parent1 && slot.parent2 ? [slot.parent1, slot.parent2] : null
+  const { p1, p2 } = staged(slot.id)
+  return p1 && p2 ? [p1, p2] : null
+}
+function podOdds(slot: any) {
+  const pair = podPair(slot)
+  return pair ? breedOdds(pair[0].typeId, pair[1].typeId, slotMutationBoost(slot)) : null
+}
+function podBreedSecs(slot: any): number {
+  const pair = podPair(slot)
+  if (!pair) return 0
+  return breedSecs({ typeId: pair[0].typeId }, { typeId: pair[1].typeId }, slot.artifact?.typeId, slot.artifact?.gemCrafted, upgrades.value.speed) ?? 0
+}
+function podBaseSecs(slot: any): number {
+  const pair = podPair(slot)
+  const a = pair && getPlant(pair[0].typeId)
+  const b = pair && getPlant(pair[1].typeId)
+  return a && b ? breedDuration(a, b) : 0
 }
 
-type PodState = 'idle' | 'breeding' | 'ready' | 'mutation'
+type PodState = 'idle' | 'breeding' | 'done'
 function podState(slot: any): PodState {
   void now.value
   if (!slot.startedAt || slot.collected) return 'idle'
-  if (slot.completesAt && isDone(slot.completesAt) && slot.resultTypeId) return slot.wasMutation ? 'mutation' : 'ready'
+  if (slot.completesAt && isDone(slot.completesAt) && slot.resultTypeId) return 'done'
   return 'breeding'
 }
 function podPct(slot: any): number {
   if (!slot.startedAt || !slot.completesAt) return 0
   return progressPct(slot.startedAt, slot.completesAt, now.value)
 }
-const podLabel: Record<PodState, string> = { idle: 'Dormant', breeding: 'Incubating', ready: 'Specimen ready', mutation: 'Mutation detected' }
-
-/** Locked-in parent of an active breed (typed loosely — the slot shape is the API's). */
-function parentOf(slot: any, num: 1 | 2): any {
-  return num === 1 ? slot.parent1 : slot.parent2
+function podLabel(slot: any): { text: string, color: string } {
+  const st = podState(slot)
+  if (st === 'done') return { text: 'Done', color: 'var(--xg-accent-text)' }
+  if (st === 'breeding') return { text: 'Growing', color: 'var(--xg-muted)' }
+  if (bothPicked(slot.id)) return { text: 'Ready to start', color: 'var(--xg-sun)' }
+  return { text: 'Idle', color: 'var(--xg-faint)' }
 }
-
-function socketClass(slot: any, num: 1 | 2): string {
-  if (podState(slot) !== 'idle') return 'xeno-socket-filled opacity-90'
-  if (getParent(slot.id, num)) return 'xeno-socket-filled'
-  return selectedPlant.value ? 'xeno-socket-open cursor-pointer' : 'border-dashed'
+/** What the seed bed shows: the likeliest mutation as a silhouette, else a parent seedling. */
+function bedPreview(slot: any): string | null {
+  const odds = podOdds(slot)
+  if (!odds) return null
+  return odds.mutations[0]?.offspring ?? odds.parents[0]?.typeId ?? null
+}
+function odd(n: number) {
+  return `${Math.max(0, n * 100)}%`
 }
 
 // The result is withheld by the server until the timer is really up, so the
 // slot data needs one more fetch the moment the countdown hits zero — without
-// it the pod would sit on "Ready!" with nothing to collect until a reload.
+// it the pod would sit on "Ready" with nothing to collect until a reload.
 const refreshedFor = new Set<string>()
 watch(now, () => {
   for (const s of breederSlots.value as any[]) {
@@ -189,27 +227,29 @@ watch(now, () => {
   }
 })
 
-// Fanfare the first time a finished breed is seen on screen — but not for
+// Chime the first time a finished breed is seen on screen — but not for
 // results that were already waiting when the page loaded.
 const seenResults = new Set<string>()
 let seededResults = false
 watch(() => (breederSlots.value as any[]).map(s => `${s.id}:${s.startedAt}:${podState(s)}`).join(','), () => {
   for (const s of breederSlots.value as any[]) {
-    const st = podState(s)
-    if (st !== 'ready' && st !== 'mutation') continue
+    if (podState(s) !== 'done') continue
     const key = `${s.id}:${s.startedAt}`
     if (seenResults.has(key)) continue
     seenResults.add(key)
-    if (seededResults) sound.play(st === 'mutation' ? 'mutation' : 'ready')
+    if (seededResults) sound.play(s.wasMutation ? 'mutation' : 'ready')
   }
   if (state.value) seededResults = true
 }, { immediate: true })
 
-// ── Actions ───────────────────────────────────────────────────────────────────
+// ── Actions ─────────────────────────────────────────────────────────────────
 const starting = ref(new Set<string>())
 const cancelling = ref(new Set<string>())
 const collecting = ref(new Set<string>())
 const unlocking = ref(false)
+
+const revealOpen = ref(false)
+const reveal = ref<BreedResult | null>(null)
 
 async function doCancel(slotId: string) {
   cancelling.value.add(slotId)
@@ -227,7 +267,7 @@ async function doStart(slot: any, quiet = false) {
   slotParents.value[slot.id] = { p1: null, p2: null }
   if (!quiet) sound.play('breed-start')
   const c = fx.centerOf(document.querySelector(`[data-pod="${slot.id}"]`))
-  if (c) fx.burst(c.x, c.y, { count: 10, spread: 50 })
+  if (c) fx.burst(c.x, c.y, { count: 6, spread: 40 })
   try {
     await startBreed(slot.id, p1.typeId, p1.speed, p1.yield, p2.typeId, p2.speed, p2.yield)
   } catch {
@@ -239,35 +279,42 @@ async function doStart(slot: any, quiet = false) {
 async function doCollect(slot: any, quiet = false) {
   collecting.value.add(slot.id)
   const c = fx.centerOf(document.querySelector(`[data-pod="${slot.id}"]`))
-  const resultTypeId = slot.resultTypeId
-  const qty = slot.resultQuantity ?? 1
-  if (!quiet) sound.play('collect')
+  const result: BreedResult = {
+    typeId: slot.resultTypeId,
+    quantity: slot.resultQuantity ?? 1,
+    speed: slot.resultSpeed ?? 0,
+    yield: slot.resultYield ?? 0,
+    isNew: !unlockedTypeIds.value.includes(slot.resultTypeId),
+    discovered: 0
+  }
+  const mutation = !!slot.wasMutation
+  if (!quiet) sound.play(mutation ? 'mutation' : 'collect')
   if (c) {
-    fx.burst(c.x, c.y, { plantId: resultTypeId, count: 14, spread: 90 })
-    fx.float(c.x, c.y - 30, qty, { plantId: resultTypeId })
+    fx.burst(c.x, c.y, { plantId: result.typeId, count: 8, spread: 60 })
+    fx.float(c.x, c.y - 30, result.quantity, { plantId: result.typeId })
   }
   try {
     await collectBreed(slot.id)
+    if (mutation && (!quiet || !revealOpen.value)) {
+      const known = new Set(unlockedTypeIds.value)
+      known.add(result.typeId)
+      reveal.value = { ...result, discovered: PLANT_TYPES.filter(p => known.has(p.id)).length }
+      revealOpen.value = true
+    }
   } catch { sound.play('error') } finally { collecting.value.delete(slot.id) }
 }
 
-// ── Mass actions ──────────────────────────────────────────────────────────────
+// ── Mass actions ────────────────────────────────────────────────────────────
 function stackKey(p: any) {
   return `${p.typeId}:${p.speed}:${p.yield}`
 }
-/** Staged parents without creating an entry, so computeds can read it. */
-function staged(slotId: string): { p1: any; p2: any } {
-  return slotParents.value[slotId] ?? { p1: null, p2: null }
-}
 
 const idlePods = computed(() => (breederSlots.value as any[]).filter(s => podState(s) === 'idle' && !starting.value.has(s.id)))
-const readyPods = computed(() => (breederSlots.value as any[]).filter((s) => {
-  const st = podState(s)
-  return (st === 'ready' || st === 'mutation') && !collecting.value.has(s.id)
-}))
+const readyPods = computed(() => (breederSlots.value as any[]).filter(s => podState(s) === 'done' && !collecting.value.has(s.id)))
+const breedingCount = computed(() => (breederSlots.value as any[]).filter(s => podState(s) === 'breeding').length)
 const hasStaged = computed(() => idlePods.value.some(s => staged(s.id).p1 || staged(s.id).p2))
 
-/** Selected plants not already staged in a pod, so Fill All never stages more than are owned. */
+/** Units of a stack not already staged in an idle pod, so fills never stage more than are owned. */
 function unstagedQty(p: any): number {
   const key = stackKey(p)
   const used = idlePods.value.reduce((n, s) => {
@@ -277,10 +324,47 @@ function unstagedQty(p: any): number {
   return stackQty(p) - used
 }
 
-const canFillAll = computed(() => {
-  if (!selectedPlant.value || unstagedQty(selectedPlant.value) < 1) return false
-  return idlePods.value.some(s => !staged(s.id).p1 || !staged(s.id).p2)
-})
+type Side = 1 | 2
+const sideKey = (num: Side) => (num === 1 ? 'p1' : 'p2') as 'p1' | 'p2'
+
+/**
+ * The idle pods a side fill would change. The held seed goes into that side of
+ * every idle pod (replacing what was staged there), counting down the stack,
+ * including copies already staged on the other side, so no pod is left needing
+ * more plants than are owned. Pods past the end of the stack are left alone.
+ */
+function sideFillTargets(num: Side): string[] {
+  const plant = selectedPlant.value
+  if (!plant) return []
+  const key = stackKey(plant)
+  const side = sideKey(num)
+  const other = sideKey(num === 1 ? 2 : 1)
+  const pods = idlePods.value
+  let left = stackQty(plant) - pods.filter(s => staged(s.id)[other] && stackKey(staged(s.id)[other]) === key).length
+  const targets: string[] = []
+  for (const slot of pods) {
+    if (left < 1) break
+    left--
+    const cur = staged(slot.id)[side]
+    if (!cur || stackKey(cur) !== key) targets.push(slot.id)
+  }
+  return targets
+}
+const fillLeftTargets = computed(() => sideFillTargets(1))
+const fillRightTargets = computed(() => sideFillTargets(2))
+
+function fillSide(num: Side) {
+  const plant = selectedPlant.value
+  const targets = num === 1 ? fillLeftTargets.value : fillRightTargets.value
+  if (!plant || !targets.length) return
+  for (const id of targets) getSlotParents(id)[sideKey(num)] = plant
+  sound.play('plant')
+}
+function fillSideTitle(num: Side): string {
+  const side = num === 1 ? 'left' : 'right'
+  if (!selectedPlant.value) return `Hold a seed to fill the ${side} pot of every idle pod`
+  return `Fill ${side} with ${selectedPlant.value.name}`
+}
 
 /** Pods whose staged pair can start, counting down each stack so a batch never asks for more plants than are owned. */
 const startablePods = computed(() => {
@@ -298,19 +382,6 @@ const startablePods = computed(() => {
     return true
   })
 })
-
-/** Put the selected plant in every empty parent socket of every idle pod. */
-function fillAll() {
-  const plant = selectedPlant.value
-  if (!plant || !canFillAll.value) return
-  let left = unstagedQty(plant)
-  for (const slot of idlePods.value) {
-    const parents = getSlotParents(slot.id)
-    if (!parents.p1 && left > 0) { parents.p1 = plant; left-- }
-    if (!parents.p2 && left > 0) { parents.p2 = plant; left-- }
-  }
-  sound.play('plant')
-}
 
 function clearAllStaged() {
   for (const slot of idlePods.value) slotParents.value[slot.id] = { p1: null, p2: null }
@@ -339,393 +410,445 @@ async function doUnlock() {
   } catch { sound.play('error') } finally { unlocking.value = false }
 }
 
-const selectedKey = computed(() => selectedPlant.value ? `${selectedPlant.value.typeId}:${selectedPlant.value.speed}:${selectedPlant.value.yield}` : null)
+// ── Recipe finder ───────────────────────────────────────────────────────────
+type RecipeFilter = 'have' | 'new' | 'all'
+const recipeFilter = ref<RecipeFilter>('have')
+const recipeSearch = ref('')
+const discovered = computed(() => new Set(unlockedTypeIds.value))
+
+function bestStack(typeId: string, exclude?: any): any | null {
+  return breedableInventory.value
+    .filter(i => i.typeId === typeId && unstagedQty(i) - (exclude && sameStack(i, exclude) ? 1 : 0) > 0)
+    .sort((a, b) => (b.speed + b.yield) - (a.speed + a.yield) || b.quantity - a.quantity)[0] ?? null
+}
+/** Two parents for a recipe from what's on the shelf (and not already staged). */
+function recipeParents(m: { parent1: string, parent2: string }): [any, any] | null {
+  const a = bestStack(m.parent1)
+  if (!a) return null
+  const b = bestStack(m.parent2, a)
+  return b ? [a, b] : null
+}
+
+/** Undiscovered species stay nameless everywhere in the Nursery (recipes and pod odds alike). */
+function knownName(id: string): string {
+  return discovered.value.has(id) ? plantName(id) : 'Unknown species'
+}
+
+const recipes = computed(() => {
+  const q = recipeSearch.value.trim().toLowerCase()
+  const owned = new Set(breedableInventory.value.map(i => i.typeId))
+  return MUTATIONS
+    .map((m) => {
+      const target = getPlant(m.offspring)
+      const chance = Math.max(0, Math.min(1, m.chance + globalMutation.value))
+      const secs = breedSecs({ typeId: m.parent1 }, { typeId: m.parent2 }, null, false, upgrades.value.speed) ?? 0
+      return { m, target, chance, secs, have: owned.has(m.parent1) && owned.has(m.parent2), known: discovered.value.has(m.offspring) }
+    })
+    .filter(r => r.target)
+    .filter(r => recipeFilter.value === 'all' || (recipeFilter.value === 'have' ? r.have : !r.known))
+    .filter(r => !q || [r.m.offspring, r.m.parent1, r.m.parent2].some(id => discovered.value.has(id) && plantName(id).toLowerCase().includes(q)))
+    .sort((a, b) => Number(b.have) - Number(a.have) || b.target!.tier - a.target!.tier || b.chance - a.chance)
+})
+
+function fillWithRecipe(m: { parent1: string, parent2: string }, everyIdle: boolean) {
+  let filled = 0
+  for (const slot of idlePods.value) {
+    const p = staged(slot.id)
+    if (p.p1 || p.p2) continue
+    const pair = recipeParents(m)
+    if (!pair) break
+    slotParents.value[slot.id] = { p1: pair[0], p2: pair[1] }
+    filled++
+    if (!everyIdle) break
+  }
+  sound.play(filled ? 'plant' : 'error')
+  if (filled) shelfOpen.value = false
+}
+const emptyIdleCount = computed(() => idlePods.value.filter(s => !staged(s.id).p1 && !staged(s.id).p2).length)
+
+// ── Keyboard ────────────────────────────────────────────────────────────────
+function onKey(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null
+  if (e.metaKey || e.ctrlKey || e.altKey) return
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+  if (shelfOpen.value || revealOpen.value) return
+  if (e.key === 'Escape') clearSelection()
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  onUnmounted(() => window.removeEventListener('keydown', onKey))
+})
+
+const selectedKey = computed(() => selectedPlant.value ? stackKey(selectedPlant.value) : null)
+const unlockedPods = computed(() => state.value?.breeder?.unlockedCount ?? 0)
+const maxPods = computed(() => state.value?.breeder?.maxSlots ?? XENO_MAX_BREEDER_SLOTS)
 </script>
 
 <template>
-  <div class="flex h-full min-h-0">
+  <DefineRecipes>
+            <div class="flex flex-col gap-3 min-h-0 flex-1">
+              <UInput v-model="recipeSearch" placeholder="Target or parent" icon="i-lucide-search" size="lg" :ui="{ base: 'rounded-full' }" aria-label="Search recipes" />
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" class="xg-filter" :class="recipeFilter === 'have' ? 'on' : ''" @click="recipeFilter = 'have'">I have both parents</button>
+                <button type="button" class="xg-filter" :class="recipeFilter === 'new' ? 'on' : ''" @click="recipeFilter = 'new'">Undiscovered</button>
+                <button type="button" class="xg-filter" :class="recipeFilter === 'all' ? 'on' : ''" @click="recipeFilter = 'all'">All</button>
+              </div>
+              <p class="text-xs text-(--xg-muted)">Odds include your Genetic Instability upgrade, not a pod artifact. Time is before pod artifacts.</p>
+              <div class="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 flex flex-col gap-0.5">
+                <p v-if="!recipes.length" class="xg-well text-center text-sm text-(--xg-muted) py-8 px-3">
+                  {{ recipeFilter === 'have' ? 'No recipe uses two species you have on the shelf.' : 'No recipes match.' }}
+                </p>
+                <div v-for="r in recipes" :key="`${r.m.parent1}-${r.m.parent2}-${r.m.offspring}`" class="xg-item hoverable !gap-2.5">
+                  <span class="xg-thumb size-11"><XenoPlantIcon :id="r.m.offspring" :size="36" stage="ready" :silhouette="!r.known" /></span>
+                  <span class="flex-1 min-w-0">
+                    <span class="flex items-center gap-1.5">
+                      <b class="text-[13px] truncate" :class="r.known ? '' : 'text-(--xg-uv)'">{{ knownName(r.m.offspring) }}</b>
+                      <XenoTierLabel :tier="r.target!.tier" :is-void="!!r.target!.voidPlant" />
+                    </span>
+                    <span class="block text-[11.5px] text-(--xg-faint) truncate">{{ knownName(r.m.parent1) }} + {{ knownName(r.m.parent2) }}</span>
+                  </span>
+                  <span class="text-right shrink-0">
+                    <b class="xg-num text-[13px] block" :class="r.chance > 0 ? 'text-(--xg-uv)' : 'text-(--xg-rose)'">
+                      {{ r.chance > 0 ? formatPct(r.chance) : `+${formatPct(-(r.m.chance + globalMutation))}` }}
+                    </b>
+                    <span class="text-[11px] text-(--xg-faint) xg-num">{{ formatDuration(r.secs) }}</span>
+                  </span>
+                  <span v-if="r.have" class="flex flex-col gap-1 shrink-0">
+                    <XenoButton size="xs" label="Fill" :disabled="!emptyIdleCount || !recipeParents(r.m)" :title="`Put ${plantName(r.m.parent1)} and ${plantName(r.m.parent2)} in an idle pod`" @click="fillWithRecipe(r.m, false)" />
+                    <XenoButton v-if="emptyIdleCount > 1" size="xs" variant="ghost" label="All" :disabled="!recipeParents(r.m)" title="Fill every idle pod with this recipe" @click="fillWithRecipe(r.m, true)" />
+                  </span>
+                </div>
+              </div>
+            </div>
+  </DefineRecipes>
 
-    <!-- ── Main content ──────────────────────────────────────────────── -->
-    <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-      <div class="flex-1 overflow-y-auto p-4 md:p-6">
-
-        <!-- Header -->
-        <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
-          <div>
-            <h1 class="text-2xl font-black tracking-tight">Breeder</h1>
-            <p class="text-xs text-muted mt-0.5">Splice two specimens into one. Rare pairs mutate into new species.</p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <UButton
-              v-if="state"
-              icon="i-lucide-copy-plus"
-              label="Fill All"
-              variant="soft"
-              color="primary"
+  <div class="mx-auto max-w-[1440px] px-4 md:px-6 pt-5 md:pt-6 flex flex-col gap-4">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="xg-label">Nursery · {{ unlockedPods }} of {{ maxPods }} pods</p>
+        <h1 class="xg-h text-2xl md:text-3xl mt-1">Nursery</h1>
+        <p v-if="state" class="xg-stats mt-1.5">
+          <b class="!text-(--xg-accent-text)">{{ readyPods.length }}</b> done ·
+          <b>{{ breedingCount }}</b> growing ·
+          <b>{{ idlePods.length }}</b> idle
+        </p>
+      </div>
+      <div v-if="state" class="flex flex-wrap items-center gap-2">
+        <XenoButton size="sm" icon="i-lucide-panel-right-open" label="Shelf" class="xl:!hidden" @click="shelfOpen = true" />
+        <div class="xg-split" role="group" aria-label="Fill a side of every idle pod">
+          <UTooltip v-for="num in ([1, 2] as const)" :key="num" :text="fillSideTitle(num)" :delay-duration="250">
+            <XenoButton
               size="sm"
-              :disabled="!canFillAll"
-              title="Put the selected specimen in every empty socket"
-              @click="fillAll"
-            />
-            <UButton
-              v-if="hasStaged"
-              icon="i-lucide-eraser"
-              label="Clear"
-              variant="soft"
-              color="neutral"
-              size="sm"
-              title="Clear every staged parent"
-              @click="clearAllStaged"
-            />
-            <UButton
-              v-if="state"
-              icon="i-lucide-dna"
-              :label="startablePods.length ? `Start All (${startablePods.length})` : 'Start All'"
-              :variant="startablePods.length ? 'solid' : 'soft'"
-              color="primary"
-              size="sm"
-              :disabled="!startablePods.length"
-              @click="doStartAll"
-            />
-            <UButton
-              v-if="state"
-              icon="i-lucide-package-2"
-              :label="readyPods.length ? `Collect All (${readyPods.length})` : 'Collect All'"
-              :variant="readyPods.length ? 'solid' : 'soft'"
-              color="primary"
-              size="sm"
-              :disabled="!readyPods.length"
-              @click="doCollectAll"
-            />
-            <UButton icon="i-lucide-package" label="Specimens" variant="soft" color="neutral" size="sm" class="lg:hidden" @click="mobileInventoryOpen = true" />
-          </div>
+              :icon="num === 1 ? 'i-lucide-panel-left' : 'i-lucide-panel-right'"
+              class="max-sm:!px-2.5"
+              :disabled="!(num === 1 ? fillLeftTargets : fillRightTargets).length"
+              :aria-label="fillSideTitle(num)"
+              @click="fillSide(num)"
+            >
+              <span class="max-sm:sr-only">Fill {{ num === 1 ? 'left' : 'right' }}</span>
+            </XenoButton>
+          </UTooltip>
         </div>
+        <XenoButton size="sm" icon="i-lucide-eraser" class="max-sm:!px-2.5" :disabled="!hasStaged" title="Clear idle" aria-label="Clear idle" @click="clearAllStaged">
+          <span class="max-sm:sr-only">Clear idle</span>
+        </XenoButton>
+        <XenoButton
+          size="sm"
+          icon="i-lucide-play"
+          :variant="startablePods.length ? 'go' : 'default'"
+          :disabled="!startablePods.length"
+          :label="`Start ${startablePods.length}`"
+          @click="doStartAll"
+        />
+        <XenoButton
+          size="sm"
+          icon="i-lucide-arrow-down-to-line"
+          :variant="readyPods.length ? 'go' : 'default'"
+          :disabled="!readyPods.length"
+          :waiting="readyPods.length > 0"
+          :label="`Collect ${readyPods.length}`"
+          @click="doCollectAll"
+        />
+      </div>
+    </div>
 
-        <div v-if="!state" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <USkeleton v-for="i in 2" :key="i" class="h-[30rem] rounded-2xl" />
-        </div>
+    <div class="flex gap-6 items-start">
+      <section class="flex-1 min-w-0 grid gap-4 grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))]" aria-label="Pods">
+        <template v-if="!state">
+          <USkeleton v-for="i in 2" :key="i" class="h-[22rem] rounded-[20px_20px_20px_6px]" />
+        </template>
 
-        <div v-else class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-          <!-- ═══════════ Pods ═══════════ -->
-          <div
+        <template v-else>
+          <article
             v-for="(slot, idx) in breederSlots"
             :key="slot.id"
-            class="xeno-pod-card flex flex-col min-h-[30rem]"
-            :data-state="podState(slot)"
+            class="xg-pane p-4 flex flex-col gap-3.5 @container"
+            :class="podState(slot) === 'done' ? 'is-go' : ''"
           >
-            <XenoConfetti v-if="podState(slot) === 'mutation'" />
-
-            <!-- Pod header -->
-            <div class="flex items-center justify-between h-10 px-4 shrink-0 border-b border-default/50 relative z-10">
-              <div class="flex items-center gap-2">
-                <span class="xeno-eyebrow">Pod {{ String(idx + 1).padStart(2, '0') }}</span>
-                <span class="h-3 w-px bg-default/60" />
-                <span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
-                  :class="podState(slot) === 'mutation' ? 'text-secondary' : podState(slot) === 'idle' ? 'text-muted' : 'text-primary'">
-                  <span v-if="podState(slot) === 'breeding'" class="relative flex size-2">
-                    <span class="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
-                    <span class="relative inline-flex size-2 rounded-full bg-primary" />
-                  </span>
-                  <UIcon v-else-if="podState(slot) === 'mutation'" name="i-lucide-sparkles" class="size-3.5 animate-bounce" />
-                  {{ podLabel[podState(slot)] }}
-                </span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span v-if="slotBreederSpeedBoost(slot) > 0" class="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded leading-none">⚡ −{{ Math.round(slotBreederSpeedBoost(slot) * 100) }}%</span>
-                <span v-if="slotExtraYield(slot) > 0" class="text-[10px] font-bold text-info bg-info/10 px-1.5 py-0.5 rounded leading-none">+{{ slotExtraYield(slot) }} litter</span>
-              </div>
+            <!-- Header -->
+            <div class="flex items-center gap-2.5 min-h-8">
+              <b class="xg-h text-[15px]">Pod {{ idx + 1 }}</b>
+              <span class="xg-label !tracking-[.1em]" :style="{ color: podLabel(slot).color }">{{ podLabel(slot).text }}</span>
+              <span class="flex-1" />
+              <span v-if="slot.artifact" class="inline-flex items-center gap-2 text-xs text-(--xg-muted) min-w-0">
+                <XenoArtifactGlyph :type-id="slot.artifact.typeId" :gem-crafted="slot.artifact.gemCrafted" :size="28" :show-level="false" />
+                <span class="truncate"><b class="text-(--xg-ink)">{{ getArtifact(slot.artifact.typeId)?.name }}</b> · {{ slot.artifact.chargesRemaining }} left</span>
+                <button
+                  v-if="podState(slot) === 'idle'"
+                  type="button"
+                  class="xg-btn ghost xs ico !min-h-7"
+                  :aria-label="`Take ${getArtifact(slot.artifact.typeId)?.name} off Pod ${idx + 1}`"
+                  title="Back to the shelf"
+                  @click="doRemoveArtifact(slot.id)"
+                >
+                  <UIcon name="i-lucide-x" class="size-3.5" />
+                </button>
+              </span>
+              <XenoButton
+                v-else-if="podState(slot) === 'idle'"
+                size="xs"
+                :variant="selectedArtifact ? 'go' : 'default'"
+                icon="i-lucide-plus"
+                :loading="attachingSlot === slot.id"
+                :label="selectedArtifact ? 'Fit artifact' : 'Artifact'"
+                @click="handleArtifactSlotClick(slot)"
+              />
             </div>
 
-            <!-- ════════ Pod stage ════════ -->
-            <div class="relative z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 pt-4">
-              <!-- Parent sockets (pod sits between them via CSS order) -->
-              <div
-                v-for="num in [1, 2] as const"
-                :key="num"
-                class="xeno-socket flex flex-col items-center justify-center gap-1 text-center min-h-[6.5rem] px-1 py-2"
-                :class="[num === 2 ? 'order-3' : 'order-1', socketClass(slot, num)]"
-                @click="podState(slot) === 'idle' && handleParentSlotClick(slot.id, num)"
-              >
-                <!-- Active breed: locked-in parent -->
-                <template v-if="podState(slot) !== 'idle'">
-                  <XenoPlantIcon v-if="parentOf(slot, num)" :id="parentOf(slot, num).typeId" :size="40" class="opacity-90" />
-                  <p class="text-[11px] font-bold leading-tight truncate max-w-full px-1">{{ parentOf(slot, num) ? getPlant(parentOf(slot, num).typeId)?.name : '?' }}</p>
-                  <div v-if="parentOf(slot, num)" class="flex items-center gap-1">
-                    <XenoLevelBadge prefix="S" :level="parentOf(slot, num).speed" />
-                    <XenoLevelBadge prefix="Y" :level="parentOf(slot, num).yield" />
+            <!-- Parent pot · seed bed · parent pot -->
+            <div class="grid grid-cols-[1fr_auto_1fr] items-start gap-3" :data-pod="slot.id">
+              <template v-for="num in ([1, 2] as const)" :key="num">
+                <div class="flex flex-col items-center gap-1.5 min-w-0" :class="num === 2 ? 'order-3' : 'order-1'">
+                  <!-- Running breed: locked-in parent -->
+                  <div v-if="podState(slot) !== 'idle'" class="xg-pot size-[clamp(60px,24cqi,92px)]">
+                    <XenoPlantIcon v-if="shownParent(slot, num)" :id="shownParent(slot, num).typeId" size="80%" stage="ready" />
                   </div>
-                </template>
-                <!-- Setup: staged parent -->
-                <template v-else-if="getParent(slot.id, num)">
-                  <button
-                    class="absolute top-1 right-1 size-5 flex items-center justify-center rounded-md bg-black/30 hover:bg-error z-10 text-white/60 hover:text-white transition-colors"
-                    @click.stop="clearParent(slot.id, num)"
-                  >
-                    <UIcon name="i-lucide-x" class="size-3" />
-                  </button>
-                  <XenoPlantIcon :id="getParent(slot.id, num).typeId" :size="44" class="xeno-pop-in" />
-                  <p class="text-xs font-bold leading-tight truncate max-w-full px-1" :class="tierNameColor(getParent(slot.id, num).tier)">{{ getParent(slot.id, num).name }}</p>
-                  <div class="flex items-center gap-1">
-                    <XenoLevelBadge prefix="S" :level="getParent(slot.id, num).speed" />
-                    <XenoLevelBadge prefix="Y" :level="getParent(slot.id, num).yield" />
-                  </div>
-                </template>
-                <template v-else>
-                  <UIcon name="i-lucide-circle-plus" class="size-6" :class="selectedPlant ? 'text-primary' : 'text-muted/40'" />
-                  <p class="text-[11px] font-semibold" :class="selectedPlant ? 'text-primary' : 'text-muted/50'">
-                    {{ selectedPlant ? 'Insert here' : `Specimen ${num}` }}
-                  </p>
-                </template>
-              </div>
-
-              <!-- Pod -->
-              <div class="order-2 relative w-32 sm:w-36" :data-pod="slot.id">
-                <!-- tubes -->
-                <div class="absolute top-1/2 -left-3 w-3 h-1 bg-gradient-to-r from-transparent to-primary/40 rounded" />
-                <div class="absolute top-1/2 -right-3 w-3 h-1 bg-gradient-to-l from-transparent to-primary/40 rounded" />
-                <XenoIncubatorPod :pct="podPct(slot)" :state="podState(slot)" class="h-48 sm:h-52 w-full">
-                  <!-- Ready -->
-                  <div v-if="podState(slot) === 'ready' || podState(slot) === 'mutation'" class="xeno-reveal flex flex-col items-center -mt-2">
-                    <XenoPlantIcon :id="slot.resultTypeId" :size="64" class="xeno-ready-bounce drop-shadow-lg" />
-                  </div>
-                  <!-- Breeding -->
-                  <div v-else-if="podState(slot) === 'breeding'" class="flex flex-col items-center gap-1 -mt-3">
-                    <XenoDnaHelix :width="96" :height="40" />
-                    <p class="text-lg font-black tabular-nums leading-none drop-shadow">{{ slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</p>
-                  </div>
-                  <!-- Setup: preview -->
-                  <div v-else class="flex flex-col items-center -mt-2">
-                    <template v-if="bothPicked(slot.id) && mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2)).length">
-                      <div class="relative">
-                        <XenoPlantIcon :id="mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2))[0]!.offspring" :size="52" class="opacity-50 xeno-sway" />
-                        <span class="absolute -bottom-1 -right-1 size-5 rounded-full bg-background border border-primary/50 text-primary text-xs font-black flex items-center justify-center">?</span>
-                      </div>
-                    </template>
-                    <template v-else-if="bothPicked(slot.id)">
-                      <XenoDnaHelix :width="80" :height="36" class="opacity-50" />
-                    </template>
-                    <template v-else>
-                      <span class="text-3xl opacity-25 select-none">🧬</span>
-                    </template>
-                  </div>
-                </XenoIncubatorPod>
-              </div>
-            </div>
-
-            <!-- ════════ Lower panel ════════ -->
-            <div class="relative z-10 flex-1 flex flex-col gap-3 p-4 min-h-0">
-
-              <!-- Result -->
-              <template v-if="podState(slot) === 'ready' || podState(slot) === 'mutation'">
-                <div class="xeno-reveal text-center">
-                  <p v-if="podState(slot) === 'mutation'" class="xeno-eyebrow text-secondary">✨ New species discovered ✨</p>
-                  <p class="text-xl font-black tracking-tight mt-1" :class="tierNameColor(getPlant(slot.resultTypeId ?? '')?.tier ?? 1)">
-                    {{ getPlant(slot.resultTypeId ?? '')?.name }}<span class="text-sm font-bold ml-1 opacity-70">×{{ slot.resultQuantity }}</span>
-                  </p>
-                  <span class="text-xs font-bold" :class="tierColor(getPlant(slot.resultTypeId ?? '')?.tier ?? 1)">{{ tierLabel(getPlant(slot.resultTypeId ?? '')?.tier ?? 1) }}</span>
-                  <div class="flex items-stretch justify-center gap-3 mt-3">
-                    <div class="flex flex-col items-center rounded-xl bg-background/50 border border-default/50 px-5 py-2">
-                      <p class="text-[9px] font-bold uppercase tracking-widest text-muted">Speed</p>
-                      <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultSpeed ?? 0)">{{ slot.resultSpeed }}</p>
-                    </div>
-                    <div class="flex flex-col items-center rounded-xl bg-background/50 border border-default/50 px-5 py-2">
-                      <p class="text-[9px] font-bold uppercase tracking-widest text-muted">Yield</p>
-                      <p class="text-2xl font-black leading-none" :class="levelTextColor(slot.resultYield ?? 0)">{{ slot.resultYield }}</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="mt-auto">
-                  <UButton
-                    :label="podState(slot) === 'mutation' ? 'Collect mutation' : 'Collect specimen'"
-                    :icon="podState(slot) === 'mutation' ? 'i-lucide-sparkles' : 'i-lucide-package-check'"
-                    block size="lg" color="primary"
-                    class="xeno-cta-pulse"
-                    :loading="collecting.has(slot.id)"
-                    @click="doCollect(slot)"
-                  />
-                </div>
-              </template>
-
-              <!-- Breeding -->
-              <template v-else-if="podState(slot) === 'breeding'">
-                <div class="flex-1 flex flex-col justify-center gap-2">
-                  <div v-if="mutationsForParents(slot.parent1, slot.parent2).length" class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                    <span>Possible mutation:</span>
-                    <span v-for="m in mutationsForParents(slot.parent1, slot.parent2)" :key="m.offspring" class="inline-flex items-center gap-1 rounded-md border border-default/60 bg-background/40 px-1.5 py-0.5">
-                      <XenoPlantIcon :id="m.offspring" :size="14" />
-                      <span class="font-semibold text-default">{{ getPlant(m.offspring)?.name }}</span>
-                      <span :class="effectiveMutationChance(slot, m) > 0 ? 'text-primary font-bold' : 'text-error'">{{ Math.round(effectiveMutationChance(slot, m) * 100) }}%</span>
-                    </span>
-                  </div>
-                </div>
-                <UButton label="Abort & return parents" block variant="soft" color="neutral" icon="i-lucide-x" :loading="cancelling.has(slot.id)" @click="doCancel(slot.id)" />
-              </template>
-
-              <!-- Setup -->
-              <template v-else>
-                <div v-if="bothPicked(slot.id)" class="xeno-stagger space-y-2">
-                  <!-- Swap -->
-                  <div class="flex justify-center -mt-2">
-                    <button class="text-[10px] font-semibold text-muted hover:text-primary flex items-center gap-1 transition-colors" @click="swapParents(slot.id)">
-                      <UIcon name="i-lucide-arrow-left-right" class="size-3" /> swap
+                  <!-- Staged parent -->
+                  <div v-else-if="getParent(slot.id, num)" class="relative">
+                    <button
+                      type="button"
+                      class="xg-pot size-[clamp(60px,24cqi,92px)]"
+                      :aria-label="`Replace parent ${num} of Pod ${idx + 1}`"
+                      @click="handlePotClick(slot, num)"
+                    >
+                      <XenoPlantIcon :id="getParent(slot.id, num).typeId" size="80%" stage="ready" />
                     </button>
-                  </div>
-
-                  <!-- Mutations -->
-                  <div
-                    v-for="mutation in mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2))"
-                    :key="mutation.offspring"
-                    class="relative rounded-xl border overflow-hidden px-3 py-2.5"
-                    :class="effectiveMutationChance(slot, mutation) > 0
-                      ? 'border-primary/40 bg-gradient-to-br from-primary/12 to-primary/[0.02]'
-                      : 'border-error/40 bg-error/[0.06]'"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="flex items-center gap-3 min-w-0">
-                        <XenoPlantIcon :id="mutation.offspring" :size="40" class="shrink-0 drop-shadow" />
-                        <div class="min-w-0">
-                          <div class="flex items-center gap-1.5">
-                            <p class="font-black text-sm truncate" :class="tierNameColor(getPlant(mutation.offspring)?.tier ?? 1)">{{ getPlant(mutation.offspring)?.name }}</p>
-                            <span class="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary text-inverted leading-none shrink-0">Mutation</span>
-                          </div>
-                          <p class="text-[11px] font-bold" :class="tierColor(getPlant(mutation.offspring)?.tier ?? 1)">{{ tierLabel(getPlant(mutation.offspring)?.tier ?? 1) }}</p>
-                        </div>
-                      </div>
-                      <div class="text-center shrink-0 rounded-lg border px-2.5 py-1" :class="effectiveMutationChance(slot, mutation) > 0 ? 'bg-primary/15 border-primary/30' : 'bg-error/10 border-error/30'">
-                        <div class="flex items-baseline gap-1 justify-center">
-                          <span v-if="slotMutationBoost(slot) > 0 && effectiveMutationChance(slot, mutation) > 0" class="text-[10px] font-bold text-muted/60 line-through tabular-nums">{{ Math.round(mutation.chance * 100) }}%</span>
-                          <span class="text-lg font-black tabular-nums leading-none" :class="effectiveMutationChance(slot, mutation) > 0 ? 'text-primary' : 'text-error'">{{ Math.round(effectiveMutationChance(slot, mutation) * 100) }}%</span>
-                        </div>
-                        <p class="text-[9px] font-bold uppercase tracking-wider" :class="effectiveMutationChance(slot, mutation) > 0 ? 'text-primary/70' : 'text-error/80'">{{ effectiveMutationChance(slot, mutation) > 0 ? 'chance' : 'needs artifact' }}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div v-if="mutationsForParents(getParent(slot.id, 1), getParent(slot.id, 2)).length === 0" class="rounded-xl border border-default/60 bg-background/40 px-3 py-2.5 flex items-center gap-3">
-                    <div class="size-10 rounded-lg bg-background border border-default/60 flex items-center justify-center shrink-0">
-                      <UIcon name="i-lucide-shuffle" class="size-5 text-muted/60" />
-                    </div>
-                    <div class="min-w-0">
-                      <p class="text-sm font-bold">Standard cross</p>
-                      <p class="text-[11px] text-muted">Offspring inherits type, speed and yield 50/50 from each parent</p>
-                    </div>
-                  </div>
-
-                  <!-- Breed time + litter -->
-                  <div class="flex items-center justify-between rounded-xl border border-default/60 bg-background/40 px-3 py-2 text-xs">
-                    <span class="flex items-center gap-1.5 text-muted"><UIcon name="i-lucide-clock" class="size-3.5" /> Incubation</span>
-                    <div class="flex items-baseline gap-1.5">
-                      <span class="font-black tabular-nums">{{ formatDuration(effectiveBreedSecs(slot)) }}</span>
-                      <span v-if="effectiveBreedSecs(slot) < baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2))" class="text-[10px] text-muted/50 line-through tabular-nums">{{ formatDuration(baseBreedSecs(getParent(slot.id, 1), getParent(slot.id, 2))) }}</span>
-                    </div>
-                    <span class="h-3 w-px bg-default/60" />
-                    <span class="flex items-center gap-1.5 text-muted"><UIcon name="i-lucide-egg" class="size-3.5" /> Litter</span>
-                    <span class="font-black tabular-nums" :class="slotExtraYield(slot) ? 'text-info' : ''">×{{ 1 + slotExtraYield(slot) }}</span>
-                  </div>
-                  <p v-if="pairBlocked(slot.id)" class="text-[11px] text-error font-semibold text-center">{{ pairBlocked(slot.id) }}</p>
-                </div>
-                <p v-else class="text-center text-xs text-muted py-2">
-                  {{ selectedPlant ? 'Click a socket to insert the selected specimen' : 'Pick a specimen from the panel to load this pod' }}
-                </p>
-
-                <!-- Artifact socket -->
-                <div class="mt-auto">
-                  <div v-if="slot.artifact" class="flex items-center gap-2 h-11 rounded-xl border border-primary/30 bg-primary/5 px-3">
-                    <span class="xeno-orb size-7 text-sm shrink-0" :class="slot.artifact.gemCrafted ? 'xeno-orb-gem' : ''">{{ getArtifact(slot.artifact.typeId)?.emoji }}</span>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-xs font-semibold truncate">{{ getArtifact(slot.artifact.typeId)?.name }}</p>
-                      <p class="text-[10px] text-muted leading-none mt-0.5">{{ slot.artifact.chargesRemaining }} charges left</p>
-                    </div>
-                    <button class="size-6 flex items-center justify-center rounded-md text-muted hover:text-error hover:bg-error/10 shrink-0 transition-colors" title="Detach" @click="doRemoveArtifact(slot.id)">
+                    <button
+                      type="button"
+                      class="xg-plot-x !opacity-100 !-top-1.5 !-right-1.5"
+                      :aria-label="`Take parent ${num} out of Pod ${idx + 1}`"
+                      @click="clearParent(slot.id, num)"
+                    >
                       <UIcon name="i-lucide-x" class="size-3.5" />
                     </button>
                   </div>
-                  <div
+                  <!-- Empty pot -->
+                  <button
                     v-else
-                    class="flex items-center gap-2 h-11 rounded-xl border border-dashed px-3 transition-colors"
-                    :class="selectedArtifact ? 'border-primary/60 bg-primary/5 hover:bg-primary/10 cursor-pointer xeno-target' : 'border-default/40'"
-                    :style="attachingSlot === slot.id ? 'opacity: 0.5; pointer-events: none' : ''"
-                    @click="handleArtifactSlotClick(slot.id)"
+                    type="button"
+                    class="xg-pot size-[clamp(60px,24cqi,92px)]"
+                    :class="selectedPlant ? 'target' : 'empty'"
+                    :aria-label="selectedPlant ? `Put ${selectedPlant.name} in Pod ${idx + 1}` : `Choose parent ${num} for Pod ${idx + 1}`"
+                    @click="handlePotClick(slot, num)"
                   >
-                    <UIcon name="i-lucide-flask-conical" class="size-4 shrink-0" :class="selectedArtifact ? 'text-primary' : 'text-muted/40'" />
-                    <span class="text-xs" :class="selectedArtifact ? 'text-primary/80 font-medium' : 'text-muted/50'">
-                      {{ selectedArtifact ? 'Install artifact in this pod' : 'Artifact bay (optional)' }}
-                    </span>
-                  </div>
-                </div>
+                    <UIcon name="i-lucide-plus" class="size-5" :class="selectedPlant ? 'text-(--xg-accent-text)' : 'text-(--xg-faint)'" />
+                  </button>
 
-                <UButton
-                  label="Start incubation"
-                  icon="i-lucide-dna"
-                  block size="lg"
-                  :class="bothPicked(slot.id) && !pairBlocked(slot.id) ? 'xeno-cta-pulse' : ''"
-                  :disabled="!bothPicked(slot.id) || !!pairBlocked(slot.id)"
+                  <template v-if="shownParent(slot, num)">
+                    <span class="text-[12.5px] font-bold text-center leading-tight max-w-full truncate">
+                      {{ plantName(shownParent(slot, num).typeId) }}
+                    </span>
+                    <span class="flex items-center gap-1">
+                      <XenoTierLabel :tier="getPlant(shownParent(slot, num).typeId)?.tier ?? 1" />
+                      <span class="xg-stats">S<b>{{ shownParent(slot, num).speed ?? 0 }}</b> Y<b>{{ shownParent(slot, num).yield ?? 0 }}</b></span>
+                    </span>
+                  </template>
+                  <span v-else class="text-[12px] font-bold text-(--xg-faint)">{{ selectedPlant ? 'Put here' : `Parent ${num}` }}</span>
+                </div>
+              </template>
+
+              <!-- Seed bed -->
+              <div class="order-2 flex flex-col items-center">
+                <div
+                  class="xg-bed size-[clamp(88px,33cqi,140px)]"
+                  :class="podState(slot) === 'done' ? 'done' : ''"
+                  :style="{ '--p': podState(slot) === 'done' ? 100 : podPct(slot), '--rc': 'var(--xg-uv)' }"
+                >
+                  <span v-if="podState(slot) === 'breeding'" class="xg-ring" />
+                  <template v-if="podState(slot) === 'done'">
+                    <XenoPlantIcon :id="slot.resultTypeId" size="62%" stage="ready" silhouette />
+                  </template>
+                  <template v-else-if="bedPreview(slot)">
+                    <XenoPlantIcon
+                      :id="bedPreview(slot)"
+                      size="62%"
+                      :stage="podState(slot) === 'breeding' && podPct(slot) < 20 ? 'seedling' : 'growing'"
+                      :progress="podState(slot) === 'breeding' ? Math.max(0.05, Math.min(0.99, podPct(slot) / 100)) : 0.5"
+                      silhouette
+                    />
+                  </template>
+                  <UIcon v-else name="i-lucide-sprout" class="size-7 text-(--xg-faint)" />
+                  <span
+                    v-if="podState(slot) !== 'idle'"
+                    class="absolute bottom-3 inset-x-0 text-center text-[12px] font-extrabold xg-num"
+                    :class="podState(slot) === 'done' ? 'text-(--xg-accent-text)' : 'text-(--xg-muted)'"
+                  >{{ podState(slot) === 'done' ? 'Ready' : slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</span>
+                </div>
+                <button
+                  v-if="podState(slot) === 'idle' && bothPicked(slot.id)"
+                  type="button"
+                  class="mt-1.5 text-[11px] font-bold text-(--xg-muted) hover:text-(--xg-ink) inline-flex items-center gap-1"
+                  @click="swapParents(slot.id)"
+                >
+                  <UIcon name="i-lucide-arrow-left-right" class="size-3" /> Swap
+                </button>
+              </div>
+            </div>
+
+            <!-- Odds: the whole roll in one bar -->
+            <div v-if="podOdds(slot) && podState(slot) !== 'done'" class="flex flex-col gap-1.5">
+              <div class="xg-odds" role="img" :aria-label="`Mutation chance ${formatPct(podOdds(slot)!.mutationTotal)}`">
+                <i v-for="m in podOdds(slot)!.mutations" :key="m.offspring" :style="{ width: odd(m.chance), background: 'var(--xg-uv)' }" />
+                <i v-for="(p, pi) in podOdds(slot)!.parents" :key="p.typeId" :style="{ width: odd(p.chance), background: pi === 0 ? 'var(--xg-edge2)' : 'var(--xg-faint)' }" />
+              </div>
+              <div class="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs">
+                <span v-if="podOdds(slot)!.mutations.length" class="flex flex-wrap gap-x-2">
+                  <UTooltip
+                    v-for="m in podOdds(slot)!.mutations"
+                    :key="m.offspring"
+                    :text="`Base ${formatPct(m.base)}, +${formatPct(slotMutationBoost(slot))} from upgrades and this pod's artifact`"
+                  >
+                    <span>
+                      <b class="xg-num" :class="m.chance > 0 ? 'text-(--xg-uv)' : 'text-(--xg-rose)'">{{ m.chance > 0 ? formatPct(m.chance) : `+${formatPct(-(m.base + slotMutationBoost(slot)))} needed` }}</b>
+                      <span class="text-(--xg-muted)"> {{ discovered.has(m.offspring) ? plantName(m.offspring) : 'Unknown species' }}</span>
+                    </span>
+                  </UTooltip>
+                </span>
+                <span v-else class="text-(--xg-muted)">No mutation for this pair</span>
+                <span class="text-(--xg-faint)">
+                  <template v-for="(p, pi) in podOdds(slot)!.parents" :key="p.typeId">{{ pi ? ' · ' : '' }}{{ plantName(p.typeId) }} {{ formatPct(p.chance) }}</template>
+                </span>
+              </div>
+            </div>
+
+            <!-- Time and plants -->
+            <div v-if="podState(slot) === 'idle' && bothPicked(slot.id)" class="flex flex-wrap items-center justify-between gap-2 text-xs text-(--xg-muted)">
+              <span>
+                Takes <b class="xg-num text-(--xg-ink)">{{ formatDuration(podBreedSecs(slot)) }}</b>
+                <span v-if="podBreedSecs(slot) < podBaseSecs(slot)" class="line-through ml-1">{{ formatDuration(podBaseSecs(slot)) }}</span>
+              </span>
+              <span>Gives <b class="xg-num text-(--xg-ink)">×{{ 1 + slotExtraYield(slot) }}</b></span>
+            </div>
+            <p v-if="pairBlocked(slot.id)" class="text-xs font-bold text-(--xg-rose)">{{ pairBlocked(slot.id) }}</p>
+            <p v-else-if="podState(slot) === 'idle' && !bothPicked(slot.id)" class="text-xs text-center text-(--xg-faint)">
+              {{ selectedPlant ? 'Click a pot to put the held seed in it.' : 'Hold a seed and click a pot, or fill it from a recipe.' }}
+            </p>
+
+            <!-- Action -->
+            <div class="flex gap-2 mt-auto">
+              <template v-if="podState(slot) === 'done'">
+                <XenoButton
+                  variant="go"
+                  size="sm"
+                  block
+                  waiting
+                  icon="i-lucide-arrow-down-to-line"
+                  :label="`Collect ×${slot.resultQuantity ?? 1}`"
+                  :loading="collecting.has(slot.id)"
+                  @click="doCollect(slot)"
+                />
+              </template>
+              <template v-else-if="podState(slot) === 'breeding'">
+                <XenoButton size="sm" block disabled :label="`Growing · ${Math.floor(podPct(slot))}%`" class="xg-status" />
+                <XenoButton size="sm" label="Cancel" title="Stop and give both parents back" :loading="cancelling.has(slot.id)" @click="doCancel(slot.id)" />
+              </template>
+              <template v-else-if="bothPicked(slot.id)">
+                <XenoButton
+                  variant="go"
+                  size="sm"
+                  block
+                  icon="i-lucide-play"
+                  :label="`Start · ${formatDuration(podBreedSecs(slot))}`"
+                  :disabled="!!pairBlocked(slot.id)"
                   :loading="starting.has(slot.id)"
                   @click="doStart(slot)"
                 />
               </template>
+              <template v-else>
+                <XenoButton size="sm" block label="Choose parents" @click="openShelf(selectedPlant ? 'seeds' : 'extra')" />
+              </template>
             </div>
-          </div>
+          </article>
 
-          <!-- ── Unlock pod ── -->
-          <div
+          <!-- Add a pod -->
+          <article
             v-if="state.breeder.unlockedCount < state.breeder.maxSlots"
-            class="xeno-pod-card border-dashed min-h-[30rem] flex flex-col items-center justify-center gap-4 p-6 text-center"
+            class="xg-pane is-dashed p-4 flex flex-col items-center justify-center gap-2.5 min-h-[18rem] text-center"
+            :style="{ borderColor: 'var(--xg-sun-edge)' }"
           >
-            <div class="w-28 opacity-40 grayscale">
-              <XenoIncubatorPod :pct="0" state="idle" class="h-40 w-full" />
-            </div>
-            <div>
-              <p class="text-lg font-black">Dormant pod</p>
-              <CoinBalance :value="state.breeder.nextSlotCost" :compact="false" class="justify-center text-sm font-semibold mt-1" />
-            </div>
-            <UButton
-              label="Power up"
-              icon="i-lucide-power"
-              size="md"
-              :variant="balance >= state.breeder.nextSlotCost ? 'solid' : 'soft'"
-              :color="balance >= state.breeder.nextSlotCost ? 'primary' : 'neutral'"
+            <UIcon name="i-lucide-flower-2" class="size-7 text-(--xg-sun)" />
+            <b class="xg-h text-base">Pod {{ state.breeder.unlockedCount + 1 }}</b>
+            <XenoButton
+              variant="sun"
+              size="sm"
               :loading="unlocking"
-              :disabled="balance < state.breeder.nextSlotCost"
+              :disabled="balanceNum < state.breeder.nextSlotCost"
               @click="doUnlock"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+            >
+              <span class="xg-coin" />Add pod · {{ formatNumber(state.breeder.nextSlotCost) }}
+            </XenoButton>
+            <span v-if="balanceNum < state.breeder.nextSlotCost" class="text-xs text-(--xg-faint)">You need {{ formatNumber(state.breeder.nextSlotCost - balanceNum) }} more coins</span>
+          </article>
+        </template>
+      </section>
 
-    <!-- ── Right inventory sidebar (lg+) ────────────────────────────── -->
-    <USidebar collapsible="none" side="right" class="hidden lg:flex w-[26rem] border-l border-default/60 bg-background/40 backdrop-blur-sm">
-      <div class="flex flex-col h-full overflow-hidden">
+      <!-- Shelf + recipe finder (xl+) -->
+      <aside class="hidden xl:flex xg-pane xg-pane-r flex-col w-[400px] 2xl:w-[440px] shrink-0 p-4 h-[calc(100svh-16.5rem)] min-h-[520px]" aria-label="Shelf">
         <XenoInventoryPanel
+          v-model:tab="shelfTab"
           :inventory="breedableInventory"
           :free-artifacts="breederFreeArtifacts"
           artifact-domain="breeder"
+          extra-label="Recipes"
           :selected-plant-key="selectedKey"
           :selected-artifact-id="selectedArtifact?.id ?? null"
           @select-plant="onSelectPlant"
           @select-artifact="onSelectArtifact"
-        />
-      </div>
-    </USidebar>
+        >
+          <template #extra>
+            <ReuseRecipes />
+          </template>
+        </XenoInventoryPanel>
+      </aside>
+    </div>
   </div>
 
-  <USlideover v-model:open="mobileInventoryOpen" title="Specimens" side="right" class="lg:hidden">
+  <USlideover
+    v-model:open="shelfOpen"
+    title="Shelf"
+    side="right"
+    :ui="{ content: 'xeno max-w-md bg-(--xg-surface)', header: 'border-(--xg-edge)', body: 'flex flex-col min-h-0' }"
+  >
     <template #body>
-      <div class="flex flex-col h-full overflow-hidden">
-        <XenoInventoryPanel
-          :inventory="breedableInventory"
-          :free-artifacts="breederFreeArtifacts"
-          artifact-domain="breeder"
-          :selected-plant-key="selectedKey"
-          :selected-artifact-id="selectedArtifact?.id ?? null"
-          @select-plant="(p) => { onSelectPlant(p); mobileInventoryOpen = false }"
-          @select-artifact="(a) => { onSelectArtifact(a); mobileInventoryOpen = false }"
-        />
-      </div>
+      <XenoInventoryPanel
+        v-model:tab="shelfTab"
+        :inventory="breedableInventory"
+        :free-artifacts="breederFreeArtifacts"
+        artifact-domain="breeder"
+        extra-label="Recipes"
+        :selected-plant-key="selectedKey"
+        :selected-artifact-id="selectedArtifact?.id ?? null"
+        @select-plant="(p) => { onSelectPlant(p); if (p) shelfOpen = false }"
+        @select-artifact="(a) => { onSelectArtifact(a); if (a) shelfOpen = false }"
+      >
+        <template #extra>
+          <ReuseRecipes />
+        </template>
+      </XenoInventoryPanel>
     </template>
   </USlideover>
 
+  <XenoBreedReveal v-model:open="revealOpen" :result="reveal" />
   <XenoHarvestFloat :items="fx.floats.value" />
-  <XenoBurstLayer :particles="fx.particles.value" :flashes="fx.flashes.value" />
+  <XenoBurstLayer :particles="fx.particles.value" />
 </template>

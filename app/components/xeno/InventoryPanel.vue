@@ -1,475 +1,426 @@
 <script setup lang="ts">
-import {
-  tierNameColor, tierBg, levelTextColor,
-  ARTIFACT_TYPES, getArtifact, artifactStatRows,
-  type ArtifactType,
-} from '#shared/utils/xeno'
+import { ARTIFACT_TYPES, getArtifact, getPlant, artifactStatRows } from '#shared/utils/xeno'
+import { artifactEffectSummary, roman, tierClass } from '~/lib/xeno-ui'
 
+// The shelf: seed stacks and free artifacts as a grid of cards. Variants of
+// one species (different speed / yield) sit together under a small header.
 const props = defineProps<{
   inventory: any[]
   freeArtifacts: any[]
   selectedPlantKey?: string | null
   selectedArtifactId?: string | null
-  /** Which slot type these artifacts are used in — controls which sort/spec columns apply. */
+  /** Which slot type these artifacts are used in — controls copy and sort options. */
   artifactDomain?: 'grid' | 'breeder'
+  /** Optional third tab rendered from the `extra` slot (the Nursery's recipe finder). */
+  extraLabel?: string
 }>()
 
 const emit = defineEmits<{
-  selectPlant: [payload: { typeId: string; speed: number; yield: number; name: string; emoji: string; tier: number } | null]
-  selectArtifact: [payload: { id: string; typeId: string; chargesRemaining: number; gemCrafted: boolean } | null]
+  selectPlant: [payload: { typeId: string, speed: number, yield: number, name: string, emoji: string, tier: number } | null]
+  selectArtifact: [payload: { id: string, typeId: string, chargesRemaining: number, gemCrafted: boolean } | null]
 }>()
 
 const { deleteArtifacts } = useXeno()
 const sound = useXenoSound()
 
-const activeTab = ref<'seeds' | 'artifacts'>('seeds')
-function setTab(t: 'seeds' | 'artifacts') {
+type ShelfTab = 'seeds' | 'artifacts' | 'extra'
+const activeTab = defineModel<ShelfTab>('tab', { default: 'seeds' })
+function setTab(t: ShelfTab) {
   if (activeTab.value === t) return
   activeTab.value = t
   sound.play('select')
 }
 
+const domain = computed<'grid' | 'breeder'>(() => props.artifactDomain ?? 'grid')
+
+function stackKey(item: { typeId: string, speed: number, yield: number }) {
+  return `${item.typeId}:${item.speed}:${item.yield}`
+}
+
 function onSelectPlant(item: any) {
-  const key = `${item.typeId}:${item.speed}:${item.yield}`
-  if (props.selectedPlantKey === key) {
-    emit('selectPlant', null)
-  } else {
-    emit('selectPlant', { typeId: item.typeId, speed: item.speed, yield: item.yield, name: item.name, emoji: item.emoji, tier: item.tier })
-  }
+  if (props.selectedPlantKey === stackKey(item)) emit('selectPlant', null)
+  else emit('selectPlant', { typeId: item.typeId, speed: item.speed, yield: item.yield, name: item.name, emoji: item.emoji, tier: item.tier })
 }
 
-// ── Artifact stacking ──────────────────────────────────────────────────────
-// Group free artifacts by (typeId + chargesRemaining). Same charges = same stack.
-const stackedArtifacts = computed(() => {
-  const groups = new Map<string, { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[]; count: number }>()
-  for (const a of props.freeArtifacts) {
-    const key = `${a.typeId}:${a.chargesRemaining}:${a.gemCrafted ? 1 : 0}`
-    const group = groups.get(key)
-    if (group) {
-      group.ids.push(a.id)
-      group.count++
-    } else {
-      groups.set(key, { typeId: a.typeId, chargesRemaining: a.chargesRemaining, gemCrafted: !!a.gemCrafted, ids: [a.id], count: 1 })
-    }
-  }
-  return [...groups.values()]
-})
-
-function onSelectStack(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[] }) {
-  if (props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)) {
-    emit('selectArtifact', null)
-  } else {
-    emit('selectArtifact', { id: stack.ids[0]!, typeId: stack.typeId, chargesRemaining: stack.chargesRemaining, gemCrafted: stack.gemCrafted })
-  }
-}
-
-function isStackSelected(stack: { ids: string[] }): boolean {
-  return props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)
-}
-
-function stackKeyOf(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean }) {
-  return `${stack.typeId}:${stack.chargesRemaining}:${stack.gemCrafted ? 1 : 0}`
-}
-
-function ownedQty(plantTypeId: string): number {
-  return props.inventory
-    .filter(i => i.typeId === plantTypeId)
-    .reduce((sum, i) => sum + i.quantity, 0)
-}
-
-function effectTarget(art: ArtifactType | undefined): string {
-  if (!art) return ''
-  return art.effects.some(e => e.type.startsWith('grid_')) ? 'Grid' : 'Breeder'
-}
-
-function getArtifactDef(typeId: string) {
-  return ARTIFACT_TYPES.find(a => a.id === typeId)
-}
-
-const MAX_CHARGES = Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
-
-function specRows(art: ArtifactType | undefined, gemCrafted = false) {
-  return art ? artifactStatRows(art, gemCrafted) : []
-}
-
-// ── Domain (grid vs breeder) — controls which artifact spec columns exist ──
-const domain = computed<'grid' | 'breeder'>(() => {
-  if (props.artifactDomain) return props.artifactDomain
-  const first = props.freeArtifacts[0]
-  const art = first ? getArtifact(first.typeId) : undefined
-  return art && effectTarget(art) === 'Breeder' ? 'breeder' : 'grid'
-})
-
-// ── Sorting (persisted via cookie, separate config per tab/domain) ─────────
-interface SortState { key: string; dir: 'asc' | 'desc' }
-interface SortCookie {
-  seeds: SortState
-  artifactsGrid: SortState
-  artifactsBreeder: SortState
-}
+// ── Sorting (persisted, one setting per tab/domain) ──────────────────────────
+interface SortState { key: string, dir: 'asc' | 'desc' }
+interface SortCookie { seeds: SortState, artifactsGrid: SortState, artifactsBreeder: SortState }
 
 const sortCookie = useCookie<SortCookie>('xeno-inventory-sort', {
   default: () => ({
     seeds: { key: 'tier', dir: 'desc' },
     artifactsGrid: { key: 'qty', dir: 'desc' },
-    artifactsBreeder: { key: 'qty', dir: 'desc' },
-  }),
+    artifactsBreeder: { key: 'qty', dir: 'desc' }
+  })
 })
-
-const sortSlotKey = computed<keyof SortCookie>(() =>
-  activeTab.value === 'seeds' ? 'seeds' : (domain.value === 'breeder' ? 'artifactsBreeder' : 'artifactsGrid'),
-)
+const sortSlot = computed<keyof SortCookie>(() =>
+  activeTab.value === 'seeds' ? 'seeds' : (domain.value === 'breeder' ? 'artifactsBreeder' : 'artifactsGrid'))
 
 const seedSortOptions = [
   { label: 'Tier', value: 'tier' },
+  { label: 'Stack value', value: 'value' },
   { label: 'Quantity', value: 'qty' },
   { label: 'Speed', value: 'speed' },
   { label: 'Yield', value: 'yield' },
-  { label: 'Name', value: 'name' },
+  { label: 'Name', value: 'name' }
 ]
-
 const artifactSortOptions = computed(() => {
   const base = [
     { label: 'Quantity', value: 'qty' },
     { label: 'Charges', value: 'charges' },
     { label: 'Level', value: 'level' },
     { label: 'Speed', value: 'speed' },
-    { label: 'Yield', value: 'yield' },
+    { label: 'Yield', value: 'yield' }
   ]
   return domain.value === 'breeder' ? [...base, { label: 'Mutation', value: 'mutation' }] : base
 })
-
-const currentSortOptions = computed(() => activeTab.value === 'seeds' ? seedSortOptions : artifactSortOptions.value)
-
-const currentSortKey = computed<string>({
-  get: () => sortCookie.value[sortSlotKey.value].key,
-  set: (v) => {
-    sortCookie.value = { ...sortCookie.value, [sortSlotKey.value]: { ...sortCookie.value[sortSlotKey.value], key: v } }
-  },
+const sortOptions = computed(() => activeTab.value === 'seeds' ? seedSortOptions : artifactSortOptions.value)
+const sortKey = computed<string>({
+  get: () => sortCookie.value[sortSlot.value]?.key ?? 'qty',
+  set: (v) => { sortCookie.value = { ...sortCookie.value, [sortSlot.value]: { ...sortCookie.value[sortSlot.value], key: v } } }
 })
-
-const currentSortDir = computed(() => sortCookie.value[sortSlotKey.value].dir)
-
+const sortDir = computed(() => sortCookie.value[sortSlot.value]?.dir ?? 'desc')
 function toggleSortDir() {
-  const slot = sortSlotKey.value
-  sortCookie.value = {
-    ...sortCookie.value,
-    [slot]: { ...sortCookie.value[slot], dir: sortCookie.value[slot].dir === 'asc' ? 'desc' : 'asc' },
-  }
+  const s = sortSlot.value
+  sortCookie.value = { ...sortCookie.value, [s]: { ...sortCookie.value[s], dir: sortCookie.value[s].dir === 'asc' ? 'desc' : 'asc' } }
 }
 
-function seedSortValue(item: any, key: string): number | string {
-  switch (key) {
-    case 'tier': return item.tier
-    case 'qty': return item.quantity
-    case 'speed': return item.speed
-    case 'yield': return item.yield
-    case 'name': return item.name
-    default: return 0
-  }
-}
+// ── Seeds ────────────────────────────────────────────────────────────────────
+const search = ref('')
+const tierFilter = ref(0)
 
-const sortedInventory = computed(() => {
+const tiersPresent = computed(() => [...new Set(props.inventory.map((i: any) => i.tier as number))].sort((a, b) => a - b))
+watch(tiersPresent, (t) => { if (tierFilter.value && !t.includes(tierFilter.value)) tierFilter.value = 0 })
+
+const speciesCount = computed(() => new Set(props.inventory.map((i: any) => i.typeId)).size)
+
+interface SeedGroup { typeId: string, name: string, tier: number, isVoid: boolean, isHybrid: boolean, total: number, value: number, best: number, variants: any[] }
+
+const groups = computed<SeedGroup[]>(() => {
+  const q = search.value.trim().toLowerCase()
+  const map = new Map<string, SeedGroup>()
+  for (const item of props.inventory) {
+    if (tierFilter.value && item.tier !== tierFilter.value) continue
+    if (q && !String(item.name).toLowerCase().includes(q)
+      && !(item.resources ?? []).some((r: any) => String(r.name).toLowerCase().includes(q))) continue
+    let g = map.get(item.typeId)
+    if (!g) {
+      g = { typeId: item.typeId, name: item.name, tier: item.tier, isVoid: !!getPlant(item.typeId)?.voidPlant, isHybrid: !!item.isHybrid, total: 0, value: 0, best: 0, variants: [] }
+      map.set(item.typeId, g)
+    }
+    g.total += item.quantity
+    g.value += item.value * item.quantity
+    g.variants.push(item)
+  }
   const { key, dir } = sortCookie.value.seeds
   const mult = dir === 'asc' ? 1 : -1
-  return [...props.inventory].sort((a, b) => {
-    const av = seedSortValue(a, key)
-    const bv = seedSortValue(b, key)
-    if (typeof av === 'string' || typeof bv === 'string') {
-      return mult * String(av).localeCompare(String(bv))
+  const val = (g: SeedGroup): number | string => {
+    switch (key) {
+      case 'tier': return g.tier
+      case 'value': return g.value
+      case 'qty': return g.total
+      case 'speed': return Math.max(...g.variants.map(v => v.speed))
+      case 'yield': return Math.max(...g.variants.map(v => v.yield))
+      default: return g.name
     }
+  }
+  const list = [...map.values()]
+  for (const g of list) {
+    g.variants.sort((a, b) => key === 'qty' ? b.quantity - a.quantity : (b.speed + b.yield) - (a.speed + a.yield) || b.quantity - a.quantity)
+  }
+  return list.sort((a, b) => {
+    const av = val(a)
+    const bv = val(b)
+    if (typeof av === 'string' || typeof bv === 'string') return mult * String(av).localeCompare(String(bv))
     if (av !== bv) return mult * (av - bv)
-    return String(a.name).localeCompare(String(b.name))
+    return a.name.localeCompare(b.name)
   })
 })
 
-// ── Seed search ─────────────────────────────────────────────────────────────
-const seedSearch = ref('')
-
-const visibleInventory = computed(() => {
-  const q = seedSearch.value.trim().toLowerCase()
-  if (!q) return sortedInventory.value
-  return sortedInventory.value.filter((item: any) =>
-    String(item.name).toLowerCase().includes(q)
-    || (item.resources ?? []).some((r: any) => String(r.name).toLowerCase().includes(q)),
-  )
+// ── Artifacts ────────────────────────────────────────────────────────────────
+const stackedArtifacts = computed(() => {
+  const m = new Map<string, { typeId: string, chargesRemaining: number, gemCrafted: boolean, ids: string[], count: number }>()
+  for (const a of props.freeArtifacts) {
+    const key = `${a.typeId}:${a.chargesRemaining}:${a.gemCrafted ? 1 : 0}`
+    const g = m.get(key)
+    if (g) {
+      g.ids.push(a.id)
+      g.count++
+    } else {
+      m.set(key, { typeId: a.typeId, chargesRemaining: a.chargesRemaining, gemCrafted: !!a.gemCrafted, ids: [a.id], count: 1 })
+    }
+  }
+  return [...m.values()]
 })
 
-function artifactSortValue(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; count: number }, key: string): number {
+function stackKeyOf(s: { typeId: string, chargesRemaining: number, gemCrafted: boolean }) {
+  return `${s.typeId}:${s.chargesRemaining}:${s.gemCrafted ? 1 : 0}`
+}
+function statLevel(s: { typeId: string, gemCrafted: boolean }, label: string): number {
+  const art = getArtifact(s.typeId)
+  return art ? artifactStatRows(art, s.gemCrafted).find(r => r.label === label)?.level ?? 0 : 0
+}
+function artifactSortValue(s: any, key: string): number {
   switch (key) {
-    case 'qty': return stack.count
-    case 'charges': return stack.chargesRemaining
-    case 'level': return getArtifactDef(stack.typeId)?.level ?? 0
-    case 'speed': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Speed')?.level ?? 0
-    case 'yield': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Yield')?.level ?? 0
-    case 'mutation': return specRows(getArtifact(stack.typeId), stack.gemCrafted).find(r => r.label === 'Mutation')?.level ?? 0
+    case 'qty': return s.count
+    case 'charges': return s.chargesRemaining
+    case 'level': return getArtifact(s.typeId)?.level ?? 0
+    case 'speed': return statLevel(s, 'Speed')
+    case 'yield': return statLevel(s, 'Yield')
+    case 'mutation': return statLevel(s, 'Mutation')
     default: return 0
   }
 }
-
 const sortedArtifacts = computed(() => {
-  const { key, dir } = sortCookie.value[sortSlotKey.value]
-  const mult = dir === 'asc' ? 1 : -1
+  const st = sortCookie.value[domain.value === 'breeder' ? 'artifactsBreeder' : 'artifactsGrid']
+  const mult = st?.dir === 'asc' ? 1 : -1
   return [...stackedArtifacts.value].sort((a, b) => {
-    const av = artifactSortValue(a, key)
-    const bv = artifactSortValue(b, key)
+    const av = artifactSortValue(a, st?.key ?? 'qty')
+    const bv = artifactSortValue(b, st?.key ?? 'qty')
     if (av !== bv) return mult * (av - bv)
     return (getArtifact(a.typeId)?.name ?? '').localeCompare(getArtifact(b.typeId)?.name ?? '')
   })
 })
+const maxCharges = (typeId: string) => getArtifact(typeId)?.maxCharges ?? Math.max(...ARTIFACT_TYPES.map(a => a.maxCharges))
 
-// ── Delete artifact (double-click confirm, no refund) ───────────────────────
-const deleteConfirmKey = ref<string | null>(null)
-const deleting = ref<Record<string, boolean>>({})
-let deleteConfirmTimer: ReturnType<typeof setTimeout> | null = null
-
-function clearDeleteConfirm() {
-  if (deleteConfirmTimer) { clearTimeout(deleteConfirmTimer); deleteConfirmTimer = null }
-  deleteConfirmKey.value = null
+function isStackSelected(s: { ids: string[] }) {
+  return props.selectedArtifactId != null && s.ids.includes(props.selectedArtifactId)
+}
+function onSelectStack(s: { typeId: string, chargesRemaining: number, gemCrafted: boolean, ids: string[] }) {
+  if (isStackSelected(s)) emit('selectArtifact', null)
+  else emit('selectArtifact', { id: s.ids[0]!, typeId: s.typeId, chargesRemaining: s.chargesRemaining, gemCrafted: s.gemCrafted })
 }
 
-async function onDeleteClick(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; ids: string[] }, e: MouseEvent) {
-  e.stopPropagation()
-  const key = stackKeyOf(stack)
+// Delete: the first press arms it, a second press within 3s deletes (no refund).
+const deleteConfirmKey = ref<string | null>(null)
+const deleting = ref<Record<string, boolean>>({})
+let deleteTimer: ReturnType<typeof setTimeout> | null = null
+function clearDeleteConfirm() {
+  if (deleteTimer) { clearTimeout(deleteTimer); deleteTimer = null }
+  deleteConfirmKey.value = null
+}
+async function onDeleteClick(s: { typeId: string, chargesRemaining: number, gemCrafted: boolean, ids: string[] }) {
+  const key = stackKeyOf(s)
   if (deleteConfirmKey.value === key) {
     clearDeleteConfirm()
     deleting.value[key] = true
     try {
-      await deleteArtifacts(stack.ids)
-      if (props.selectedArtifactId != null && stack.ids.includes(props.selectedArtifactId)) {
-        emit('selectArtifact', null)
-      }
-    } finally {
+      await deleteArtifacts(s.ids)
+      if (isStackSelected(s)) emit('selectArtifact', null)
+    } catch { sound.play('error') } finally {
       delete deleting.value[key]
     }
   } else {
     deleteConfirmKey.value = key
-    if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer)
-    deleteConfirmTimer = setTimeout(clearDeleteConfirm, 3000)
+    if (deleteTimer) clearTimeout(deleteTimer)
+    deleteTimer = setTimeout(clearDeleteConfirm, 3000)
   }
 }
-
 watch(() => props.selectedArtifactId, () => clearDeleteConfirm())
-onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
+onUnmounted(() => { if (deleteTimer) clearTimeout(deleteTimer) })
+
+const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
 </script>
 
 <template>
-  <!-- Tabs -->
-  <div class="flex border-b border-default shrink-0">
-    <button
-      class="flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-all duration-100"
-      :class="activeTab === 'seeds' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
-      @click="setTab('seeds')"
-    >
-      <UIcon name="i-lucide-sprout" class="size-3.5 inline-block -mt-0.5 mr-1" />Seeds
-    </button>
-    <button
-      class="flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-all duration-100 relative"
-      :class="activeTab === 'artifacts' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
-      @click="setTab('artifacts')"
-    >
-      <UIcon name="i-lucide-gem" class="size-3.5 inline-block -mt-0.5 mr-1" />Artifacts
-      <span v-if="freeArtifacts.length" class="absolute top-1.5 right-3 size-5 flex items-center justify-center rounded-full bg-primary text-xs font-bold text-inverted">
-        {{ freeArtifacts.length }}
-      </span>
-    </button>
-  </div>
-
-  <!-- Sort controls -->
-  <div class="flex items-center gap-1.5 px-2.5 py-2 border-b border-default shrink-0">
-    <UIcon name="i-lucide-arrow-down-up" class="size-3.5 text-muted shrink-0" />
-    <USelect
-      v-model="currentSortKey"
-      :items="currentSortOptions"
-      size="xs"
-      class="flex-1 min-w-0"
-    />
-    <UButton
-      :icon="currentSortDir === 'asc' ? 'i-lucide-arrow-up' : 'i-lucide-arrow-down'"
-      size="xs"
-      variant="soft"
-      color="neutral"
-      :title="currentSortDir === 'asc' ? 'Ascending' : 'Descending'"
-      @click="toggleSortDir"
-    />
-  </div>
-
-  <!-- Seed search -->
-  <div v-if="activeTab === 'seeds'" class="px-2.5 py-2 border-b border-default shrink-0">
-    <UInput
-      v-model="seedSearch"
-      placeholder="Search plants…"
-      icon="i-lucide-search"
-      size="xs"
-      class="w-full"
-      :ui="{ trailing: 'pe-1' }"
-    >
-      <template v-if="seedSearch" #trailing>
-        <UButton
-          color="neutral"
-          variant="link"
-          size="xs"
-          icon="i-lucide-x"
-          aria-label="Clear search"
-          @click="seedSearch = ''"
-        />
-      </template>
-    </UInput>
-  </div>
-
-  <!-- ── Seeds tab ─────────────────────────────────────────── -->
-  <div v-if="activeTab === 'seeds'" class="flex-1 overflow-y-auto">
-    <div v-if="!inventory.length" class="py-12 text-center px-4">
-      <UIcon name="i-lucide-sprout" class="size-8 text-muted/30 mx-auto mb-2" />
-      <p class="text-sm text-muted">No plants yet.</p>
-      <p class="text-xs text-muted/50 mt-1">Harvest from the grid first.</p>
+  <div class="flex flex-col gap-3 min-h-0 h-full">
+    <div class="xg-seg shrink-0" role="tablist" aria-label="Shelf">
+      <button type="button" role="tab" :aria-selected="activeTab === 'seeds'" :class="activeTab === 'seeds' ? 'on' : ''" @click="setTab('seeds')">
+        Seeds <span class="xg-count">{{ speciesCount }}</span>
+      </button>
+      <button type="button" role="tab" :aria-selected="activeTab === 'artifacts'" :class="activeTab === 'artifacts' ? 'on' : ''" @click="setTab('artifacts')">
+        Artifacts <span class="xg-count">{{ freeArtifacts.length }}</span>
+      </button>
+      <button v-if="extraLabel" type="button" role="tab" :aria-selected="activeTab === 'extra'" :class="activeTab === 'extra' ? 'on' : ''" @click="setTab('extra')">
+        {{ extraLabel }}
+      </button>
     </div>
 
-    <div v-else-if="!visibleInventory.length" class="py-12 text-center px-4">
-      <UIcon name="i-lucide-search-x" class="size-8 text-muted/30 mx-auto mb-2" />
-      <p class="text-sm text-muted">No plants match “{{ seedSearch }}”.</p>
-    </div>
+    <slot v-if="activeTab === 'extra'" name="extra" />
 
-    <div v-else class="p-2 grid grid-cols-3 gap-1.5">
-      <UTooltip
-        v-for="item in visibleInventory"
-        :key="`${item.typeId}:${item.speed}:${item.yield}`"
-        :delay-duration="300"
-        :content="{ side: 'left', sideOffset: 8 }"
+    <div v-else class="flex items-center gap-2 shrink-0">
+      <UInput
+        v-if="activeTab === 'seeds'"
+        v-model="search"
+        placeholder="Search seeds"
+        icon="i-lucide-search"
+        size="lg"
+        class="flex-1 min-w-0"
+        :ui="{ base: 'rounded-full h-10', trailing: 'pe-1.5' }"
+        aria-label="Search seeds"
       >
-        <template #content>
-          <XenoPlantTooltipContent
-            :name="item.name"
-            :tier="item.tier"
-            :color="item.color"
-            :speed="item.speed"
-            :yield="item.yield"
-            :base-time="item.baseTime"
-            :value="item.value"
-            :description="item.description"
-            :quantity="item.quantity"
-            :is-hybrid="item.isHybrid"
-            :resources="item.resources"
-          />
+        <template v-if="search" #trailing>
+          <UButton color="neutral" variant="link" size="xs" icon="i-lucide-x" aria-label="Clear search" @click="search = ''" />
         </template>
+      </UInput>
+      <USelect
+        v-model="sortKey"
+        :items="sortOptions"
+        size="lg"
+        :class="activeTab === 'seeds' ? 'w-36 shrink-0' : 'flex-1'"
+        :ui="{ base: 'rounded-full h-10' }"
+        aria-label="Sort by"
+      />
+      <button
+        type="button"
+        class="xg-btn ico shrink-0 !min-h-10 size-10"
+        :aria-label="sortDir === 'asc' ? 'Ascending, switch to descending' : 'Descending, switch to ascending'"
+        :title="sortDir === 'asc' ? 'Ascending' : 'Descending'"
+        @click="toggleSortDir"
+      >
+        <UIcon :name="sortDir === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : 'i-lucide-arrow-down-wide-narrow'" class="size-4" />
+      </button>
+    </div>
 
+    <!-- ── Seeds ─────────────────────────────────────────────────────────── -->
+    <template v-if="activeTab === 'seeds'">
+      <div v-if="tiersPresent.length > 1" class="flex flex-wrap gap-1.5 shrink-0" role="group" aria-label="Filter by tier">
+        <button type="button" class="xg-filter" :class="tierFilter === 0 ? 'on' : ''" :aria-pressed="tierFilter === 0" @click="tierFilter = 0">All</button>
         <button
-          class="xeno-lift relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden"
-          :class="[
-            tierBg(item.tier),
-            item.isHybrid ? 'border-primary/50 ring-1 ring-primary/30' : 'border-default',
-            selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary shadow-[0_0_20px_-6px_var(--ui-primary)] scale-[1.03]' : '',
-          ]"
-          @click="onSelectPlant(item)"
+          v-for="t in tiersPresent"
+          :key="t"
+          type="button"
+          class="xg-filter"
+          :class="tierFilter === t ? 'on' : ''"
+          :aria-pressed="tierFilter === t"
+          :aria-label="`Tier ${t}`"
+          @click="tierFilter = tierFilter === t ? 0 : t"
         >
-          <!-- Tier + qty header -->
-          <div class="flex items-center px-1.5 pt-1.5 shrink-0" :class="item.isHybrid ? 'justify-between' : 'justify-end'">
-            <span
-              v-if="item.isHybrid"
-              class="text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary leading-none"
-            >🧬</span>
-            <span class="text-xs font-black text-primary leading-none">{{ item.quantity }}</span>
-          </div>
-
-          <!-- Emoji -->
-          <div class="flex-1 flex flex-col items-center justify-center gap-0.5 min-h-0">
-            <XenoPlantIcon :id="item.typeId" :size="40" />
-            <div v-if="item.isHybrid" class="flex items-center gap-0.5 leading-none">
-              <XenoPlantIcon v-for="(r, i) in item.resources" :key="i" :id="r.id" :size="14" />
-            </div>
-          </div>
-
-          <!-- Name -->
-          <p class="text-xs font-bold text-center px-1 mb-1 truncate" :class="tierNameColor(item.tier)">{{ item.name }}</p>
-
-          <!-- Stat strip — per-resource stats live in the tooltip for hybrids -->
-          <div
-            v-if="item.isHybrid"
-            class="flex items-center justify-center gap-1 py-1 border-t border-default text-primary"
-          >
-            <UIcon name="i-lucide-layers" class="size-2.5 shrink-0" />
-            <span class="text-[10px] font-black tabular-nums">{{ item.resources.length }} plant{{ item.resources.length === 1 ? '' : 's' }}</span>
-          </div>
-          <div v-else class="flex divide-x divide-default border-t border-default">
-            <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
-              <UIcon name="i-lucide-zap" class="size-2.5 shrink-0" :class="levelTextColor(item.speed)" />
-              <span class="text-xs font-black tabular-nums" :class="levelTextColor(item.speed)">{{ item.speed }}</span>
-            </div>
-            <div class="flex-1 flex items-center justify-center gap-0.5 py-1">
-              <UIcon name="i-lucide-gem" class="size-2.5 shrink-0" :class="levelTextColor(item.yield)" />
-              <span class="text-xs font-black tabular-nums" :class="levelTextColor(item.yield)">{{ item.yield }}</span>
-            </div>
-          </div>
+          <span class="xg-tier" :class="tierClass(t)">{{ roman(t) }}</span>
         </button>
-      </UTooltip>
-    </div>
-  </div>
+      </div>
 
-  <!-- ── Artifacts tab ──────────────────────────────────────── -->
-  <div v-else class="flex-1 overflow-y-auto p-3 space-y-2">
-    <div v-if="!sortedArtifacts.length" class="py-12 text-center px-4">
-      <UIcon name="i-lucide-flask-conical" class="size-8 text-muted/30 mx-auto mb-2" />
-      <p class="text-sm text-muted">No artifacts.</p>
-      <p class="text-xs text-muted/50 mt-1">Craft them in the Artifacts shop.</p>
-    </div>
-
-    <div
-      v-for="stack in sortedArtifacts"
-      :key="stackKeyOf(stack)"
-      class="xeno-lift rounded-xl border cursor-pointer overflow-hidden"
-      :class="isStackSelected(stack)
-        ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-[0_0_20px_-6px_var(--ui-primary)]'
-        : stack.gemCrafted
-          ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20 hover:border-primary/60'
-          : 'border-default bg-elevated hover:border-default/80 hover:bg-elevated/80'"
-      @click="onSelectStack(stack)"
-    >
-      <!-- Artifact header -->
-      <div class="flex items-center gap-2 px-3 pt-2.5 pb-0">
-        <span class="xeno-orb size-8 text-base shrink-0" :class="stack.gemCrafted ? 'xeno-orb-gem' : ''">{{ getArtifact(stack.typeId)?.emoji }}</span>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-1.5">
-            <p class="text-xs font-semibold truncate">{{ getArtifact(stack.typeId)?.name }}</p>
-            <span
-              v-if="(getArtifact(stack.typeId)?.effects.length ?? 0) > 1"
-              class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 leading-none shrink-0"
-            >Hybrid</span>
-            <span
-              v-if="stack.gemCrafted"
-              class="text-[10px] font-bold px-1 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 leading-none shrink-0 flex items-center gap-0.5"
-            ><UIcon name="i-lucide-sparkles" class="size-2.5" /> +1</span>
-          </div>
-          <p class="text-[11px] text-muted leading-none mt-0.5">{{ effectTarget(getArtifact(stack.typeId)) }}</p>
+      <div class="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 -mt-1 pt-1 pb-1">
+        <div v-if="!inventory.length" class="xg-well py-10 px-4 text-center">
+          <UIcon name="i-lucide-sprout" class="size-7 text-(--xg-faint) mx-auto" />
+          <p class="text-sm font-extrabold mt-2">No seeds on the shelf</p>
+          <p class="text-xs text-(--xg-muted) mt-1">Buy seeds in the Market or harvest a planter.</p>
         </div>
-        <span class="text-sm font-black text-primary leading-none shrink-0">×{{ stack.count }}</span>
-      </div>
+        <div v-else-if="!groups.length" class="xg-well py-10 px-4 text-center">
+          <p class="text-sm font-extrabold">No seeds match</p>
+          <p class="text-xs text-(--xg-muted) mt-1">Clear the search or pick another tier.</p>
+        </div>
 
-      <!-- Spec rows -->
-      <div class="px-3 pt-2 pb-2.5 space-y-1.5">
-        <XenoStatLevel
-          v-for="row in specRows(getArtifact(stack.typeId), stack.gemCrafted).filter(r => r.level > 0)"
-          :key="row.label"
-          :label="row.label"
-          :level="row.level"
-          :max="row.max"
-          :color="row.color"
-        />
-        <XenoStatLevel label="Charges" :level="stack.chargesRemaining" :max="MAX_CHARGES" color="bg-primary" />
+        <div v-else class="grid grid-cols-3 gap-2">
+          <template v-for="g in groups" :key="g.typeId">
+            <p v-if="g.variants.length > 1" class="col-span-full flex items-center gap-2 pt-2 first:pt-0 text-xs">
+              <span class="xg-leaf" :class="tierClass(g.tier, g.isVoid)" />
+              <b class="truncate">{{ g.name }}</b>
+              <span class="text-(--xg-faint)">{{ g.variants.length }} variants</span>
+              <span class="ml-auto xg-q text-(--xg-muted)">{{ formatNumber(g.total) }}</span>
+            </p>
+            <UTooltip
+              v-for="item in g.variants"
+              :key="stackKey(item)"
+              :delay-duration="350"
+              :content="{ side: 'left', sideOffset: 8 }"
+              :ui="tooltipUi"
+            >
+              <template #content>
+                <XenoPlantTooltipContent
+                  :id="item.typeId"
+                  :name="item.name"
+                  :tier="item.tier"
+                  :speed="item.speed"
+                  :yield="item.yield"
+                  :base-time="item.baseTime"
+                  :value="item.value"
+                  :description="item.description"
+                  :quantity="item.quantity"
+                  :is-hybrid="item.isHybrid"
+                  :resources="item.resources"
+                />
+              </template>
+              <button
+                type="button"
+                class="relative flex flex-col items-stretch rounded-[14px_14px_14px_4px] border text-left overflow-hidden transition-colors"
+                :class="selectedPlantKey === stackKey(item)
+                  ? 'border-(--xg-accent) bg-(--xg-accent-soft) shadow-[inset_0_0_0_1px_var(--xg-accent)]'
+                  : 'border-(--xg-edge) bg-(--xg-surface2) hover:border-(--xg-edge2)'"
+                :aria-pressed="selectedPlantKey === stackKey(item)"
+                :aria-label="`${item.name}${item.isHybrid ? ' hybrid' : `, speed ${item.speed}, yield ${item.yield}`}, ${item.quantity} on the shelf`"
+                @click="onSelectPlant(item)"
+              >
+                <span class="flex items-center justify-between px-2 pt-1.5 gap-1">
+                  <span v-if="item.isHybrid" class="xg-chip sky !h-[18px] !px-1.5 !text-[10px]">Hybrid</span>
+                  <span v-else class="xg-leaf" :class="tierClass(item.tier, g.isVoid)" :title="`Tier ${roman(item.tier)}${g.isVoid ? ' · void' : ''}`" />
+                  <span class="xg-q text-[13px]">{{ formatNumber(item.quantity) }}</span>
+                </span>
+                <span class="flex justify-center pt-0.5">
+                  <XenoPlantIcon :id="item.typeId" :size="52" stage="ready" />
+                </span>
+                <span class="px-2 pb-1.5 text-[12px] font-bold truncate text-center">{{ item.name }}</span>
+                <span v-if="item.isHybrid" class="flex items-center justify-center gap-1 border-t border-(--xg-edge) py-1 text-[11px] font-bold text-(--xg-muted)">
+                  <XenoPlantIcon v-for="(r, i) in item.resources" :key="i" :id="r.id" :size="14" />
+                </span>
+                <span v-else class="grid grid-cols-2 divide-x divide-(--xg-edge) border-t border-(--xg-edge) text-[11.5px] xg-num">
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-muted)" title="Speed">
+                    <UIcon name="i-lucide-zap" class="size-3" /><b class="text-(--xg-ink)">{{ item.speed }}</b>
+                  </span>
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-muted)" title="Yield">
+                    <UIcon name="i-lucide-droplet" class="size-3" /><b class="text-(--xg-ink)">{{ item.yield }}</b>
+                  </span>
+                </span>
+              </button>
+            </UTooltip>
+          </template>
+        </div>
       </div>
+    </template>
 
-      <!-- Delete (double-click to confirm — no refund) -->
-      <div v-if="isStackSelected(stack)" class="px-3 pb-2.5 pt-0.5" @click.stop>
-        <UButton
-          block
-          size="xs"
-          :color="deleteConfirmKey === stackKeyOf(stack) ? 'error' : 'neutral'"
-          :variant="deleteConfirmKey === stackKeyOf(stack) ? 'solid' : 'soft'"
-          :icon="deleteConfirmKey === stackKeyOf(stack) ? 'i-lucide-alert-triangle' : 'i-lucide-trash-2'"
-          :label="deleteConfirmKey === stackKeyOf(stack) ? 'Confirm delete — no refund' : 'Delete'"
-          :loading="!!deleting[stackKeyOf(stack)]"
-          @click="onDeleteClick(stack, $event)"
-        />
+    <!-- ── Artifacts ─────────────────────────────────────────────────────── -->
+    <template v-else-if="activeTab === 'artifacts'">
+      <p class="text-xs text-(--xg-muted) shrink-0">
+        <template v-if="domain === 'grid'">Hold an artifact, then click a planter to fit it (a fitted one is swapped back to the shelf). One charge is used per harvest. Void seeds need a tier II+ artifact.</template>
+        <template v-else>Hold an artifact, then click a pod's artifact slot. One charge is used per breed.</template>
+      </p>
+      <div class="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 -mt-1 pt-1 pb-1">
+        <div v-if="!sortedArtifacts.length" class="xg-well py-10 px-4 text-center">
+          <UIcon name="i-lucide-gem" class="size-7 text-(--xg-faint) mx-auto" />
+          <p class="text-sm font-extrabold mt-2">No {{ domain === 'grid' ? 'planter' : 'pod' }} artifacts</p>
+          <p class="text-xs text-(--xg-muted) mt-1">Craft them from spare plants.</p>
+        </div>
+        <div v-else class="grid grid-cols-2 gap-2">
+          <div
+            v-for="s in sortedArtifacts"
+            :key="stackKeyOf(s)"
+            class="flex flex-col rounded-[14px_14px_14px_4px] border transition-colors"
+            :class="isStackSelected(s) ? 'border-(--xg-accent) bg-(--xg-accent-soft) shadow-[inset_0_0_0_1px_var(--xg-accent)]' : 'border-(--xg-edge) bg-(--xg-surface2) hover:border-(--xg-edge2)'"
+          >
+            <button
+              type="button"
+              class="flex flex-col gap-2 p-2.5 text-left"
+              :aria-pressed="isStackSelected(s)"
+              @click="onSelectStack(s)"
+            >
+              <span class="flex items-start justify-between gap-2">
+                <XenoArtifactGlyph :type-id="s.typeId" :gem-crafted="s.gemCrafted" :size="38" />
+                <span class="xg-q text-[13px]">×{{ s.count }}</span>
+              </span>
+              <span class="min-w-0">
+                <b class="block text-[12.5px] leading-tight truncate">{{ getArtifact(s.typeId)?.name }}</b>
+                <span class="block text-[11px] text-(--xg-muted) leading-snug mt-0.5">{{ artifactEffectSummary(s.typeId, s.gemCrafted) }}</span>
+              </span>
+              <span class="flex items-center gap-2">
+                <span class="xg-meter flex-1 !h-1"><span :style="{ width: `${Math.min(100, (s.chargesRemaining / maxCharges(s.typeId)) * 100)}%`, background: 'var(--xg-ink)' }" /></span>
+                <span class="text-[11px] font-bold xg-num text-(--xg-muted)">{{ s.chargesRemaining }}/{{ maxCharges(s.typeId) }}</span>
+              </span>
+            </button>
+            <div v-if="isStackSelected(s)" class="px-2.5 pb-2.5">
+              <XenoButton
+                size="xs"
+                block
+                :variant="deleteConfirmKey === stackKeyOf(s) ? 'danger' : 'ghost'"
+                :icon="deleteConfirmKey === stackKeyOf(s) ? 'i-lucide-triangle-alert' : 'i-lucide-trash-2'"
+                :label="deleteConfirmKey === stackKeyOf(s) ? `Delete ${s.count}, no refund` : 'Delete'"
+                :loading="!!deleting[stackKeyOf(s)]"
+                @click="onDeleteClick(s)"
+              />
+            </div>
+          </div>
+        </div>
+        <NuxtLink to="/xeno/artifacts" class="xg-link text-[13px] inline-block mt-3">Craft more in Artifacts</NuxtLink>
       </div>
-    </div>
+    </template>
   </div>
 </template>

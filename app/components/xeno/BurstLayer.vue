@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// Particle bursts + screen flashes, teleported to <body> so they escape any
-// overflow-hidden tile. Cosmetic only — Math.random() is fine here.
+import { getPlantDisplay } from '#shared/utils/xeno'
+
+// Small leaves drifting out of a harvested plot or a collected pod, teleported
+// to <body> so they escape any overflow-hidden tile. Cosmetic only.
 export interface XenoBurstParticle {
   id: number
   x: number
@@ -16,26 +18,31 @@ export interface XenoFlash {
   style: Record<string, string>
 }
 
+// Flashes are accepted for compatibility with useXenoFx but no longer drawn:
+// the redesign has no glow.
 defineProps<{
   particles: XenoBurstParticle[]
-  flashes: XenoFlash[]
+  flashes?: XenoFlash[]
 }>()
+
+function leafColor(p: XenoBurstParticle): string {
+  if (p.color) return p.color
+  if (p.plantId && p.id % 2 === 0) {
+    const tier = getPlantDisplay(p.plantId)?.tier
+    if (tier) return `var(--xg-t${Math.min(9, tier)})`
+  }
+  return 'var(--xg-accent)'
+}
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-for="f in flashes" :key="`f${f.id}`" class="xeno-flash" :style="f.style" />
-    <div
-      v-for="p in particles"
-      :key="p.id"
-      class="xeno-particle"
-      :style="{ left: `${p.x}px`, top: `${p.y}px`, ...p.style }"
-    >
-      <XenoPlantIcon v-if="p.plantId" :id="p.plantId" :size="p.size" />
+    <div class="xeno" aria-hidden="true">
       <span
-        v-else
-        class="block rounded-full"
-        :style="{ width: `${p.size}px`, height: `${p.size}px`, background: p.color ?? 'var(--ui-primary)', boxShadow: `0 0 ${p.size}px ${p.color ?? 'var(--ui-primary)'}` }"
+        v-for="p in particles"
+        :key="p.id"
+        class="xg-particle"
+        :style="{ 'left': `${p.x}px`, 'top': `${p.y}px`, '--c': leafColor(p), '--s': `${Math.round(Math.min(12, Math.max(7, p.size * 0.6)))}px`, ...p.style }"
       />
     </div>
   </Teleport>
