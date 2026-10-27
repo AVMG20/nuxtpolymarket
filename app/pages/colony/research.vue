@@ -67,7 +67,7 @@ function nodeClass(species: any, i: number) {
       </div>
       <div class="flex gap-3 flex-wrap">
         <div class="cl-inset px-3.5 py-2.5">
-          <p class="cl-eyebrow text-[10px]">
+          <p class="cl-eyebrow">
             Roll range
           </p>
           <p class="font-semibold text-[13px] flex items-center gap-1.5 mt-0.5">
@@ -76,7 +76,7 @@ function nodeClass(species: any, i: number) {
           </p>
         </div>
         <div class="cl-inset px-3.5 py-2.5">
-          <p class="cl-eyebrow text-[10px]">
+          <p class="cl-eyebrow">
             Levels done
           </p>
           <p class="cl-display cl-num text-xl font-semibold">
@@ -86,7 +86,7 @@ function nodeClass(species: any, i: number) {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <article
         v-for="species in research"
         :key="species.typeId"
@@ -189,8 +189,7 @@ function nodeClass(species: any, i: number) {
         <button
           v-if="!species.atMax"
           type="button"
-          class="cl-btn w-full mt-auto"
-          :class="balance >= (species.cost ?? 0) ? 'cl-btn-green' : 'cl-btn-ghost'"
+          class="cl-btn cl-btn-green w-full mt-auto"
           :disabled="balance < (species.cost ?? 0) || !!sacrificing"
           @click="handleSacrifice(species.typeId)"
         >

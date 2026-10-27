@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getArtifact, getEffectValueFor, getPlant, getPlantDisplay, plantStageForProgress } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/lib/xeno-format'
-import { artifactFamily, roman } from '~/lib/xeno-ui'
+import { artifactFamily, levelClass, roman } from '~/lib/xeno-ui'
 
 const props = defineProps<{
   cell: any
@@ -212,9 +212,9 @@ const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
           <XenoPlantIcon v-for="(r, i) in plant.resources" :key="i" :id="r.id" :size="12" class="max-sm:hidden" />
         </span>
         <span v-else-if="plant" class="xg-tag lv" :title="`Speed ${plant.speed} · Yield ${plant.yield}`">
-          <UIcon name="i-lucide-zap" class="ic size-3" /><span>{{ plant.speed }}</span>
+          <span class="inline-flex items-center gap-0.5" :class="levelClass(plant.speed)"><UIcon name="i-lucide-zap" class="size-3" />{{ plant.speed }}</span>
           <span class="sep" />
-          <UIcon name="i-lucide-droplet" class="ic size-3" /><span>{{ plant.yield }}</span>
+          <span class="inline-flex items-center gap-0.5" :class="levelClass(plant.yield)"><UIcon name="i-lucide-droplet" class="size-3" />{{ plant.yield }}</span>
         </span>
       </span>
 

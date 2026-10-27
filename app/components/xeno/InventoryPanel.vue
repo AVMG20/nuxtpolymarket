@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ARTIFACT_TYPES, getArtifact, getPlant, artifactStatRows } from '#shared/utils/xeno'
-import { artifactEffectSummary, roman, tierClass } from '~/lib/xeno-ui'
+import { artifactEffectSummary, levelClass, roman, tierClass } from '~/lib/xeno-ui'
 
 // The shelf: seed stacks and free artifacts as a grid of cards. Variants of
 // one species (different speed / yield) sit together under a small header.
@@ -354,11 +354,11 @@ const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
                   <XenoPlantIcon v-for="(r, i) in item.resources" :key="i" :id="r.id" :size="14" />
                 </span>
                 <span v-else class="grid grid-cols-2 divide-x divide-(--xg-edge) border-t border-(--xg-edge) text-[11.5px] xg-num">
-                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-muted)" title="Speed">
-                    <UIcon name="i-lucide-zap" class="size-3" /><b class="text-(--xg-ink)">{{ item.speed }}</b>
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(item.speed)" title="Speed">
+                    <UIcon name="i-lucide-zap" class="size-3" /><b>{{ item.speed }}</b>
                   </span>
-                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-muted)" title="Yield">
-                    <UIcon name="i-lucide-droplet" class="size-3" /><b class="text-(--xg-ink)">{{ item.yield }}</b>
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(item.yield)" title="Yield">
+                    <UIcon name="i-lucide-droplet" class="size-3" /><b>{{ item.yield }}</b>
                   </span>
                 </span>
               </button>

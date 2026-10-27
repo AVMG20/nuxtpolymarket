@@ -59,7 +59,7 @@ useHead({
 <template>
   <div class="colony-shell flex flex-col min-h-full">
     <header class="cl-header relative z-20 shrink-0">
-      <div class="flex items-center gap-3 px-4 py-2.5">
+      <div class="flex items-center gap-3 px-4 md:px-6 py-2.5">
         <NuxtLink
           to="/colony"
           class="flex items-center gap-2.5 shrink-0"

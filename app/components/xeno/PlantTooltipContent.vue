@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { effectiveGrowTime, getPlant } from '#shared/utils/xeno'
 import { formatDuration } from '~/lib/xeno-format'
+import { levelColor } from '~/lib/xeno-ui'
 
 const props = defineProps<{
   id?: string
@@ -54,8 +55,8 @@ const isVoid = computed(() => !!(props.id && getPlant(props.id)?.voidPlant))
 
     <template v-else>
       <div class="space-y-1.5">
-        <XenoStatLevel label="Speed" :level="speed" color="var(--xg-t3)" />
-        <XenoStatLevel label="Yield" :level="yield" color="var(--xg-t2)" />
+        <XenoStatLevel label="Speed" :level="speed" :color="levelColor(speed)" />
+        <XenoStatLevel label="Yield" :level="yield" :color="levelColor(yield)" />
       </div>
       <div class="xg-rule" />
       <div class="space-y-1 text-xs">

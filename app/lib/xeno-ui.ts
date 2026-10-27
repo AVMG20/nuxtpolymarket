@@ -15,6 +15,16 @@ export const TIER_NAMES: Record<number, string> = {
   6: 'Ethereal', 7: 'Singularity', 8: 'Transcendent', 9: 'Omega'
 }
 
+/** Colour class for a speed or yield level (`lv0`-`lv9`), grey up to blue. */
+export function levelClass(level: number): string {
+  return `lv${Math.min(9, Math.max(0, Math.round(level)))}`
+}
+
+/** The same level colour as a CSS value, for inline fills. */
+export function levelColor(level: number): string {
+  return `var(--xg-${levelClass(level)})`
+}
+
 /** Marker class for a tier leaf (`t1`-`t9`), violet for void plants. */
 export function tierClass(tier: number, isVoid = false): string {
   return isVoid ? 'tv' : `t${Math.min(9, Math.max(1, tier))}`

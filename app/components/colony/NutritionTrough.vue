@@ -60,8 +60,8 @@ const tone = {
 } as const
 
 const feedClass = computed(() => {
-  if (status.value === 'starving') return 'cl-btn-red cl-btn-pulse'
-  if (low.value) return 'cl-btn-gold cl-btn-pulse'
+  if (status.value === 'starving') return 'cl-btn-red'
+  if (low.value) return 'cl-btn-gold'
   return 'cl-btn-green'
 })
 </script>
@@ -131,7 +131,7 @@ const feedClass = computed(() => {
             aria-hidden="true"
           ><path
             d="M6 3h12l4 6-10 12L2 9z"
-            fill="#04213a"
+            fill="currentColor"
             opacity=".85"
           /></svg>
           <span class="hidden sm:inline">Gem feed ·</span>

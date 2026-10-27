@@ -131,7 +131,7 @@ function perCycle(): string {
             </dd>
           </div>
         </dl>
-        <p class="text-[11.5px] text-muted">
+        <p class="text-xs text-muted">
           Tap to send it back to the Burrow.
         </p>
       </div>
@@ -155,7 +155,7 @@ function perCycle(): string {
       >
         <span class="cl-bug-tier">T{{ bug.tier }}</span>
         <span
-          class="cl-bug-qty text-[11px] cl-num"
+          class="cl-bug-qty cl-num"
           :class="starving && 'text-red-300'"
         >{{ countdown }}</span>
         <span class="cl-bug-art h-[70px] sm:h-20">
@@ -187,7 +187,7 @@ function perCycle(): string {
           <span class="cl-bug-emoji text-[28px] sm:text-[32px]">{{ bug.emoji }}</span>
         </span>
         <span class="cl-bug-name text-[13px] sm:text-sm">{{ bug.name }}</span>
-        <span class="flex justify-center gap-1.5 mt-0.5 text-[11.5px] font-semibold cl-num">
+        <span class="flex justify-center gap-1.5 mt-0.5 text-xs font-semibold cl-num">
           <span>{{ bug.itemEmoji }} {{ perCycle() }}</span>
           <span
             v-if="socialPct !== 0"
@@ -211,7 +211,7 @@ function perCycle(): string {
       <button
         v-if="!prestige && !pending"
         type="button"
-        class="absolute z-[4] top-7 right-1.5 flex items-center justify-center gap-1 h-6 min-w-6 px-1 rounded-lg text-[11px] font-semibold transition-all"
+        class="absolute z-[4] top-8 right-1.5 flex items-center justify-center gap-1 h-6 min-w-6 px-1 rounded-lg text-xs font-semibold transition-colors"
         :class="armed
           ? 'bg-red-500 text-white'
           : 'bg-black/45 text-muted hover:bg-red-500/80 hover:text-white sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100'"

@@ -59,8 +59,6 @@
   }
 
   .colony-shell {
-    /* Height of the phone bottom nav: 52px tabs + 4px top padding + the safe-area-aware bottom padding. */
-    --cl-bottom-nav-h: calc(3.5rem + max(0.5rem, env(safe-area-inset-bottom)));
     position: relative;
     isolation: isolate;
     font-size: 14px;
@@ -68,6 +66,8 @@
       radial-gradient(ellipse 60% 320px at 50% -140px, rgba(245, 185, 74, 0.07), transparent 70%),
       var(--soil-1);
   }
+  .colony-shell .no-scrollbar { scrollbar-width: none; }
+  .colony-shell .no-scrollbar::-webkit-scrollbar { display: none; }
   .colony-shell button:not(:disabled):not([aria-disabled='true']),
   .colony-shell [role='button']:not([aria-disabled='true']),
   .colony-shell a[href] { cursor: pointer; }
@@ -118,7 +118,7 @@
     height: 18px;
     padding: 0 5px;
     border-radius: 9px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     line-height: 1;
     color: #2a1a05;
@@ -138,7 +138,7 @@
     align-content: center;
     gap: 2px;
     min-height: 52px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--cl-muted);
   }
@@ -185,7 +185,6 @@
   /* ── Buttons: flat, Nuxt UI-like, warm accents ────────────────────────── */
   .colony-shell .cl-btn,
   .cl-theme .cl-btn {
-    --pulse: rgba(245, 185, 74, 0.35);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -207,25 +206,31 @@
   .colony-shell .cl-btn:focus-visible,
   .cl-theme .cl-btn:focus-visible { outline: 2px solid var(--cl-gold); outline-offset: 2px; }
   .colony-shell .cl-btn-green,
-  .cl-theme .cl-btn-green { --pulse: rgba(74, 222, 128, 0.35); color: #052e16; background: #4cc47a; }
+  .cl-theme .cl-btn-green { color: #052e16; background: #4cc47a; }
   .colony-shell .cl-btn-gold,
   .cl-theme .cl-btn-gold { color: #2a1a05; background: var(--cl-gold); }
   .colony-shell .cl-btn-gem,
-  .cl-theme .cl-btn-gem { --pulse: rgba(56, 189, 248, 0.35); color: #04213a; background: #4bb8e8; }
+  .cl-theme .cl-btn-gem { color: #04213a; background: #4bb8e8; }
   .colony-shell .cl-btn-red,
-  .cl-theme .cl-btn-red { --pulse: rgba(248, 113, 113, 0.4); color: #3b0707; background: #ef7676; }
+  .cl-theme .cl-btn-red { color: #3b0707; background: #ef7676; }
   .colony-shell .cl-btn-ghost,
   .cl-theme .cl-btn-ghost { background: rgba(255, 236, 210, 0.05); border-color: var(--cl-line-strong); }
   .colony-shell .cl-btn-ghost:hover:not(:disabled),
   .cl-theme .cl-btn-ghost:hover:not(:disabled) { filter: none; background: rgba(255, 236, 210, 0.09); }
   .colony-shell .cl-btn-sm,
   .cl-theme .cl-btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 9px; }
-  .colony-shell .cl-btn-xs { min-height: 28px; padding: 0 8px; font-size: 12px; border-radius: 8px; }
+  .colony-shell .cl-btn-xs { min-height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+  /* Disabled reads as switched off: no colour, a flat well and dimmed text,
+     so it never passes for a muted variant of an enabled button. */
   .colony-shell .cl-btn:disabled,
-  .cl-theme .cl-btn:disabled { cursor: not-allowed; opacity: 0.45; filter: saturate(0.4); }
-  /* Something is waiting on the player: a soft ring breathes around the button. */
-  .colony-shell .cl-btn-pulse:not(:disabled) { animation: cl-breathe 2.4s ease-in-out infinite; }
-  @keyframes cl-breathe { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 4px var(--pulse); } }
+  .cl-theme .cl-btn:disabled {
+    cursor: not-allowed;
+    color: var(--cl-dim);
+    background: rgba(255, 236, 210, 0.03);
+    border-color: var(--cl-line);
+    border-style: dashed;
+    filter: grayscale(1);
+  }
 
   /* ── Segmented tabs ───────────────────────────────────────────────────── */
   .colony-shell .cl-seg { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--cl-line); }
@@ -272,8 +277,7 @@
     background: var(--cl-gem);
     transition: left 0.8s cubic-bezier(0.2, 0.9, 0.3, 1), width 0.8s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
-  .colony-shell .cl-tank-empty { border-color: rgba(248, 113, 113, 0.55); animation: cl-alarm 2s ease-in-out infinite; }
-  @keyframes cl-alarm { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18); } }
+  .colony-shell .cl-tank-empty { border-color: rgba(248, 113, 113, 0.55); }
   .colony-shell .cl-food-orb {
     display: grid;
     place-items: center;
@@ -353,7 +357,6 @@
 
   /* ── Loot chest ───────────────────────────────────────────────────────── */
   .colony-shell .cl-chest { position: relative; display: grid; place-items: center; transition: filter 0.3s, opacity 0.3s; }
-  .colony-shell .cl-chest-ready { filter: drop-shadow(0 0 14px rgba(245, 185, 74, 0.35)); }
   .colony-shell .cl-count-bubble {
     position: absolute;
     top: -4px;
@@ -386,11 +389,10 @@
     border-radius: 12px;
     background: var(--soil-2);
     border: 1px solid color-mix(in srgb, var(--tc) 22%, var(--cl-line));
-    transition: transform 0.15s, border-color 0.15s, background 0.15s, filter 0.3s;
+    transition: border-color 0.15s, background 0.15s, filter 0.3s;
     overflow: hidden;
   }
   .colony-shell .cl-bug-hover:hover:not([aria-disabled='true']) {
-    transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--tc) 50%, transparent);
     background: var(--soil-3);
   }
@@ -404,7 +406,7 @@
     padding: 1px 6px;
     border-radius: 6px;
     font-weight: 600;
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
     color: var(--tc);
     background: color-mix(in srgb, var(--tc) 14%, transparent);
@@ -417,10 +419,10 @@
     padding: 1px 6px;
     border-radius: 6px;
     font-weight: 600;
-    font-size: 11.5px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
-    color: var(--cl-muted);
-    background: rgba(255, 236, 210, 0.06);
+    color: var(--ui-text-toned);
+    background: rgba(255, 236, 210, 0.07);
   }
   .colony-shell .cl-bug-art { position: relative; display: grid; place-items: center; height: 64px; margin-top: 14px; }
   .colony-shell .cl-bug-emoji {
@@ -454,7 +456,7 @@
     gap: 3px;
     min-width: 0;
     padding: 5px 0;
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -518,7 +520,7 @@
     gap: 4px;
     padding: 6px;
     background: rgba(17, 13, 10, 0.86);
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--cl-muted);
     text-align: center;
@@ -529,11 +531,52 @@
     background: rgba(245, 185, 74, 0.05);
     border: 1px solid rgba(245, 185, 74, 0.22);
   }
-  .colony-shell .cl-release-dock {
-    background: var(--soil-3);
-    border: 1px solid rgba(245, 185, 74, 0.3);
-    box-shadow: 0 -8px 20px -14px #000;
+  /* The Spare toolbar keeps one frame in both modes, so switching to
+     release mode recolours it instead of moving the cards below. */
+  .colony-shell .cl-toolbar { border-radius: 12px; padding: 10px; border: 1px solid var(--cl-line); background: rgba(0, 0, 0, 0.12); }
+  .colony-shell .cl-toolbar-release { background: rgba(245, 185, 74, 0.05); border-color: rgba(245, 185, 74, 0.3); }
+
+  /* Typed amount: [−] [input] [+] with an optional Max. */
+  .colony-shell .cl-qty {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid var(--cl-line-strong);
+    background: rgba(0, 0, 0, 0.22);
+    overflow: hidden;
   }
+  .colony-shell .cl-qty:focus-within { border-color: rgba(245, 185, 74, 0.6); }
+  .colony-shell .cl-qty-btn {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 100%;
+    color: var(--cl-muted);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .colony-shell .cl-qty-btn:hover:not(:disabled) { color: var(--cl-text); background: rgba(255, 236, 210, 0.06); }
+  .colony-shell .cl-qty-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .colony-shell .cl-qty-max { width: auto; padding: 0 9px; font-size: 12px; border-left: 1px solid var(--cl-line); }
+  .colony-shell .cl-qty-input {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0 4px;
+    background: transparent;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--cl-text);
+    outline: none;
+  }
+  .colony-shell .cl-qty-input:disabled { color: var(--cl-dim); cursor: not-allowed; }
+  .colony-shell .cl-qty-hint { flex: 0 0 auto; padding-right: 6px; font-size: 11.5px; font-weight: 500; color: var(--cl-muted); font-variant-numeric: tabular-nums; }
 
   /* Placed bug: production ring */
   .colony-shell .cl-ring { position: absolute; transform: rotate(-90deg); pointer-events: none; }
@@ -587,10 +630,9 @@
   .colony-shell .cl-cost-ok { color: var(--cl-text); }
   .colony-shell .cl-cost-met { color: #86efac; border-color: rgba(74, 222, 128, 0.25); }
   .colony-shell .cl-cost-short { color: var(--cl-danger); border-color: rgba(248, 113, 113, 0.3); }
-  /* Ready to collect: a green border that breathes softly. */
-  .colony-shell .cl-ready-glow { border-color: rgba(74, 222, 128, 0.45); animation: cl-ready 2.6s ease-in-out infinite; }
-  @keyframes cl-ready { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 18px -6px rgba(74, 222, 128, 0.45); } }
-  .colony-shell .cl-you-glow { border-color: rgba(245, 185, 74, 0.4); }
+  /* Ready to collect: a steady green border. */
+  .colony-shell .cl-ready { border-color: rgba(74, 222, 128, 0.5); background: color-mix(in srgb, var(--cl-green) 5%, var(--soil-2)); }
+  .colony-shell .cl-you { border-color: rgba(245, 185, 74, 0.4); }
 
   /* Research skill path */
   .colony-shell .cl-node {
@@ -682,9 +724,6 @@
 
   /* ── Reduced motion: no loops or movement, the state colours stay ─────── */
   @media (prefers-reduced-motion: reduce) {
-    .colony-shell .cl-btn-pulse:not(:disabled),
-    .colony-shell .cl-tank-empty,
-    .colony-shell .cl-ready-glow,
     .colony-shell .cl-dialog,
     .colony-shell .cl-scrim,
     .colony-shell .cl-pop-in,
@@ -694,8 +733,7 @@
     .colony-shell .cl-bug,
     .colony-shell .cl-bug-emoji { transition: none; }
     .colony-shell .cl-btn:active:not(:disabled),
-    .cl-theme .cl-btn:active:not(:disabled),
-    .colony-shell .cl-bug-hover:hover:not([aria-disabled='true']) { transform: none; }
+    .cl-theme .cl-btn:active:not(:disabled) { transform: none; }
     /* Floating "+N" pops stay put and just fade, instead of rising. */
     .colony-shell .cl-float { transform: translate(-50%, -16px); animation: cl-fadeout 1.7s ease-out forwards; }
   }
