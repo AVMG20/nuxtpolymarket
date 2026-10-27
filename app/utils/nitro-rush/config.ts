@@ -64,7 +64,6 @@ export const NITRO_TOP_SPEED_MULT = 1.2
 /** Nitro earned per second of drift, banked when the drift ends. */
 export const NITRO_PER_DRIFT_SECOND = 0.16
 
-export const RACE_LAPS = 3
 export const COUNTDOWN_SECONDS = 3
 
 /** Displayed km/h per m/s. */

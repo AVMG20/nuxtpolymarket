@@ -4,7 +4,7 @@ import {
     HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
     ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
-import { wrapAngle, type Projection, type Track } from './track'
+import { wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -80,10 +80,14 @@ export function slipAngle(car: CarState) {
     return wrapAngle(car.heading - car.travel)
 }
 
+/** The body's angle to the track, not the slip: a bounce turns the travel but not the car. */
+function bodyAngle(car: CarState) {
+    return wrapAngle(car.heading - Math.atan2(-car.proj.tx, -car.proj.tz))
+}
+
 /** The widest the car can sit off the centreline before its corner touches the wall; angled bodies reach further. */
 export function wallLimit(track: Track, car: CarState) {
-    // The body's angle to the track, not the slip: a bounce turns the travel but not the car.
-    const angle = wrapAngle(car.heading - Math.atan2(-car.proj.tx, -car.proj.tz))
+    const angle = bodyAngle(car)
     const reach = CAR_HALF_WIDTH * Math.abs(Math.cos(angle)) + CAR_HALF_LENGTH * Math.abs(Math.sin(angle))
     return track.wallOffset - reach
 }
@@ -164,34 +168,55 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     if (Math.abs(p.lateral) > limit) {
         const side = Math.sign(p.lateral)
         // Inward normal: away from the wall, toward the centreline.
-        const nx = p.tz * side
-        const nz = -p.tx * side
-        const push = Math.abs(p.lateral) - limit
-        car.x += nx * push
-        car.z += nz * push
+        hitBarrier(car, ev, p.tz * side, -p.tx * side, Math.abs(p.lateral) - limit)
         p.lateral = side * limit
-        let vx = car.speed * -Math.sin(car.travel)
-        let vz = car.speed * -Math.cos(car.travel)
-        const vn = vx * nx + vz * nz
-        if (vn < 0) {
-            const impact = -vn
-            ev.wallImpact = impact
-            vx -= (1 + WALL_RESTITUTION) * vn * nx
-            vz -= (1 + WALL_RESTITUTION) * vn * nz
-            const along = vx * p.tx + vz * p.tz
-            const across = vx * nx + vz * nz
-            const kept = Math.max(0, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
-            vx = p.tx * along * kept + nx * across
-            vz = p.tz * along * kept + nz * across
-            // A car hitting sideways keeps rolling the way it was going; grip then swings the nose round.
-            const speed = Math.hypot(vx, vz)
-            const forward = car.speed >= 0
-            car.speed = forward ? speed : -speed
-            if (speed > 0.01) car.travel = forward ? Math.atan2(-vx, -vz) : Math.atan2(vx, vz)
-            if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
+    }
+    // ── End barriers across an open course ──
+    if (!track.closed) {
+        const reach = endReach(car)
+        if (p.s < reach) {
+            hitBarrier(car, ev, p.tx, p.tz, reach - p.s)
+            p.s = reach
+        } else if (p.s > track.length - reach) {
+            hitBarrier(car, ev, -p.tx, -p.tz, p.s - (track.length - reach))
+            p.s = track.length - reach
         }
     }
     return ev
+}
+
+/** How far the body reaches along the track from its centre, for the end barriers. */
+function endReach(car: CarState) {
+    const angle = bodyAngle(car)
+    return CAR_HALF_LENGTH * Math.abs(Math.cos(angle)) + CAR_HALF_WIDTH * Math.abs(Math.sin(angle))
+}
+
+/** Pushes the car `push` metres out along the barrier's normal (n points away from it) and bounces it off. */
+function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push: number) {
+    car.x += nx * push
+    car.z += nz * push
+    let vx = car.speed * -Math.sin(car.travel)
+    let vz = car.speed * -Math.cos(car.travel)
+    const vn = vx * nx + vz * nz
+    if (vn >= 0) return
+    const impact = -vn
+    ev.wallImpact = Math.max(ev.wallImpact, impact)
+    vx -= (1 + WALL_RESTITUTION) * vn * nx
+    vz -= (1 + WALL_RESTITUTION) * vn * nz
+    // Along the barrier's face, which is the normal turned a quarter.
+    const tx = -nz
+    const tz = nx
+    const along = vx * tx + vz * tz
+    const across = vx * nx + vz * nz
+    const kept = Math.max(0, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
+    vx = tx * along * kept + nx * across
+    vz = tz * along * kept + nz * across
+    // A car hitting sideways keeps rolling the way it was going; grip then swings the nose round.
+    const speed = Math.hypot(vx, vz)
+    const forward = car.speed >= 0
+    car.speed = forward ? speed : -speed
+    if (speed > 0.01) car.travel = forward ? Math.atan2(-vx, -vz) : Math.atan2(vx, vz)
+    if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
 }
 
 function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
@@ -224,6 +249,8 @@ export function botInput(car: CarState, track: Track, pace = 1): CarInput {
         const corner = Math.sqrt(GRIP_LATERAL * 0.9 / k) * pace
         allowed = Math.min(allowed, Math.sqrt(corner * corner + 2 * BRAKE_DECEL * 0.7 * d))
     }
+    // On an open course it pulls up before the end barrier.
+    if (!track.closed) allowed = Math.min(allowed, Math.sqrt(2 * BRAKE_DECEL * 0.7 * Math.max(0, track.length - 12 - car.proj.s)))
     allowed = Math.min(allowed, ENGINE_TOP_SPEED * pace)
     // It only lifts mid-bend: braking with the wheel turned would throw it into a drift.
     const braking = v > allowed + 2 && Math.abs(steer) < DRIFT_STEER_THRESHOLD

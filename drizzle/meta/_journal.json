@@ -449,6 +449,13 @@
       "when": 1793027505512,
       "tag": "0063_rare_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1793141572677,
+      "tag": "0064_nervous_james_howlett",
+      "breakpoints": true
     }
   ]
 }

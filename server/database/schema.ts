@@ -2662,3 +2662,18 @@ export const deadFrontProfile = pgTable('dead_front_profile', {
   eggsCompleted: integer('eggs_completed').notNull().default(0),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
+
+// Nitro Rush: each player's best single lap per course. The unique key is the
+// one-entry-per-player rule, so a lap is an upsert that only ever lowers it.
+export const nitroRushLaps = pgTable('nitro_rush_laps', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `TRACKS` id from `shared/utils/nitro-rush/track.ts`. */
+  trackId: text('track_id').notNull(),
+  lapMs: integer('lap_ms').notNull(),
+  /** When the current best was set: an equal time ranks behind whoever got there first. */
+  setAt: timestamp('set_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_laps_user_track_idx').on(t.userId, t.trackId),
+  index('nitro_rush_laps_track_lap_idx').on(t.trackId, t.lapMs)
+])

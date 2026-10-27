@@ -7,7 +7,7 @@ import {
     BILLBOARD_ADS, bannerTexture, billboardTexture, checkerTexture, concreteTexture, FACADE_TILE, facadeTextures, kerbTexture,
     PUDDLE_TILE_LENGTH, radialTexture, roadTextures, ROAD_TILE_LENGTH, skylineTexture, type FacadeKind
 } from './textures'
-import type { Track } from './track'
+import type { Track } from '#shared/utils/nitro-rush/track'
 
 /**
  * The circuit and everything around it, built once from the track's
@@ -161,10 +161,11 @@ function ribbon(track: Track, from: number, to: number, latA: number, latB: numb
         }
     }
     push(from)
-    const base = from - track.wrapS(from)
-    for (let k = track.segmentAt(from) + 1; ; k++) {
+    const closed = track.closed
+    const base = closed ? from - track.wrapS(from) : 0
+    for (let k = track.segmentAt(from) + 1; closed || k < track.n; k++) {
         const i = k % track.n
-        const s = base + track.cum[i]! + Math.floor(k / track.n) * track.length
+        const s = base + track.cum[i]! + (closed ? Math.floor(k / track.n) * track.length : 0)
         if (s >= to - 1e-6) break
         if (s > from + 1e-6) push(s, i)
     }
@@ -189,7 +190,7 @@ function ribbon(track: Track, from: number, to: number, latA: number, latB: numb
     return g
 }
 
-/** A profile swept round the whole lap, `profile` as [toward-the-track, height] pairs from the outer foot. */
+/** A profile swept down the whole course, `profile` as [toward-the-track, height] pairs from the outer foot. */
 function sweep(track: Track, side: number, offset: number, profile: [number, number][]) {
     const pos: number[] = []
     const uv: number[] = []
@@ -201,7 +202,8 @@ function sweep(track: Track, side: number, offset: number, profile: [number, num
         const [a1, y1] = profile[e + 1]!
         const edge = Math.hypot(a1 - a0, y1 - y0)
         const start = pos.length / 3
-        for (let i = 0; i <= n; i++) {
+        // A loop's last vertex repeats the first so the seam closes; an open course stops at its last point.
+        for (let i = 0; i <= (track.closed ? n : n - 1); i++) {
             const k = i % n
             const s = i === n ? track.length : track.cum[k]!
             for (const [a, y] of [[a0, y0], [a1, y1]] as const) {
@@ -360,7 +362,9 @@ export class World {
         }
         const checker = own(checkerTexture())
         checker.wrapT = THREE.RepeatWrapping
-        add(ribbon(track, -1.2, 1.2, -hw, hw, 0.016, 2.4), own(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 })))
+        const checkerMat = own(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }))
+        const lines = track.closed ? [track.startS] : [track.startS, track.finishS]
+        for (const at of lines) add(ribbon(track, at - 1.2, at + 1.2, -hw, hw, 0.016, 2.4), checkerMat)
 
         // ── Concrete walls with a neon band on the track side ──
         const concrete = own(concreteTexture(150))
@@ -371,6 +375,26 @@ export class World {
         // A flat sweep stood just off the sloped face; outside is pink, inside cyan.
         for (const side of [-1, 1]) {
             add(sweep(track, side, wall + 0.16, [[0, 0.46], [-0.03, 0.72]]),own(new THREE.MeshBasicMaterial({ color: side > 0 ? 0xff2bd6 : 0x3df2ff, side: THREE.DoubleSide })))
+        }
+        // An open course is closed off at both ends by the same wall, run straight across.
+        if (!track.closed) {
+            const span = (wall + WALL_BASE_HALF * 2) * 2
+            const barrierGeo = own(new THREE.BoxGeometry(span, 0.86, WALL_BASE_HALF * 2).translate(0, 0.43, 0))
+            const bandGeo = own(new THREE.PlaneGeometry(span - 1.3, 0.26))
+            const bandMat = own(new THREE.MeshBasicMaterial({ color: 0xffd23d, side: THREE.DoubleSide }))
+            for (const end of [0, L]) {
+                const p = track.pointAt(end)
+                // The barrier's face sits at the very end of the line; its body lies outside the course.
+                const out = end === 0 ? -1 : 1
+                const g = new THREE.Group()
+                g.position.set(p.x + p.tx * out * WALL_BASE_HALF, 0, p.z + p.tz * out * WALL_BASE_HALF)
+                g.rotation.y = Math.atan2(-p.tx, -p.tz)
+                g.add(new THREE.Mesh(barrierGeo, wallMat))
+                const band = new THREE.Mesh(bandGeo, bandMat)
+                band.position.set(0, 0.6, out * (WALL_BASE_HALF + 0.02))
+                g.add(band)
+                this.group.add(g)
+            }
         }
 
         // ── Floodlights on the walls, arms out over the track ──
@@ -417,45 +441,56 @@ export class World {
             }
         }
 
-        // ── Start gantry: posts, beam, banners and the five start lights ──
-        const start = track.pointAt(0)
-        const gantry = new THREE.Group()
-        gantry.position.set(start.x, 0, start.z)
-        gantry.rotation.y = Math.atan2(-start.tx, -start.tz)
+        // ── Gantries over the line: posts, beam, banners, and on the start one the five lights ──
         const steel = own(new THREE.MeshStandardMaterial({ color: 0x80848c, roughness: 0.4, metalness: 0.85 }))
         const postGeo = own(new THREE.BoxGeometry(0.6, 9, 0.6).translate(0, 4.5, 0))
-        for (const side of [-1, 1]) {
-            const post = new THREE.Mesh(postGeo, steel)
-            post.position.x = side * (wall + 1.2)
-            gantry.add(post)
-        }
-        const beam = new THREE.Mesh(own(new THREE.BoxGeometry((wall + 1.2) * 2 + 0.6, 2.6, 0.8)), steel)
-        beam.position.y = 8.2
-        gantry.add(beam)
-        const banner = own(bannerTexture('NITRO RUSH', 'POLYTOWN OVAL · START / FINISH'))
-        const bannerMat = own(new THREE.MeshStandardMaterial({ map: banner, emissiveMap: banner, emissive: 0xffffff, emissiveIntensity: 1.2, roughness: 0.5 }))
+        const beamGeo = own(new THREE.BoxGeometry((wall + 1.2) * 2 + 0.6, 2.6, 0.8))
         const bannerGeo = own(new THREE.PlaneGeometry(10, 2.5))
-        for (const face of [1, -1]) {
-            const b = new THREE.Mesh(bannerGeo, bannerMat)
-            b.position.set(face * -3.5, 8.2, face * 0.41)
-            if (face < 0) b.rotation.y = Math.PI
-            gantry.add(b)
-        }
         const lightGeo = own(new THREE.CylinderGeometry(0.32, 0.32, 0.15, 20).rotateX(Math.PI / 2))
-        for (let i = 0; i < START_LIGHTS; i++) {
-            const mat = own(new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff1a1a, emissiveIntensity: 0 }))
-            this.startLights.push(mat)
-            const l = new THREE.Mesh(lightGeo, mat)
-            l.position.set(3 + i * 0.95, 8.2, 0.45)
-            gantry.add(l)
+        const name = track.def.name.toUpperCase()
+        const buildGantry = (at: number, sub: string, lights: boolean) => {
+            const p = track.pointAt(at)
+            const g = new THREE.Group()
+            g.position.set(p.x, 0, p.z)
+            g.rotation.y = Math.atan2(-p.tx, -p.tz)
+            for (const side of [-1, 1]) {
+                const post = new THREE.Mesh(postGeo, steel)
+                post.position.x = side * (wall + 1.2)
+                g.add(post)
+            }
+            const beam = new THREE.Mesh(beamGeo, steel)
+            beam.position.y = 8.2
+            g.add(beam)
+            const banner = own(bannerTexture('NITRO RUSH', `${name} · ${sub}`))
+            const bannerMat = own(new THREE.MeshStandardMaterial({ map: banner, emissiveMap: banner, emissive: 0xffffff, emissiveIntensity: 1.2, roughness: 0.5 }))
+            for (const face of [1, -1]) {
+                const b = new THREE.Mesh(bannerGeo, bannerMat)
+                b.position.set(face * (lights ? -3.5 : 0), 8.2, face * 0.41)
+                if (face < 0) b.rotation.y = Math.PI
+                g.add(b)
+            }
+            if (lights) {
+                for (let i = 0; i < START_LIGHTS; i++) {
+                    const mat = own(new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff1a1a, emissiveIntensity: 0 }))
+                    this.startLights.push(mat)
+                    const l = new THREE.Mesh(lightGeo, mat)
+                    l.position.set(3 + i * 0.95, 8.2, 0.45)
+                    g.add(l)
+                }
+            }
+            this.group.add(g)
+            return g
         }
-        this.group.add(gantry)
+        const gantry = buildGantry(track.startS, track.closed ? 'START / FINISH' : 'START', true)
+        if (!track.closed) buildGantry(track.finishS, 'FINISH', false)
 
         // ── Grandstand down the outside of the main straight, with a crowd ──
         const stand = new THREE.Group()
         stand.position.copy(gantry.position)
         stand.rotation.y = gantry.rotation.y
         const standLen = 220
+        // On a sprint it runs from just behind the start line forward, never out past the start barrier.
+        if (!track.closed) stand.translateZ(-(standLen / 2 - track.startS + 6))
         const rows = 10
         const standMat = own(new THREE.MeshStandardMaterial({ map: concrete, color: 0x7a7874, roughness: 0.9 }))
         const stepGeos: THREE.BufferGeometry[] = []
@@ -539,7 +574,7 @@ export class World {
         const wallsByKind: THREE.BufferGeometry[][] = kinds.map(() => [])
         const roofs: THREE.BufferGeometry[] = []
         const beaconSpots: THREE.Vector3[] = []
-        const toStand = new THREE.Matrix4().makeRotationY(gantry.rotation.y).setPosition(gantry.position).invert()
+        const toStand = new THREE.Matrix4().makeRotationY(stand.rotation.y).setPosition(stand.position).invert()
         const local = new THREE.Vector3()
         const proj = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1 }
         const CELL = 36

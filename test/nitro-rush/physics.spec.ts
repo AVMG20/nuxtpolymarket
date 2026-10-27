@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ, RACE_LAPS } from '../../app/utils/nitro-rush/config'
+import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botInput, createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
-import { LapTimer, ovalTrack, Track, type LapEvent } from '../../app/utils/nitro-rush/track'
+import { LapTimer, ovalTrack, Track, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 const track = new Track(ovalTrack())
 const DT = 1 / PHYSICS_HZ
 const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, ...o })
+
+/** An 800 m point-to-point sprint with a gentle S in it. */
+function sprintDef(): TrackDef {
+    const points: [number, number][] = []
+    for (let z = 0; z >= -800; z -= 2) points.push([Math.sin(-z / 800 * Math.PI * 2) * 30, z])
+    return { id: 'test-sprint', name: 'Test Sprint', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 }
+}
+const sprint = new Track(sprintDef())
 
 describe('car physics', () => {
     it('reaches 100 km/h in a few seconds and tops out below the engine limit', () => {
@@ -121,22 +129,65 @@ describe('car physics', () => {
 })
 
 describe('demo bot', () => {
-    it('finishes a race cleanly with laps in a sane window', () => {
+    it('laps the oval cleanly, lap after lap, with laps in a sane window', () => {
         const car = createCar(track, -14)
-        const timer = new LapTimer(track.length, RACE_LAPS, -14)
+        const timer = new LapTimer(track.lapLength, true, -14)
         const events: LapEvent[] = []
         let hits = 0
-        for (let i = 0; i < PHYSICS_HZ * 180 && !timer.finished; i++) {
+        for (let i = 0; i < PHYSICS_HZ * 180 && timer.lap < 4; i++) {
             if (stepCar(car, botInput(car, track), track, DT).wallImpact > 0) hits++
             events.push(...timer.update(car.proj.s, DT))
         }
-        expect(timer.finished).toBe(true)
+        expect(timer.finished).toBe(false)
         expect(hits).toBe(0)
         const laps = events.filter(e => e.type === 'lap').map(e => e.time)
-        expect(laps).toHaveLength(RACE_LAPS)
+        expect(laps).toHaveLength(4)
         for (const t of laps) {
             expect(t).toBeGreaterThan(18)
             expect(t).toBeLessThan(30)
         }
+        // Flying laps match: nothing carries over from one lap into the next.
+        expect(laps[3]).toBeCloseTo(laps[2]!, 1)
+    })
+
+    it('runs a sprint from the grid to the finish, then pulls up before the end barrier', () => {
+        const car = createCar(sprint, sprint.startS - 14)
+        const timer = new LapTimer(sprint.lapLength, false, -14)
+        const laps: number[] = []
+        let hits = 0
+        for (let i = 0; i < PHYSICS_HZ * 60; i++) {
+            if (stepCar(car, botInput(car, sprint), sprint, DT).wallImpact > 0) hits++
+            for (const e of timer.update(car.proj.s - sprint.startS, DT)) if (e.type === 'lap') laps.push(e.time)
+        }
+        expect(laps).toHaveLength(1)
+        expect(timer.finished).toBe(true)
+        expect(laps[0]).toBeGreaterThan(sprint.minLapSeconds)
+        expect(laps[0]).toBeLessThan(40)
+        expect(hits).toBe(0)
+        expect(car.speed).toBeLessThan(1)
+        expect(car.proj.s).toBeGreaterThan(sprint.finishS)
+        expect(car.proj.s).toBeLessThan(sprint.length)
+    })
+})
+
+describe('open course barriers', () => {
+    it('stops a car driven flat out into the far end', () => {
+        const car = createCar(sprint, sprint.finishS)
+        car.speed = 60
+        let impact = 0
+        for (let i = 0; i < PHYSICS_HZ * 6; i++) {
+            impact = Math.max(impact, stepCar(car, input({ throttle: 1 }), sprint, DT).wallImpact)
+            expect(car.proj.s).toBeLessThanOrEqual(sprint.length - 0.9)
+        }
+        expect(impact).toBeGreaterThan(30)
+    })
+
+    it('stops a car reversing out past the start', () => {
+        const car = createCar(sprint, 10)
+        for (let i = 0; i < PHYSICS_HZ * 6; i++) {
+            stepCar(car, input({ brake: 1 }), sprint, DT)
+            expect(car.proj.s).toBeGreaterThanOrEqual(0.9)
+        }
+        expect(car.speed).toBeLessThanOrEqual(0)
     })
 })

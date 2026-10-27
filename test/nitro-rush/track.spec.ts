@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatLapTime, LapTimer, ovalTrack, Track } from '../../app/utils/nitro-rush/track'
+import { findTrack, formatLapTime, LapTimer, ovalTrack, Track, TRACKS } from '#shared/utils/nitro-rush/track'
 
 const oval = new Track(ovalTrack())
 
@@ -35,6 +35,42 @@ describe('oval track', () => {
     })
 })
 
+describe('open course', () => {
+    const points: [number, number][] = Array.from({ length: 401 }, (_, i) => [0, -i * 2])
+    const sprint = new Track({ id: 'straight', name: 'Straight', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 })
+
+    it('measures end to end without closing back to the start', () => {
+        expect(sprint.closed).toBe(false)
+        expect(sprint.length).toBeCloseTo(800)
+        expect(sprint.startS).toBe(30)
+        expect(sprint.finishS).toBeCloseTo(650)
+        expect(sprint.lapLength).toBeCloseTo(620)
+        expect(sprint.curvature[0]).toBe(0)
+        expect(sprint.curvature[400]).toBe(0)
+    })
+
+    it('clamps distances onto the course instead of wrapping them', () => {
+        expect(sprint.wrapS(-10)).toBe(0)
+        expect(sprint.wrapS(900)).toBe(800)
+        expect(sprint.segmentAt(800)).toBe(399)
+        expect(sprint.pointAt(900).z).toBeCloseTo(-800)
+    })
+
+    it('projects past either end to a distance off the course, for the barriers', () => {
+        expect(sprint.project(1, 5).s).toBeCloseTo(-5)
+        expect(sprint.project(1, -806, 399).s).toBeCloseTo(806)
+        expect(sprint.project(1, -806).lateral).toBeCloseTo(1)
+    })
+})
+
+describe('track registry', () => {
+    it('has unique ids, and finds courses by them', () => {
+        expect(new Set(TRACKS.map(t => t.id)).size).toBe(TRACKS.length)
+        expect(findTrack('polytown-oval')?.name).toBe('Polytown Oval')
+        expect(findTrack('nowhere')).toBeNull()
+    })
+})
+
 describe('formatLapTime', () => {
     it('formats lap and gap times', () => {
         expect(formatLapTime(62.345)).toBe('1:02.345')
@@ -46,42 +82,49 @@ describe('formatLapTime', () => {
 
 describe('LapTimer', () => {
     const L = 1000
-    /** Drives `ds` metres a step from `from` until the timer finishes or the steps run out. */
+    /** Drives `ds` metres a step from `from`, wrapped onto a loop of L. */
     const drive = (timer: LapTimer, from: number, ds: number, dt: number, steps: number) => {
         const events = []
         let s = from
-        for (let i = 0; i < steps && !timer.finished; i++) {
+        for (let i = 0; i < steps; i++) {
             s += ds
-            events.push(...timer.update(((s % L) + L) % L, dt))
+            events.push(...timer.update(timer.closed ? ((s % L) + L) % L : s, dt))
         }
         return events
     }
 
-    it('reports splits, laps and the finish with interpolated times', () => {
-        const timer = new LapTimer(L, 3, -14)
+    it('reports splits and laps with interpolated times, and never stops on a loop', () => {
+        const timer = new LapTimer(L, true, -14)
         // 100 m/s: 10 s a lap, and lap 1 also covers the 14 m from the grid (a standing start).
-        const events = drive(timer, -14, 10, 0.1, 10000)
+        const events = drive(timer, -14, 10, 0.1, 1010)
         const laps = events.filter(e => e.type === 'lap').map(e => e.time)
-        const splits = events.filter(e => e.type === 'split')
-        expect(splits).toHaveLength(6)
-        expect(laps).toHaveLength(3)
+        expect(events.filter(e => e.type === 'split')).toHaveLength(20)
+        expect(laps).toHaveLength(10)
         expect(laps[0]).toBeCloseTo(10.14, 6)
-        expect(laps[1]).toBeCloseTo(10, 6)
-        expect(laps[2]).toBeCloseTo(10, 6)
-        const finish = events.find(e => e.type === 'finish')
-        expect(finish?.type === 'finish' && finish.total).toBeCloseTo(30.14, 6)
+        for (const t of laps.slice(1)) expect(t).toBeCloseTo(10, 6)
+        expect(timer.finished).toBe(false)
+        expect(timer.lap).toBe(10)
+    })
+
+    it('ends an open run at the finish line, timed from the start', () => {
+        const timer = new LapTimer(620, false, -14)
+        const events = drive(timer, -14, 10, 0.1, 200)
+        const laps = events.filter(e => e.type === 'lap').map(e => e.time)
+        expect(laps).toHaveLength(1)
+        expect(laps[0]).toBeCloseTo(6.34, 6)
         expect(timer.finished).toBe(true)
+        expect(timer.clock).toBeCloseTo(6.34, 6)
     })
 
     it('does not close a lap when the car first crosses the line from the grid', () => {
-        const timer = new LapTimer(L, 3, -14)
+        const timer = new LapTimer(L, true, -14)
         const events = drive(timer, -14, 10, 0.1, 5)
         expect(events.filter(e => e.type === 'lap')).toHaveLength(0)
         expect(timer.lap).toBe(0)
     })
 
     it('never counts a lap for reversing over the line and back', () => {
-        const timer = new LapTimer(L, 3, 5)
+        const timer = new LapTimer(L, true, 5)
         drive(timer, 5, -1, 0.1, 20)
         const events = drive(timer, -15, 1, 0.1, 20)
         expect(events).toHaveLength(0)

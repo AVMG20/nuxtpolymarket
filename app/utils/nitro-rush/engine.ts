@@ -1,24 +1,28 @@
 import * as THREE from 'three'
-import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PAINTS, PHYSICS_HZ, RACE_LAPS, type PaintId } from './config'
+import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PAINTS, PHYSICS_HZ, type PaintId } from './config'
 import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
 import { buildPlayerCar, disposeModelShared, type PlayerCar } from './models'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
 import { RushPost } from './post'
-import { formatLapTime, LapTimer, ovalTrack, Track, wrapAngle, type LapEvent } from './track'
+import { findTrack, formatLapTime, LapTimer, Track, TRACKS, wrapAngle, type LapEvent } from '#shared/utils/nitro-rush/track'
 import { buildCityEnvironment, World } from './world'
 import type { NitroAudio } from './audio'
 
+/** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'
 
 export type Control = 'throttle' | 'brake' | 'left' | 'right' | 'handbrake'
 
 export interface HudState {
-    /** 1-based, capped at the lap count once the race is done. */
+    /** 1-based lap of this session, or run on an open course. */
     lap: number
-    laps: number
+    /** False on an open course, where each run is one lap. */
+    closed: boolean
     lapTime: number
-    totalTime: number
     lastLap: number | null
+    /** Quickest lap of this session. */
+    sessionBest: number | null
+    /** The personal best on this track. */
     bestLap: number | null
     speedKmh: number
     /** The meter while charging, the time left while burning. */
@@ -28,17 +32,10 @@ export interface HudState {
     wrongWay: boolean
 }
 
-export interface RaceResult {
-    trackId: string
-    total: number
-    laps: number[]
-}
-
 /** The best lap on a track and its sector splits (lap time last), for live deltas. */
 export interface TrackRecord {
     bestLap: number | null
     bestSplits: number[] | null
-    bestTotal: number | null
 }
 
 export type PopupTone = 'good' | 'bad' | 'best' | 'drift' | 'nitro' | 'count' | 'lap' | 'danger'
@@ -54,13 +51,14 @@ export interface EngineEvents {
     hud: (h: HudState) => void
     popup: (p: Popup) => void
     phase: (p: Phase) => void
-    result: (r: RaceResult) => void
-    /** A new best lap; the component persists it. */
+    /** A new personal best lap; the component persists it and sends it to the leaderboard. */
     record: (trackId: string, r: TrackRecord) => void
 }
 
-/** The grid slot, this far behind the line. */
-const GRID_S = -14
+/** The grid slot, this far behind the start line. */
+const GRID_OFFSET = -14
+/** How long an open course's finish holds before the next run lines up. */
+const RESTART_DELAY = 2.5
 const STEP = 1 / PHYSICS_HZ
 /** Attract-mode demo laps run a touch off the limit. */
 const DEMO_PACE = 0.85
@@ -82,8 +80,8 @@ export class NitroRushEngine {
     private readonly scene = new THREE.Scene()
     private readonly camera: THREE.PerspectiveCamera
     private readonly post: RushPost
-    private readonly track: Track
-    private readonly world: World
+    private track: Track
+    private world: World
     private readonly envTarget: THREE.WebGLRenderTarget
     private readonly sparks: Particles
     private readonly smoke: Particles
@@ -124,7 +122,10 @@ export class NitroRushEngine {
     private readonly prev = { x: 0, z: 0, heading: 0 }
     private accumulator = 0
     private timer: LapTimer | null = null
-    private record: TrackRecord = { bestLap: null, bestSplits: null, bestTotal: null }
+    private record: TrackRecord = { bestLap: null, bestSplits: null }
+    private sessionBest: number | null = null
+    /** Runs started this session, for the sprint HUD. */
+    private runs = 0
     private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, handbrake: false }
     private nitroReadyAnnounced = false
     private wrongWayTime = 0
@@ -137,6 +138,8 @@ export class NitroRushEngine {
     // Camera, body motion and post
     private camYaw = 0
     private camBlend = 0
+    /** Set on a fresh run: the camera cuts to the grid rather than flying there. */
+    private camCut = false
     private readonly camPos = new THREE.Vector3(0, 3, 9)
     private readonly camLook = new THREE.Vector3()
     private trauma = 0
@@ -147,7 +150,7 @@ export class NitroRushEngine {
     private roll = 0
     private pitch = 0
 
-    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId) {
+    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, trackId: string) {
         this.host = host
         this.events = events
         this.audio = audio
@@ -170,9 +173,8 @@ export class NitroRushEngine {
         this.envTarget = buildCityEnvironment(this.renderer)
         this.scene.environment = this.envTarget.texture
 
-        this.track = new Track(ovalTrack())
-        this.world = new World(this.scene, this.track, { w: 512, h: 512 })
-        this.world.applyTheme(NIGHT, this.renderer, this.scene)
+        this.track = new Track(findTrack(trackId) ?? TRACKS[0]!)
+        this.world = this.buildWorld()
 
         const p = PAINTS.find(x => x.id === paint) ?? PAINTS[0]
         this.car = buildPlayerCar(p.color)
@@ -199,7 +201,7 @@ export class NitroRushEngine {
 
         this.post = new RushPost(this.renderer, this.scene, this.camera)
 
-        this.state = createCar(this.track, GRID_S)
+        this.state = createCar(this.track, this.gridS)
         this.placeCar()
 
         this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -226,6 +228,25 @@ export class NitroRushEngine {
 
     setRecord(r: TrackRecord) {
         this.record = { ...r }
+    }
+
+    /** Swaps the course, rebuilding the scenery, and returns to the menu on it. */
+    setTrack(id: string) {
+        const def = findTrack(id)
+        if (!def || def.id === this.track.def.id) return
+        this.scene.remove(this.world.group)
+        this.world.dispose()
+        this.track = new Track(def)
+        this.world = this.buildWorld()
+        this.world.hideFromReflection(this.speedLines.mesh)
+        this.world.setPixelRatio(this.pixelRatio)
+        this.world.setReflectionSize(this.width * this.pixelRatio * 0.5, this.height * this.pixelRatio * 0.5)
+        this.record = { bestLap: null, bestSplits: null }
+        this.sessionBest = null
+        this.toMenu()
+        this.state = createCar(this.track, this.gridS)
+        this.skids.clear()
+        this.placeCar()
     }
 
     setPaused(paused: boolean) {
@@ -262,6 +283,7 @@ export class NitroRushEngine {
 
     start() {
         this.resetRace()
+        this.runs++
         this.phase = 'countdown'
         this.countdown = COUNTDOWN_SECONDS
         this.countdownShown = COUNTDOWN_SECONDS + 1
@@ -273,6 +295,9 @@ export class NitroRushEngine {
 
     toMenu() {
         this.timer = null
+        this.sessionBest = null
+        this.lastLap = null
+        this.runs = 0
         this.phase = 'attract'
         this.audio.skid(0)
         this.world.setStartLights(0, false)
@@ -301,6 +326,21 @@ export class NitroRushEngine {
     }
 
     // ─── Setup and reset ───────────────────────────────────────────────────
+
+    private buildWorld() {
+        const world = new World(this.scene, this.track, { w: 512, h: 512 })
+        world.applyTheme(NIGHT, this.renderer, this.scene)
+        return world
+    }
+
+    private get gridS() {
+        return this.track.startS + GRID_OFFSET
+    }
+
+    /** The car's distance as the lap timer reads it: from the start line on an open course. */
+    private timerS() {
+        return this.track.closed ? this.state.proj.s : this.state.proj.s - this.track.startS
+    }
 
     private resize() {
         const w = Math.max(1, this.host.clientWidth)
@@ -346,17 +386,17 @@ export class NitroRushEngine {
     }
 
     private resetRace() {
-        this.state = createCar(this.track, GRID_S)
+        this.state = createCar(this.track, this.gridS)
         this.accumulator = 0
-        this.timer = new LapTimer(this.track.length, RACE_LAPS, GRID_S)
+        this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET)
         this.nitroReadyAnnounced = false
         this.wrongWayTime = 0
-        this.lastLap = null
         this.skids.clear()
         this.sparks.clear()
         this.smoke.clear()
         this.placeCar()
         this.camYaw = this.state.heading
+        this.camCut = true
     }
 
     /** Snaps the model and the interpolation history to the physics state. */
@@ -430,11 +470,17 @@ export class NitroRushEngine {
                 this.prev.z = this.state.z
                 this.prev.heading = this.state.heading
                 const racing = this.phase === 'racing'
-                const input = racing ? this.input() : botInput(this.state, this.track, this.phase === 'finished' ? 0.6 : DEMO_PACE)
-                const ev = stepCar(this.state, input, this.track, STEP)
+                const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
                 if (racing) this.onStep(ev)
-                if (racing && this.timer) for (const e of this.timer.update(this.state.proj.s, STEP)) this.onLapEvent(e)
+                if (racing && this.timer) for (const e of this.timer.update(this.timerS(), STEP)) this.onLapEvent(e)
             }
+        }
+        if (this.phase === 'finished' && this.time - this.finishedAt > RESTART_DELAY) this.start()
+        // The menu's demo car on a sprint lines up again once it has pulled up past the finish.
+        if (this.phase === 'attract' && !this.track.closed && this.state.proj.s > this.track.finishS && this.state.speed < 2) {
+            this.state = createCar(this.track, this.gridS)
+            this.skids.clear()
+            this.placeCar()
         }
 
         const s = this.state
@@ -473,6 +519,13 @@ export class NitroRushEngine {
         this.shock.update(dt)
     }
 
+    private stepInput(): CarInput {
+        if (this.phase === 'racing') return this.input()
+        // Past the finish the car pulls itself up; the brake held at a standstill would reverse it.
+        if (this.phase === 'finished') return { throttle: 0, brake: this.state.speed > 1 ? 1 : 0, steer: 0, handbrake: false }
+        return botInput(this.state, this.track, DEMO_PACE)
+    }
+
     private onStep(ev: StepEvents) {
         const s = this.state
         if (ev.wallImpact > 1.5) {
@@ -507,10 +560,12 @@ export class NitroRushEngine {
             const delta = e.time - best
             this.audio.split(delta < 0)
             this.events.popup({ text: formatLapTime(delta, true), sub: `SECTOR ${e.sector + 1}`, tone: delta < 0 ? 'good' : 'bad' })
-        } else if (e.type === 'lap') {
+        } else {
             const isBest = rec.bestLap === null || e.time < rec.bestLap
-            const sub = rec.bestLap === null ? `LAP ${e.lap + 1}` : `LAP ${e.lap + 1} · ${formatLapTime(e.time - rec.bestLap, true)}`
+            const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
+            const sub = rec.bestLap === null ? label : `${label} · ${formatLapTime(e.time - rec.bestLap, true)}`
             this.lastLap = e.time
+            if (this.sessionBest === null || e.time < this.sessionBest) this.sessionBest = e.time
             if (isBest) {
                 this.record = { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time] }
                 this.events.record(this.track.def.id, this.record)
@@ -518,16 +573,12 @@ export class NitroRushEngine {
             }
             this.audio.lap(isBest)
             this.events.popup({ text: formatLapTime(e.time), sub: isBest ? `${sub} · BEST LAP` : sub, tone: isBest ? 'best' : 'lap', big: true })
-        } else {
-            this.phase = 'finished'
-            this.finishedAt = this.time
-            this.aberrationPulse = 1
-            if (rec.bestTotal === null || e.total < rec.bestTotal) {
-                this.record = { ...this.record, bestTotal: e.total }
-                this.events.record(this.track.def.id, this.record)
+            if (!this.track.closed) {
+                this.phase = 'finished'
+                this.finishedAt = this.time
+                this.aberrationPulse = 1
+                this.events.phase(this.phase)
             }
-            this.events.phase(this.phase)
-            this.events.result({ trackId: this.track.def.id, total: e.total, laps: e.laps })
         }
     }
 
@@ -617,8 +668,14 @@ export class NitroRushEngine {
         else this.camBlend += (target - this.camBlend) * Math.min(1, dt * (target < this.camBlend ? 0.8 : 4))
         const pos = orbitPos.lerp(chasePos, this.camBlend)
         const look = orbitLook.lerp(chaseLook, this.camBlend)
-        this.camPos.lerp(pos, 1 - Math.exp(-dt * (this.camBlend > 0.98 ? 16 : 6)))
-        this.camLook.lerp(look, 1 - Math.exp(-dt * 16))
+        if (this.camCut) {
+            this.camPos.copy(pos)
+            this.camLook.copy(look)
+            this.camCut = false
+        } else {
+            this.camPos.lerp(pos, 1 - Math.exp(-dt * (this.camBlend > 0.98 ? 16 : 6)))
+            this.camLook.lerp(look, 1 - Math.exp(-dt * 16))
+        }
 
         this.trauma = Math.max(0, this.trauma - dt * 1.8)
         const shake = this.trauma * this.trauma
@@ -669,11 +726,11 @@ export class NitroRushEngine {
 
         const timer = this.timer
         this.events.hud({
-            lap: timer ? Math.min(timer.lap + 1, timer.totalLaps) : 1,
-            laps: RACE_LAPS,
-            lapTime: timer ? (timer.finished ? (timer.laps.at(-1) ?? 0) : timer.lapTime) : 0,
-            totalTime: timer?.clock ?? 0,
+            lap: !this.track.closed ? this.runs : timer ? timer.lap + 1 : 1,
+            closed: this.track.closed,
+            lapTime: timer ? (timer.finished ? (this.lastLap ?? 0) : timer.lapTime) : 0,
             lastLap: this.lastLap,
+            sessionBest: this.sessionBest,
             bestLap: this.record.bestLap,
             speedKmh: Math.round(Math.abs(s.speed) * KMH_PER_SPEED),
             nitro: nitro ? s.nitroTime / NITRO_DURATION : s.nitro,

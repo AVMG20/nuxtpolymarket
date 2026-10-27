@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { NitroAudio } from '~/utils/nitro-rush/audio'
-import { PAINTS, RACE_LAPS, type PaintId } from '~/utils/nitro-rush/config'
-import { NitroRushEngine, type Control, type HudState, type Phase, type Popup, type RaceResult, type TrackRecord } from '~/utils/nitro-rush/engine'
-import { formatLapTime } from '~/utils/nitro-rush/track'
+import { PAINTS, type PaintId } from '~/utils/nitro-rush/config'
+import { NitroRushEngine, type Control, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/engine'
+import { findTrack, formatLapTime, TRACKS } from '#shared/utils/nitro-rush/track'
+import type { NrBoard } from '#server/utils/nitro-rush'
 
 const RECORDS_KEY = 'nitro-rush:records'
 const PAINT_KEY = 'nitro-rush:paint'
 const AUDIO_KEY = 'nitro-rush:audio'
-const EMPTY_RECORD: TrackRecord = { bestLap: null, bestSplits: null, bestTotal: null }
+const TRACK_KEY = 'nitro-rush:track'
+const EMPTY_RECORD: TrackRecord = { bestLap: null, bestSplits: null }
 
 const root = ref<HTMLElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
@@ -15,12 +17,11 @@ const phase = ref<Phase>('attract')
 const paused = ref(false)
 const hud = shallowRef<HudState | null>(null)
 const popups = ref<(Popup & { id: number })[]>([])
-const result = ref<RaceResult | null>(null)
 const records = ref<Record<string, TrackRecord>>({})
 const trackId = ref('')
 const trackName = ref('')
-/** The best race before this one, so the result card can say whether it fell. */
-const previousBestTotal = ref<number | null>(null)
+const board = ref<NrBoard | null>(null)
+const boardFailed = ref(false)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
@@ -29,7 +30,9 @@ const isFullscreen = ref(false)
 
 let engine: NitroRushEngine | null = null
 const audio = new NitroAudio()
+const toast = useToast()
 let popupId = 0
+let boardRequest = 0
 
 function readStorage<T>(key: string, fallback: T): T {
     try {
@@ -59,16 +62,55 @@ function pushPopup(p: Popup) {
 function onRecord(id: string, r: TrackRecord) {
     records.value = { ...records.value, [id]: r }
     writeStorage(RECORDS_KEY, records.value)
+    if (r.bestLap !== null) submitLap(id, r.bestLap)
+}
+
+async function submitLap(id: string, seconds: number) {
+    try {
+        const res = await apiPost('/api/nitro-rush/lap', { trackId: id, lapMs: Math.round(seconds * 1000) })
+        if (id === trackId.value) board.value = res.board
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Your lap could not be saved to the leaderboard'), color: 'warning' })
+    }
+}
+
+async function loadBoard(id: string) {
+    const request = ++boardRequest
+    boardFailed.value = false
+    try {
+        const b = await apiFetch<NrBoard>('/api/nitro-rush/leaderboard', { query: { track: id } })
+        if (request !== boardRequest) return
+        board.value = b
+        // A best set on another device: race against it, without this browser's splits from a slower lap.
+        const server = b.me ? b.me.lapMs / 1000 : null
+        const local = records.value[id]?.bestLap ?? null
+        if (server !== null && (local === null || server < local - 0.0005)) {
+            records.value = { ...records.value, [id]: { bestLap: server, bestSplits: null } }
+            if (engine?.trackId === id) engine.setRecord(records.value[id]!)
+        }
+    } catch {
+        if (request === boardRequest) boardFailed.value = true
+    }
+}
+
+function selectTrack(id: string) {
+    if (!engine || id === trackId.value || !findTrack(id)) return
+    audio.ui()
+    engine.setTrack(id)
+    trackId.value = engine.trackId
+    trackName.value = engine.trackName
+    engine.setRecord(record.value)
+    writeStorage(TRACK_KEY, { id })
+    board.value = null
+    loadBoard(id)
 }
 
 function play() {
     audio.unlock()
     audio.startMusic()
     audio.ui()
-    result.value = null
     popups.value = []
     paused.value = false
-    previousBestTotal.value = record.value.bestTotal
     engine?.setPaused(false)
     engine?.releaseControls()
     engine?.start()
@@ -77,7 +119,6 @@ function play() {
 
 function toMenu() {
     audio.ui()
-    result.value = null
     paused.value = false
     engine?.setPaused(false)
     engine?.releaseControls()
@@ -85,7 +126,7 @@ function toMenu() {
 }
 
 function togglePause(force?: boolean) {
-    if (phase.value !== 'racing' && phase.value !== 'countdown') return
+    if (!inSession.value) return
     paused.value = force ?? !paused.value
     engine?.setPaused(paused.value)
     engine?.releaseControls()
@@ -148,12 +189,12 @@ function onKeyDown(e: KeyboardEvent) {
         togglePause()
         return
     }
-    if ((e.code === 'Enter' || e.code === 'Space') && (phase.value === 'attract' || phase.value === 'finished')) {
+    if ((e.code === 'Enter' || e.code === 'Space') && (phase.value === 'attract' || (phase.value === 'finished' && !paused.value))) {
         e.preventDefault()
         if (!e.repeat) play()
         return
     }
-    if (e.code === 'KeyR' && !e.repeat && (inRace.value || phase.value === 'finished')) {
+    if (e.code === 'KeyR' && !e.repeat && inSession.value) {
         play()
         return
     }
@@ -208,6 +249,7 @@ onMounted(() => {
     audio.setMusic(a.music)
     audio.setSfx(a.sfx)
     isTouch.value = window.matchMedia('(pointer: coarse)').matches
+    const storedTrack = readStorage<{ id: string }>(TRACK_KEY, { id: TRACKS[0]!.id }).id
 
     engine = new NitroRushEngine(stage.value!, {
         hud: (h) => {
@@ -216,18 +258,16 @@ onMounted(() => {
         popup: pushPopup,
         phase: (p) => {
             phase.value = p
-            if (p !== 'racing' && p !== 'countdown') paused.value = false
+            if (p === 'attract') paused.value = false
             if (p === 'racing' && isTouch.value) engine?.setControl('throttle', true)
             if (p === 'finished') engine?.releaseControls()
         },
-        result: (r) => {
-            result.value = r
-        },
         record: onRecord
-    }, audio, paint.value)
+    }, audio, paint.value, storedTrack)
     trackId.value = engine.trackId
     trackName.value = engine.trackName
-    engine.setRecord({ ...EMPTY_RECORD, ...storedRecords[engine.trackId] })
+    engine.setRecord(record.value)
+    loadBoard(engine.trackId)
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -249,10 +289,13 @@ onBeforeUnmount(() => {
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
 const inRace = computed(() => phase.value === 'racing' || phase.value === 'countdown')
+/** On the clock, or between runs of a sprint: everything but the menu. */
+const inSession = computed(() => inRace.value || phase.value === 'finished')
+const isLoop = computed(() => findTrack(trackId.value)?.closed !== false)
 const nitroFull = computed(() => !!hud.value && !hud.value.nitroActive && hud.value.nitro >= 1)
 const time = (t: number | null) => t === null ? '-:--.---' : formatLapTime(t)
-const resultBestLap = computed(() => result.value ? Math.min(...result.value.laps) : 0)
-const newBestTotal = computed(() => !!result.value && (previousBestTotal.value === null || result.value.total < previousBestTotal.value))
+/** The viewer's row when it sits below the top list, shown under it. */
+const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r.you) ? board.value.me : null)
 </script>
 
 <template>
@@ -265,10 +308,10 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
     <div ref="stage" class="absolute inset-0" />
 
     <!-- HUD -->
-    <div v-if="hud && inRace" class="pointer-events-none absolute inset-0 p-3 sm:p-5">
+    <div v-if="hud && inSession" class="pointer-events-none absolute inset-0 p-3 sm:p-5">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="nr-label">LAP <b class="nr-lap tabular-nums">{{ hud.lap }}<span>/{{ hud.laps }}</span></b></div>
+          <div class="nr-label">{{ hud.closed ? 'LAP' : 'RUN' }} <b class="nr-lap tabular-nums">{{ hud.lap }}</b></div>
           <div class="nr-time tabular-nums">{{ time(hud.lapTime) }}</div>
           <div class="mt-1.5 flex flex-col gap-0.5">
             <div class="nr-label tabular-nums">LAST <span class="nr-mono">{{ time(hud.lastLap) }}</span></div>
@@ -279,8 +322,9 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
           <button class="nr-icon-btn pointer-events-auto" aria-label="Pause" @click="togglePause()">
             <UIcon name="i-lucide-pause" class="size-4" />
           </button>
-          <div class="nr-label">TOTAL</div>
-          <div class="nr-total tabular-nums">{{ time(hud.totalTime) }}</div>
+          <div class="nr-label">SESSION BEST</div>
+          <div class="nr-total tabular-nums">{{ time(hud.sessionBest) }}</div>
+          <div v-if="board?.me" class="nr-label tabular-nums">RANK <span class="nr-mono">#{{ board.me.rank }}<span class="text-white/50"> / {{ board.entries }}</span></span></div>
         </div>
       </div>
 
@@ -314,7 +358,7 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
     </div>
 
     <!-- Touch pedals -->
-    <div v-if="isTouch && inRace && !paused" class="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3">
+    <div v-if="isTouch && inSession && !paused" class="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3">
       <div class="flex gap-2">
         <button
           v-for="c in (['left', 'right'] as const)"
@@ -351,69 +395,76 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
 
     <!-- Menu -->
     <Transition name="nr-fade">
-      <div v-if="phase === 'attract'" class="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center">
-        <div>
-          <h1 class="nr-title">NITRO<br>RUSH</h1>
-          <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL · {{ trackName.toUpperCase() }}</p>
-        </div>
-        <div v-if="record.bestLap !== null" class="nr-label tabular-nums">
-          BEST LAP {{ time(record.bestLap) }}<template v-if="record.bestTotal !== null"> · BEST RACE {{ time(record.bestTotal) }}</template>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            v-for="p in PAINTS"
-            :key="p.id"
-            class="nr-swatch"
-            :class="{ 'is-active': paint === p.id }"
-            :style="{ '--swatch': `#${p.color.toString(16).padStart(6, '0')}` }"
-            :aria-label="p.label"
-            :title="p.label"
-            @click="setPaint(p.id)"
-          />
-        </div>
-        <button class="nr-play" @click="play">
-          <UIcon name="i-lucide-play" class="size-6" />
-          DRIVE
-        </button>
-        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 sm:grid-cols-4">
-          <template v-if="isTouch">
-            <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
-          </template>
-          <template v-else>
-            <span>↑ / W gas · ↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span>
-          </template>
-        </div>
-        <p class="max-w-md text-xs text-white/60">
-          {{ RACE_LAPS }} laps against the clock. Drift through the bends to charge nitro, then fire it down the straights.
-        </p>
-      </div>
-    </Transition>
-
-    <!-- Results -->
-    <Transition name="nr-fade">
-      <div v-if="phase === 'finished' && result" class="absolute inset-0 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
-        <div class="nr-card w-full max-w-sm text-center">
-          <div class="nr-finish">FINISH</div>
-          <div v-if="newBestTotal" class="nr-new-best">NEW RECORD!</div>
-          <div class="nr-label mt-3">RACE TIME</div>
-          <div class="nr-time-big tabular-nums">{{ time(result.total) }}</div>
-          <div class="mt-4 flex flex-col gap-1.5 text-left">
-            <div v-for="(l, i) in result.laps" :key="i" class="nr-stat" :class="{ 'is-best': l === resultBestLap }">
-              <span>Lap {{ i + 1 }}</span>
-              <b class="tabular-nums">{{ time(l) }}</b>
-            </div>
+      <div v-if="phase === 'attract'" class="absolute inset-0 flex flex-col items-center justify-center-safe gap-6 overflow-y-auto lg:items-center-safe bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center lg:flex-row lg:gap-14">
+        <div class="flex flex-col items-center gap-5">
+          <div>
+            <h1 class="nr-title">NITRO<br>RUSH</h1>
+            <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL · {{ trackName.toUpperCase() }}</p>
           </div>
-          <div class="mt-3 text-xs text-white/60 tabular-nums">
-            Best lap {{ time(record.bestLap) }} · Best race {{ time(record.bestTotal) }}
-          </div>
-          <div class="mt-5 flex gap-2">
-            <button class="nr-play flex-1 !py-3 !text-lg" @click="play">
-              <UIcon name="i-lucide-rotate-ccw" class="size-5" />
-              RETRY
+          <div v-if="TRACKS.length > 1" class="flex flex-wrap justify-center gap-1.5">
+            <button
+              v-for="t in TRACKS"
+              :key="t.id"
+              class="nr-ghost !py-1.5"
+              :class="{ 'is-active': t.id === trackId }"
+              @click="selectTrack(t.id)"
+            >
+              {{ t.name }}
             </button>
-            <button class="nr-ghost" @click="toMenu">Menu</button>
           </div>
-          <div v-if="!isTouch" class="mt-2 text-[11px] text-white/50">Enter to race again</div>
+          <div v-if="record.bestLap !== null" class="nr-label tabular-nums">
+            YOUR BEST LAP {{ time(record.bestLap) }}
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              v-for="p in PAINTS"
+              :key="p.id"
+              class="nr-swatch"
+              :class="{ 'is-active': paint === p.id }"
+              :style="{ '--swatch': `#${p.color.toString(16).padStart(6, '0')}` }"
+              :aria-label="p.label"
+              :title="p.label"
+              @click="setPaint(p.id)"
+            />
+          </div>
+          <button class="nr-play" @click="play">
+            <UIcon name="i-lucide-play" class="size-6" />
+            DRIVE
+          </button>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 sm:grid-cols-4">
+            <template v-if="isTouch">
+              <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
+            </template>
+            <template v-else>
+              <span>↑ / W gas · ↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span>
+            </template>
+          </div>
+          <p class="max-w-md text-xs text-white/60">
+            {{ isLoop ? 'Lap as long as you like' : 'Run it as often as you like' }}: your best single lap goes on the leaderboard. Drift through the bends to charge nitro, then fire it down the straights. R restarts.
+          </p>
+        </div>
+
+        <!-- Leaderboard -->
+        <div class="nr-card w-full max-w-xs shrink-0 text-left">
+          <div class="nr-label mb-2 flex items-center justify-between">
+            <span>LEADERBOARD</span>
+            <span v-if="board" class="text-white/50">{{ board.entries }} {{ board.entries === 1 ? 'DRIVER' : 'DRIVERS' }}</span>
+          </div>
+          <div v-if="boardFailed" class="py-3 text-center text-xs text-white/60">Leaderboard unavailable</div>
+          <div v-else-if="!board" class="py-3 text-center text-xs text-white/60">Loading…</div>
+          <div v-else-if="!board.top.length" class="py-3 text-center text-xs text-white/60">No laps yet. Set the first one.</div>
+          <ol v-else class="nr-board flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
+            <li v-for="r in board.top" :key="r.rank" class="nr-board-row" :class="{ 'is-you': r.you }">
+              <span class="nr-board-rank tabular-nums">{{ r.rank }}</span>
+              <span class="nr-board-name">{{ r.name }}</span>
+              <b class="tabular-nums">{{ time(r.lapMs / 1000) }}</b>
+            </li>
+          </ol>
+          <div v-if="boardTail" class="nr-board-row is-you mt-1">
+            <span class="nr-board-rank tabular-nums">{{ boardTail.rank }}</span>
+            <span class="nr-board-name">{{ boardTail.name }}</span>
+            <b class="tabular-nums">{{ time(boardTail.lapMs / 1000) }}</b>
+          </div>
         </div>
       </div>
     </Transition>
@@ -434,7 +485,7 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
     </div>
 
     <!-- Corner controls -->
-    <div v-if="!inRace || paused" class="absolute right-3 top-3 flex gap-1.5 sm:right-5 sm:top-5">
+    <div v-if="!inSession || paused" class="absolute right-3 top-3 flex gap-1.5 sm:right-5 sm:top-5">
       <button class="nr-icon-btn" :aria-label="musicOn ? 'Mute music' : 'Unmute music'" @click="toggleMusic">
         <UIcon :name="musicOn ? 'i-lucide-music' : 'i-lucide-music-2'" class="size-4" :class="{ 'opacity-40': !musicOn }" />
       </button>
@@ -724,6 +775,47 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
 }
 
 .nr-ghost:hover { background: rgb(255 255 255 / 0.14); }
+.nr-ghost.is-active { border-color: #fff; background: rgb(255 43 214 / 0.3); }
+
+.nr-board-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgb(255 255 255 / 0.06);
+}
+
+.nr-board-row b {
+    margin-left: auto;
+    font-size: 16px;
+    font-weight: 400;
+}
+
+.nr-board-row.is-you {
+    background: rgb(180 107 255 / 0.18);
+    box-shadow: inset 0 0 0 1px rgb(180 107 255 / 0.6);
+}
+
+.nr-board-row.is-you b { color: var(--nr-violet); }
+
+.nr-board-rank {
+    width: 1.6em;
+    font-size: 14px;
+    color: rgb(255 255 255 / 0.6);
+}
+
+.nr-board-row:nth-child(1) .nr-board-rank { color: var(--nr-gold); }
+
+.nr-board-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+}
 
 .nr-swatch {
     width: 30px;
@@ -750,63 +842,6 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
     animation: nr-card-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 
-.nr-finish {
-    font-size: 44px;
-    line-height: 1;
-    font-style: italic;
-    color: #fff;
-    text-shadow: 0 0 20px var(--nr-cyan), 3px 0 0 var(--nr-pink), -3px 0 0 var(--nr-cyan);
-}
-
-.nr-new-best {
-    display: inline-block;
-    margin-top: 8px;
-    padding: 2px 12px;
-    border-radius: 999px;
-    background: var(--nr-gold);
-    color: #2a1600;
-    font-size: 16px;
-    box-shadow: 0 0 24px var(--nr-gold);
-    animation: nr-bump 0.6s ease-in-out infinite alternate;
-}
-
-.nr-time-big {
-    font-size: 54px;
-    line-height: 1;
-    font-style: italic;
-    text-shadow: 0 0 22px var(--nr-pink);
-}
-
-.nr-stat {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding: 8px 12px;
-    border-radius: 12px;
-    background: rgb(255 255 255 / 0.06);
-}
-
-.nr-stat span {
-    font-family: system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgb(255 255 255 / 0.6);
-}
-
-.nr-stat b {
-    font-size: 20px;
-    font-weight: 400;
-}
-
-.nr-stat.is-best {
-    background: rgb(180 107 255 / 0.18);
-    box-shadow: inset 0 0 0 1px rgb(180 107 255 / 0.6);
-}
-
-.nr-stat.is-best b { color: var(--nr-violet); }
-
 .nr-fade-enter-active, .nr-fade-leave-active { transition: opacity 0.35s; }
 .nr-fade-enter-from, .nr-fade-leave-to { opacity: 0; }
 
@@ -816,11 +851,6 @@ const newBestTotal = computed(() => !!result.value && (previousBestTotal.value =
     30% { transform: scale(1); }
     75% { opacity: 1; }
     100% { transform: scale(1) translateY(-30px); opacity: 0; }
-}
-
-@keyframes nr-bump {
-    0% { transform: scale(1.25); }
-    100% { transform: scale(1); }
 }
 
 @keyframes nr-blink {

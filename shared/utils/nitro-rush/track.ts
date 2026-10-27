@@ -1,11 +1,16 @@
 /**
- * Courses and lap timing. Pure maths, no three.js, so the physics, the bot
- * and the tests all share it.
+ * Courses and lap timing. Pure maths, no three.js, so the physics, the bot,
+ * the server's leaderboard checks and the tests all share it.
  *
- * A course is a closed centreline sampled every couple of metres, in driving
- * order, with the start line at the first point. Everything else (the road
- * ribbon, walls, kerbs, where the car is) is measured from it as a distance
- * along the line (`s`) and a signed offset across it (`lateral`, + is right).
+ * A course is a centreline sampled every couple of metres, in driving order.
+ * Everything else (the road ribbon, walls, kerbs, where the car is) is
+ * measured from it as a distance along the line (`s`) and a signed offset
+ * across it (`lateral`, + is right).
+ *
+ * A loop closes back on its first point, with the start line there. An open
+ * course (a sprint) runs from its first point to its last: barriers close
+ * both ends, the start line sits `runUp` in and the finish `runOff` short of
+ * the far end, so the car has room to stop.
  */
 
 export interface TrackDef {
@@ -15,6 +20,12 @@ export interface TrackDef {
     halfWidth: number
     /** Centreline to the face of the wall. */
     wallOffset: number
+    /** False for a point-to-point sprint; loops are the default. */
+    closed?: boolean
+    /** Open courses only: from the start barrier to the start line. */
+    runUp?: number
+    /** Open courses only: from the finish line to the end barrier. */
+    runOff?: number
 }
 
 export interface Projection {
@@ -36,6 +47,10 @@ export interface TrackPoint {
 const TAU = Math.PI * 2
 /** Segments either side of the hint that a projection checks before falling back to a full scan. */
 const SEARCH_WINDOW = 10
+const DEFAULT_RUN_UP = 30
+const DEFAULT_RUN_OFF = 150
+/** Faster than the car can ever average (its nitro top speed is ~103 m/s), so the server can refuse impossible laps. */
+const SPEED_CEILING = 110
 
 export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU)
 
@@ -74,13 +89,23 @@ export function ovalTrack(straight = 360, radius = 75, step = 2): TrackDef {
     return { id: 'polytown-oval', name: 'Polytown Oval', points: pts, halfWidth: 9, wallOffset: 10.6 }
 }
 
+/** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
+export const TRACKS: readonly TrackDef[] = [ovalTrack()]
+
+export function findTrack(id: string) {
+    return TRACKS.find(t => t.id === id) ?? null
+}
+
 export class Track {
     readonly def: TrackDef
+    readonly closed: boolean
     readonly n: number
+    /** Segments: one per point on a loop, one fewer on an open course. */
+    readonly segments: number
     readonly length: number
     readonly xs: Float64Array
     readonly zs: Float64Array
-    /** Distance along the line at each point; `cum[n]` is the full lap. */
+    /** Distance along the line at each point; `cum[n]` is the full length either way. */
     readonly cum: Float64Array
     /** Per point: the unit tangent averaged over its two segments, so offsets mitre cleanly. */
     readonly txs: Float64Array
@@ -90,8 +115,10 @@ export class Track {
 
     constructor(def: TrackDef) {
         this.def = def
+        this.closed = def.closed !== false
         const n = def.points.length
         this.n = n
+        this.segments = this.closed ? n : n - 1
         this.xs = new Float64Array(n)
         this.zs = new Float64Array(n)
         def.points.forEach(([x, z], i) => {
@@ -101,28 +128,30 @@ export class Track {
         this.cum = new Float64Array(n + 1)
         for (let i = 0; i < n; i++) {
             const j = (i + 1) % n
-            this.cum[i + 1] = this.cum[i]! + Math.hypot(this.xs[j]! - this.xs[i]!, this.zs[j]! - this.zs[i]!)
+            const seg = i < this.segments ? Math.hypot(this.xs[j]! - this.xs[i]!, this.zs[j]! - this.zs[i]!) : 0
+            this.cum[i + 1] = this.cum[i]! + seg
         }
         this.length = this.cum[n]!
         this.txs = new Float64Array(n)
         this.tzs = new Float64Array(n)
         this.curvature = new Float64Array(n)
         for (let i = 0; i < n; i++) {
-            const p = (i - 1 + n) % n
-            const j = (i + 1) % n
+            // An open course's end points only have the one segment.
+            const p = this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)
+            const j = this.closed ? (i + 1) % n : Math.min(n - 1, i + 1)
             const ax = this.xs[i]! - this.xs[p]!
             const az = this.zs[i]! - this.zs[p]!
             const bx = this.xs[j]! - this.xs[i]!
             const bz = this.zs[j]! - this.zs[i]!
-            const la = Math.hypot(ax, az) || 1
-            const lb = Math.hypot(bx, bz) || 1
-            const tx = ax / la + bx / lb
-            const tz = az / la + bz / lb
+            const la = Math.hypot(ax, az)
+            const lb = Math.hypot(bx, bz)
+            const tx = (la ? ax / la : 0) + (lb ? bx / lb : 0)
+            const tz = (la ? az / la : 0) + (lb ? bz / lb : 0)
             const lt = Math.hypot(tx, tz) || 1
             this.txs[i] = tx / lt
             this.tzs[i] = tz / lt
-            const turn = Math.abs(wrapAngle(Math.atan2(bx, bz) - Math.atan2(ax, az)))
-            this.curvature[i] = turn / ((la + lb) / 2)
+            const turn = la && lb ? Math.abs(wrapAngle(Math.atan2(bx, bz) - Math.atan2(ax, az))) : 0
+            this.curvature[i] = turn / ((la + lb) / 2 || 1)
         }
     }
 
@@ -134,8 +163,28 @@ export class Track {
         return this.def.wallOffset
     }
 
-    /** Wraps any distance onto [0, length). */
+    /** Where the timed lap starts. */
+    get startS() {
+        return this.closed ? 0 : this.def.runUp ?? DEFAULT_RUN_UP
+    }
+
+    /** Where the timed lap ends: back at the start on a loop. */
+    get finishS() {
+        return this.closed ? this.length : this.length - (this.def.runOff ?? DEFAULT_RUN_OFF)
+    }
+
+    get lapLength() {
+        return this.finishS - this.startS
+    }
+
+    /** No legitimate lap is quicker than this. */
+    get minLapSeconds() {
+        return this.lapLength / SPEED_CEILING
+    }
+
+    /** Wraps any distance onto [0, length) on a loop; clamps onto [0, length] on an open course. */
     wrapS(s: number) {
+        if (!this.closed) return Math.min(this.length, Math.max(0, s))
         return ((s % this.length) + this.length) % this.length
     }
 
@@ -143,7 +192,7 @@ export class Track {
     segmentAt(s: number) {
         const w = this.wrapS(s)
         let lo = 0
-        let hi = this.n - 1
+        let hi = this.segments - 1
         while (lo < hi) {
             const mid = (lo + hi + 1) >> 1
             if (this.cum[mid]! <= w) lo = mid
@@ -165,9 +214,13 @@ export class Track {
         return out
     }
 
-    /** Nearest point on the centreline. Pass the last segment as `hint` to search only around it. */
+    /**
+     * Nearest point on the centreline. Pass the last segment as `hint` to search only around it.
+     * Past either end of an open course `s` runs below 0 or above `length`, so the physics can find the barrier.
+     */
     project(x: number, z: number, hint = -1, out: Projection = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1 }): Projection {
         let best = Infinity
+        const last = this.segments - 1
         const test = (i: number) => {
             const j = (i + 1) % this.n
             const ax = this.xs[i]!
@@ -175,7 +228,9 @@ export class Track {
             const dx = this.xs[j]! - ax
             const dz = this.zs[j]! - az
             const len2 = dx * dx + dz * dz || 1
-            const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / len2))
+            const lo = !this.closed && i === 0 ? -Infinity : 0
+            const hi = !this.closed && i === last ? Infinity : 1
+            const t = Math.min(hi, Math.max(lo, ((x - ax) * dx + (z - az) * dz) / len2))
             const cx = ax + dx * t
             const cz = az + dz * t
             const d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz)
@@ -191,12 +246,16 @@ export class Track {
             }
         }
         if (hint >= 0) {
-            for (let k = -SEARCH_WINDOW; k <= SEARCH_WINDOW; k++) test((hint + k + this.n) % this.n)
+            for (let k = -SEARCH_WINDOW; k <= SEARCH_WINDOW; k++) {
+                const i = hint + k
+                if (this.closed) test((i + this.n) % this.n)
+                else if (i >= 0 && i <= last) test(i)
+            }
         }
         // A teleport or a bad hint: the windowed answer is only trusted while it's on the track.
         if (hint < 0 || Math.sqrt(best) > this.def.wallOffset + 4) {
             best = Infinity
-            for (let i = 0; i < this.n; i++) test(i)
+            for (let i = 0; i <= last; i++) test(i)
         }
         return out
     }
@@ -205,32 +264,34 @@ export class Track {
 export type LapEvent =
     | { type: 'split', lap: number, sector: number, time: number }
     | { type: 'lap', lap: number, time: number, splits: number[] }
-    | { type: 'finish', total: number, laps: number[] }
 
 /**
- * Race clock and lap counter. It follows an unwrapped race distance, so
- * reversing over the line and back never counts a lap, and interpolates each
- * crossing inside the step that made it, so times don't snap to the frame.
+ * Lap clock and counter for an endless session. It follows an unwrapped
+ * distance from the start line, so reversing over the line and back never
+ * counts a lap, and interpolates each crossing inside the step that made it,
+ * so times don't snap to the frame.
+ *
+ * On a loop the laps never stop. On an open course `s` is the distance from
+ * the start line and the run is over once the finish is crossed.
  */
 export class LapTimer {
-    readonly trackLength: number
-    readonly totalLaps: number
+    readonly lapLength: number
+    readonly closed: boolean
     readonly sectors: number
     clock = 0
     distance: number
     lap = 0
     lapStart = 0
     splits: number[] = []
-    laps: number[] = []
     finished = false
     private lastS: number
 
-    constructor(trackLength: number, totalLaps: number, startDistance: number, sectors = 3) {
-        this.trackLength = trackLength
-        this.totalLaps = totalLaps
+    constructor(lapLength: number, closed: boolean, startDistance: number, sectors = 3) {
+        this.lapLength = lapLength
+        this.closed = closed
         this.sectors = sectors
         this.distance = startDistance
-        this.lastS = ((startDistance % trackLength) + trackLength) % trackLength
+        this.lastS = closed ? ((startDistance % lapLength) + lapLength) % lapLength : startDistance
     }
 
     get lapTime() {
@@ -239,10 +300,12 @@ export class LapTimer {
 
     update(s: number, dt: number): LapEvent[] {
         if (this.finished) return []
-        const L = this.trackLength
+        const L = this.lapLength
         let ds = s - this.lastS
-        if (ds > L / 2) ds -= L
-        else if (ds < -L / 2) ds += L
+        if (this.closed) {
+            if (ds > L / 2) ds -= L
+            else if (ds < -L / 2) ds += L
+        }
         this.lastS = s
         const from = this.distance
         this.clock += dt
@@ -261,14 +324,12 @@ export class LapTimer {
             }
             const time = at - this.lapStart
             events.push({ type: 'lap', lap: this.lap, time, splits: this.splits })
-            this.laps.push(time)
             this.lap++
             this.lapStart = at
             this.splits = []
-            if (this.lap >= this.totalLaps) {
+            if (!this.closed) {
                 this.finished = true
                 this.clock = at
-                events.push({ type: 'finish', total: at, laps: [...this.laps] })
                 break
             }
         }
