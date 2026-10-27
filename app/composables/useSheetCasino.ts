@@ -1,8 +1,7 @@
 import { WHEEL_CONFIGS, type WheelDifficulty, type WheelResult } from '#shared/utils/gamelogic/wheel'
-import type { DiceResult } from '#shared/utils/gamelogic/dice'
-import type { LimboResult } from '#shared/utils/gamelogic/limbo'
-import { parseAmount } from '#shared/utils/parse-amount'
-import { CASINO_MAX_BET } from '#shared/utils/limits'
+import { DICE_MAX_CHANCE, DICE_MIN_CHANCE, diceMultiplier, type DiceResult } from '#shared/utils/gamelogic/dice'
+import { LIMBO_MAX_TARGET, LIMBO_MIN_TARGET, limboWinChance, type LimboResult } from '#shared/utils/gamelogic/limbo'
+import { NAV_CATALOG } from '#shared/utils/nav-catalog'
 
 // The casino tabs of spreadsheet mode: Dice, Limbo, Wheel and the slots, all
 // played through /api/games/play-game. Each tab has its inputs in A:B, a
@@ -21,28 +20,17 @@ interface LogRow {
   payout: number
 }
 
-// The slots whose spin (bonus included) resolves in a single play-game call
-export const SHEET_SLOTS: Record<string, string> = {
-  xenoslot: 'Xeno Slot',
-  candymadness: 'Candy Madness',
-  aethergates: 'Aether Gates',
-  fireinthehole: 'Fire in the Hole',
-  bookofshadows: 'Book of Shadows',
-  spinata: 'Spiñata Slots',
-  trashpanda: 'Trash Panda Heist',
-  emberportals: 'Ember Portals',
-  polymasters: 'PolyMasters'
-}
+// The slots whose spin (bonus included) resolves in a single play-game call,
+// named as in the nav
+const SINGLE_CALL_SLOTS = ['xenoslot', 'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'emberportals', 'polymasters']
+const NAV_LINKS = NAV_CATALOG.flatMap(section => section.items)
+export const SHEET_SLOTS: Record<string, string> = Object.fromEntries(SINGLE_CALL_SLOTS.map(id =>
+  [id, NAV_LINKS.find(link => link.to === `/games/${id}`)?.label ?? id]))
 
 const DIFFICULTIES: Record<WheelDifficulty, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' }
 
 const LOG_LIMIT = 200
 const STORAGE_KEY = 'sheet-log'
-
-export const SHEET_HEADER = { bold: true, bg: '#c9daf8' } as const
-export const SHEET_INPUT_BG = '#fff2cc'
-export const SHEET_GAIN = '#137333'
-export const SHEET_LOSS = '#a50e0e'
 
 function loadLogs(): Record<Game, LogRow[]> {
   const empty = { dice: [], limbo: [], wheel: [], slots: [] }
@@ -53,33 +41,6 @@ function loadLogs(): Record<Game, LogRow[]> {
     return empty
   }
 }
-
-/** Parses a typed coin amount (`10k`, `2.5m`) for a stake cell */
-export function stakeEditor(apply: (amount: number) => void, max = CASINO_MAX_BET) {
-  return (raw: string) => {
-    const amount = parseAmount(raw)
-    if (amount === null || amount < 1 || amount > max) return 'Input must be a number greater than or equal to 1.'
-    apply(amount)
-  }
-}
-
-export function numberEditor(apply: (n: number) => void, min: number, max: number) {
-  return (raw: string) => {
-    const n = Number(raw.replace('%', '').replace(/x$/i, '').trim())
-    if (!Number.isFinite(n) || n < min || n > max) return `Input must be a number between ${min} and ${max}.`
-    apply(n)
-  }
-}
-
-export function choiceEditor<K extends string>(choices: Record<K, string>, apply: (key: K) => void) {
-  return (raw: string) => {
-    const match = (Object.keys(choices) as K[]).find(key => choices[key].toLowerCase() === raw.trim().toLowerCase())
-    if (!match) return 'Input must be an item on the specified list.'
-    apply(match)
-  }
-}
-
-export const netColor = (n: number) => n < 0 ? SHEET_LOSS : n > 0 ? SHEET_GAIN : undefined
 
 /** A slot symbol as cell text: symbols are strings, or objects in a few games */
 function symbolText(symbol: unknown): string {
@@ -118,10 +79,7 @@ export function useSheetCasino() {
     errors[game] = ''
     const bet = bets[game]
     try {
-      const data = await apiFetch<{ gameData: T, balance: number }>('/api/games/play-game', {
-        method: 'POST',
-        body: { bet, game: apiGame, options }
-      })
+      const data = await playCasinoRound<T>(apiGame, bet, options)
       const cost = typeof data.gameData.cost === 'number' ? data.gameData.cost : bet
       logs.value[game].unshift({ at: Date.now(), bet, cost, payout: data.gameData.payout, ...toRow(data.gameData) })
       if (logs.value[game].length > LOG_LIMIT) logs.value[game].length = LOG_LIMIT
@@ -165,9 +123,7 @@ export function useSheetCasino() {
     cells[`B${next + 1}`] = { v: net, fmt: 'number', f: '=SUM(I2:I)', bold: true, color: netColor(net) }
     if (errors[game]) cells[`B${next + 2}`] = { error: errors[game] }
 
-    ;['Time', 'Bet', ...logHeads, 'Payout', 'Net'].forEach((head, i) => {
-      cells[`${colName(3 + i)}1`] = { v: head, ...SHEET_HEADER }
-    })
+    sheetHeads(cells, 0, ['Time', 'Bet', ...logHeads, 'Payout', 'Net'], 3)
     if (busy[game]) {
       cells.D2 = { v: formatTimestamp(new Date()) }
       cells.E2 = { v: bets[game], fmt: 'number' }
@@ -192,14 +148,14 @@ export function useSheetCasino() {
   const widths = { 0: 130, 1: 120, 2: 30, 3: 150 }
 
   const dice = computed<SheetTab>(() => {
-    const multiplier = 98 / winChance.value
+    const multiplier = diceMultiplier(winChance.value)
     return {
       id: 'dice',
       name: 'Dice',
       widths,
       cells: gameCells('dice', [
         ['Bet', betCell('dice')],
-        ['Win chance (%)', { v: winChance.value, fmt: 'number', bg: SHEET_INPUT_BG, edit: numberEditor(n => winChance.value = Math.round(n * 10) / 10, 2, 96) }, 'You win when the roll is below the win chance.'],
+        ['Win chance (%)', { v: winChance.value, fmt: 'number', bg: SHEET_INPUT_BG, edit: numberEditor(n => winChance.value = Math.round(n * 10) / 10, DICE_MIN_CHANCE, DICE_MAX_CHANCE) }, 'You win when the roll is below the win chance.'],
         ['Multiplier', { v: multiplier, fmt: 'number', f: '=ROUND(98/B3, 4)' }],
         ['Payout on win', { v: bets.dice * multiplier, fmt: 'number', f: '=B2*B4' }],
         ['Roll', checkbox('dice', playDice)],
@@ -216,8 +172,8 @@ export function useSheetCasino() {
     widths,
     cells: gameCells('limbo', [
       ['Bet', betCell('limbo')],
-      ['Target', { v: target.value, fmt: 'multiple', bg: SHEET_INPUT_BG, edit: numberEditor(n => target.value = Math.round(n * 100) / 100, 1.1, 1_000_000) }, 'You win bet × target when the result reaches the target.'],
-      ['Win chance', { v: 0.98 / target.value, fmt: 'percent', f: '=0.98/B3' }],
+      ['Target', { v: target.value, fmt: 'multiple', bg: SHEET_INPUT_BG, edit: numberEditor(n => target.value = Math.round(n * 100) / 100, LIMBO_MIN_TARGET, LIMBO_MAX_TARGET) }, 'You win bet × target when the result reaches the target.'],
+      ['Win chance', { v: limboWinChance(target.value), fmt: 'percent', f: '=MIN(0.98/B3, 0.98)' }],
       ['Payout on win', { v: bets.limbo * target.value, fmt: 'number', f: '=B2*B3' }],
       ['Play', checkbox('limbo', playLimbo)],
       ['Balance', balanceCell.value]

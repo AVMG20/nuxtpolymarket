@@ -1,4 +1,8 @@
 import { BANK_MAX_AMOUNT } from '#shared/utils/limits'
+import { MIN_DEPLOY_SUCCESS } from '#shared/utils/hack-config'
+import { TOWN_ADVICE_LABELS } from '#shared/utils/gamelogic/town-advisor'
+import { GEM_EXCHANGE_MAX_QUANTITY, GEM_EXCHANGE_MIN_PRICE, gemDefaultPrice, gemOrderTotal } from '#shared/utils/gamelogic/gem-exchange'
+import { useNow } from '@vueuse/core'
 import type { TownState } from './useTown'
 
 // The spreadsheet-mode tabs that act on a game's state: Bank deposits and
@@ -6,20 +10,26 @@ import type { TownState } from './useTown'
 // upgrades, and Gem Exchange offers. Each shows the live state
 // below its controls and reloads it after every action.
 
-/** Runs an action that changes coins or gems, then refreshes the wallet and the tab */
-export function useSheetAction(source: SheetSource) {
-  const { fetchSession } = useAuth()
+const ARM_MS = 3000
+
+/**
+ * One action at a time per tab, with its error shown in a cell. `checkbox`
+ * runs an action when ticked; `confirmCheckbox` is for spending or selling
+ * everything at once: the first tick arms it for a few seconds and only a
+ * second tick runs it.
+ */
+export function useSheetRun() {
   const busy = ref<string | null>(null)
   const error = ref('')
+  const armed = ref<string | null>(null)
+  let disarm: ReturnType<typeof setTimeout> | undefined
 
-  async function act(key: string, request: () => Promise<unknown>) {
+  async function run(key: string, request: () => Promise<unknown>) {
     if (busy.value) return
     busy.value = key
     error.value = ''
     try {
       await request()
-      // None of these responses carry the new balance
-      await Promise.all([fetchSession(), source.load(true)])
     } catch (e) {
       error.value = apiErrorMessage(e, 'Action failed')
     } finally {
@@ -27,17 +37,63 @@ export function useSheetAction(source: SheetSource) {
     }
   }
 
-  return { busy, error, act }
+  const checkbox = (key: string, toggle: () => unknown): SheetCell => ({ type: 'checkbox', v: busy.value === key, toggle })
+
+  function confirmCheckbox(key: string, toggle: () => unknown): SheetCell {
+    if (armed.value !== key) {
+      return {
+        ...checkbox(key, () => {
+          armed.value = key
+          clearTimeout(disarm)
+          disarm = setTimeout(() => armed.value = null, ARM_MS)
+        }),
+        note: 'Tick twice to confirm.'
+      }
+    }
+    return {
+      ...checkbox(key, () => {
+        armed.value = null
+        clearTimeout(disarm)
+        return toggle()
+      }),
+      bg: SHEET_ARMED_BG,
+      note: 'Tick again to confirm.'
+    }
+  }
+
+  return { busy, error, armed, run, checkbox, confirmCheckbox }
+}
+
+/**
+ * Runs an action on a state endpoint's tab, then reloads the tab. A request
+ * that knows the new balance returns `{ balance }`; otherwise the session is
+ * refetched.
+ */
+export function useSheetAction(source: SheetSource) {
+  const { fetchSession, setBalance } = useAuth()
+  const runner = useSheetRun()
+
+  const act = (key: string, request: () => Promise<unknown>) => runner.run(key, async () => {
+    const wallet = await request() as { balance?: number | string } | undefined
+    if (wallet?.balance != null) setBalance(wallet.balance)
+    await Promise.all([wallet?.balance != null ? undefined : fetchSession(), source.load(true)])
+  })
+
+  return { ...runner, act }
 }
 
 export function useSheetBank() {
-  const source = useSheetSource<Record<string, unknown>>('/api/bank/state')
+  const source = useSheetSource('/api/bank/state')
   const { busy, error, act } = useSheetAction(source)
   const depositAmount = ref(1000)
   const withdrawAmount = ref(1000)
 
-  const deposit = () => act('deposit', () => apiFetch('/api/bank/deposit', { method: 'POST', body: { amount: depositAmount.value } }))
-  const withdraw = () => act('withdraw', () => apiFetch('/api/bank/withdraw', { method: 'POST', body: { amount: withdrawAmount.value } }))
+  const deposit = () => act('deposit', async () => {
+    await apiPost('/api/bank/deposit', { amount: depositAmount.value })
+  })
+  const withdraw = () => act('withdraw', async () => {
+    await apiPost('/api/bank/withdraw', { amount: withdrawAmount.value })
+  })
 
   return computed<SheetTab>(() => {
     const data = source.data.value
@@ -64,28 +120,25 @@ export function useSheetBank() {
   })
 }
 
-interface HackAgent { id: string, name: string, power: number, onOp: boolean }
-interface HackOp { id: string, templateId: string, agentIds: string[], startedAt: string, completesAt: string, done: boolean }
-interface HackTemplate { id: string, name: string, minAgents: number, maxAgents: number, minPower: number, durationMs: number, status: string, bestPower: number, effectiveSuccessChance: number }
-interface HackState { agents: HackAgent[], activeOps: HackOp[], opTemplates: HackTemplate[], [key: string]: unknown }
+type HackState = GetPayload<'/api/hack/state'>
+type HackOp = HackState['activeOps'][number]
+type HackTemplate = HackState['opTemplates'][number]
 
 const HACK_WIDTHS: Record<number, number> = { 0: 200, 2: 130, 3: 130 }
 
 export function useSheetHackOps() {
-  const source = useSheetSource<HackState>('/api/hack/state')
-  const { busy, error, act } = useSheetAction(source)
+  const source = useSheetSource('/api/hack/state')
+  const { error, act, checkbox } = useSheetAction(source)
+  const now = useNow({ interval: 5000 })
 
-  const collect = (op: HackOp) => act(`collect:${op.id}`, () => apiFetch('/api/hack/ops/collect', { method: 'POST', body: { opId: op.id } }))
+  const collect = (op: HackOp) => act(`collect:${op.id}`, async () => {
+    await apiPost('/api/hack/ops/collect', { opId: op.id })
+  })
 
-  // Sends the strongest free agents, as the op page's default pick does
-  function dispatch(template: HackTemplate) {
-    const squad = (source.data.value?.agents ?? [])
-      .filter(agent => !agent.onOp)
-      .sort((a, b) => b.power - a.power)
-      .slice(0, template.maxAgents)
-      .map(agent => agent.id)
-    return act(`dispatch:${template.id}`, () => apiFetch('/api/hack/ops/dispatch', { method: 'POST', body: { templateId: template.id, agentIds: squad } }))
-  }
+  // Sends the squad the server rates best, the op page's default pick
+  const dispatch = (template: HackTemplate) => act(`dispatch:${template.id}`, async () => {
+    await apiPost('/api/hack/ops/dispatch', { templateId: template.id, agentIds: template.bestTeamIds })
+  })
 
   return computed<SheetTab>(() => {
     const data = source.data.value
@@ -94,27 +147,26 @@ export function useSheetHackOps() {
     if (!data) return { id: 'hack', name: 'Hack Ops', widths: HACK_WIDTHS, cells, activate: () => source.load() }
 
     const names = new Map(data.opTemplates.map(t => [t.id, t.name] as const))
+    const time = now.value.getTime()
     let r = 5
-    const heads = (row: number, labels: string[]) => labels.forEach((label, c) => {
-      cells[cellKey(row, c)] = { v: label, ...SHEET_HEADER }
-    })
 
     cells[cellKey(r - 1, 0)] = { v: `Active ops (${data.activeOps.length})`, bold: true }
-    heads(r, ['Op', 'Agents', 'Started', 'Completes', 'Done', 'Collect'])
+    sheetHeads(cells, r, ['Op', 'Agents', 'Started', 'Completes', 'Done', 'Collect'])
     r++
     for (const op of data.activeOps) {
+      const done = new Date(op.completesAt).getTime() <= time
       cells[cellKey(r, 0)] = { v: names.get(op.templateId) ?? op.templateId }
       cells[cellKey(r, 1)] = { v: op.agentIds.length, fmt: 'int' }
       cells[cellKey(r, 2)] = valueCell(op.startedAt)
       cells[cellKey(r, 3)] = valueCell(op.completesAt)
-      cells[cellKey(r, 4)] = { v: op.done }
-      if (op.done) cells[cellKey(r, 5)] = { type: 'checkbox', v: busy.value === `collect:${op.id}`, toggle: () => collect(op) }
+      cells[cellKey(r, 4)] = { v: done }
+      if (done) cells[cellKey(r, 5)] = checkbox(`collect:${op.id}`, () => collect(op))
       r++
     }
 
     r += 2
     cells[cellKey(r - 1, 0)] = { v: `Ops (${data.opTemplates.length})`, bold: true }
-    heads(r, ['Op', 'Squad', 'Min power', 'Best power', 'Success', 'Hours', 'Status', 'Dispatch'])
+    sheetHeads(cells, r, ['Op', 'Squad', 'Min power', 'Best power', 'Success', 'Hours', 'Status', 'Dispatch'])
     r++
     for (const template of data.opTemplates) {
       cells[cellKey(r, 0)] = { v: template.name }
@@ -124,7 +176,9 @@ export function useSheetHackOps() {
       cells[cellKey(r, 4)] = { v: template.effectiveSuccessChance, fmt: 'percent' }
       cells[cellKey(r, 5)] = { v: template.durationMs / 3_600_000, fmt: 'number' }
       cells[cellKey(r, 6)] = { v: template.status }
-      if (template.status !== 'no_agents') cells[cellKey(r, 7)] = { type: 'checkbox', v: busy.value === `dispatch:${template.id}`, toggle: () => dispatch(template) }
+      if (template.bestTeamIds.length >= template.minAgents && template.effectiveSuccessChance >= MIN_DEPLOY_SUCCESS) {
+        cells[cellKey(r, 7)] = checkbox(`dispatch:${template.id}`, () => dispatch(template))
+      }
       r++
     }
 
@@ -136,36 +190,35 @@ export function useSheetHackOps() {
   })
 }
 
-const REASONS: Record<string, string> = { residents: 'Residents', happiness: 'Mood', storage: 'Storage' }
-
 export function useSheetPolytown() {
-  const { balanceNum, setBalance } = useAuth()
-  const source = useSheetSource<TownState>('/api/town/state')
-  const { busy, error, act } = useSheetAction(source)
+  const { balanceNum } = useAuth()
+  const source = useSheetSource('/api/town/state')
+  const { error, act, checkbox } = useSheetAction(source)
 
+  // The builders popover's Start button: a one-building bulk upgrade
   const upgrade = (buildingId: string) => act(`upgrade:${buildingId}`, async () => {
-    const res = await apiFetch<{ balance: string | number }>('/api/town/building/upgrade', { method: 'POST', body: { buildingId } })
-    setBalance(res.balance)
+    const res = await apiPost('/api/town/building/upgrade-bulk', { buildingIds: [buildingId] })
+    return { balance: res.balance }
   })
 
   return computed<SheetTab>(() => {
-    const state = source.data.value
+    const state = source.data.value as TownState | null
     const cells: SheetCells = { ...sourceHeader('Polytown', source) }
     if (error.value) cells.C3 = { error: error.value }
     const tab = { id: 'polytown', name: 'Polytown', widths: POLYTOWN_WIDTHS, cells, activate: () => source.load() }
     if (!state) return tab
     if (!state.initialized) {
-      cells.A5 = { v: 'Start your town in Polytown to see recommended upgrades.', italic: true, color: '#5f6368' }
+      cells.A5 = { v: 'Start your town in Polytown to see recommended upgrades.', italic: true, color: SHEET_MUTED }
       return tab
     }
 
     const resourceNames = new Map((state.resources ?? []).map(r => [r.id, r.name] as const))
+    const buildersFree = Math.max(0, (state.builders?.total ?? 0) - (state.builders?.busy ?? 0))
     const picks = townRecommendations(state, balanceNum.value)
     cells.A5 = { v: `Recommended upgrades (${picks.length})`, bold: true }
-    ;['Building', 'Level', 'Next', 'Why', 'Coins', 'Goods', 'Affordable', 'Upgrade'].forEach((head, c) => {
-      cells[cellKey(5, c)] = { v: head, ...SHEET_HEADER }
-    })
-    if (!picks.length) cells.A7 = { v: 'No upgrades open right now: every building is busy or maxed.', italic: true, color: '#5f6368' }
+    cells.D5 = { v: `${buildersFree} ${buildersFree === 1 ? 'builder' : 'builders'} free`, color: buildersFree ? undefined : SHEET_LOSS }
+    sheetHeads(cells, 5, ['Building', 'Level', 'Next', 'Why', 'Coins', 'Goods', 'Affordable', 'Upgrade'])
+    if (!picks.length) cells.A7 = { v: 'No upgrades open right now: every building is busy or maxed.', italic: true, color: SHEET_MUTED }
     picks.forEach((pick, i) => {
       const r = 6 + i
       const goods = Object.entries(pick.cost.resources).map(([id, q]) => `${formatCellNumber(q, 'int')} ${resourceNames.get(id) ?? id}`).join(', ')
@@ -173,12 +226,12 @@ export function useSheetPolytown() {
       cells[cellKey(r, 1)] = { v: pick.level, fmt: 'int' }
       cells[cellKey(r, 2)] = { v: pick.level + 1, fmt: 'int' }
       cells[cellKey(r, 3)] = pick.reason === 'short' && pick.resource
-        ? { v: `${resourceNames.get(pick.resource) ?? pick.resource} short`, color: SHEET_LOSS }
-        : { v: pick.reason ? REASONS[pick.reason] : 'Growth' }
+        ? { v: `${resourceNames.get(pick.resource) ?? pick.resource} ${TOWN_ADVICE_LABELS.short}`, color: SHEET_LOSS }
+        : { v: pick.reason ? TOWN_ADVICE_LABELS[pick.reason] : 'Growth' }
       cells[cellKey(r, 4)] = { v: pick.cost.coins, fmt: 'number' }
       cells[cellKey(r, 5)] = { v: goods }
       cells[cellKey(r, 6)] = { v: pick.affordable }
-      if (pick.affordable) cells[cellKey(r, 7)] = { type: 'checkbox', v: busy.value === `upgrade:${pick.id}`, toggle: () => upgrade(pick.id) }
+      if (pick.affordable && buildersFree > 0) cells[cellKey(r, 7)] = checkbox(`upgrade:${pick.id}`, () => upgrade(pick.id))
     })
 
     // The catalog is static reference data; everything else is the town's state
@@ -190,54 +243,37 @@ export function useSheetPolytown() {
 
 const POLYTOWN_WIDTHS: Record<number, number> = { 0: 200, 3: 120, 5: 220 }
 
-interface GemLevel { price: number, quantity: number, orders: number }
-interface GemOrder { id: string, side: 'buy' | 'sell', price: number, quantity: number, filled: number, createdAt: string, mine: boolean }
-interface GemTrade { price: number, quantity: number, createdAt: string, mine: boolean, iBought: boolean, iSold: boolean }
-interface GemExchangeState {
-  guidePrice: number
-  lastPrice: number | null
-  change24h: number | null
-  bestBid: number | null
-  bestAsk: number | null
-  gemsForSale: number
-  gemsWanted: number
-  stats24h: { volumeGems: number, volumeCoins: number, high: number | null, low: number | null }
-  book: { bids: GemLevel[], asks: GemLevel[] }
-  trades: GemTrade[]
-  orders: GemOrder[]
-}
+type GemExchangeState = GetPayload<'/api/gem-exchange/state'>
+type GemOrder = GemExchangeState['orders'][number]
 
 const SIDES = { buy: 'Buy', sell: 'Sell' } as const
 const GEM_WIDTHS: Record<number, number> = { 0: 160, 1: 120, 4: 140 }
 
 export function useSheetGemExchange() {
   const { balanceNum, user } = useAuth()
-  const source = useSheetSource<GemExchangeState>('/api/gem-exchange/state')
-  const { busy, error, act } = useSheetAction(source)
+  const source = useSheetSource('/api/gem-exchange/state')
+  const { error, act, checkbox } = useSheetAction(source)
   const lastAction = ref('')
 
   const side = ref<'buy' | 'sell'>('buy')
-  // Unset until the player types one: then it follows the best opposite offer
+  // Unset until the player types one: then it follows the best opposite offer, as on the exchange page
   const price = ref<number | null>(null)
   const quantity = ref(1)
 
-  function quotedPrice(state: GemExchangeState) {
-    if (price.value !== null) return price.value
-    return (side.value === 'buy' ? state.bestAsk : state.bestBid) ?? state.guidePrice
-  }
+  const quotedPrice = (state: GemExchangeState) => price.value ?? gemDefaultPrice(side.value, state)
 
   const place = (state: GemExchangeState) => {
     const orderPrice = quotedPrice(state)
     const orderSide = side.value
     const gems = quantity.value
     return act('place', async () => {
-      await apiFetch('/api/gem-exchange/place', { method: 'POST', body: { side: orderSide, price: orderPrice, quantity: gems } })
+      await apiPost('/api/gem-exchange/place', { side: orderSide, price: orderPrice, quantity: gems })
       lastAction.value = `${SIDES[orderSide]} offer for ${formatCellNumber(gems, 'int')} ${gems === 1 ? 'gem' : 'gems'} at ${formatCellNumber(orderPrice, 'number')}`
     })
   }
 
   const cancel = (order: GemOrder) => act(`cancel:${order.id}`, async () => {
-    await apiFetch('/api/gem-exchange/cancel', { method: 'POST', body: { orderId: order.id } })
+    await apiPost('/api/gem-exchange/cancel', { orderId: order.id })
     lastAction.value = `Cancelled the ${order.side} offer at ${formatCellNumber(order.price, 'number')}`
   })
 
@@ -248,19 +284,16 @@ export function useSheetGemExchange() {
     const tab: SheetTab = { id: 'gem-exchange', name: 'Gem Exchange', widths: GEM_WIDTHS, cells, activate: () => source.load() }
     if (!state) return tab
 
-    const heads = (r: number, c0: number, labels: string[]) => labels.forEach((label, c) => {
-      cells[cellKey(r, c0 + c)] = { v: label, ...SHEET_HEADER }
-    })
-    const priceCell = (n: number | null): SheetCell => n === null ? { v: '—', align: 'right', color: '#5f6368' } : { v: n, fmt: 'number' }
+    const priceCell = (n: number | null): SheetCell => n === null ? { v: '—', align: 'right', color: SHEET_MUTED } : { v: n, fmt: 'number' }
 
     cells.A4 = { v: 'Coins' }
     cells.B4 = { v: balanceNum.value, fmt: 'number' }
-    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: '#5f6368' } : {}
+    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: SHEET_MUTED } : {}
     cells.A5 = { v: 'Gems' }
     cells.B5 = { v: parseFloat(String(user.value?.gems ?? 0)), fmt: 'int' }
 
     // Market summary in A:B, the offer form in D:E
-    heads(6, 0, ['Market', 'Value'])
+    sheetHeads(cells, 6, ['Market', 'Value'])
     const summary: [string, SheetCell][] = [
       ['Guide price', priceCell(state.guidePrice)],
       ['Last price', priceCell(state.lastPrice)],
@@ -277,25 +310,25 @@ export function useSheetGemExchange() {
     })
 
     const orderPrice = quotedPrice(state)
-    heads(6, 3, ['New offer', 'Value'])
+    sheetHeads(cells, 6, ['New offer', 'Value'], 3)
     cells.D8 = { v: 'Side' }
     cells.E8 = { v: SIDES[side.value], type: 'dropdown', options: Object.values(SIDES), edit: choiceEditor(SIDES, key => side.value = key) }
     cells.D9 = { v: 'Price per gem', note: 'Starts at the best opposite offer (or the guide price) until you type one.' }
-    cells.E9 = { v: orderPrice, fmt: 'number', bg: SHEET_INPUT_BG, edit: numberEditor(n => price.value = Math.round(n * 100) / 100, 0.01, 1e12) }
+    cells.E9 = { v: orderPrice, fmt: 'number', bg: SHEET_INPUT_BG, edit: numberEditor(n => price.value = Math.round(n * 100) / 100, GEM_EXCHANGE_MIN_PRICE, 1e12) }
     cells.D10 = { v: 'Gems' }
-    cells.E10 = { v: quantity.value, fmt: 'int', bg: SHEET_INPUT_BG, edit: numberEditor(n => quantity.value = Math.max(1, Math.round(n)), 1, 2_147_483_647) }
+    cells.E10 = { v: quantity.value, fmt: 'int', bg: SHEET_INPUT_BG, edit: numberEditor(n => quantity.value = Math.max(1, Math.round(n)), 1, GEM_EXCHANGE_MAX_QUANTITY) }
     cells.D11 = { v: side.value === 'buy' ? 'Coins to pay' : 'Coins to receive' }
-    cells.E11 = { v: orderPrice * quantity.value, fmt: 'number', f: '=E9*E10' }
+    cells.E11 = { v: gemOrderTotal(orderPrice, quantity.value), fmt: 'number', f: '=E9*E10' }
     cells.D12 = { v: 'Place offer' }
-    cells.E12 = { type: 'checkbox', v: busy.value === 'place', toggle: () => place(state) }
+    cells.E12 = checkbox('place', () => place(state))
 
     // Order book: bids in A:C, asks in E:G
     let r = 16
     cells[cellKey(r, 0)] = { v: 'Bids', bold: true }
     cells[cellKey(r, 4)] = { v: 'Asks', bold: true }
     r++
-    heads(r, 0, ['Price', 'Gems', 'Offers'])
-    heads(r, 4, ['Price', 'Gems', 'Offers'])
+    sheetHeads(cells, r, ['Price', 'Gems', 'Offers'])
+    sheetHeads(cells, r, ['Price', 'Gems', 'Offers'], 4)
     r++
     const depth = Math.max(state.book.bids.length, state.book.asks.length, 1)
     for (let i = 0; i < Math.min(depth, 20); i++) {
@@ -312,15 +345,15 @@ export function useSheetGemExchange() {
         cells[cellKey(r + i, 6)] = { v: ask.orders, fmt: 'int' }
       }
     }
-    if (!state.book.bids.length) cells[cellKey(r, 0)] = { v: 'No bids', italic: true, color: '#5f6368' }
-    if (!state.book.asks.length) cells[cellKey(r, 4)] = { v: 'No asks', italic: true, color: '#5f6368' }
+    if (!state.book.bids.length) cells[cellKey(r, 0)] = { v: 'No bids', italic: true, color: SHEET_MUTED }
+    if (!state.book.asks.length) cells[cellKey(r, 4)] = { v: 'No asks', italic: true, color: SHEET_MUTED }
     r += Math.min(depth, 20) + 1
 
     // Your open offers
     const mine = state.orders.filter(o => o.mine)
     cells[cellKey(r, 0)] = { v: `Your offers (${mine.length})`, bold: true }
     r++
-    heads(r, 0, ['Side', 'Price', 'Gems', 'Filled', 'Placed', 'Cancel'])
+    sheetHeads(cells, r, ['Side', 'Price', 'Gems', 'Filled', 'Placed', 'Cancel'])
     r++
     for (const order of mine) {
       cells[cellKey(r, 0)] = { v: SIDES[order.side], color: order.side === 'buy' ? SHEET_GAIN : SHEET_LOSS }
@@ -328,11 +361,11 @@ export function useSheetGemExchange() {
       cells[cellKey(r, 2)] = { v: order.quantity, fmt: 'int' }
       cells[cellKey(r, 3)] = { v: order.filled, fmt: 'int' }
       cells[cellKey(r, 4)] = valueCell(order.createdAt)
-      cells[cellKey(r, 5)] = { type: 'checkbox', v: busy.value === `cancel:${order.id}`, toggle: () => cancel(order) }
+      cells[cellKey(r, 5)] = checkbox(`cancel:${order.id}`, () => cancel(order))
       r++
     }
     if (!mine.length) {
-      cells[cellKey(r, 0)] = { v: 'No open offers.', italic: true, color: '#5f6368' }
+      cells[cellKey(r, 0)] = { v: 'No open offers.', italic: true, color: SHEET_MUTED }
       r++
     }
 
@@ -340,7 +373,7 @@ export function useSheetGemExchange() {
     r++
     cells[cellKey(r, 0)] = { v: 'Recent trades', bold: true }
     r++
-    heads(r, 0, ['Time', 'Price', 'Gems', 'Yours'])
+    sheetHeads(cells, r, ['Time', 'Price', 'Gems', 'Yours'])
     r++
     for (const trade of state.trades.slice(0, 50)) {
       cells[cellKey(r, 0)] = valueCell(trade.createdAt)
@@ -349,7 +382,7 @@ export function useSheetGemExchange() {
       cells[cellKey(r, 3)] = { v: trade.iBought ? 'Bought' : trade.iSold ? 'Sold' : '' }
       r++
     }
-    if (!state.trades.length) cells[cellKey(r, 0)] = { v: 'No trades yet.', italic: true, color: '#5f6368' }
+    if (!state.trades.length) cells[cellKey(r, 0)] = { v: 'No trades yet.', italic: true, color: SHEET_MUTED }
 
     return tab
   })

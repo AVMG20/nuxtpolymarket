@@ -1,109 +1,68 @@
 import { useNow } from '@vueuse/core'
-import { HABITAT_BUILDER_JOB_ID } from '#shared/utils/colony'
+import { bugStackKey, canReleaseBug } from '#shared/utils/colony'
 
 // Colony in spreadsheet mode: nutrition, habitat, loot, terrarium, bug stock,
 // the bug shop, items, upgrades and research as tables, played with
-// checkboxes. The server validates every action; the sheet only picks what to
-// send.
+// checkboxes. Every action and every gate goes through useColony, the same
+// code the Colony pages run.
 
-interface ColonyBugStackView { typeId: string, name: string, tier: number, speed: number, yield: number, eat: number, quantity: number, itemName: string }
-interface ColonyPlacedBug { id: string, typeId: string, name: string, speed: number, yield: number, eat: number, itemName: string, tickMs: number }
-interface ColonySpecies { id: string, name: string, tier: number, itemName: string, itemSellValue: number, spawnCost: number, buyable: boolean, owned: number }
-interface ColonyItem { id: string, name: string, tier: number, sellValue: number, quantity: number }
-interface ColonyLoot { itemTypeId: string, name: string, quantity: number }
-interface ColonyUpgrade {
-  id: string
-  name: string
-  level: number
-  maxLevel: number
-  atMax: boolean
-  currentEffect: string
-  nextEffect: string | null
-  nextCost: { coins: number, items: { itemTypeId: string, quantity: number }[] } | null
-  nextDurationMs: number | null
-  requiredLevel: number | null
-  meetsHabitatRequirement: boolean
-}
-interface ColonyResearch { typeId: string, name: string, tier: number, level: number, maxLevel: number, atMax: boolean, cost: number | null, nextSpeedRange: [number, number] | null, nextYieldRange: [number, number] | null }
-interface ColonyJob { id: string, kind: 'habitat' | 'track', trackId: string, trackName: string, level: number, completesAt: string }
-interface ColonyState {
-  initialized: boolean
-  capacity: number
-  habitatLevel: number
-  maxTier: number
-  habitatLevelUpCost: number
-  habitatLevelUpDurationMs: number
-  habitatLevelUpGemCost: number
-  nutrition: number
-  nutritionMax: number
-  nutritionDrainPerHour: number
-  feedCost: number
-  gemFeedCost: number
-  gemBuffActive: boolean
-  bugs: ColonyPlacedBug[]
-  speciesCatalog: ColonySpecies[]
-  inventory: ColonyItem[]
-  bugInventory: ColonyBugStackView[]
-  placedCount: number
-  pendingLoot: ColonyLoot[]
-  upgrades: ColonyUpgrade[]
-  research: ColonyResearch[]
-  builders: ColonyJob[]
-  builderCount: number
-}
+type ColonyState = NonNullable<ReturnType<typeof useColony>['state']['value']>
+type ColonyBugStackView = ColonyState['bugInventory'][number]
+type ColonyPlacedBug = ColonyState['bugs'][number]
+type ColonySpecies = ColonyState['speciesCatalog'][number]
+type ColonyItem = ColonyState['inventory'][number]
+type ColonyUpgrade = ColonyState['upgrades'][number]
+type ColonyResearch = ColonyState['research'][number]
+type ColonyJob = ColonyState['builders'][number]
 
 const WIDTHS: Record<number, number> = { 0: 190, 1: 150, 2: 210, 3: 110, 4: 110, 5: 130, 6: 230 }
-const MUTED = '#5f6368'
 const hours = (ms: number) => ms / 3_600_000
 
 export function useSheetColony() {
   const { balanceNum, user } = useAuth()
-  const source = useSheetSource<ColonyState>('/api/colony/state')
-  const { busy, error, act } = useSheetAction(source)
+  const colony = useColony({ silent: true, immediate: false })
+  const source = useComposableSource(colony.state, colony.refresh)
+  const { error, run, checkbox, confirmCheckbox } = useSheetRun()
   const now = useNow({ interval: 5000 })
   const lastAction = ref('')
 
-  const post = <T>(url: string, body?: Record<string, unknown>) => apiFetch<T>(url, { method: 'POST', body: body ?? {} })
-  const stack = (s: ColonyBugStackView) => ({ typeId: s.typeId, speed: s.speed, yield: s.yield, eat: s.eat })
-  const stackKey = (s: ColonyBugStackView) => `${s.typeId}:${s.speed}:${s.yield}:${s.eat}`
-
-  const start = () => act('init', () => post('/api/colony/init'))
-  const feed = (method: 'coins' | 'gems') => act(`feed:${method}`, async () => {
-    await post('/api/colony/feed', { method })
+  const start = () => run('init', () => colony.initColony())
+  const feed = (method: 'coins' | 'gems') => run(`feed:${method}`, async () => {
+    await colony.feedSwarm(method)
     lastAction.value = method === 'gems' ? 'Fed the colony with gems' : 'Fed the colony'
   })
-  const upgradeHabitat = () => act('habitat', () => post('/api/colony/habitat/upgrade'))
-  const collectLoot = () => act('loot', async () => {
-    const { collected: items } = await post<{ collected: { name: string, quantity: number }[] }>('/api/colony/loot/collect')
+  const upgradeHabitat = () => run('habitat', () => colony.upgradeHabitatLevel())
+  const collectLoot = () => run('loot', async () => {
+    const { collected: items } = await colony.collectLoot() as { collected: { name: string, quantity: number }[] }
     lastAction.value = items.length ? `Collected ${items.map(i => `${i.quantity} ${i.name}`).join(', ')}` : 'Collected loot'
   })
-  const place = (s: ColonyBugStackView) => act(`place:${stackKey(s)}`, async () => {
-    await post('/api/colony/bugs/place', stack(s))
+  const place = (s: ColonyBugStackView) => run(`place:${bugStackKey(s)}`, async () => {
+    await colony.placeBug(s.typeId, s.speed, s.yield, s.eat)
     lastAction.value = `Placed a ${s.name}`
   })
-  const release = (s: ColonyBugStackView) => act(`release:${stackKey(s)}`, async () => {
-    const res = await post<{ released: number, refund: number }>('/api/colony/bugs/release', { stacks: [{ ...stack(s), quantity: s.quantity }] })
+  const release = (s: ColonyBugStackView) => run(`release:${bugStackKey(s)}`, async () => {
+    const res = await colony.releaseBugs([{ typeId: s.typeId, speed: s.speed, yield: s.yield, eat: s.eat, quantity: s.quantity }]) as { released: number, refund: number }
     lastAction.value = `Released ${res.released} ${s.name} for ${formatCellNumber(res.refund, 'number')}`
   })
-  const unplace = (bug: ColonyPlacedBug) => act(`unplace:${bug.id}`, async () => {
-    await post('/api/colony/bugs/unplace', { bugId: bug.id })
+  const unplace = (bug: ColonyPlacedBug) => run(`unplace:${bug.id}`, async () => {
+    await colony.unplaceBug(bug.id)
     lastAction.value = `Moved a ${bug.name} back to stock`
   })
-  const buy = (species: ColonySpecies) => act(`buy:${species.id}`, async () => {
-    const res = await post<{ speed: number, yield: number, eat: number }>('/api/colony/bugs/buy', { typeId: species.id })
+  const buy = (species: ColonySpecies) => run(`buy:${species.id}`, async () => {
+    const res = await colony.buyBug(species.id) as { speed: number, yield: number, eat: number }
     lastAction.value = `Bought a ${species.name} (speed ${res.speed}, yield ${res.yield}, eat ${res.eat})`
   })
-  const sell = (item: ColonyItem) => act(`sell:${item.id}`, async () => {
-    const res = await post<{ coins: number, quantity: number }>('/api/colony/market/sell', { itemTypeId: item.id })
+  const sell = (item: ColonyItem) => run(`sell:${item.id}`, async () => {
+    const res = await colony.sellItem(item.id) as { coins: number, quantity: number }
     lastAction.value = `Sold ${res.quantity} ${item.name} for ${formatCellNumber(res.coins, 'number')}`
   })
-  const startUpgrade = (track: ColonyUpgrade) => act(`upgrade:${track.id}`, () => post('/api/colony/upgrades/start', { trackId: track.id }))
-  const collectJob = (job: ColonyJob) => act(`collect:${job.id}`, async () => {
-    await post('/api/colony/upgrades/collect', { trackId: job.trackId })
+  const startUpgrade = (track: ColonyUpgrade) => run(`upgrade:${track.id}`, () => colony.startUpgrade(track.id))
+  const collectJob = (job: ColonyJob) => run(`collect:${job.id}`, async () => {
+    await colony.collectUpgrade(job.trackId)
     lastAction.value = `${job.trackName} reached level ${job.level}`
   })
-  const research = (row: ColonyResearch) => act(`research:${row.typeId}`, async () => {
-    const res = await post<{ level: number }>('/api/colony/research/sacrifice', { typeId: row.typeId })
+  const research = (row: ColonyResearch) => run(`research:${row.typeId}`, async () => {
+    const res = await colony.sacrificeForResearch(row.typeId) as { level: number }
     lastAction.value = `${row.name} research is now level ${res.level}`
   })
 
@@ -114,10 +73,7 @@ export function useSheetColony() {
     const tab: SheetTab = { id: 'colony', name: 'Colony', widths: WIDTHS, cells, activate: () => source.load() }
     if (!state) return tab
 
-    const checkbox = (key: string, toggle: () => void): SheetCell => ({ type: 'checkbox', v: busy.value === key, toggle })
-    const heads = (r: number, labels: string[]) => labels.forEach((label, c) => {
-      cells[cellKey(r, c)] = { v: label, ...SHEET_HEADER }
-    })
+    const heads = (r: number, labels: string[]) => sheetHeads(cells, r, labels)
     const section = (r: number, title: string) => {
       cells[cellKey(r, 0)] = { v: title, bold: true }
     }
@@ -133,7 +89,7 @@ export function useSheetColony() {
 
     cells.A4 = { v: 'Coins' }
     cells.B4 = { v: balanceNum.value, fmt: 'number' }
-    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: MUTED } : {}
+    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: SHEET_MUTED } : {}
     cells.A5 = { v: 'Gems' }
     cells.B5 = { v: parseFloat(String(user.value?.gems ?? 0)), fmt: 'int' }
 
@@ -143,24 +99,24 @@ export function useSheetColony() {
     r++
     heads(r, ['Item', 'Value', 'Detail', 'Cost', 'Gem cost', '', '', 'Do it'])
     r++
-    const habitatJob = state.builders.find(j => j.trackId === HABITAT_BUILDER_JOB_ID)
+    const habitatBlocked = colony.habitatBlockedReason.value
     const rows: [string, SheetCell, string, SheetCell?, SheetCell?, SheetCell?][] = [
-      ['Habitat level', { v: state.habitatLevel, fmt: 'int' }, `Next level takes ${formatCellNumber(hours(state.habitatLevelUpDurationMs), 'number')} hours`,
+      ['Habitat level', { v: state.habitatLevel, fmt: 'int' }, `Next level takes ${formatCellNumber(hours(state.habitatLevelUpDurationMs ?? 0), 'number')} hours`,
         { v: state.habitatLevelUpCost, fmt: 'number' }, { v: state.habitatLevelUpGemCost, fmt: 'int' },
-        habitatJob ? undefined : checkbox('habitat', upgradeHabitat)],
+        habitatBlocked ? { v: habitatBlocked, color: SHEET_MUTED } : confirmCheckbox('habitat', upgradeHabitat)],
       ['Terrarium', { v: `${state.placedCount} / ${state.capacity}`, align: 'right' }, 'Bugs placed'],
       ['Nutrition', { v: `${formatCellNumber(state.nutrition, 'int')} / ${formatCellNumber(state.nutritionMax, 'int')}`, align: 'right' },
         `Uses ${formatCellNumber(state.nutritionDrainPerHour, 'int')} per hour`,
         { v: state.feedCost, fmt: 'number' }, undefined,
-        state.nutrition < state.nutritionMax ? checkbox('feed:coins', () => feed('coins')) : undefined],
+        state.feedCost > 0 ? checkbox('feed:coins', () => feed('coins')) : undefined],
       ['Gem feed', { v: state.gemBuffActive }, 'Speeds every bug up while it lasts',
-        undefined, { v: state.gemFeedCost, fmt: 'int' }, checkbox('feed:gems', () => feed('gems'))],
+        undefined, { v: state.gemFeedCost, fmt: 'int' }, state.gemFeedCost > 0 ? confirmCheckbox('feed:gems', () => feed('gems')) : undefined],
       ['Builders', { v: `${state.builders.length} / ${state.builderCount} busy`, align: 'right' }, '']
     ]
     for (const [label, value, detail, cost, gems, action] of rows) {
       cells[cellKey(r, 0)] = { v: label }
       cells[cellKey(r, 1)] = value
-      cells[cellKey(r, 2)] = { v: detail, color: MUTED }
+      cells[cellKey(r, 2)] = { v: detail, color: SHEET_MUTED }
       if (cost) cells[cellKey(r, 3)] = cost
       if (gems) cells[cellKey(r, 4)] = gems
       if (action) cells[cellKey(r, 7)] = action
@@ -191,7 +147,7 @@ export function useSheetColony() {
     if (state.pendingLoot.length) cells[cellKey(r, 7)] = checkbox('loot', collectLoot)
     r++
     if (!state.pendingLoot.length) {
-      cells[cellKey(r, 0)] = { v: 'Nothing to collect yet.', italic: true, color: MUTED }
+      cells[cellKey(r, 0)] = { v: 'Nothing to collect yet.', italic: true, color: SHEET_MUTED }
       r++
     }
     for (const loot of state.pendingLoot) {
@@ -217,7 +173,7 @@ export function useSheetColony() {
       r++
     }
     if (!state.bugs.length) {
-      cells[cellKey(r, 0)] = { v: 'No bugs placed: place one from your stock.', italic: true, color: MUTED }
+      cells[cellKey(r, 0)] = { v: 'No bugs placed: place one from your stock.', italic: true, color: SHEET_MUTED }
       r++
     }
 
@@ -235,12 +191,12 @@ export function useSheetColony() {
       cells[cellKey(r, 3)] = { v: s.speed, fmt: 'int' }
       cells[cellKey(r, 4)] = { v: s.yield, fmt: 'int' }
       cells[cellKey(r, 5)] = { v: s.eat, fmt: 'int' }
-      cells[cellKey(r, 6)] = checkbox(`release:${stackKey(s)}`, () => release(s))
-      if (!full) cells[cellKey(r, 7)] = checkbox(`place:${stackKey(s)}`, () => place(s))
+      if (canReleaseBug(s.typeId)) cells[cellKey(r, 6)] = confirmCheckbox(`release:${bugStackKey(s)}`, () => release(s))
+      if (!full) cells[cellKey(r, 7)] = checkbox(`place:${bugStackKey(s)}`, () => place(s))
       r++
     }
     if (!state.bugInventory.length) {
-      cells[cellKey(r, 0)] = { v: 'No spare bugs: buy one below.', italic: true, color: MUTED }
+      cells[cellKey(r, 0)] = { v: 'No spare bugs: buy one below.', italic: true, color: SHEET_MUTED }
       r++
     }
 
@@ -251,13 +207,13 @@ export function useSheetColony() {
     heads(r, ['Bug', 'Makes', 'Tier', 'Price', 'Item value', 'Owned', '', 'Buy'])
     r++
     for (const species of state.speciesCatalog) {
-      cells[cellKey(r, 0)] = { v: species.name, color: species.buyable ? undefined : MUTED }
+      cells[cellKey(r, 0)] = { v: species.name, color: species.buyable ? undefined : SHEET_MUTED }
       cells[cellKey(r, 1)] = { v: species.itemName }
       cells[cellKey(r, 2)] = { v: species.tier, fmt: 'int' }
       cells[cellKey(r, 3)] = { v: species.spawnCost, fmt: 'number' }
       cells[cellKey(r, 4)] = { v: species.itemSellValue, fmt: 'number' }
       cells[cellKey(r, 5)] = { v: species.owned, fmt: 'int' }
-      cells[cellKey(r, 7)] = species.buyable ? checkbox(`buy:${species.id}`, () => buy(species)) : { v: 'Locked', color: MUTED, align: 'center' }
+      cells[cellKey(r, 7)] = species.buyable ? checkbox(`buy:${species.id}`, () => buy(species)) : { v: 'Locked', color: SHEET_MUTED, align: 'center' }
       r++
     }
 
@@ -273,13 +229,11 @@ export function useSheetColony() {
       cells[cellKey(r, 2)] = { v: item.quantity, fmt: 'int' }
       cells[cellKey(r, 3)] = { v: item.sellValue, fmt: 'number' }
       cells[cellKey(r, 4)] = { v: item.sellValue * item.quantity, fmt: 'number', f: `=C${r + 1}*D${r + 1}` }
-      if (item.quantity > 0) cells[cellKey(r, 7)] = checkbox(`sell:${item.id}`, () => sell(item))
+      if (item.quantity > 0) cells[cellKey(r, 7)] = confirmCheckbox(`sell:${item.id}`, () => sell(item))
       r++
     }
 
     // ── Upgrades ──
-    const runningTracks = new Set(state.builders.map(j => j.trackId))
-    const freeBuilder = state.builders.length < state.builderCount
     r++
     section(r, 'Upgrades')
     r++
@@ -288,7 +242,7 @@ export function useSheetColony() {
     for (const track of state.upgrades) {
       cells[cellKey(r, 0)] = { v: track.name }
       cells[cellKey(r, 1)] = { v: track.currentEffect }
-      cells[cellKey(r, 2)] = { v: track.nextEffect ?? 'Maxed', color: track.nextEffect ? undefined : MUTED }
+      cells[cellKey(r, 2)] = { v: track.nextEffect ?? 'Maxed', color: track.nextEffect ? undefined : SHEET_MUTED }
       // requiredLevel is what the next habitat level-up needs from this track
       cells[cellKey(r, 3)] = {
         v: `${track.level} / ${track.maxLevel}`,
@@ -301,10 +255,9 @@ export function useSheetColony() {
         cells[cellKey(r, 6)] = { v: track.nextCost.items.map(i => `${formatCellNumber(i.quantity, 'int')} ${items.get(i.itemTypeId) ?? i.itemTypeId}`).join(', ') }
       }
       if (track.nextDurationMs) cells[cellKey(r, 5)] = { v: hours(track.nextDurationMs), fmt: 'number' }
-      if (runningTracks.has(track.id)) {
-        cells[cellKey(r, 7)] = { v: 'Building', color: MUTED, align: 'center' }
-      } else if (!track.atMax && freeBuilder) {
-        cells[cellKey(r, 7)] = checkbox(`upgrade:${track.id}`, () => startUpgrade(track))
+      if (!track.atMax) {
+        const blocked = colony.trackBlockedReason(track)
+        cells[cellKey(r, 7)] = blocked ? { v: blocked, color: SHEET_MUTED } : checkbox(`upgrade:${track.id}`, () => startUpgrade(track))
       }
       r++
     }
@@ -323,9 +276,9 @@ export function useSheetColony() {
       cells[cellKey(r, 4)] = { v: `${row.level} / ${row.maxLevel}`, align: 'right' }
       if (row.cost !== null && !row.atMax) {
         cells[cellKey(r, 5)] = { v: row.cost, fmt: 'number' }
-        cells[cellKey(r, 7)] = checkbox(`research:${row.typeId}`, () => research(row))
+        cells[cellKey(r, 7)] = confirmCheckbox(`research:${row.typeId}`, () => research(row))
       } else {
-        cells[cellKey(r, 5)] = { v: 'Maxed', color: MUTED, align: 'right' }
+        cells[cellKey(r, 5)] = { v: 'Maxed', color: SHEET_MUTED, align: 'right' }
       }
       r++
     }

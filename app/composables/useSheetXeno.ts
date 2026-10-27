@@ -2,48 +2,26 @@ import { useNow } from '@vueuse/core'
 import { getPlant, getPlantDisplay, isHybrid, plantBuyPrice, XENO_UPGRADE_TRACKS, xenoUpgradeCost, type XenoUpgradeId } from '#shared/utils/xeno'
 
 // Xeno in spreadsheet mode: the grid, inventory, seed market, upgrades and
-// breeder as tables, played with checkboxes and dropdown chips. The server
-// validates every action; the sheet only picks what to send.
+// breeder as tables, played with checkboxes and dropdown chips. Every action
+// goes through useXeno, the same code the Xeno page runs.
 
-interface XenoStack { typeId: string, speed: number, yield: number, quantity: number }
-interface XenoGridSlot {
-  id: string
-  slotIndex: number
-  plant: { typeId: string, name: string, tier: number, speed: number, yield: number, completesAt: string } | null
-}
-interface XenoParent { typeId: string, speed: number | null, yield: number | null }
-interface XenoBreederSlot {
-  id: string
-  slotIndex: number
-  parent1: XenoParent | null
-  parent2: XenoParent | null
-  completesAt: string | null
-  resultTypeId: string | null
-  resultQuantity: number | null
-  wasMutation: boolean | null
-  collected: boolean
-}
-interface XenoState {
-  initialized: boolean
-  inventory: XenoStack[]
-  upgrades: Record<XenoUpgradeId, number>
-  unlockedTypeIds: string[]
-  grid: { slots: XenoGridSlot[], unlockedCount: number, nextSlotCost: number, maxSlots: number }
-  breeder: { slots: XenoBreederSlot[], unlockedCount: number, nextSlotCost: number, maxSlots: number }
-  [key: string]: unknown
-}
+type XenoState = NonNullable<ReturnType<typeof useXeno>['state']['value']>
+type XenoStack = XenoState['inventory'][number]
+type XenoGridSlot = XenoState['grid']['slots'][number]
+type XenoBreederSlot = XenoState['breeder']['slots'][number]
+type HarvestDrop = { name: string, count: number }
 
 const stackKey = (s: { typeId: string, speed: number | null, yield: number | null }) => `${s.typeId}:${s.speed}:${s.yield}`
 const plantName = (typeId: string) => getPlantDisplay(typeId)?.name ?? typeId
 const stackLabel = (s: XenoStack) => `${plantName(s.typeId)} · S${s.speed} Y${s.yield}`
 
 const WIDTHS: Record<number, number> = { 0: 170, 1: 170, 2: 170, 5: 150, 8: 170 }
-const MUTED = '#5f6368'
 
 export function useSheetXeno() {
-  const { balanceNum, setBalance } = useAuth()
-  const source = useSheetSource<XenoState>('/api/xeno/state')
-  const { busy, error, act } = useSheetAction(source)
+  const { balanceNum } = useAuth()
+  const xeno = useXeno({ silent: true, immediate: false })
+  const source = useComposableSource(xeno.state, xeno.refresh)
+  const { error, run, checkbox, confirmCheckbox } = useSheetRun()
   const now = useNow({ interval: 5000 })
   const lastAction = ref('')
 
@@ -52,60 +30,53 @@ export function useSheetXeno() {
   // Breeder parents picked per empty slot, by stack key
   const parents = reactive<Record<string, [string | null, string | null]>>({})
 
-  const post = <T>(url: string, body?: Record<string, unknown>) => apiFetch<T>(url, { method: 'POST', body: body ?? {} })
-  const stacks = computed(() => source.data.value?.inventory ?? [])
+  const stacks = computed(() => xeno.state.value?.inventory ?? [])
   const findStack = (key: string | null) => stacks.value.find(s => stackKey(s) === key)
-  const stackChoices = computed(() => Object.fromEntries(stacks.value.map(s => [stackKey(s), stackLabel(s)])) as Record<string, string>)
+  const choicesFor = (list: XenoStack[]) => Object.fromEntries(list.map(s => [stackKey(s), stackLabel(s)])) as Record<string, string>
 
-  const plant = (slotId: string, stack: XenoStack) => act(`plant:${slotId}`, async () => {
-    await post('/api/xeno/grid/plant', { slotId, typeId: stack.typeId, speed: stack.speed, yield: stack.yield })
+  const plant = (slotId: string, stack: XenoStack) => run(`plant:${slotId}`, async () => {
+    await xeno.plantInSlot(slotId, stack.typeId, stack.speed, stack.yield)
     lastAction.value = `Planted 1 ${plantName(stack.typeId)}`
   })
 
-  const plantAll = (stack: XenoStack) => act('plant-all', async () => {
-    const res = await post<{ planted: number }>('/api/xeno/grid/plant-all', { typeId: stack.typeId, speed: stack.speed, yield: stack.yield })
+  const plantAll = (stack: XenoStack) => run('plant-all', async () => {
+    const res = await xeno.plantAllSlots(stack.typeId, stack.speed, stack.yield) as { planted: number }
     lastAction.value = `Planted ${res.planted} ${plantName(stack.typeId)}`
   })
 
-  function describeHarvest(drops: { name: string, count: number }[]) {
-    return drops.map(d => `${d.count} ${d.name}`).join(', ')
-  }
+  const describeHarvest = (drops: HarvestDrop[]) => drops.map(d => `${d.count} ${d.name}`).join(', ')
+  const harvestOne = async (slot: XenoGridSlot) => ((await xeno.harvestSlot(slot.id)) as { drops: HarvestDrop[] }).drops
 
-  const harvest = (slot: XenoGridSlot) => act(`harvest:${slot.id}`, async () => {
-    const res = await post<{ drops: { name: string, count: number }[] }>('/api/xeno/grid/harvest', { slotId: slot.id })
-    lastAction.value = `Harvested ${describeHarvest(res.drops)}`
+  const harvest = (slot: XenoGridSlot) => run(`harvest:${slot.id}`, async () => {
+    lastAction.value = `Harvested ${describeHarvest(await harvestOne(slot))}`
   })
 
   // One at a time: each harvest is its own claim on the server
-  const harvestReady = (slots: XenoGridSlot[]) => act('harvest-all', async () => {
-    const got: { name: string, count: number }[] = []
-    for (const slot of slots) {
-      const res = await post<{ drops: { name: string, count: number }[] }>('/api/xeno/grid/harvest', { slotId: slot.id })
-      got.push(...res.drops)
-    }
+  const harvestReady = (slots: XenoGridSlot[]) => run('harvest-all', async () => {
     const totals = new Map<string, number>()
-    for (const d of got) totals.set(d.name, (totals.get(d.name) ?? 0) + d.count)
+    for (const slot of slots) {
+      for (const d of await harvestOne(slot)) totals.set(d.name, (totals.get(d.name) ?? 0) + d.count)
+    }
     lastAction.value = `Harvested ${describeHarvest([...totals].map(([name, count]) => ({ name, count })))}`
   })
 
-  const sell = (stack: XenoStack, quantity: number) => act(`sell:${stackKey(stack)}:${quantity}`, async () => {
-    const res = await post<{ sold: number, total: number, balance: string | number }>('/api/xeno/market/sell', { typeId: stack.typeId, speed: stack.speed, yield: stack.yield, quantity })
-    setBalance(res.balance)
+  const sell = (stack: XenoStack, quantity: number) => run(`sell:${stackKey(stack)}:${quantity}`, async () => {
+    const res = await xeno.sellPlants(stack.typeId, stack.speed, stack.yield, quantity) as { sold: number, total: number }
     lastAction.value = `Sold ${res.sold} ${plantName(stack.typeId)} for ${formatCellNumber(res.total, 'number')}`
   })
 
-  const buy = (typeId: string) => act(`buy:${typeId}`, async () => {
-    const res = await post<{ bought: number, total: number }>('/api/xeno/market/buy', { typeId, quantity: buyQuantity.value })
+  const buy = (typeId: string) => run(`buy:${typeId}`, async () => {
+    const res = await xeno.buyPlants(typeId, buyQuantity.value) as { bought: number, total: number }
     lastAction.value = `Bought ${res.bought} ${plantName(typeId)} for ${formatCellNumber(res.total, 'number')}`
   })
 
-  const buyUpgrade = (upgradeId: XenoUpgradeId) => act(`upgrade:${upgradeId}`, () => post('/api/xeno/upgrades/buy', { upgradeId }))
-  const unlockGrid = () => act('unlock-grid', () => post('/api/xeno/grid/unlock'))
-  const unlockBreeder = () => act('unlock-breeder', () => post('/api/xeno/breeder/unlock'))
-  const start = () => act('init', () => post('/api/xeno/init'))
+  const buyUpgrade = (upgradeId: XenoUpgradeId) => run(`upgrade:${upgradeId}`, () => xeno.buyUpgrade(upgradeId))
+  const unlockGrid = () => run('unlock-grid', () => xeno.unlockGridSlot())
+  const unlockBreeder = () => run('unlock-breeder', () => xeno.unlockBreederSlot())
+  const start = () => run('init', () => xeno.initGame())
 
-  const collect = (slot: XenoBreederSlot) => act(`collect:${slot.id}`, async () => {
-    const res = await post<{ collected: number, plantName: string, wasMutation: boolean }>('/api/xeno/breeder/collect', { slotId: slot.id })
+  const collect = (slot: XenoBreederSlot) => run(`collect:${slot.id}`, async () => {
+    const res = await xeno.collectBreed(slot.id) as { collected: number, plantName: string, wasMutation: boolean }
     lastAction.value = `Collected ${res.collected} ${res.plantName}${res.wasMutation ? ' (mutation)' : ''}`
   })
 
@@ -117,13 +88,9 @@ export function useSheetXeno() {
       error.value = 'Pick both parents first.'
       return
     }
-    return act(`breed:${slot.id}`, async () => {
-      await post('/api/xeno/breeder/start', {
-        slotId: slot.id,
-        plant1TypeId: p1.typeId, plant1Speed: p1.speed, plant1Yield: p1.yield,
-        plant2TypeId: p2.typeId, plant2Speed: p2.speed, plant2Yield: p2.yield
-      })
-      delete parents[slot.id]
+    return run(`breed:${slot.id}`, async () => {
+      await xeno.startBreed(slot.id, p1.typeId, p1.speed, p1.yield, p2.typeId, p2.speed, p2.yield)
+      parents[slot.id] = [null, null]
     })
   }
 
@@ -134,10 +101,7 @@ export function useSheetXeno() {
     const tab: SheetTab = { id: 'xeno', name: 'Xeno', widths: WIDTHS, cells, activate: () => source.load() }
     if (!state) return tab
 
-    const checkbox = (key: string, toggle: () => void): SheetCell => ({ type: 'checkbox', v: busy.value === key, toggle })
-    const heads = (r: number, labels: string[]) => labels.forEach((label, c) => {
-      cells[cellKey(r, c)] = { v: label, ...SHEET_HEADER }
-    })
+    const heads = (r: number, labels: string[]) => sheetHeads(cells, r, labels)
 
     if (!state.initialized) {
       cells.A5 = { v: 'Start Xeno' }
@@ -147,11 +111,11 @@ export function useSheetXeno() {
 
     cells.A4 = { v: 'Coins' }
     cells.B4 = { v: balanceNum.value, fmt: 'number' }
-    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: MUTED } : {}
+    cells.C4 = lastAction.value ? { v: lastAction.value, italic: true, color: SHEET_MUTED } : {}
 
-    const choices = stackChoices.value
+    const choices = choicesFor(stacks.value)
     const choiceOptions = Object.values(choices)
-    const pickStack = (apply: (stack: XenoStack) => void) => choiceEditor(choices, (key) => {
+    const pickStack = (apply: (stack: XenoStack) => void, from = choices) => choiceEditor(from, (key) => {
       const stack = findStack(key)
       if (stack) apply(stack)
     })
@@ -180,9 +144,12 @@ export function useSheetXeno() {
         cells[cellKey(r, 6)] = { v: isReady }
         if (isReady) cells[cellKey(r, 7)] = checkbox(`harvest:${slot.id}`, () => harvest(slot))
       } else {
-        cells[cellKey(r, 1)] = { v: 'Empty', color: MUTED }
-        if (choiceOptions.length) {
-          cells[cellKey(r, 2)] = { v: busy.value === `plant:${slot.id}` ? 'Planting…' : '', type: 'dropdown', options: choiceOptions, edit: pickStack(stack => plant(slot.id, stack)) }
+        cells[cellKey(r, 1)] = { v: 'Empty', color: SHEET_MUTED }
+        // Only the plants this slot can host, as on the Xeno page (void plants need an artifact)
+        const hostable = choicesFor(stacks.value.filter(s => xeno.canHost(slot, s.typeId)))
+        const options = Object.values(hostable)
+        if (options.length) {
+          cells[cellKey(r, 2)] = { v: '', type: 'dropdown', options, edit: pickStack(stack => plant(slot.id, stack), hostable) }
         }
       }
       r++
@@ -208,7 +175,7 @@ export function useSheetXeno() {
     heads(r, ['Plant', 'Tier', 'Quantity', 'Speed', 'Yield', 'Value', 'Total value', 'Sell 1', 'Sell all'])
     r++
     if (!stacks.value.length) {
-      cells[cellKey(r, 0)] = { v: 'Nothing in stock: harvest or buy seeds.', italic: true, color: MUTED }
+      cells[cellKey(r, 0)] = { v: 'Nothing in stock: harvest or buy seeds.', italic: true, color: SHEET_MUTED }
       r++
     }
     for (const stack of stacks.value) {
@@ -222,7 +189,7 @@ export function useSheetXeno() {
       cells[cellKey(r, 5)] = { v: value, fmt: 'number' }
       cells[cellKey(r, 6)] = { v: value * stack.quantity, fmt: 'number', f: `=C${r + 1}*F${r + 1}` }
       cells[cellKey(r, 7)] = checkbox(`sell:${stackKey(stack)}:1`, () => sell(stack, 1))
-      cells[cellKey(r, 8)] = checkbox(`sell:${stackKey(stack)}:${stack.quantity}`, () => sell(stack, stack.quantity))
+      cells[cellKey(r, 8)] = confirmCheckbox(`sell:${stackKey(stack)}:${stack.quantity}`, () => sell(stack, stack.quantity))
       r++
     }
 
@@ -267,7 +234,7 @@ export function useSheetXeno() {
       cells[cellKey(r, 2)] = { v: track.description }
       cells[cellKey(r, 3)] = { v: level, fmt: 'int' }
       cells[cellKey(r, 4)] = { v: track.maxLevel, fmt: 'int' }
-      cells[cellKey(r, 5)] = cost === null ? { v: 'Maxed', color: MUTED, align: 'right' } : { v: cost, fmt: 'number' }
+      cells[cellKey(r, 5)] = cost === null ? { v: 'Maxed', color: SHEET_MUTED, align: 'right' } : { v: cost, fmt: 'number' }
       if (cost !== null) cells[cellKey(r, 7)] = checkbox(`upgrade:${track.id}`, () => buyUpgrade(track.id))
       r++
     }
@@ -290,7 +257,7 @@ export function useSheetXeno() {
           cells[cellKey(r, 5)] = { v: !!slot.wasMutation }
           cells[cellKey(r, 7)] = checkbox(`collect:${slot.id}`, () => collect(slot))
         } else {
-          cells[cellKey(r, 4)] = { v: 'Breeding…', color: MUTED }
+          cells[cellKey(r, 4)] = { v: 'Breeding…', color: SHEET_MUTED }
         }
       } else if (choiceOptions.length) {
         const [a, b] = parents[slot.id] ?? [null, null]
@@ -303,7 +270,7 @@ export function useSheetXeno() {
         cells[cellKey(r, 2)] = { v: findStack(b) ? stackLabel(findStack(b)!) : '', type: 'dropdown', options: choiceOptions, edit: pick(1) }
         if (findStack(a) && findStack(b)) cells[cellKey(r, 7)] = checkbox(`breed:${slot.id}`, () => breed(slot))
       } else {
-        cells[cellKey(r, 1)] = { v: 'Empty', color: MUTED }
+        cells[cellKey(r, 1)] = { v: 'Empty', color: SHEET_MUTED }
       }
       r++
     }

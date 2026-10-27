@@ -3,7 +3,7 @@
 
 /** Matched by physical key, so it also works where ` is a dead key (US-International) */
 export function isSheetModeKey(e: KeyboardEvent): boolean {
-  if (e.code !== 'Backquote' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false
+  if (e.code !== 'Backquote' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false
   const target = e.target as HTMLElement | null
   return !(target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable))
 }

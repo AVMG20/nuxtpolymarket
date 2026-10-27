@@ -41,13 +41,10 @@ export function useSheetWorkbook() {
   const gemExchange = useSheetGemExchange()
   const inspected = INSPECTED.map(def => useSheetInspector(def))
 
-  interface LeaderRow { name: string, isCurrentUser: boolean, totalWealth: number, balance: string, gems: number, bankBalance: number }
-  const leaders = useSheetSource<LeaderRow[]>('/api/leaderboard')
+  const leaders = useSheetSource('/api/leaderboard')
   const leaderboard = computed<SheetTab>(() => {
     const cells: SheetCells = sourceHeader('Leaderboard', leaders)
-    ;['#', 'Player', 'Total wealth', 'Coins', 'Gems', 'Bank'].forEach((head, i) => {
-      cells[cellKey(4, i)] = { v: head, ...SHEET_HEADER }
-    })
+    sheetHeads(cells, 4, ['#', 'Player', 'Total wealth', 'Coins', 'Gems', 'Bank'])
     leaders.data.value?.slice(0, 200).forEach((row, i) => {
       const r = i + 5
       const bold = row.isCurrentUser || undefined
@@ -75,15 +72,13 @@ export function useSheetWorkbook() {
       B3: { v: balanceNum.value, fmt: 'number' },
       A4: { v: 'Gems' },
       B4: { v: parseFloat(String(user.value?.gems ?? 0)), fmt: 'int' },
-      A6: { v: 'Sheet', ...SHEET_HEADER },
-      B6: { v: 'Mode', ...SHEET_HEADER },
-      C6: { v: 'How', ...SHEET_HEADER }
     }
+    sheetHeads(cells, 5, ['Sheet', 'Mode', 'How'])
     games.value.forEach((tab, i) => {
       const r = 7 + i
       const how = PLAYABLE[tab.id]
       cells[`A${r}`] = { v: tab.name, link: { label: tab.name, tabId: tab.id } }
-      cells[`B${r}`] = how ? { v: 'Play', color: SHEET_GAIN } : { v: 'View', color: '#5f6368' }
+      cells[`B${r}`] = how ? { v: 'Play', color: SHEET_GAIN } : { v: 'View', color: SHEET_MUTED }
       if (how) cells[`C${r}`] = { v: how }
     })
     return { id: 'overview', name: 'Overview', widths: { 0: 160, 1: 130 }, cells }
