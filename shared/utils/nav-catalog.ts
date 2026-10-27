@@ -62,6 +62,7 @@ export const NAV_CATALOG: NavSection[] = [
             { label: 'SHAPEZZ', icon: 'i-lucide-shapes', to: '/shapezz', description: 'Endless platform-shooter mayhem with stackable mutations and quick cash-outs' },
             { label: 'Call of Xeno', icon: 'i-lucide-skull', to: '/call-of-xeno', description: 'Fight off alien waves and kit out your loadout at the workbench' },
             { label: 'Voxel Arena', icon: 'i-lucide-boxes', to: '/voxel-arena', description: 'Voxel wave survival: shoot, slash, dash and draft rogue-like upgrades' },
+            { label: 'Nitro Rush', icon: 'i-lucide-car-front', to: '/nitro-rush', description: 'Neon time trial racer: drift through the bends, charge nitro and chase your best lap' },
             { label: 'Dead Front', icon: 'i-lucide-crosshair', to: '/dead-front', description: 'Co-op round-based zombies in a ruined 1917 chapel' },
             { label: 'Firewall', icon: 'i-lucide-shield-half', to: '/firewall', description: 'Lane defence over 30 waves with five difficulties and a Mainframe' },
             { label: 'Hackerz', icon: 'i-lucide-skull', to: '/hackerz', description: 'Hold the fence against hackers on a neon 3D grid across 30 waves' },

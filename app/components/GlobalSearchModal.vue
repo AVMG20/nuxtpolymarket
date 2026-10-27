@@ -521,6 +521,14 @@ const rawGroups: CommandPaletteGroup[] = [
         keywords: ['voxel', 'arena', 'shooter', 'slasher', 'waves', 'survival', 'roguelike', 'upgrades', 'titan']
       },
       {
+        id: 'nitro-rush',
+        label: 'Nitro Rush',
+        description: 'Neon time trial racer: drift through the bends, charge nitro and chase your best lap',
+        icon: 'i-lucide-car-front',
+        to: '/nitro-rush',
+        keywords: ['nitro', 'rush', 'car', 'racing', 'drift', 'time trial', 'lap', 'track', 'arcade']
+      },
+      {
         id: 'dead-front',
         label: 'Dead Front',
         description: 'Co-op round-based zombies FPS with 1900s weapons',
