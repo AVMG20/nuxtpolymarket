@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMediaQuery, useResizeObserver } from '@vueuse/core'
+import { useElementBounding, useElementSize, useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
 import { PLANT_TYPES, MUTATIONS, MUTATION_OFFSPRING, getPlant, xenoMutationBoost } from '#shared/utils/xeno'
 import { TIER_NAMES, roman, tierClass } from '~/lib/xeno-ui'
 
@@ -97,6 +97,16 @@ function measureEntry() {
 watch(selectedId, () => nextTick(measureEntry))
 useResizeObserver(entryEl, measureEntry)
 
+// The entry follows the scroll on desktop. The site layout scrolls the document
+// past an overflow container, so `position: sticky` never engages: shift the
+// entry down by hand, keeping it inside the list's row.
+const rowEl = ref<HTMLElement | null>(null)
+const asideEl = ref<HTMLElement | null>(null)
+const row = useElementBounding(rowEl)
+const { height: asideHeight } = useElementSize(asideEl, undefined, { box: 'border-box' })
+useEventListener(document, 'scroll', row.update, { capture: true, passive: true })
+const entryOffset = computed(() => Math.round(Math.min(Math.max(0, 16 - row.top.value), Math.max(0, row.height.value - asideHeight.value))))
+
 const statusLabel = computed(() => ({
   known: { text: 'Discovered', color: 'var(--xg-accent-text)' },
   reach: { text: 'Within reach', color: 'var(--xg-uv)' },
@@ -142,7 +152,7 @@ const statusLabel = computed(() => ({
       </button>
     </div>
 
-    <div class="flex gap-6 items-start">
+    <div ref="rowEl" class="flex gap-6 items-start">
       <section class="flex-1 min-w-0 flex flex-col gap-5">
         <p v-if="!tiers.length" class="xg-well text-center text-sm text-(--xg-muted) py-12">No species match.</p>
         <div v-for="t in tiers" :key="t.tier">
@@ -184,7 +194,7 @@ const statusLabel = computed(() => ({
 
       <!-- Entry (xl+) -->
       <!-- Sized to its content; only a very long entry scrolls, with a fade at the cut. -->
-      <aside class="hidden xl:flex xg-pane xg-pane-r flex-col w-[420px] 2xl:w-[460px] shrink-0 sticky top-4 max-h-[calc(100svh-2rem)] overflow-hidden" aria-label="Species entry">
+      <aside ref="asideEl" class="hidden xl:flex xg-pane xg-pane-r flex-col w-[420px] 2xl:w-[460px] shrink-0 max-h-[calc(100svh-2rem)] overflow-hidden will-change-transform" :style="{ transform: `translateY(${entryOffset}px)` }" aria-label="Species entry">
         <div
           ref="entryEl"
           class="flex flex-col gap-3.5 p-5 min-h-0 overflow-y-auto"

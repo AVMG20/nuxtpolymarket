@@ -108,10 +108,9 @@ function pickRung(key: string, level: number) {
 
 // ── Everything you own, free or fitted ───────────────────────────────────────
 const allOwned = computed(() => {
-  const rows: { id: string, typeId: string, chargesRemaining: number, gemCrafted: boolean, where: string | null }[] = []
-  for (const a of freeArtifacts.value as any[]) rows.push({ ...a, gemCrafted: !!a.gemCrafted, where: null })
-  for (const s of gridSlots.value as any[]) if (s.artifact) rows.push({ ...s.artifact, gemCrafted: !!s.artifact.gemCrafted, where: `Planter ${s.slotIndex + 1}` })
-  for (const s of breederSlots.value as any[]) if (s.artifact) rows.push({ ...s.artifact, gemCrafted: !!s.artifact.gemCrafted, where: `Pod ${s.slotIndex + 1}` })
+  const rows: { id: string, typeId: string, chargesRemaining: number, gemCrafted: boolean, fitted: boolean }[] = []
+  for (const a of freeArtifacts.value as any[]) rows.push({ ...a, gemCrafted: !!a.gemCrafted, fitted: false })
+  for (const s of [...gridSlots.value, ...breederSlots.value] as any[]) if (s.artifact) rows.push({ ...s.artifact, gemCrafted: !!s.artifact.gemCrafted, fitted: true })
   return rows
 })
 const ownedByArtifact = computed(() => {
@@ -120,17 +119,17 @@ const ownedByArtifact = computed(() => {
   return m
 })
 
-/** One row per artifact type and gem-craft, with where its copies are fitted. */
-type OwnedRow = { key: string, typeId: string, gemCrafted: boolean, count: number, charges: number, freeIds: string[], fitted: string[] }
+/** One row per artifact type and gem-craft, with how many copies are fitted. */
+type OwnedRow = { key: string, typeId: string, gemCrafted: boolean, count: number, charges: number, freeIds: string[], fitted: number }
 const ownedList = computed<OwnedRow[]>(() => {
   const rows = new Map<string, OwnedRow>()
   for (const a of allOwned.value) {
     const key = `${a.typeId}:${a.gemCrafted ? 1 : 0}`
     let row = rows.get(key)
-    if (!row) rows.set(key, row = { key, typeId: a.typeId, gemCrafted: a.gemCrafted, count: 0, charges: 0, freeIds: [], fitted: [] })
+    if (!row) rows.set(key, row = { key, typeId: a.typeId, gemCrafted: a.gemCrafted, count: 0, charges: 0, freeIds: [], fitted: 0 })
     row.count++
     row.charges += a.chargesRemaining
-    if (a.where) row.fitted.push(a.where)
+    if (a.fitted) row.fitted++
     else row.freeIds.push(a.id)
   }
   const level = (r: OwnedRow) => getArtifact(r.typeId)?.level ?? 0
@@ -139,15 +138,6 @@ const ownedList = computed<OwnedRow[]>(() => {
 })
 function artifactFamilyIndex(typeId: string): number {
   return ARTIFACT_FAMILIES.findIndex(f => f.matches(typeId))
-}
-/** "Planter 1, 4 · Pod 2": fitted spots, grouped by kind. */
-function fittedText(where: string[]): string {
-  const by = new Map<string, string[]>()
-  for (const w of where) {
-    const [kind, n] = w.split(' ')
-    by.set(kind!, [...(by.get(kind!) ?? []), n!])
-  }
-  return [...by].map(([kind, ns]) => `${kind} ${ns.sort((x, y) => Number(x) - Number(y)).join(', ')}`).join(' · ')
 }
 
 // Owned is a side column on wide screens; below that it folds away under the cards.
@@ -376,8 +366,8 @@ const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
                 <b class="text-[13px] block truncate">
                   {{ getArtifact(o.typeId)?.name }}<span class="xg-num text-(--xg-muted)"> ×{{ o.count }}</span>
                 </b>
-                <span class="block text-[11.5px] text-(--xg-faint) truncate" :title="o.fitted.length ? `Fitted: ${o.fitted.join(', ')}` : undefined">
-                  <template v-if="o.fitted.length"><b class="text-(--xg-accent-text)">{{ fittedText(o.fitted) }}</b><template v-if="o.freeIds.length"> · {{ o.freeIds.length }} free</template></template>
+                <span class="block text-[11.5px] text-(--xg-faint) truncate">
+                  <template v-if="o.fitted"><b class="text-(--xg-accent-text)">{{ formatNumber(o.fitted, false) }} fitted</b><template v-if="o.freeIds.length"> · {{ formatNumber(o.freeIds.length, false) }} free</template></template>
                   <template v-else>{{ artifactEffectSummary(o.typeId, o.gemCrafted) }}</template>
                 </span>
               </span>
