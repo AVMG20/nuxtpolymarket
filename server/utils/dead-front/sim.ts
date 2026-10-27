@@ -206,7 +206,8 @@ export class DfMatchSim {
             damage: (z, p, dmg, zone, explosive) => this.damageZombie(z, p, dmg, zone, explosive ? { weapon: 'grenade', credit: null, explosive: true } : { weapon: 'sentry', credit: null }),
             points: (p, amount) => this.addPoints(p, amount),
             steer: (z, goal, speed, dt) => this.steer(z, goal, speed, dt),
-            walkable: (a, b) => this.walkable(a, b)
+            walkable: (a, b) => this.walkable(a, b),
+            makeWeapon: (p, id) => this.makeWeapon(p, id, 0)
         })
     }
 
@@ -882,6 +883,8 @@ export class DfMatchSim {
             const ready = p.useCooldown.get(id) ?? 0
             if (this.time < ready) return
         }
+        // reaching for a new weapon gives a lent grenade launcher back first (the trade swaps the real one)
+        if (it.kind === 'wallbuy' || it.kind === 'box') this.arsenal.endLauncher(p)
         const handled = this.useKind(p, it)
         if (handled && it.kind !== 'barricade') p.useCooldown.set(id, this.time + 0.9)
     }
@@ -1113,7 +1116,8 @@ export class DfMatchSim {
         }
         if (pap.state !== 'idle') return false
         const w = this.usable(p)
-        if (!w) return false
+        // a lent killstreak launcher isn't yours to pack
+        if (!w || DF_WEAPONS[w.id]?.temporary) return false
         const cost = dfPapCost(w.pap)
         if (cost === null || !this.spend(p, cost)) return false
         // The weapon goes in but its slot stays put (reserved), so nothing shifts
@@ -2353,7 +2357,7 @@ export class DfMatchSim {
         const speed = w.stats.projectileSpeed > 0 ? w.stats.projectileSpeed : bolt ? 45 : 32
         this.projectiles.push({
             id: this.nextId++,
-            kind: bolt ? 'xray-bolt' : 'pap-grenade',
+            kind: bolt ? 'xray-bolt' : DF_WEAPONS[w.id]?.temporary ? 'mortar' : 'pap-grenade',
             pos: { ...origin },
             vel: scale(dir, speed),
             tier: w.pap,
@@ -2569,7 +2573,7 @@ export class DfMatchSim {
         if (p && !opts.noPoints) {
             p.kills++
             if (zone === 'head') p.headshots++
-            if (src.credit) p.weaponKills[src.credit] = (p.weaponKills[src.credit] ?? 0) + 1
+            if (src.credit && !DF_WEAPONS[src.credit]?.temporary) p.weaponKills[src.credit] = (p.weaponKills[src.credit] ?? 0) + 1
             this.addPoints(p, dfKillPoints(zone, src.melee === true))
             if (p.effects.killHeal > 0 && p.life === 'alive') p.health = Math.min(p.effects.maxHealth, p.health + p.effects.killHeal)
             if (p.effects.ammoOnKillChance > 0 && src.credit && randomChance(p.effects.ammoOnKillChance)) {
@@ -2695,8 +2699,7 @@ export class DfMatchSim {
             const shielded = this.now() - (p.lastStallEnd ?? -Infinity) > STALL_SHIELD_COOLDOWN
             if (shielded && age > DF_STALE_INPUT && age < STALE_INPUT_MAX) return
         }
-        // a trench plate takes its share first
-        const dmg = this.arsenal.absorb(p, explosive ? raw * p.effects.explosiveResistMult : raw)
+        const dmg = explosive ? raw * p.effects.explosiveResistMult : raw
         if (!(dmg > 0)) return
         p.lastDamageAt = this.time
         this.emit({ k: 'zhit', z: zombieId, p: p.pid, dmg: Math.round(dmg) })
@@ -2713,6 +2716,8 @@ export class DfMatchSim {
     }
 
     private downPlayer(p: SimPlayer): void {
+        // a lent grenade launcher goes back before last stand sets the weapons aside
+        this.arsenal.beforeDown(p)
         p.life = 'down'
         p.health = 0
         p.downs++

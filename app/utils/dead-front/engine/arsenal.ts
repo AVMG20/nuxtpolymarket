@@ -7,7 +7,7 @@ import { dfGroundHeight, dfRaycast } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfEvent, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import { DF_KIT, dfClampRarity, dfRarity } from '#shared/utils/dead-front/rarity'
-import { DF_ARMOR, DF_DECOY, DF_RECIPES, DF_SENTRY } from '#shared/utils/dead-front/salvage'
+import { DF_DECOY, DF_RECIPES, DF_SENTRY } from '#shared/utils/dead-front/salvage'
 import type { DfKitDropSnap } from '#shared/utils/dead-front/salvage'
 import type { Vec3 } from '#shared/utils/dead-front/types'
 import type { DfRenderContext } from '../context'
@@ -195,7 +195,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                             if (hud.prompt) hud.prompt.denyKey++
                         } else if (pick === 'upgrade') {
                             const w = dfHeldOf(meP)
-                            if (w) send({ t: 'arsenal', op: { k: 'upgrade', bench: prompt.id, slot: meP.slot, from: dfClampRarity(w.rarity) } })
+                            if (w) send({ t: 'arsenal', op: { k: 'upgrade', bench: prompt.id, slot: meP.slot, from: dfClampRarity(w.rarity), weapon: w.id } })
                         } else {
                             send({ t: 'arsenal', op: { k: 'craft', bench: prompt.id, item: pick } })
                         }
@@ -240,6 +240,15 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                     deny()
                     const next = dfNextReward(mine?.streak ?? 0)
                     say(`No support yet · ${next.at - (mine?.streak ?? 0)} more kills for the ${DF_REWARDS[next.id].name}`)
+                } else if (mine.rewards[mine.rewards.length - 1] === 'launcher') {
+                    // the launcher isn't aimed: it comes straight out
+                    if (mine.launcher) {
+                        deny()
+                        say('The launcher is already out')
+                    } else {
+                        send({ t: 'arsenal', op: { k: 'callin', at: { ...o.feet() }, dir: { x: 0, y: 0, z: -1 } } })
+                        ctx.audio.play(DF_ARSENAL_SND.callin, { volume: 0.9 })
+                    }
                 } else {
                     aiming = 'callin'
                 }
@@ -287,8 +296,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 }
             }
             if (mine) {
-                const armor = Math.min(1, mine.armor / DF_ARMOR.max)
-                if (Math.abs(armor - a.armor) > 0.004) a.armor = armor
+                const launcher = Math.ceil(mine.launcher ?? 0)
+                if (a.launcher !== launcher) a.launcher = launcher
                 if (a.equip !== mine.equip) a.equip = mine.equip
                 if (a.kit !== mine.kit) a.kit = mine.kit
                 if (a.streak !== mine.streak) a.streak = mine.streak
@@ -324,19 +333,19 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 const reward = mine.rewards[mine.rewards.length - 1]!
                 ring.material = aimOk ? strikeMat : badMat
                 strip.material = ring.material
-                if (reward === 'barrage') {
+                if (reward === 'barrage' || reward === 'bomber') {
+                    // a ring: the barrage's spread, the bomber's carpet (nothing inside survives)
                     ring.visible = true
                     strip.visible = false
                     ring.position.set(target.x, target.y + 0.05, target.z)
-                    ring.scale.setScalar(DF_STRIKE.barrage.spread)
+                    ring.scale.setScalar(reward === 'barrage' ? DF_STRIKE.barrage.spread : DF_STRIKE.bomber.radius)
                 } else {
                     ring.visible = false
                     strip.visible = true
-                    const len = reward === 'zeppelin' ? DF_STRIKE.zeppelin.length : DF_STRIKE.strafe.length
                     strip.position.set(target.x, target.y + 0.05, target.z)
                     o.aim(aimV)
                     strip.rotation.set(0, Math.atan2(aimV.x, aimV.z), 0)
-                    strip.scale.set(reward === 'zeppelin' ? 4.5 : 3, 1, len)
+                    strip.scale.set(4.5, 1, DF_STRIKE.zeppelin.length)
                 }
                 const pulse = 0.45 + 0.25 * Math.sin(clock * 10)
                 ;(ring.material as THREE.MeshBasicMaterial).opacity = pulse
@@ -355,7 +364,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 case 'reward':
                     if (ev.p !== me) return
                     ctx.audio.play(DF_ARSENAL_SND.reward, { volume: 1 })
-                    callout(`${DF_REWARDS[ev.reward].name} ready`, `${ev.n} kills without going down · hold X to mark, release to call it in`)
+                    callout(`${DF_REWARDS[ev.reward].name} ready`, ev.reward === 'launcher' ? `${ev.n} kills without going down · press X to take it` : `${ev.n} kills without going down · hold X to mark, release to call it in`)
                     return
                 case 'strike':
                     if (ev.p !== me) ctx.audio.play(DF_ARSENAL_SND.callin, { volume: 0.5 })
@@ -364,13 +373,13 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 case 'craft':
                     if (ev.p !== me) return
                     if (ev.item === 'sentry' || ev.item === 'decoy') say(`Hold Q to aim, release to place the ${DF_RECIPES[ev.item].name}`)
-                    else if (ev.item === 'plate') ctx.audio.play(DF_ARSENAL_SND.plate, { volume: 0.8 })
+                    else if (ev.item === 'bomber') say('Hold X to mark the spot, release to send the bomber')
+                    else if (ev.item === 'launcher') say('Press X for the Granatwerfer')
                     return
-                case 'armor':
-                    if (ev.p === me && ev.broken) {
-                        ctx.audio.play(DF_ARSENAL_SND.plateBreak, { volume: 0.9 })
-                        say('Your trench plate broke')
-                    }
+                case 'launcher':
+                    if (ev.p !== me) return
+                    if (ev.on) callout('Granatwerfer', 'Heavy shells for 45 seconds · then your own weapon comes back', 'gold')
+                    else say('The Granatwerfer goes back · your own weapon is in hand')
                     return
                 case 'rarity': {
                     if (ev.p !== me) return

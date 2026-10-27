@@ -133,7 +133,8 @@ export interface DfZombieSnap {
     masked?: boolean
 }
 
-export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit'
+/** `mortar`: the killstreak Granatwerfer's heavy shell. */
+export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit' | 'mortar'
 
 export interface DfProjectileSnap {
     id: number

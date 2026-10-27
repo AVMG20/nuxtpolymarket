@@ -219,7 +219,7 @@ export function createDfGear(kit: DfWorldKit): DfWorldPart {
                 v.seen = true
                 v.snap = s
             }
-            for (const v of [...sentries.values()]) {
+            for (const v of sentries.values()) {
                 if (!v.seen) {
                     // gone without its event (a missed snapshot): fold away
                     v.gone += dt
@@ -286,7 +286,7 @@ export function createDfGear(kit: DfWorldKit): DfWorldPart {
                 v.seen = true
                 v.snap = d
             }
-            for (const v of [...decoys.values()]) {
+            for (const v of decoys.values()) {
                 if (!v.seen) {
                     v.group.removeFromParent()
                     decoys.delete(v.id)
@@ -343,7 +343,7 @@ export function createDfGear(kit: DfWorldKit): DfWorldPart {
             }
         },
         dispose() {
-            for (const v of [...sentries.values()]) dropSentry(v)
+            for (const v of sentries.values()) dropSentry(v)
             for (const v of decoys.values()) v.group.removeFromParent()
             decoys.clear()
             for (const g of geos) g.dispose()

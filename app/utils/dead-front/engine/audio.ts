@@ -139,8 +139,6 @@ const WORLD: Record<string, RuleRow> = {
     'df:ars-scrap': [0.05, 0.3, 1.2],
     'df:ars-part': [0.1, 0.9, 1.6],
     'df:ars-craft': [0.3, 1.3, 1.6],
-    'df:ars-plate': [0.2, 0.6, 1.4],
-    'df:ars-plate-break': [0.2, 0.6, 2],
     'df:ars-deploy': [0.2, 0.6, 1.5],
     'df:ars-sentry-shot': [0.05, 0.22, 1.4],
     'df:ars-sentry-spent': [0.3, 1.2, 1.3],
@@ -148,8 +146,8 @@ const WORLD: Record<string, RuleRow> = {
     'df:ars-decoy-wind': [0.3, 1, 1.3],
     'df:ars-whistle': [0.04, 1.35, 2.2],
     'df:ars-zeppelin': [1, 9, 2],
-    'df:ars-plane': [0.5, 3.6, 2.2],
-    'df:ars-plane-guns': [0.05, 0.6, 1.8]
+    'df:ars-bomber': [1, 8, 2.2],
+    'df:ars-carpet': [0.5, 3.2, 3]
 }
 
 /** Category, priority, retrigger interval and length of a sound, from its name. */

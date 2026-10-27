@@ -1171,6 +1171,54 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.part('main')
             return { gun: g, grip: [25, 5], bore: B, front: 0, sight: [26, 17], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [18, 12], reload: 'capsule', long: false, glow: true }
         }
+        case 'granatwerfer': {
+            // The killstreak Granatwerfer 16: a fat rifled tube on a steel cradle with a flared
+            // muzzle ring and a folding ladder sight, a four-shot drum of brass-capped shells
+            // under the breech, a pistol grip and a padded shoulder stock. Chunky on purpose:
+            // it fills the lower right of the screen like the heavy thing it is.
+            const g = new Gun(VOX, 92, 30, 13)
+            const ci = g.ci
+            const B = 18
+            // The tube: muzzle ring, bands, the breech block.
+            g.rod(0, 52, B, 4.2, BLACK)
+            g.ring(0, 3, B, 3, 5.2, STEEL_HI)
+            g.ring(0, 1, B, 0, 3, PARK)
+            for (const k of [12, 26, 40]) g.ring(k, k + 2, B, 3.8, 4.8, STEEL)
+            g.box(50, 60, B - 5, B + 5, 9, STEEL)
+            g.box(50, 51, B - 5, B + 5, 9, STEEL_HI)
+            // Front sight post and the folding ladder sight over the breech.
+            g.box(4, 5, B + 4, B + 7, 1, STEEL_HI)
+            g.boxI(52, 54, B + 5, B + 10, ci - 2, ci - 1, STEEL_HI).boxI(52, 54, B + 5, B + 10, ci + 1, ci + 2, STEEL_HI)
+            g.box(52, 54, B + 9, B + 10, 5, STEEL_HI)
+            // The cradle under the tube and a front grip.
+            g.box(18, 50, B - 6, B - 4, 5, STEEL)
+            for (let j = 2; j < B - 6; j++) g.box(26, 31, j, j + 1, 4, (j & 1) ? WOOD : WOOD_D)
+            // Pistol grip and trigger guard behind the drum.
+            g.box(56, 66, 6, 8, 1, STEEL)
+            for (let j = 0; j < 10; j++) {
+                const k0 = 62 + Math.round((9 - j) * 0.4)
+                g.box(k0, k0 + 6, j, j + 1, 4, WOOD_D)
+            }
+            // The shoulder stock and its leather pad.
+            g.slope(60, 90, k => B - 8 - (k - 60) * 0.08, () => B + 2, 5, WOOD)
+            g.box(88, 92, B - 11, B + 3, 6, LEATHER)
+            g.box(70, 72, B - 9, B + 2, 5, BRASS)
+            // The drum: four fat shells round a steel hub, swapped on the reload.
+            g.part('mag')
+            for (let k = 38; k < 50; k++) {
+                for (let j = B - 15; j < B - 5; j++) {
+                    const d = Math.hypot(j - (B - 10), 0)
+                    if (d > 5) continue
+                    g.boxI(k, k + 1, j, j + 1, ci - 4, ci + 5, k === 38 || k === 49 ? STEEL_HI : (j & 1) ? STEEL : BLACK)
+                }
+            }
+            for (const [dj, di] of [[-3, -3], [-3, 3], [3, -3], [3, 3]] as const) g.boxI(37, 38, B - 10 + dj - 1, B - 10 + dj + 1, ci + di - 1, ci + di + 1, BRASS)
+            g.part('main')
+            return {
+                gun: g, grip: [64, 7], bore: B, front: 4, sight: [53, B + 10], eyeRelief: 0.34, left: [-0.02, -0.06, -0.3], eject: [52, B],
+                reload: 'mag', long: true
+            }
+        }
         case 'wunder': {
             // The Voltigeur: a brass-and-blued-steel rifle with copper Tesla coils that flare
             // toward an electrode fork, glowing capacitor tubes along both flanks of the

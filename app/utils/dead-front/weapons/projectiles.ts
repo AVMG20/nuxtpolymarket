@@ -319,6 +319,10 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
         const tier = Math.max(0, Math.min(3, p.tier | 0))
         if (p.kind === 'grenade') {
             mesh = new THREE.Mesh(stickG, solidMat)
+        } else if (p.kind === 'mortar') {
+            // the killstreak Granatwerfer's heavy shell: a fat dark round
+            mesh = new THREE.Mesh(ball, solidMat)
+            mesh.scale.setScalar(1.9)
         } else if (p.kind === 'pap-grenade') {
             mesh = new THREE.Mesh(ball, papMats[Math.max(0, Math.min(2, p.tier - 1))]!)
         } else if (p.kind === 'xray-bolt') {
@@ -441,6 +445,8 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                 } else if (l.kind === 'grenade') {
                     l.mesh.rotation.x += dt * 12
                     l.mesh.rotation.z += dt * 3
+                } else if (l.kind === 'mortar') {
+                    l.mesh.rotation.x += dt * 6
                 } else if (l.kind === 'pap-grenade') {
                     l.mesh.scale.setScalar(1 + Math.sin(time * 30) * 0.15)
                     l.mesh.rotation.y += dt * 9
@@ -468,6 +474,10 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                     } else if (l.kind === 'grenade') {
                         l.trailT = 0.08
                         ctx.fx.burst('smoke', l.pos, { count: 1, scale: 0.08 })
+                    } else if (l.kind === 'mortar') {
+                        l.trailT = 0.04
+                        ctx.fx.burst('smoke', l.pos, { count: 1, scale: 0.22 })
+                        ctx.fx.burst('embers', l.pos, { count: 1, scale: 0.3 })
                     }
                 }
             }

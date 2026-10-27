@@ -149,6 +149,14 @@ const SHAPES: Record<DfWeaponId, Part[]> = {
         { k: 'brass', d: 'M134 17h10v8h-10zM84 25h4v6h-4z' },
         { k: 'brass', d: 'M140 27h6v2.5h-6z' }
     ],
+    granatwerfer: [
+        { k: 'wood', d: 'M3 24c0-1.8 1.2-3 3-3.3L32 16v14L9 36c-3.2.9-6-.6-6-3.5z' },
+        { k: 'steel', d: 'M32 14h28v16H32z' + GUARD(38, 30) },
+        { k: 'steel', d: 'M44 30m-10 0a10 10 0 1 0 20 0a10 10 0 1 0-20 0z' },
+        { k: 'steel', d: 'M60 15h70v12H60z' },
+        { k: 'brass', d: 'M128 13h8v16h-8zM70 13h3v16h-3z' },
+        { k: 'wood', d: 'M86 27h8v10h-8z' }
+    ],
     wunder: [
         { k: 'wood', d: 'M3 25c0-1.8 1.2-3 3-3.3L34 17v13L9 37c-3.2.9-6-.6-6-3.5z' },
         { k: 'steel', d: 'M34 14h40v16H34z' + GUARD(40, 30) },

@@ -17,17 +17,18 @@
             </div>
         </div>
 
-        <!-- gear: the deployable in hand, the plate, the field kit -->
+        <!-- gear: the deployable in hand, the lent launcher, the field kit -->
         <div class="gear">
             <div v-if="a.equip" class="chip equip">
                 <span class="keycap"><b>Q</b></span>
                 <span>{{ a.equip === 'sentry' ? 'Lewis Sentry' : 'Gramophone' }}</span>
             </div>
-            <div v-if="a.armor > 0" class="chip plate" title="Trench plate">
-                <svg viewBox="0 0 7 7" width="14" height="14" shape-rendering="crispEdges" aria-hidden="true">
-                    <rect v-for="(px, k) in PLATE" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
+            <div v-if="a.launcher > 0" class="chip launcher" title="Granatwerfer: your own weapon comes back when it runs out">
+                <svg viewBox="0 0 9 9" width="16" height="16" shape-rendering="crispEdges" aria-hidden="true">
+                    <rect v-for="(px, k) in ICONS.launcher" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
                 </svg>
-                <div class="df-seg pbar" :style="{ '--p': a.armor, '--c': '#9fb4c8', '--seg': '4px' }" />
+                <span>Granatwerfer</span>
+                <b>{{ a.launcher }} s</b>
             </div>
             <div v-if="a.kit" class="chip kit" title="Field kit: you get yourself back up once">
                 <svg viewBox="0 0 7 7" width="14" height="14" shape-rendering="crispEdges" aria-hidden="true">
@@ -57,7 +58,7 @@
 
 <script setup lang="ts">
 // Bottom-left, over the perks: the killstreak meter and the support ready to
-// call in (X), the gear in hand (Q), the trench plate and field kit, and your
+// call in (X), the gear in hand (Q), the lent launcher's clock, the field kit, and your
 // own salvage. Pixel icons as [x, y, width] runs like the HUD's skull.
 import type { DfHudArsenal } from '~/utils/dead-front/engine/arsenal-prompt'
 
@@ -66,13 +67,13 @@ const props = defineProps<{ a: DfHudArsenal }>()
 type Runs = [number, number, number][]
 const COG: Runs = [[2, 0, 3], [0, 1, 7], [1, 2, 2], [4, 2, 2], [0, 3, 2], [5, 3, 2], [1, 4, 2], [4, 4, 2], [0, 5, 7], [2, 6, 3]]
 const VALVE: Runs = [[2, 0, 3], [3, 1, 1], [1, 2, 5], [1, 3, 5], [0, 4, 7], [1, 5, 5], [2, 6, 3]]
-const PLATE: Runs = [[0, 0, 2], [5, 0, 2], [0, 1, 7], [1, 2, 5], [1, 3, 5], [1, 4, 5], [2, 5, 3], [3, 6, 1]]
 const CROSS: Runs = [[2, 0, 3], [2, 1, 3], [0, 2, 7], [0, 3, 7], [0, 4, 7], [2, 5, 3], [2, 6, 3]]
 const ICONS: Record<string, Runs> = {
-    // a shell, a Zeppelin, a biplane
+    // a shell, a grenade launcher, a Zeppelin, a big biplane bomber
     barrage: [[4, 0, 1], [3, 1, 3], [3, 2, 3], [3, 3, 3], [3, 4, 3], [3, 5, 3], [2, 6, 5], [2, 7, 5], [3, 8, 3]],
+    launcher: [[1, 2, 2], [0, 3, 8], [0, 4, 9], [2, 5, 3], [7, 5, 2], [2, 6, 3], [2, 7, 1]],
     zeppelin: [[2, 2, 5], [0, 3, 9], [0, 4, 9], [1, 5, 7], [3, 6, 2], [0, 1, 1], [0, 6, 1]],
-    strafe: [[4, 0, 1], [0, 2, 9], [3, 3, 3], [3, 4, 3], [0, 5, 9], [3, 6, 3], [2, 8, 5]]
+    bomber: [[0, 1, 9], [4, 2, 1], [0, 3, 9], [2, 4, 1], [6, 4, 1], [4, 5, 1], [3, 7, 3], [4, 8, 1]]
 }
 
 const streakFrac = computed(() => {
@@ -170,13 +171,12 @@ const streakFrac = computed(() => {
     fill: var(--df-chalk);
 }
 
-.chip.plate {
-    fill: #9fb4c8;
+.chip.launcher {
+    fill: var(--df-brass-hi);
 }
 
-.chip.plate .pbar {
-    width: 52px;
-    height: 5px;
+.chip.launcher b {
+    color: var(--df-brass-hi);
 }
 
 .chip.kit {

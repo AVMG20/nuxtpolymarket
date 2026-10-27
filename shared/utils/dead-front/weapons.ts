@@ -97,6 +97,12 @@ export interface DfWeaponDef {
     attachments: DfAttachmentDef[]
     /** Throws fire instead of bullets: its pellets draw as a flame jet, no tracers or impacts. */
     flame?: boolean
+    /**
+     * A killstreak weapon lent for a while (the Granatwerfer): it stands in for
+     * the weapon in hand and gives it back. Never Pack-a-Punched, boxed,
+     * upgraded, levelled or kept; not in `DF_WEAPON_IDS`.
+     */
+    temporary?: boolean
 }
 
 /** Attachment mod fields that add instead of multiply. */
@@ -359,6 +365,18 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         attachments: [],
         flame: true
     },
+    granatwerfer: {
+        id: 'granatwerfer',
+        name: 'Granatwerfer 16',
+        class: 'special',
+        year: 1916,
+        description: 'A trench grenade launcher on a shoulder stock: a four-shot drum of heavy shells that burst on impact. A killstreak loan; it goes back after a while.',
+        inBox: false,
+        startable: false,
+        papNames: ['Granatwerfer 16', 'Granatwerfer 16', 'Granatwerfer 16'],
+        attachments: [],
+        temporary: true
+    },
     wunder: {
         id: 'wunder',
         name: 'The Voltigeur',
@@ -458,6 +476,13 @@ const BASE: Record<DfWeaponId, DfBaseStats> = {
         magSize: 20, reserve: 240, reloadTime: 2.4, reloadEmptyTime: 2.9, perRoundReload: 0,
         range: 30, maxRange: 70, minDamageMult: 0.65, penetration: 2, hipSpread: 0.065, adsSpread: 0.009,
         adsTime: 0.32, adsZoom: 1.3, moveMult: 0.88, recoil: 0.042, splashRadius: 0, splashDamage: 0, projectileSpeed: 0, chains: 0
+    },
+    // The killstreak launcher: heavy shells that burst wide on impact (no self-damage, see sim.ts).
+    granatwerfer: {
+        fireMode: 'semi', shot: 'grenade', damage: 3000, headMult: 1, limbMult: 1, rpm: 80, pellets: 1,
+        magSize: 4, reserve: 8, reloadTime: 2.6, reloadEmptyTime: 3, perRoundReload: 0,
+        range: 60, maxRange: 80, minDamageMult: 1, penetration: 0, hipSpread: 0.02, adsSpread: 0.008,
+        adsTime: 0.32, adsZoom: 1.12, moveMult: 0.9, recoil: 0.11, splashRadius: 6.5, splashDamage: 9000, projectileSpeed: 30, chains: 0
     },
     // A jet of fire: a fan of short rays that each burn through several zombies, with steep falloff.
     flammen: {

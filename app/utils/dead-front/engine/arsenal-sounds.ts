@@ -7,14 +7,12 @@ import { clickTrain, crack, crackle, fmBell, metal, noiseBurst, noiseSwell, scat
 // support, all synthesised: scrap clinking into a pack, hammering at the
 // bench, the Lewis sentry's rattle, a gramophone waltz, the field telephone
 // that calls the guns, shells whistling in, a Zeppelin's engines droning
-// overhead and a Sopwith diving with its Vickers chattering.
+// overhead and a Gotha bomber's twin engines before its carpet rolls in.
 
 export const DF_ARSENAL_SND = {
     scrap: 'df:ars-scrap',
     part: 'df:ars-part',
     craft: 'df:ars-craft',
-    plate: 'df:ars-plate',
-    plateBreak: 'df:ars-plate-break',
     deploy: 'df:ars-deploy',
     sentryShot: 'df:ars-sentry-shot',
     sentrySpent: 'df:ars-sentry-spent',
@@ -25,8 +23,8 @@ export const DF_ARSENAL_SND = {
     callin: 'df:ars-callin',
     whistle: 'df:ars-whistle',
     zeppelin: 'df:ars-zeppelin',
-    plane: 'df:ars-plane',
-    planeGuns: 'df:ars-plane-guns',
+    bomber: 'df:ars-bomber',
+    carpet: 'df:ars-carpet',
     challenge: 'df:ars-challenge',
     challengeDone: 'df:ars-challenge-done'
 } as const
@@ -96,15 +94,6 @@ export function registerDfArsenalSounds(audio: DfAudio): void {
         }
         clickTrain(at(p, 0.62), [0, 0.05, 0.1, 0.15, 0.2], { freq: 2600, q: 1.4, gain: 0.3, len: 0.008, jitter: 0.1 })
         fmBell(at(h, 0.9), { freq: 1568, dur: 0.6, gain: 0.14, ratio: 2, index: 0.5 })
-    })
-    r(DF_ARSENAL_SND.plate, (p) => {
-        metal(p, { base: 340, ratios: [1, 1.9, 2.7, 4.2], decay: 0.6, gain: 0.35, strike: 0.7, spread: 0.02 })
-        clickTrain(at(p, 0.15), [0, 0.07], { freq: 1800, q: 1.2, gain: 0.35, len: 0.01 })
-    })
-    r(DF_ARSENAL_SND.plateBreak, (p) => {
-        crack(p, { gain: 0.45, freq: 2600, snap: 0.8, dur: 0.12 })
-        metal(p, { base: 460, ratios: [1, 1.5, 2.9, 4.4], decay: 0.4, gain: 0.3, strike: 1, spread: 0.06 })
-        noiseBurst(at(p, 0.03), { kind: 'white', type: 'highpass', freq: 3000, gain: 0.2, dur: 0.25 })
     })
     // Gear going down: tripod legs, a clunk, the cocking handle.
     r(DF_ARSENAL_SND.deploy, (p) => {
@@ -203,19 +192,19 @@ export function registerDfArsenalSounds(audio: DfAudio): void {
         engine(at(s, 0.1), { freq: 61, dur: 8.8, gain: 0.18, rough: 2.5, cutoff: 600, peakAt: 0.5, bend: 1.04 })
         noiseSwell(s, { kind: 'brown', type: 'lowpass', freq: 220, q: 0.7, gain: 0.25, dur: 9, peakAt: 0.45 })
     })
-    // The Sopwith: a rotary engine screaming in and away (about 3.5 s).
-    r(DF_ARSENAL_SND.plane, (p) => {
-        const s = sky(p, 0.35)
-        engine(s, { freq: 92, dur: 3.6, gain: 0.34, rough: 4, cutoff: 1800, peakAt: 0.5, bend: 1.12 })
-        noiseSwell(s, { kind: 'pink', type: 'bandpass', freq: 900, q: 0.7, gain: 0.2, dur: 3.6, peakAt: 0.5 })
+    // The Gotha: two big Mercedes engines beating against each other, droning in and away (about 8 s).
+    r(DF_ARSENAL_SND.bomber, (p) => {
+        const s = sky(p, 0.45)
+        engine(s, { freq: 58, dur: 8, gain: 0.34, rough: 3.5, cutoff: 700, peakAt: 0.55, bend: 1.06 })
+        engine(at(s, 0.05), { freq: 61.5, dur: 7.9, gain: 0.26, rough: 3.5, cutoff: 760, peakAt: 0.55, bend: 1.06 })
+        noiseSwell(s, { kind: 'brown', type: 'lowpass', freq: 300, q: 0.7, gain: 0.3, dur: 8, peakAt: 0.55 })
     })
-    // Its twin Vickers: a burst of rapid cracks.
-    r(DF_ARSENAL_SND.planeGuns, (p) => {
-        const times = Array.from({ length: 10 }, (_, i) => i * 0.055)
-        for (const dt of times) {
-            crack(at(p, dt), { gain: 0.3, freq: rnd(1500, 1900), snap: 0.6, dur: 0.05 })
-            thud(at(p, dt), { freq: 110, freqEnd: 60, dur: 0.07, gain: 0.25, body: 0.3, click: 0.4 })
-        }
+    // Its carpet: the ground shaking under a dozen bombs at once, a long rolling roar.
+    r(DF_ARSENAL_SND.carpet, (p) => {
+        const s = sky(p, 0.5)
+        for (const dt of [0, 0.12, 0.25, 0.4, 0.55]) thud(at(s, dt), { freq: rnd(60, 80), freqEnd: 28, dur: 0.9, gain: 0.55, body: 0.7, click: 0.4 })
+        noiseSwell(s, { kind: 'brown', type: 'lowpass', freq: 240, q: 0.7, gain: 0.55, dur: 3.2, peakAt: 0.12 })
+        crackle(at(s, 0.3), 2.2, 0.18, 40)
     })
     // A round challenge dealt: a bugle's two notes; met: a bright run.
     r(DF_ARSENAL_SND.challenge, (p) => {

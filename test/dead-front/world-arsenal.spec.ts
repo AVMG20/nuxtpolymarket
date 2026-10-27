@@ -20,7 +20,8 @@ function setup() {
     const tracers: number[] = []
     const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 200)
     camera.position.set(100, 50, 100)
-    const fx: DfFx = { burst: () => {}, tracer: () => { tracers.push(1) }, lightning: () => {}, decal: () => {}, flash: () => {}, shake: () => {} }
+    const shakes: number[] = []
+    const fx: DfFx = { burst: () => {}, tracer: () => { tracers.push(1) }, lightning: () => {}, decal: () => {}, flash: () => {}, shake: (n) => { shakes.push(n) } }
     const audio: DfAudio = { ctx: null, register: () => {}, play: (name) => { sounds.push(name) }, loop: () => {}, stopLoop: () => {} }
     const ctx = { renderer: {} as THREE.WebGLRenderer, scene: new THREE.Scene(), camera, vmScene: new THREE.Scene(), vmCamera: camera, fx, audio, quality: 'high' } as DfRenderContext
     const root = new THREE.Group()
@@ -31,7 +32,7 @@ function setup() {
         powerDelay: () => 0,
         play: (name: string) => { sounds.push(name) }
     } as unknown as DfWorldKit
-    return { kit, sounds, tracers, root, camera }
+    return { kit, sounds, tracers, root, camera, shakes }
 }
 
 function world(arsenal: Partial<DfArsenalSnap>): DfWorldSnap {
@@ -52,7 +53,7 @@ describe('dead front arsenal (client world parts)', () => {
         const part = createDfWorkbenches(kit)
         expect(root.children.length).toBe(DF_MAP.benches!.length)
         drive(part, world({ scrap: 20, parts: 1 }), 0.5)
-        part.onEvent!({ k: 'craft', p: 0, item: 'plate', bench: DF_MAP.benches![0]!.id })
+        part.onEvent!({ k: 'craft', p: 0, item: 'sentry', bench: DF_MAP.benches![0]!.id })
         drive(part, world({ scrap: 13 }), 1.5)
         expect(sounds).toContain(DF_ARSENAL_SND.craft)
         part.dispose()
@@ -104,22 +105,23 @@ describe('dead front arsenal (client world parts)', () => {
         part.dispose()
     })
 
-    it('stages every strike: whistles ahead of the shells, the flyers come and go', () => {
-        const { kit, sounds, tracers, root } = setup()
+    it('stages every strike: whistles ahead of the shells and bombs, the flyers come and go, the carpet shakes', () => {
+        const { kit, sounds, root, shakes } = setup()
         const part = createDfStrikes(kit)
         const at = { x: 4, y: 0, z: 20 }
-        for (const reward of ['barrage', 'zeppelin', 'strafe'] as const) {
+        for (const reward of ['barrage', 'zeppelin', 'bomber'] as const) {
             const plan = dfPlanStrike(reward, at, { x: 0, y: 0, z: -1 }, () => 0.5)
             const ev: DfEvent = { k: 'strike', p: 0, reward, id: 1, at, dir: { x: 0, y: 0, z: -1 }, hits: plan.hits }
             part.onEvent!(ev)
         }
-        // the zeppelin and the plane
+        // the zeppelin and the bomber
         expect(root.children.length).toBe(2)
         drive(part, world({}), 12)
-        expect(sounds.filter(s => s === DF_ARSENAL_SND.whistle).length).toBeGreaterThanOrEqual(8)
+        expect(sounds.filter(s => s === DF_ARSENAL_SND.whistle).length).toBeGreaterThanOrEqual(8 + 11 + 10)
         expect(sounds).toContain(DF_ARSENAL_SND.zeppelin)
-        expect(sounds).toContain(DF_ARSENAL_SND.plane)
-        expect(tracers.length).toBeGreaterThan(30)
+        expect(sounds).toContain(DF_ARSENAL_SND.bomber)
+        expect(sounds).toContain(DF_ARSENAL_SND.carpet)
+        expect(shakes.some(s => s >= 0.5)).toBe(true)
         drive(part, world({}), 4)
         expect(root.children.length).toBe(0)
         part.dispose()

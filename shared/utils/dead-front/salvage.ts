@@ -1,13 +1,14 @@
 import { DF_ENEMIES, dfRoundZombieCount, dfZombieBaseHealth } from './enemies'
 import { DF_WEAPONS } from './weapons'
 import type { DfAttachmentChoice, DfEnemyType, DfHitZone, DfWeaponId, Vec3 } from './types'
-import type { DfRewardId } from './killstreaks'
+import type { DfRewardId, DfStrikeId } from './killstreaks'
 
 // Salvage and the workbench, shared by the server (which runs them) and the
 // client (HUD, prompts, the craft list): zombies drop scrap and the odd rare
-// part, the squad pools what it picks up, and a workbench turns it into gear:
-// a Lewis gun sentry, a trench plate, a satchel of bombs, a gramophone decoy
-// and a field kit. Also the round challenges that pay out salvage. Pure and
+// part for their killer alone, and a workbench turns it into gear and
+// support: a Lewis gun sentry, a gramophone decoy, a field kit, a bomber run
+// and a grenade launcher (plus rarity upgrades, rarity.ts). Also the round
+// challenges that pay out salvage. Pure and
 // unit tested; the server's state lives in server/utils/dead-front/salvage.ts.
 
 // ---------------------------------------------------------------- salvage drops
@@ -97,7 +98,7 @@ export function dfSalvageRoll(type: DfEnemyType, round: number, players: number,
 
 // ---------------------------------------------------------------- the workbench
 
-export type DfCraftId = 'sentry' | 'plate' | 'bombs' | 'decoy' | 'kit'
+export type DfCraftId = 'sentry' | 'decoy' | 'kit' | 'bomber' | 'launcher'
 
 export interface DfRecipe {
     id: DfCraftId
@@ -106,22 +107,30 @@ export interface DfRecipe {
     desc: string
     scrap: number
     parts: number
-    /** `deploy` goes into the equipment slot (Q to place it); `instant` applies at once. */
-    use: 'deploy' | 'instant'
+    /**
+     * `deploy` goes into the equipment slot (Q to place it); `instant` applies
+     * at once; `support` is a killstreak reward held for X (killstreaks.ts).
+     */
+    use: 'deploy' | 'instant' | 'support'
 }
 
+/**
+ * The bench. A solo player finds about 6 scrap a round: a sentry or a
+ * gramophone every round, a field kit or the launcher every two, the bomber
+ * every three (and the parts it needs).
+ */
 export const DF_RECIPES: Record<DfCraftId, DfRecipe> = {
-    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 12, parts: 1, use: 'deploy' },
-    plate: { id: 'plate', name: 'Trench Plate', desc: 'Steel body armour that soaks up hits', scrap: 7, parts: 0, use: 'instant' },
-    bombs: { id: 'bombs', name: 'Trench Bombs', desc: 'A full satchel of grenades', scrap: 4, parts: 0, use: 'instant' },
-    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 8, parts: 0, use: 'deploy' },
-    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 8, parts: 1, use: 'instant' }
+    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 6, parts: 0, use: 'deploy' },
+    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 5, parts: 0, use: 'deploy' },
+    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 10, parts: 1, use: 'instant' },
+    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 16, parts: 1, use: 'support' },
+    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 12, parts: 0, use: 'support' }
 }
 
-/** The craft list, in the order the bench shows it. */
-export const DF_CRAFT_ORDER: readonly DfCraftId[] = ['sentry', 'plate', 'bombs', 'decoy', 'kit']
+/** The craft list, in the order the bench shows it (the weapon upgrade comes last). */
+export const DF_CRAFT_ORDER: readonly DfCraftId[] = ['sentry', 'decoy', 'kit', 'bomber', 'launcher']
 
-/** The squad's salvage pool. */
+/** A player's salvage pool. */
 export interface DfSalvagePool {
     scrap: number
     parts: number
@@ -129,14 +138,13 @@ export interface DfSalvagePool {
 
 /** What one player carries from the bench. */
 export interface DfKitState {
-    /** Armour points left on the trench plate (0: none). */
-    armor: number
     /** The deployable in hand (Q places it), or null. */
     equip: 'sentry' | 'decoy' | null
     /** Holds a field kit (self-revive). */
     kit: boolean
-    grenades: number
-    grenadesMax: number
+    /** Support held for X (rewards and crafted), and how many fit. */
+    rewards: number
+    rewardsMax: number
 }
 
 export type DfCraftBlock = 'scrap' | 'parts' | 'hands' | 'full' | 'have'
@@ -144,8 +152,7 @@ export type DfCraftBlock = 'scrap' | 'parts' | 'hands' | 'full' | 'have'
 /** Why this recipe can't be crafted now, or null. */
 export function dfCraftBlocked(r: DfRecipe, pool: DfSalvagePool, k: DfKitState): DfCraftBlock | null {
     if (r.use === 'deploy' && k.equip) return 'hands'
-    if (r.id === 'plate' && k.armor >= DF_ARMOR.max) return 'full'
-    if (r.id === 'bombs' && k.grenades >= k.grenadesMax) return 'full'
+    if (r.use === 'support' && k.rewards >= k.rewardsMax) return 'full'
     if (r.id === 'kit' && k.kit) return 'have'
     if (pool.scrap < r.scrap) return 'scrap'
     if (pool.parts < r.parts) return 'parts'
@@ -158,7 +165,7 @@ export function dfCraftBlockText(b: DfCraftBlock, r: DfRecipe, pool: DfSalvagePo
         case 'scrap': return `Need ${r.scrap - pool.scrap} more scrap`
         case 'parts': return r.parts - pool.parts === 1 ? 'Need a rare part' : `Need ${r.parts - pool.parts} more rare parts`
         case 'hands': return 'Place your gear first (Q)'
-        case 'full': return 'Already full'
+        case 'full': return 'Call in your support first (X)'
         case 'have': return 'Already carrying one'
     }
 }
@@ -174,22 +181,6 @@ export function dfCraftSpend(pool: DfSalvagePool, r: DfRecipe): boolean {
 /** "12 scrap · 1 part" */
 export function dfRecipeCost(r: DfRecipe): string {
     return r.parts > 0 ? `${r.scrap} scrap · ${r.parts} part${r.parts > 1 ? 's' : ''}` : `${r.scrap} scrap`
-}
-
-// ---------------------------------------------------------------- the trench plate
-
-export const DF_ARMOR = {
-    /** Armour on a fresh plate. */
-    max: 120,
-    /** Share of each hit the plate takes (the rest still gets through). */
-    soak: 0.75
-} as const
-
-/** Splits a hit between the plate and the body: `{ armor, through }` (what's left of the plate, what reaches health). */
-export function dfArmorAbsorb(armor: number, dmg: number): { armor: number, through: number } {
-    if (!(armor > 0) || !(dmg > 0)) return { armor: Math.max(0, armor || 0), through: Math.max(0, dmg || 0) }
-    const take = Math.min(armor, dmg * DF_ARMOR.soak)
-    return { armor: armor - take, through: dmg - take }
 }
 
 // ---------------------------------------------------------------- the Lewis sentry
@@ -353,13 +344,14 @@ export function dfChallengeCounts(id: DfChallengeId, kill: { type: DfEnemyType, 
 
 export interface DfArsenalPlayerSnap {
     pid: number
-    armor: number
     equip: 'sentry' | 'decoy' | null
     kit: boolean
     /** Kills without going down toward the next reward. */
     streak: number
     /** Rewards held, oldest first (X calls in the newest). */
     rewards: DfRewardId[]
+    /** Seconds left on the grenade launcher while it is out. */
+    launcher?: number
 }
 
 export interface DfSalvageDropSnap {
@@ -465,10 +457,12 @@ export interface DfStrikeHit {
     /** Seconds after the call-in. */
     t: number
     r: number
+    /** The bomber's last word: every zombie within `r` dies (no cover, brutes too). */
+    all?: boolean
 }
 
 export type DfArsenalEvent =
-    /** Salvage picked up (into the squad's pool). */
+    /** Salvage picked up (into the player's own pool). */
     | { k: 'salvage', p: number, kind: DfSalvageKind, n: number, id: number, pos: Vec3 }
     | { k: 'craft', p: number, item: DfCraftId | 'upgrade', bench: string }
     | { k: 'deploy', p: number, item: 'sentry' | 'decoy', id: number, pos: Vec3 }
@@ -478,9 +472,10 @@ export type DfArsenalEvent =
     /** A killstreak reward earned at `n` kills without going down. */
     | { k: 'reward', p: number, reward: DfRewardId, n: number }
     /** A reward called in on `at`: every impact and its time after now. */
-    | { k: 'strike', p: number, reward: DfRewardId, id: number, at: Vec3, dir: Vec3, hits: DfStrikeHit[] }
+    | { k: 'strike', p: number, reward: DfStrikeId, id: number, at: Vec3, dir: Vec3, hits: DfStrikeHit[] }
     /** The plate took its last hit. */
-    | { k: 'armor', p: number, broken: boolean }
+    /** The grenade launcher came out (`on`) or went back for the weapon it stood in for. */
+    | { k: 'launcher', p: number, on: boolean }
     | { k: 'challenge', what: 'new' | 'done' | 'failed', id: DfChallengeId, text: string, goal: number }
     /** A weapon came up a rarity tier: pulled from the box, a kit applied, upgraded at the bench. */
     | { k: 'rarity', p: number, weapon: DfWeaponId, rarity: number, how: 'box' | 'kit' | 'bench' }
@@ -495,6 +490,6 @@ export type DfArsenalOp =
     /** Call in the newest reward on `at`, flying along `dir` (the caller's facing). */
     | { k: 'callin', at: Vec3, dir: Vec3 }
     /** Upgrade the weapon in `slot` one rarity tier at a bench; `from` is the tier it is now (a repeat finds it changed). */
-    | { k: 'upgrade', bench: string, slot: number, from: number }
+    | { k: 'upgrade', bench: string, slot: number, from: number, /** The weapon id the client sees there. */ weapon?: DfWeaponId }
     /** Take an upgrade kit off the ground onto the held weapon. */
     | { k: 'kit', id: number }

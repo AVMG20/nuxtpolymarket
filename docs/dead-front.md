@@ -229,11 +229,11 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
 ## Salvage and the workbench
 
 Rules in `shared/utils/dead-front/salvage.ts` (salvage, recipes, sentry,
-decoy, armour, challenges), `killstreaks.ts` (rewards, strike plans) and
+decoy, challenges), `killstreaks.ts` (rewards, strike plans, the launcher) and
 `rarity.ts` (tiers, the box curve, upgrade kits, bench upgrade costs); the
 server state in `server/utils/dead-front/salvage.ts` (`DfArsenal`, driven by
-hooks in `sim.ts`: kill, hurt, down, round start/end, step, the hunt's lure
-check, the snapshot). Every grant is claim-then-reward: a drop leaves the list
+hooks in `sim.ts`: kill, down, round start/end, step, the hunt's lure check,
+a wall-buy or box use, the snapshot). Every grant is claim-then-reward: a drop leaves the list
 before it pays, a craft or upgrade takes its salvage before it hands anything
 over, a reward is popped before it fires, a kit leaves the ground (or the
 box) before it applies.
@@ -255,21 +255,26 @@ box) before it applies.
   the Square's north wall, one in the Ramparts bailey. The prompt shows the
   selected item: **tap F** for the next, **hold F** (0.6 s) to make it; the
   list (`DfHudBench`) shows every item, its cost and why it can't be made.
-  - Lewis Sentry (12 scrap + 1 part, Q to place within 4 m): 60 s, 240 rounds,
-    guns down the nearest zombie it can see in 22 m, 40 points a kill to its
+  The list, against about 6 scrap a round solo:
+  - Lewis Sentry (6 scrap, Q to place within 4 m): 60 s, 240 rounds, guns
+    down the nearest zombie it can see in 22 m, 40 points a kill to its
     owner, clawed apart by zombies standing on it; one per player.
-  - Trench Plate (7): 120 armour that takes 75% of each hit.
-  - Trench Bombs (4): a full satchel of grenades.
-  - Gramophone (8, Q to throw within 12 m): zombies within 22 m dance to it
+  - Gramophone (5, Q to throw within 12 m): zombies within 22 m dance to it
     for 9 s (`DfArsenal.lure`, ahead of the hunt), then it blows (5.5 m).
-  - Field Kit (8 + 1 part): a self-revive 3 s after going down.
+  - Field Kit (10 + 1 part): a self-revive 3 s after going down.
+  - Bomber Run (16 + 1 part) and Granatwerfer (12): support, held with the
+    killstreak rewards (up to three) and used with X.
   - Upgrade the weapon in hand one rarity tier (6 / 12 + 1 part / 20 + 2
-    parts). The request carries the tier it is at (`from`), an integer CAS.
+    parts). The request carries the tier it is at (`from`, an integer CAS)
+    and the weapon id the client sees there; a weapon in the Pack-a-Punch,
+    the wunderweapon and the lent launcher are refused, and the list says
+    why.
 - **Rarity** (Cold War style, `rarity.ts`): Common, Rare (green), Epic
   (purple), Legendary (orange), +0 / 25 / 55 / 100% damage through
   `dfWeaponStats(id, pap, attachments, rarity)` (so prediction agrees);
-  `DfHeldWeapon.rarity`, kept through Pack-a-Punch, any weapon but the
-  wunderweapon. Wall-buys are common. The box rolls a tier
+  `DfHeldWeapon.rarity`, kept through Pack-a-Punch (also when the machine
+  hands it back itself) and swaps, any weapon but the wunderweapon and the
+  lent launcher. Wall-buys are common. The box rolls a tier
   (`dfBoxRarityWeights`: mostly common through round 5, no commons and a
   quarter legendary by round 20), shown on offer (`DfBoxState.rarity`, a glint
   in its colour), in the prompt, the ammo plate and the squad feed.
@@ -281,18 +286,30 @@ box) before it applies.
   Epic" otherwise).
 - **Killstreak rewards**: kills without going down (traps, gear and support
   don't count) earn the Artillery Barrage (15: eight shells round the mark),
-  the Zeppelin Raid (30: a bomb run along your line of sight) and the Sopwith
-  Strafing Run (50: Vickers raking a 44 m line), then the count starts over.
-  Up to three held; **hold X** (or 4) to mark where you look, release to call
-  in the newest. The server plans every impact (`dfPlanStrike`), sends it in
-  the `strike` event and resolves the damage at those times; support never
-  hurts a player.
+  the Granatwerfer (25), the Zeppelin Raid (35: a bomb run along your line of
+  sight) and the Bomber Run (50), then the count starts over. Up to three
+  held (crafted support shares the list); **hold X** (or 4) to mark where you
+  look, release to call in the newest. The server plans every impact
+  (`dfPlanStrike`), sends it in the `strike` event and resolves the damage at
+  those times; support never hurts a player.
+  - **Bomber Run**: a Gotha flies over the mark, rows of bombs walk across it,
+    then everything within 11 m dies at once (`DfStrikeHit.all`: no cover,
+    brutes too), 50 points a kill to the caller.
+  - **Granatwerfer** (`DF_LAUNCHER`, weapon `granatwerfer`, `temporary` in
+    `weapons.ts`, kept out of `DF_WEAPON_IDS`): X puts it in place of the
+    weapon in hand for 45 s or 12 shells (4 in the drum): heavy `mortar`
+    shells that burst 6.5 m wide on impact, no self-damage, no weapon XP. The
+    weapon it stood in for comes back exactly as it was (the same object:
+    slot, ammo, rarity, Pack-a-Punch, attachments) when time or shells run
+    out, on going down (before last stand) or on using a wall-buy or the box.
+    The Pack-a-Punch refuses it; it can't be upgraded or take a kit.
 - **Round challenges**: from round 2 (not in the gas) each round deals one
   (headshot kills, knife kills, explosive kills, the brute, kills by gear and
   support); meeting it gives everyone 4 scrap, a part and 250 points. Shown
   under the objective tracker.
 - Controls: F at a bench (tap / hold), Q (hold to aim, release to place), X or
-  4 (hold to mark, release to call in), F at a kit on the ground.
+  4 (hold to mark, release to call in; the Granatwerfer comes out on the
+  press), F at a kit on the ground.
 - Dev: `{ t: 'dev', op: { k: 'arsenal', what: 'salvage' | 'streak' | 'rewards', n } }`.
 
 ## Pack-a-Punch
@@ -373,8 +390,8 @@ view only reacts to its own kinds so nothing is drawn twice:
 | `hit`, `kill`, `zhit` gore, `gas` (bloater cloud) | zombie view (map agent) |
 | `door`, `plank`, `box`, `pap` (machine), `power`, `fuse`, `rod`, `soul`, `egg`, `perk` (machine jingle) | world view (map agent) |
 | `explode`, `arc` | projectile view (weapons agent) |
-| `craft` (bench), `salvage`, `deploy`, `sentry`, `decoy`, `kitDrop`, `strike` (the show: flare, whistles, Zeppelin, Sopwith) | world view parts `interact/workbench.ts`, `salvage.ts`, `sentry.ts`, `kits.ts`, `strikes.ts` |
-| `reward`, `strike` and `challenge` callouts, `armor`, `rarity`, `kitDrop` notices | engine (`engine/arsenal.ts`) |
+| `craft` (bench), `salvage`, `deploy`, `sentry`, `decoy`, `kitDrop`, `strike` (the show: flare, whistles, Zeppelin, Gotha, the carpet) | world view parts `interact/workbench.ts`, `salvage.ts`, `sentry.ts`, `kits.ts`, `strikes.ts` |
+| `reward`, `strike` and `challenge` callouts, `launcher`, `rarity`, `kitDrop` notices | engine (`engine/arsenal.ts`) |
 | `shot` (remote tracer + sound), `points`, `round`, `roundEnd`, `down`, `revived`, `bleedout`, `respawn`, `powerup`, `buy`, `chat`, hitmarkers, damage feedback | engine (engine agent) |
 
 The squad feed (top right of the HUD: downs, revives, doors, power) is built
@@ -482,9 +499,11 @@ rounds on the real map and prints points earned against costs per round
   its rarity colour.
 - **Support** (`world/strikes.ts`): a red smoke flare on the barrage's mark and
   a falling whistle ahead of each shell; a grey Zeppelin droning over, bombs
-  falling from the gondola; a Sopwith diving along the line with its Vickers
-  leaving tracers and dust. Blasts are the projectile view's `explode`
-  events. Sounds: `DF_ARSENAL_SND` (`engine/arsenal-sounds.ts`), mixed by
+  falling from the gondola; a Gotha bomber with two pusher engines droning
+  over low, its bombs whistling down in rows and the whole circle going up in
+  one carpet (explosions, scorches, smoke, a heavy shake). Blasts are the
+  projectile view's `explode` events; the Granatwerfer's `mortar` shells are
+  drawn by the projectile view, its model is in `weapons/models.ts`. Sounds: `DF_ARSENAL_SND` (`engine/arsenal-sounds.ts`), mixed by
   category in `engine/audio.ts`.
 - **Atmosphere** (`world/atmosphere.ts`): ground mist masked to open ground
   (roofed cells from the voxel grid stay clear), drifting ash and embers

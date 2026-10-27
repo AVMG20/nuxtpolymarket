@@ -13,11 +13,14 @@ const pending = new Map<string, Promise<boolean>>()
 interface PeerLike {
     id: string
     request?: { headers?: unknown }
-    websocket?: { bufferedAmount?: unknown, getBufferedAmount?: () => unknown }
-    /** crossws internals: the raw socket (`websocket` is a Proxy Bun's native methods reject). */
-    _internal?: { ws?: { bufferedAmount?: unknown, getBufferedAmount?: () => unknown } }
+    websocket?: SocketLike
     send: (data: unknown) => unknown
     close: (code?: number, reason?: string) => void
+}
+
+interface SocketLike {
+    bufferedAmount?: unknown
+    getBufferedAmount?: () => unknown
 }
 
 /** Bytes queued for a peer that stopped reading (a sleeping phone) before it is dropped: ~2 min of snapshots. */
@@ -27,7 +30,9 @@ const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 
 function backlog(peer: PeerLike): number {
     try {
-        const ws = peer._internal?.ws ?? peer.websocket
+        // crossws's raw socket: `websocket` is a Proxy that Bun's native methods reject
+        const raw = (peer as { _internal?: { ws?: SocketLike } })._internal?.ws
+        const ws = raw ?? peer.websocket
         // Bun's ServerWebSocket has getBufferedAmount(), Node's ws has bufferedAmount
         const n = typeof ws?.getBufferedAmount === 'function' ? ws.getBufferedAmount() : ws?.bufferedAmount
         return typeof n === 'number' ? n : 0

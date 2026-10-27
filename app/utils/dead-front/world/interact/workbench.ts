@@ -11,8 +11,8 @@ import { DfSpring, damp } from '../util'
 // The workbenches (map.benches): a heavy trestle bench against the wall with a
 // vice, a hand drill and a scatter of tools and scrap, a shaded oil lamp, and
 // a slate board above it chalked with what the bench can make (a sentry, a
-// plate, a bomb, a gramophone, a field kit). A brass signal lamp on the board
-// burns green while the squad's salvage pays for something, amber when it
+// gramophone, a field kit, a bomber, a grenade launcher). A brass signal lamp
+// on the board burns green while your salvage pays for something, amber when it
 // doesn't. Crafting swings the hammer, throws sparks and rings the bench.
 
 const C = 0.0625
@@ -24,10 +24,10 @@ const AMBER = new THREE.Color(1, 0.62, 0.18)
 /** Chalk drawings, 9 x 7 each (`#` = chalk), in craft-list order. */
 const ICONS: Record<string, readonly string[]> = {
     sentry: ['.........', '..####...', '#######..', '..####.##', '...#.....', '..#.#....', '.#...#...'],
-    plate: ['.##...##.', '.#######.', '..#####..', '..#####..', '..#####..', '...###...', '....#....'],
-    bombs: ['....#....', '...#.....', '..###....', '.#####...', '.#####...', '.#####...', '..###....'],
     decoy: ['......###', '.....##.#', '....##...', '...##....', '.###.....', '#####....', '#####....'],
-    kit: ['.........', '..#####..', '..##.##..', '..#...#..', '..##.##..', '..#####..', '.........']
+    kit: ['.........', '..#####..', '..##.##..', '..#...#..', '..##.##..', '..#####..', '.........'],
+    bomber: ['#########', '....#....', '#########', '..#.#.#..', '.........', '..#.#.#..', '.........'],
+    launcher: ['.........', '.##......', '#######..', '#########', '..###..##', '..#......', '.........']
 }
 
 function benchModel(): DfVoxModel {
@@ -178,9 +178,9 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
         update(dt, world, time) {
             const ars = world.arsenal
             const pool = { scrap: ars?.scrap ?? 0, parts: ars?.parts ?? 0 }
-            // you can make something: anything your salvage pays for (hands and plates aside)
+            // you can make something: anything your salvage pays for (full hands aside)
             const affordable = DF_CRAFT_ORDER.some((id) => {
-                const b = dfCraftBlocked(DF_RECIPES[id], pool, { armor: 0, equip: null, kit: false, grenades: 0, grenadesMax: 1 })
+                const b = dfCraftBlocked(DF_RECIPES[id], pool, { equip: null, kit: false, rewards: 0, rewardsMax: 1 })
                 return b === null
             })
             for (const b of benches) {
@@ -216,7 +216,6 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
             ctx.fx.burst('sparks', b.top, { count: 18 })
             ctx.fx.flash(b.top, 0xffb060, 4, 0.25)
             b.sparks = [0.22, 0.42]
-            if (ev.item === 'plate') kit.play(DF_ARSENAL_SND.plate, b.top, 0.8)
         },
         dispose() {
             for (const o of objs) o.removeFromParent()

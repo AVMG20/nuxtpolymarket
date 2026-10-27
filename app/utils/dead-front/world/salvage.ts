@@ -100,7 +100,7 @@ export function createDfSalvageDrops(kit: DfWorldKit): DfWorldPart {
                 d.obj.visible = d.leaving === 0 && blink > 0.5
             }
             ctx.camera.getWorldPosition(cam)
-            for (const d of [...drops.values()]) {
+            for (const d of drops.values()) {
                 d.age += dt
                 if (!d.seen && d.leaving === 0) d.leaving = 0.001
                 // walking over it: ours now (the server agrees, or a teammate had it a moment sooner: same pool)

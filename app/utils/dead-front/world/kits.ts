@@ -105,7 +105,7 @@ export function createDfKitDrops(kit: DfWorldKit): DfWorldPart {
                 v.model.material.userData.uGlow.value = 1.3 + 0.6 * Math.sin(time * 3.5)
                 if (Math.random() < dt * 3) ctx.fx.burst('powerup', tmp.set(k.pos.x, k.pos.y + 0.45, k.pos.z), { count: 1, color: dfRarity(k.tier).color, scale: 0.4 })
             }
-            for (const v of [...views.values()]) {
+            for (const v of views.values()) {
                 if (v.seen) continue
                 v.model.dispose()
                 views.delete(v.id)

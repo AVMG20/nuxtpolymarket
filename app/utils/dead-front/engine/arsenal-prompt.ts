@@ -1,5 +1,4 @@
-import { DF_GRENADES } from '#shared/utils/dead-front/constants'
-import { DF_REWARDS } from '#shared/utils/dead-front/killstreaks'
+import { DF_KILLSTREAK, DF_REWARDS } from '#shared/utils/dead-front/killstreaks'
 import type { DfRewardId } from '#shared/utils/dead-front/killstreaks'
 import type { DfInteractable } from '#shared/utils/dead-front/map'
 import type { DfEvent, DfHeldWeapon, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
@@ -34,8 +33,8 @@ export interface DfHudBenchItem {
 export interface DfHudArsenal {
     scrap: number
     parts: number
-    /** 0..1 plate left. */
-    armor: number
+    /** Seconds left on the lent grenade launcher (0: none out). */
+    launcher: number
     equip: 'sentry' | 'decoy' | null
     kit: boolean
     /** Kills toward the next reward. */
@@ -63,7 +62,7 @@ function pool(w: DfWorldSnap): DfSalvagePool {
 /** The local player's carried gear as the bench rules see it. */
 export function dfKitStateOf(c: DfArsenalPromptCtx): DfKitState {
     const g = c.world.arsenal?.players.find(p => p.pid === c.me.pid)
-    return { armor: g?.armor ?? 0, equip: g?.equip ?? null, kit: g?.kit ?? false, grenades: c.me.grenades, grenadesMax: DF_GRENADES.max }
+    return { equip: g?.equip ?? null, kit: g?.kit ?? false, rewards: g?.rewards.length ?? 0, rewardsMax: DF_KILLSTREAK.maxHeld }
 }
 
 /** The weapon in hand (one in the Pack-a-Punch isn't). */
@@ -85,7 +84,12 @@ export function dfBenchItem(pick: DfBenchPick, c: DfArsenalPromptCtx, selected: 
     if (pick === 'upgrade') {
         const w = dfHeldOf(c.me)
         const base = { key: pick, selected, tint: null as string | null }
-        if (!w || !dfRarityApplies(w.id)) return { ...base, name: 'Upgrade weapon', cost: '', ok: false, why: w ? 'This one can\'t be improved' : 'Nothing in hand' }
+        if (!w || !dfRarityApplies(w.id)) {
+            const why = !w
+                ? c.me.weapons[c.me.slot]?.away ? 'Your weapon is in the Pack-a-Punch' : 'Nothing in hand'
+                : DF_WEAPONS[w.id]?.temporary ? 'A borrowed launcher can\'t be improved' : `The ${dfWeaponDisplayName(w.id, w.pap)} is one of a kind`
+            return { ...base, name: 'Upgrade weapon', cost: '', ok: false, why }
+        }
         const r = dfClampRarity(w.rarity)
         const cost = dfRarityUpgradeCost(r)
         const name = `${dfWeaponDisplayName(w.id, w.pap)} → ${r >= DF_RARITY_MAX ? dfRarity(r).name : dfRarity(r + 1).name}`

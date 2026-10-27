@@ -80,7 +80,7 @@ export interface DfGunVoice {
 }
 
 /** Per-weapon voicing. Exported for the spec (every weapon has a distinct report). */
-export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder' | 'flammen'>, DfGunVoice> = {
+export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder' | 'flammen' | 'granatwerfer'>, DfGunVoice> = {
     // .45 service pistol: round, mid-weighted bark, slide snaps forward.
     m1911: { body: 210, bodyEnd: 70, bodyDur: 0.11, blast: 2400, blastDur: 0.09, crack: 0, tail: 0.5, echo: 0.35, mech: 2900, mechAt: 0.045, mechGain: 0.12, drive: 1.6, gain: 0.8 },
     // 7.63 Mauser: small, fast, snappy crack and a bright toggle.
@@ -212,6 +212,17 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
     }
 }
 
+/** The killstreak Granatwerfer: a big, deep tube "THOOMP" with the drum clacking round. */
+const mortar: DfSynth = (ctx, out, o) => {
+    const r = rtOf(ctx, out, o)
+    const sat = shaperNode(ctx, 1.5, gainNode(ctx, 0.9, out))
+    const p = { ...r, out: sat }
+    thump(p, 120, 38, 0.24, 1)
+    noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: 380, freqEnd: 160, q: 2.2, gain: 0.8, dur: 0.18 })
+    noiseBurst({ ...r, out }, { kind: 'brown', type: 'lowpass', freq: 900, freqEnd: 180, q: 0.7, gain: 0.4, dur: 0.35 })
+    if (!o.pos) tick(at({ ...r, out }, 0.12), 1600, 0.16)
+}
+
 /** M1911 at tier 1+: twin grenade launchers, a hollow tube "thoomp". */
 const launcher: DfSynth = (ctx, out, o) => {
     const r = rtOf(ctx, out, o)
@@ -330,7 +341,7 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
             audio.register(DF_WSND.fire(id, 1), flame(true))
             audio.register(DF_WSND.fire(id, 0, true), flame(false))
         } else {
-            const v = DF_GUN_VOICES[id]
+            const v = DF_GUN_VOICES[id as keyof typeof DF_GUN_VOICES]
             audio.register(DF_WSND.fire(id, 0), gunshot(v, 'plain'))
             audio.register(DF_WSND.fire(id, 0, true), gunshot(v, 'sup'))
             audio.register(DF_WSND.fire(id, 1), id === 'm1911' ? launcher : gunshot(v, 'pap'))
@@ -338,6 +349,8 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         // Rapid fire: the oldest tails give way so automatics never pile up.
         for (const name of [DF_WSND.fire(id, 0), DF_WSND.fire(id, 1), DF_WSND.fire(id, 0, true)]) limit(name, 4)
     }
+    // the killstreak launcher isn't in DF_WEAPON_IDS (never in the armory)
+    for (const name of [DF_WSND.fire('granatwerfer', 0), DF_WSND.fire('granatwerfer', 1), DF_WSND.fire('granatwerfer', 0, true)]) audio.register(name, mortar)
 
     const r = (name: string, recipe: (r: Rt, o: DfSoundOpts) => void, gainV = 1) => audio.register(name, (ctx, out, o) => {
         recipe(rtOf(ctx, gainV === 1 ? out : gainNode(ctx, gainV, out), o, 0.03), o)

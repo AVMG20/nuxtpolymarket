@@ -139,6 +139,7 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (!world.power) return info(it.id, 'pap', 'Requires power')
             const held = heldWeapon(me)
             if (!held) return null
+            if (DF_WEAPONS[held.id]?.temporary) return info(it.id, 'pap', 'It won\'t take a borrowed launcher', 'Switch to your own weapon')
             const cost = dfPapCost(held.pap)
             if (cost === null) return info(it.id, 'pap', 'Maximum upgrade', weaponName(held.id, held.pap))
             return buyPrompt(it.id, 'pap', 'Hold F to Pack-a-Punch', cost, pts, weaponName(held.id, held.pap))

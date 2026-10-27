@@ -27,7 +27,7 @@ function world(arsenal: Partial<DfArsenalSnap> = {}, over: Partial<DfWorldSnap> 
         pap: { state: 'idle', timer: 0 },
         egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 },
         double: 0, insta: 0,
-        arsenal: { players: [{ pid: 0, armor: 0, equip: null, kit: false, streak: 0, rewards: [] }], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal },
+        arsenal: { players: [{ pid: 0, equip: null, kit: false, streak: 0, rewards: [] }], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal },
         ...over
     }
 }
@@ -36,10 +36,12 @@ const bench = dfInteractables(DF_MAP).find(i => i.kind === 'bench')!
 
 describe('arsenal HUD: the workbench', () => {
     it('lists every recipe and the upgrade, says why one can\'t be made', () => {
-        const items = dfBenchList({ world: world({ scrap: 7, parts: 0 }), me: player() }, 'plate')
+        const items = dfBenchList({ world: world({ scrap: 7, parts: 0 }), me: player() }, 'sentry')
+        expect(items.map(i => i.key)).toEqual(['sentry', 'decoy', 'kit', 'bomber', 'launcher', 'upgrade'])
         expect(items.map(i => i.key)).toEqual([...DF_BENCH_PICKS])
-        expect(items.find(i => i.key === 'plate')).toMatchObject({ ok: true, selected: true })
-        expect(items.find(i => i.key === 'sentry')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.sentry.scrap - 7} more scrap` })
+        expect(items.find(i => i.key === 'sentry')).toMatchObject({ ok: true, selected: true })
+        expect(items.find(i => i.key === 'launcher')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.launcher.scrap - 7} more scrap` })
+        expect(items.find(i => i.key === 'kit')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.kit.scrap - 7} more scrap` })
         const up = items.find(i => i.key === 'upgrade')!
         expect(up.ok).toBe(true)
         expect(up.name).toContain('Rare')
@@ -47,11 +49,11 @@ describe('arsenal HUD: the workbench', () => {
     })
 
     it('the prompt: hold F to make it, tap for the next; greyed with the reason', () => {
-        const ok = dfPromptFor(bench, { map: DF_MAP, world: world({ scrap: 20 }), me: player(), solo: true, benchPick: 'plate' })!
-        expect(ok.text).toBe('Hold F to craft Trench Plate')
+        const ok = dfPromptFor(bench, { map: DF_MAP, world: world({ scrap: 20 }), me: player(), solo: true, benchPick: 'sentry' })!
+        expect(ok.text).toBe('Hold F to craft Lewis Sentry')
         expect(ok.ok).toBe(true)
         expect(ok.action).toBe('none')
-        const no = dfBenchPrompt(bench, { world: world({ scrap: 0 }), me: player() }, 'bombs')!
+        const no = dfBenchPrompt(bench, { world: world({ scrap: 0 }), me: player() }, 'decoy')!
         expect(no.ok).toBe(false)
         expect(no.sub).toContain('more scrap')
         const legendary = dfBenchPrompt(bench, { world: world({ scrap: 99, parts: 9 }), me: player({ weapons: [{ id: 'thompson', pap: 0, mag: 30, reserve: 120, attachments: {}, rarity: 3 }] }) }, 'upgrade')!
