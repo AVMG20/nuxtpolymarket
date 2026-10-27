@@ -6,6 +6,7 @@
       "name": "polynux",
       "dependencies": {
         "@iconify-json/lucide": "^1.2.98",
+        "@iconify-json/material-symbols": "^1.2.96",
         "@iconify-json/simple-icons": "^1.2.74",
         "@nuxt/ui": "^4.8.2",
         "@sentry/nuxt": "^10.68.0",
@@ -276,6 +277,8 @@
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
 
     "@iconify-json/lucide": ["@iconify-json/lucide@1.2.98", "", { "dependencies": { "@iconify/types": "2.0.0" } }, "sha512-Lx2464W8Tty/QEnZ2UPb73nPdML/HpGCj0J0w37jP3/jx3l4fniZBjDxe1TgHiIL5XW9QO3vlx53ZQZ5JsNpzQ=="],
+
+    "@iconify-json/material-symbols": ["@iconify-json/material-symbols@1.2.96", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-o+qGm+yczwBRKeYJlsv49o8PV1otMmVd90opcokpWw7wsIpR1JfTjUMEBXIlgdRZLosepXX2xWcVe7ydJmcWXg=="],
 
     "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.74", "", { "dependencies": { "@iconify/types": "2.0.0" } }, "sha512-yqaohfY6jnYjTVpuTkaBQHrWbdUrQyWXhau0r/0EZiNWYXPX/P8WWwl1DoLH5CbvDjjcWQw5J0zADhgCUklOqA=="],
 

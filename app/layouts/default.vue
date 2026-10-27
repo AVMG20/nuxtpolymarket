@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useEventListener } from '@vueuse/core'
 import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
@@ -96,6 +97,14 @@ function setNeutral(color: string) {
 }
 
 const globalSearch = useGlobalSearch()
+
+// Boss key: ` swaps the app for a spreadsheet
+const sheetMode = useSheetMode()
+useEventListener('keydown', (e: KeyboardEvent) => {
+  if (!isSheetModeKey(e)) return
+  e.preventDefault()
+  sheetMode.enter()
+})
 </script>
 
 <template>
@@ -324,6 +333,19 @@ const globalSearch = useGlobalSearch()
                   :label="resetArmed ? 'Click again to reset' : 'Reset sidebar'"
                   @click="resetSidebar"
                 />
+                <UButton
+                  block
+                  class="justify-start"
+                  color="neutral"
+                  icon="i-lucide-sheet"
+                  label="Spreadsheet mode"
+                  variant="ghost"
+                  @click="menuOpen = false; sheetMode.enter()"
+                >
+                  <template #trailing>
+                    <UKbd size="sm" class="ml-auto">`</UKbd>
+                  </template>
+                </UButton>
                 <UButton
                   block
                   class="justify-start"
