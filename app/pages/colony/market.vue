@@ -31,23 +31,43 @@ const visibleSpecies = computed(() => speciesCatalog.value.filter((species: any)
   return true
 }))
 
+/** Eggs hatched per click. Each egg is its own request, so a batch is capped. */
+const MAX_HATCH_BATCH = 100
+const hatchAmounts = ref<Record<string, number>>({})
+
+function hatchCount(species: any): number {
+  return Math.max(1, Math.floor(hatchAmounts.value[species.id] ?? 1))
+}
+function setHatchCount(species: any, value: number) {
+  hatchAmounts.value = { ...hatchAmounts.value, [species.id]: value }
+}
+function hatchMax(species: any): number {
+  if (!species.spawnCost) return 0
+  return Math.min(MAX_HATCH_BATCH, Math.floor(balance.value / species.spawnCost))
+}
+
 const buyingId = ref<string | null>(null)
-interface HatchPop { id: number, typeId: string }
+interface HatchPop { id: number, typeId: string, count: number }
 const hatchPops = ref<HatchPop[]>([])
 let popSeq = 0
 
-async function handleBuy(typeId: string) {
+async function handleBuy(species: any) {
   if (buyingId.value) return
-  buyingId.value = typeId
+  const count = Math.min(hatchCount(species), hatchMax(species))
+  if (count < 1) return
+  buyingId.value = species.id
   try {
-    await colony.buyBug(typeId)
-    const id = popSeq++
-    hatchPops.value.push({ id, typeId })
-    setTimeout(() => {
-      hatchPops.value = hatchPops.value.filter(p => p.id !== id)
-    }, 1500)
-  } catch {
-    // useColony already showed the error
+    // Requests queue one after another in useColony; the server debits each
+    // egg on its own, so a short wallet stops the batch where it runs dry.
+    const results = await Promise.allSettled(Array.from({ length: count }, () => colony.buyBug(species.id)))
+    const hatched = results.filter(r => r.status === 'fulfilled').length
+    if (hatched) {
+      const id = popSeq++
+      hatchPops.value.push({ id, typeId: species.id, count: hatched })
+      setTimeout(() => {
+        hatchPops.value = hatchPops.value.filter(p => p.id !== id)
+      }, 1500)
+    }
   } finally {
     buyingId.value = null
   }
@@ -97,13 +117,21 @@ const keepSellTotalValue = computed(() => keepSellableItems.value.reduce((sum: n
 
 const sellingId = ref<Record<string, boolean>>({})
 async function doSell(itemTypeId: string, quantity: number) {
-  const key = `${itemTypeId}-${quantity}`
-  sellingId.value[key] = true
+  sellingId.value[itemTypeId] = true
   try {
     await colony.sellItem(itemTypeId, quantity)
   } finally {
-    sellingId.value[key] = false
+    sellingId.value[itemTypeId] = false
   }
+}
+
+/** Typed sell amount per item, clamped to what is in the stack. */
+const sellAmounts = ref<Record<string, number>>({})
+function sellCount(item: any): number {
+  return Math.min(item.quantity, Math.max(1, Math.floor(sellAmounts.value[item.id] ?? 1)))
+}
+function setSellCount(item: any, value: number) {
+  sellAmounts.value = { ...sellAmounts.value, [item.id]: value }
 }
 
 const confirmSell = ref<{ item: any, qty: number } | null>(null)
@@ -150,7 +178,7 @@ async function doSellKeepAll() {
   <div class="max-w-[1440px] mx-auto px-4 py-4 md:p-6 space-y-4">
     <!-- Shop signs -->
     <div
-      class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5"
+      class="grid grid-cols-2 gap-2.5 sm:gap-3.5"
       role="tablist"
       aria-label="Market"
     >
@@ -158,32 +186,32 @@ async function doSellKeepAll() {
         type="button"
         role="tab"
         :aria-selected="tab === 'hatchery'"
-        class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
-        :class="tab === 'hatchery' ? 'cl-selected' : 'opacity-75 hover:opacity-100'"
+        class="cl-panel text-left px-3 py-2.5 sm:px-[18px] sm:py-4 flex gap-2.5 sm:gap-3.5 items-center transition-colors"
+        :class="tab === 'hatchery' ? 'cl-selected' : 'text-muted hover:text-default'"
         @click="tab = 'hatchery'"
       >
-        <span class="text-2xl sm:text-3xl">🥚</span>
+        <span class="text-xl sm:text-3xl">🥚</span>
         <span class="min-w-0">
-          <span class="cl-display block text-xl sm:text-2xl font-semibold">Hatchery</span>
-          <span class="text-[13px] text-muted">Buy bugs. Each egg rolls its own speed and yield.</span>
+          <span class="cl-display block text-lg sm:text-2xl font-semibold">Hatchery</span>
+          <span class="hidden sm:block text-[13px] text-muted">Buy bugs. Each egg rolls its own speed and yield.</span>
         </span>
       </button>
       <button
         type="button"
         role="tab"
         :aria-selected="tab === 'trading'"
-        class="cl-panel text-left px-4 py-3 sm:px-[18px] sm:py-4 flex gap-3.5 items-center transition-colors"
-        :class="tab === 'trading' ? 'cl-selected' : 'opacity-75 hover:opacity-100'"
+        class="cl-panel text-left px-3 py-2.5 sm:px-[18px] sm:py-4 flex gap-2.5 sm:gap-3.5 items-center transition-colors"
+        :class="tab === 'trading' ? 'cl-selected' : 'text-muted hover:text-default'"
         @click="tab = 'trading'"
       >
-        <span class="text-2xl sm:text-3xl">⚖️</span>
+        <span class="text-xl sm:text-3xl">⚖️</span>
         <span class="min-w-0 flex-1">
-          <span class="cl-display block text-xl sm:text-2xl font-semibold">Trading Post</span>
-          <span class="text-[13px] text-muted">Sell forage for coins, or hoard it for Habitat builds.</span>
+          <span class="cl-display block text-lg sm:text-2xl font-semibold">Trading Post</span>
+          <span class="hidden sm:block text-[13px] text-muted">Sell forage for coins, or hoard it for Habitat builds.</span>
         </span>
         <span
           v-if="totalSellValue > 0"
-          class="cl-chip cl-chip-gold cl-num shrink-0 hidden min-[420px]:inline-flex"
+          class="cl-chip cl-chip-gold cl-num shrink-0 hidden lg:inline-flex"
         >≈ {{ formatNumber(totalSellValue) }}</span>
       </button>
     </div>
@@ -218,7 +246,7 @@ async function doSellKeepAll() {
         <article
           v-for="species in visibleSpecies"
           :key="species.id"
-          class="cl-bug pb-3"
+          class="cl-bug pb-3.5"
           :class="[`cl-t${species.tier}`, species.producesGems && 'cl-tgem', !species.buyable && 'cl-bug-dim']"
         >
           <span class="cl-bug-tier">T{{ species.tier }} · {{ TIER_NAMES[species.tier] }}</span>
@@ -236,9 +264,9 @@ async function doSellKeepAll() {
               v-for="p in hatchPops.filter(pop => pop.typeId === species.id)"
               :key="p.id"
               class="cl-float top-2 left-1/2"
-            >+1 {{ species.emoji }}</span>
+            >+{{ p.count }} {{ species.emoji }}</span>
           </div>
-          <div class="px-3.5 flex flex-col gap-2">
+          <div class="px-3.5 flex flex-col gap-2 flex-1">
             <div class="flex items-center justify-between gap-2">
               <span class="cl-display text-xl font-semibold truncate">{{ species.buyable ? species.name : '???' }}</span>
               <span
@@ -260,7 +288,7 @@ async function doSellKeepAll() {
             <template v-if="species.buyable">
               <div class="grid grid-cols-2 gap-1.5">
                 <div class="cl-inset px-2 py-1.5">
-                  <p class="cl-eyebrow text-[10px]">
+                  <p class="cl-eyebrow">
                     Cycle
                   </p>
                   <p class="cl-num font-semibold">
@@ -268,7 +296,7 @@ async function doSellKeepAll() {
                   </p>
                 </div>
                 <div class="cl-inset px-2 py-1.5">
-                  <p class="cl-eyebrow text-[10px]">
+                  <p class="cl-eyebrow">
                     Speed roll
                   </p>
                   <p class="cl-num font-semibold text-yellow-300">
@@ -276,7 +304,7 @@ async function doSellKeepAll() {
                   </p>
                 </div>
                 <div class="cl-inset px-2 py-1.5">
-                  <p class="cl-eyebrow text-[10px]">
+                  <p class="cl-eyebrow">
                     Output
                   </p>
                   <p class="cl-num font-semibold text-sky-300">
@@ -284,7 +312,7 @@ async function doSellKeepAll() {
                   </p>
                 </div>
                 <div class="cl-inset px-2 py-1.5">
-                  <p class="cl-eyebrow text-[10px]">
+                  <p class="cl-eyebrow">
                     Appetite
                   </p>
                   <p
@@ -295,35 +323,49 @@ async function doSellKeepAll() {
                   </p>
                 </div>
               </div>
-              <div class="flex justify-between gap-2 text-[12.5px]">
-                <span class="text-muted truncate">Forages {{ species.itemEmoji }} {{ species.itemName }}</span>
-                <span class="cl-num font-semibold shrink-0">Owned {{ species.owned }}</span>
+              <div class="mt-auto flex flex-col gap-2">
+                <div class="flex justify-between gap-2 text-[12.5px]">
+                  <span class="text-muted truncate">Forages {{ species.itemEmoji }} {{ species.itemName }}</span>
+                  <span class="cl-num font-semibold shrink-0">Owned {{ formatNumber(species.owned) }}</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <ColonyAmountInput
+                    :model-value="hatchCount(species)"
+                    :max="hatchMax(species)"
+                    :disabled="!!buyingId"
+                    steps
+                    :label="`${species.name} eggs to hatch`"
+                    class="flex-[1_1_9rem]"
+                    @update:model-value="setHatchCount(species, $event)"
+                  />
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-green cl-btn-sm flex-[1_1_8.5rem] min-w-0 px-2"
+                    :disabled="hatchMax(species) < 1 || !!buyingId"
+                    @click="handleBuy(species)"
+                  >
+                    <UIcon
+                      v-if="buyingId === species.id"
+                      name="i-lucide-loader-circle"
+                      class="size-4 animate-spin shrink-0"
+                    />
+                    <ColonyCurrencyIcon
+                      v-else
+                      :size="16"
+                      class="shrink-0"
+                    />
+                    <span class="truncate">Hatch{{ hatchCount(species) > 1 ? ` ×${formatNumber(Math.min(hatchCount(species), Math.max(1, hatchMax(species))), false)}` : '' }} · {{ formatNumber(species.spawnCost * Math.min(hatchCount(species), Math.max(1, hatchMax(species)))) }}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                class="cl-btn cl-btn-green w-full"
-                :disabled="balance < species.spawnCost || !!buyingId"
-                @click="handleBuy(species.id)"
-              >
-                <UIcon
-                  v-if="buyingId === species.id"
-                  name="i-lucide-loader-circle"
-                  class="size-4 animate-spin"
-                />
-                <ColonyCurrencyIcon
-                  v-else
-                  :size="18"
-                />
-                Hatch · {{ formatNumber(species.spawnCost) }}
-              </button>
             </template>
             <template v-else>
-              <div class="cl-inset p-2.5 text-center text-[12.5px] text-muted">
+              <div class="cl-inset p-2.5 text-center text-[12.5px] text-muted mt-auto">
                 Costs <span class="cl-num font-semibold text-default">{{ formatNumber(species.spawnCost) }}</span> once unlocked
               </div>
               <button
                 type="button"
-                class="cl-btn cl-btn-ghost w-full"
+                class="cl-btn cl-btn-ghost cl-btn-sm w-full"
                 disabled
               >
                 <UIcon
@@ -431,39 +473,45 @@ async function doSellKeepAll() {
           <span class="text-[40px] sm:text-[44px] leading-tight">{{ item.emoji }}</span>
           <span class="cl-display text-[15px] sm:text-base font-semibold text-center leading-tight">{{ item.name }}</span>
           <span class="cl-display cl-num text-2xl sm:text-[26px] font-semibold">{{ formatNumber(item.quantity, false) }}</span>
-          <span class="cl-num text-[12px] font-semibold text-muted text-center">
+          <span class="cl-num text-[12.5px] font-semibold text-muted text-center">
             {{ formatNumber(item.sellValue) }} each · <span class="text-amber-400">{{ item.quantity > 0 ? formatNumber(item.quantity * item.sellValue) : 'none' }}</span>
           </span>
-          <div class="flex gap-1.5 self-stretch mt-1">
+          <div class="flex gap-1.5 self-stretch mt-auto pt-1">
+            <ColonyAmountInput
+              :model-value="sellCount(item)"
+              :max="item.quantity"
+              :label="`${item.name} to sell`"
+              class="flex-1"
+              @update:model-value="setSellCount(item, $event)"
+            />
+            <button
+              type="button"
+              class="cl-btn cl-btn-gold cl-btn-sm shrink-0 px-3"
+              :disabled="item.quantity === 0 || sellingId[item.id]"
+              :aria-label="`Sell ${formatNumber(sellCount(item), false)} ${item.name}`"
+              @click="requestSell(item, sellCount(item))"
+            >
+              Sell
+            </button>
+          </div>
+          <div class="flex gap-1.5 self-stretch">
             <button
               type="button"
               class="cl-btn cl-btn-ghost cl-btn-sm flex-1 min-w-0 px-1.5"
               :disabled="keepSellQty(item) === 0 || sellingKeep[item.id]"
               :title="`Sell all but ${formatNumber(keepAmount, false)}`"
+              :aria-label="`Sell ${formatNumber(keepSellQty(item), false)}, keep ${formatNumber(keepAmount, false)}`"
               @click="doSellKeep(item)"
             >
               <span class="truncate">−{{ formatNumber(keepSellQty(item)) }}</span>
             </button>
             <button
               type="button"
-              class="cl-btn cl-btn-gold cl-btn-sm flex-1 min-w-0 px-1.5"
+              class="cl-btn cl-btn-ghost cl-btn-sm flex-1 min-w-0 px-1.5"
               :disabled="item.quantity === 0"
               @click="requestSell(item, item.quantity)"
             >
               Sell all
-            </button>
-          </div>
-          <div class="flex gap-1 self-stretch">
-            <button
-              v-for="qty in [1, 10, 50]"
-              :key="qty"
-              type="button"
-              class="cl-btn cl-btn-ghost cl-btn-xs flex-1 min-w-0 px-1"
-              :disabled="item.quantity === 0 || sellingId[`${item.id}-${Math.min(qty, item.quantity)}`]"
-              :aria-label="`Sell ${qty} ${item.name}`"
-              @click="requestSell(item, Math.min(qty, item.quantity))"
-            >
-              ×{{ qty }}
             </button>
           </div>
         </div>

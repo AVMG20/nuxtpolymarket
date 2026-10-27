@@ -7,9 +7,9 @@ type Player = NonNullable<typeof players.value>[number]
 
 const TIER_HEX = ['#4ade80', '#60a5fa', '#facc15', '#c084fc', '#fb923c', '#f87171']
 const MEDALS = [
-  { fill: 'linear-gradient(180deg,#fde68a,#f59e0b)', glow: 'rgba(251,191,36,.7)' },
-  { fill: 'linear-gradient(180deg,#f1f5f9,#94a3b8)', glow: 'rgba(203,213,225,.5)' },
-  { fill: 'linear-gradient(180deg,#fdba74,#c2410c)', glow: 'rgba(251,146,60,.5)' }
+  'linear-gradient(180deg,#fde68a,#f59e0b)',
+  'linear-gradient(180deg,#f1f5f9,#94a3b8)',
+  'linear-gradient(180deg,#fdba74,#c2410c)'
 ]
 
 /** Podium order is 2nd, 1st, 3rd so the winner stands in the middle. */
@@ -62,9 +62,9 @@ function initial(name: string) {
           <div class="relative">
             <span
               class="size-12 sm:size-16 rounded-full grid place-items-center cl-display text-xl sm:text-2xl font-semibold text-[#1a1205]"
-              :style="{ background: MEDALS[rank]!.fill, boxShadow: `0 0 0 4px #2a2019, 0 0 26px ${MEDALS[rank]!.glow}` }"
+              :style="{ background: MEDALS[rank], boxShadow: '0 0 0 4px #2a2019' }"
             >{{ initial(player.name) }}</span>
-            <span class="cl-chip absolute left-1/2 -bottom-2.5 -translate-x-1/2 px-2 py-px text-[11px] bg-[#1e1712]">#{{ rank + 1 }}</span>
+            <span class="cl-chip cl-num absolute left-1/2 -bottom-2.5 -translate-x-1/2 px-2 py-px bg-[#1e1712] text-default">#{{ rank + 1 }}</span>
           </div>
           <div class="flex items-center gap-1 mt-1.5 max-w-full min-w-0">
             <PrestigeBadge
@@ -85,7 +85,7 @@ function initial(name: string) {
             <span class="grid justify-items-center gap-0.5 text-center px-1">
               <span class="cl-lvl w-9 h-10 sm:w-11 sm:h-[50px] text-lg sm:text-xl">{{ player.habitatLevel }}</span>
               <span class="text-xs font-semibold text-amber-100/90">Habitat {{ player.habitatLevel }}</span>
-              <span class="text-[11px] sm:text-xs font-semibold text-muted hidden min-[400px]:block">{{ formatNumber(player.bugCount) }} bugs · {{ player.speciesOwned }} species</span>
+              <span class="text-xs font-semibold text-muted hidden min-[400px]:block">{{ formatNumber(player.bugCount) }} bugs · {{ player.speciesOwned }} species</span>
             </span>
           </div>
         </div>
@@ -100,7 +100,7 @@ function initial(name: string) {
           v-for="(player, index) in rest"
           :key="player.name"
           class="cl-panel flex items-center gap-3 sm:gap-3.5 px-3.5 sm:px-4 py-3 flex-wrap"
-          :class="player.isCurrentUser && 'cl-you-glow'"
+          :class="player.isCurrentUser && 'cl-you'"
         >
           <span class="cl-display cl-num w-8 text-xl font-semibold text-muted">{{ index + 4 }}</span>
           <span class="flex-[1_1_140px] min-w-0">
@@ -132,7 +132,7 @@ function initial(name: string) {
                 :style="{ background: i < player.habitatLevel ? hex : 'rgba(255,236,210,0.1)' }"
               />
             </span>
-            <span class="cl-num text-[11.5px] font-semibold text-muted">Habitat {{ player.habitatLevel }} / {{ MAX_TIER }}</span>
+            <span class="cl-num text-xs font-semibold text-muted">Habitat {{ player.habitatLevel }} / {{ MAX_TIER }}</span>
           </span>
           <span class="cl-display cl-num min-w-20 text-right text-lg font-semibold text-amber-400">{{ formatNumber(player.colonyValue) }}</span>
         </li>

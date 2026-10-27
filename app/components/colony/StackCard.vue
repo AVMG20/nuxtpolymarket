@@ -51,7 +51,7 @@ function onActivate() {
         </div>
         <div class="grid grid-cols-3 gap-1.5 text-center">
           <div class="cl-inset py-1.5">
-            <p class="cl-eyebrow text-[9.5px]">
+            <p class="cl-eyebrow">
               Speed
             </p>
             <p
@@ -62,7 +62,7 @@ function onActivate() {
             </p>
           </div>
           <div class="cl-inset py-1.5">
-            <p class="cl-eyebrow text-[9.5px]">
+            <p class="cl-eyebrow">
               Yield
             </p>
             <p class="font-semibold cl-num text-sky-300">
@@ -70,7 +70,7 @@ function onActivate() {
             </p>
           </div>
           <div class="cl-inset py-1.5">
-            <p class="cl-eyebrow text-[9.5px]">
+            <p class="cl-eyebrow">
               Eats
             </p>
             <p class="font-semibold cl-num">
@@ -133,7 +133,7 @@ function onActivate() {
         </dl>
         <p
           v-if="!releaseMode"
-          class="text-[11.5px] text-muted"
+          class="text-xs text-muted"
         >
           {{ full ? 'The terrarium is full.' : 'Tap to place one in the terrarium.' }}
         </p>
@@ -227,7 +227,7 @@ function onActivate() {
           <span class="cl-display cl-num text-sm font-semibold">{{ picked }}/{{ stack.quantity }}</span>
           <span
             v-if="picked"
-            class="cl-num text-[10.5px] font-semibold text-amber-400 truncate max-w-full"
+            class="cl-num text-xs font-semibold text-amber-400 truncate max-w-full"
           >+{{ formatNumber(refund) }}</span>
         </span>
         <button

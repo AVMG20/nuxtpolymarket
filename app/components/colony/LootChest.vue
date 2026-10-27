@@ -4,7 +4,7 @@ interface FloatText { id: number, text: string, x: number }
 
 const props = defineProps<{
   loot: Loot[]
-  /** Loot worth a good while of foraging: rays and a bounce. */
+  /** Loot worth a good while of foraging: the lid opens all the way. */
   overflowing: boolean
   busy: boolean
   floats: FloatText[]
@@ -41,7 +41,6 @@ function collect() {
       <button
         type="button"
         class="cl-btn cl-btn-gold cl-btn-sm"
-        :class="state === 'overflowing' && 'cl-btn-pulse'"
         :disabled="busy"
         @click="collect"
       >
@@ -53,7 +52,7 @@ function collect() {
     <button
       type="button"
       class="cl-chest hidden sm:grid"
-      :class="state === 'empty' ? 'opacity-60' : 'cl-chest-ready'"
+      :class="state === 'empty' && 'opacity-60'"
       :disabled="!total || busy"
       :aria-label="total ? `Collect ${formatNumber(total, false)} items from the loot chest` : 'The loot chest is empty'"
       :title="total ? undefined : 'New forage lands here as soon as a cycle completes.'"
@@ -77,7 +76,7 @@ function collect() {
     <button
       type="button"
       class="cl-btn cl-btn-sm sm:hidden pl-1.5"
-      :class="total ? ['cl-btn-gold', state === 'overflowing' && 'cl-btn-pulse'] : 'cl-btn-ghost'"
+      :class="total ? 'cl-btn-gold' : 'cl-btn-ghost'"
       :disabled="!total || busy"
       @click="collect"
     >

@@ -70,14 +70,14 @@ const loop = [
       <h2 class="cl-display text-[22px] font-semibold mb-3.5">
         The colony loop
       </h2>
-      <ol class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:items-center gap-2.5">
+      <ol class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:items-stretch gap-2.5">
         <li
           v-for="(step, i) in loop"
           :key="step.title"
-          class="flex items-center gap-2.5 lg:flex-1 min-w-0"
+          class="flex items-stretch gap-2.5 lg:flex-1 min-w-0"
           :class="i === loop.length - 1 && 'col-span-2 sm:col-span-1'"
         >
-          <div class="cl-inset flex-1 min-w-0 p-3.5 text-center h-full">
+          <div class="cl-inset flex-1 min-w-0 p-3.5 text-center">
             <div class="text-4xl">
               {{ step.emoji }}
             </div>
@@ -91,7 +91,7 @@ const loop = [
           <UIcon
             v-if="i < loop.length - 1"
             name="i-lucide-arrow-right"
-            class="hidden lg:block size-5.5 shrink-0 text-amber-400"
+            class="hidden lg:block self-center size-5.5 shrink-0 text-amber-400"
           />
         </li>
       </ol>

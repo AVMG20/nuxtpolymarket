@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { bugStackKey, getBug, getItem, releaseAllButBest, releaseRefund, REMOVE_REFUND_RATE } from '#shared/utils/colony'
+import { avgTickYield, bugStackKey, getBug, getItem, releaseAllButBest, releaseRefund, REMOVE_REFUND_RATE } from '#shared/utils/colony'
 import { formatDuration } from '~/lib/colony-format'
 
 const colony = useColony()
@@ -104,6 +104,38 @@ const filteredSortedBugInventory = computed(() => {
 function handlePlace(stack: any) {
   if (placedCount.value >= capacity.value) return
   colony.placeBug(stack.typeId, stack.speed, stack.yield, stack.eat).catch(() => {})
+}
+
+// ─── Fill: place the best spare bugs in every free slot ────────────────────
+// Each place is its own request through the same optimistic queue as a tap;
+// the server locks the colony row and refuses a place past capacity.
+function stackCoinsPerHour(stack: any): number {
+  const tickMs = stack.baseTickMs * (1 - stack.speed / 100)
+  if (tickMs <= 0) return 0
+  return (avgTickYield(stack.yield) * (stack.resourceMultiplier ?? 1) / tickMs) * 3_600_000 * (stack.itemSellValue ?? 0)
+}
+
+const fillPlan = computed(() => {
+  let left = Math.max(0, capacity.value - placedCount.value)
+  const plan: { stack: any, count: number }[] = []
+  const ranked = [...bugInventory.value].sort((a: any, b: any) =>
+    Number(!!b.producesGems) - Number(!!a.producesGems)
+    || stackCoinsPerHour(b) - stackCoinsPerHour(a)
+    || b.tier - a.tier)
+  for (const stack of ranked) {
+    if (left <= 0) break
+    const count = Math.min(stack.quantity, left)
+    plan.push({ stack, count })
+    left -= count
+  }
+  return plan
+})
+const fillCount = computed(() => fillPlan.value.reduce((sum, step) => sum + step.count, 0))
+
+function fillTerrarium() {
+  for (const { stack, count } of fillPlan.value) {
+    for (let i = 0; i < count; i++) handlePlace(stack)
+  }
 }
 
 function handleUnplace(bugId: string) {
@@ -430,7 +462,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
 
     <div
       v-else-if="!initialized"
-      class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_25rem] gap-5"
+      class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_30rem] gap-5"
       aria-busy="true"
     >
       <div class="space-y-4">
@@ -444,7 +476,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
 
     <div
       v-else
-      class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_25rem] gap-5 items-start"
+      class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_30rem] gap-5 items-start"
     >
       <!-- Left: trough, jar, pulse -->
       <section class="flex flex-col gap-4 min-w-0">
@@ -515,7 +547,7 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
                 </p>
                 <button
                   type="button"
-                  class="cl-btn cl-btn-red cl-btn-sm cl-btn-pulse mt-2.5"
+                  class="cl-btn cl-btn-red cl-btn-sm mt-2.5"
                   :disabled="!canFeed || feeding"
                   @click="handleFeed"
                 >
@@ -539,48 +571,48 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
         </div>
 
         <!-- Colony pulse -->
-        <div class="grid grid-cols-1 min-[480px]:grid-cols-3 gap-3">
-          <div class="cl-panel px-3.5 py-3">
-            <p class="cl-eyebrow">
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+          <div class="cl-panel px-3 py-2.5 sm:px-3.5 sm:py-3 min-w-0">
+            <p class="cl-eyebrow truncate">
               Income
             </p>
-            <p class="cl-display cl-num text-[22px] font-semibold text-green-400 leading-tight">
+            <p class="cl-display cl-num text-lg sm:text-[22px] font-semibold text-green-400 leading-tight">
               <template v-if="isStarving && bugs.length">
                 <span class="text-red-300">Paused</span>
               </template>
               <template v-else>
-                ≈ {{ formatNumber(incomePerHour) }} <span class="text-[13px] text-muted">coins / hr</span>
+                ≈ {{ formatNumber(incomePerHour) }} <span class="block sm:inline text-xs sm:text-[13px] text-muted">coins / hr</span>
               </template>
             </p>
           </div>
-          <div class="cl-panel px-3.5 py-3">
-            <p class="cl-eyebrow">
+          <div class="cl-panel px-3 py-2.5 sm:px-3.5 sm:py-3 min-w-0">
+            <p class="cl-eyebrow truncate">
               Appetite
             </p>
-            <p class="cl-display cl-num text-[22px] font-semibold leading-tight">
-              {{ formatNumber(Math.round(nutritionDrainPerHour), false) }} <span class="text-[13px] text-muted">nutrition / hr</span>
+            <p class="cl-display cl-num text-lg sm:text-[22px] font-semibold leading-tight">
+              {{ formatNumber(Math.round(nutritionDrainPerHour)) }} <span class="block sm:inline text-xs sm:text-[13px] text-muted">nutrition / hr</span>
             </p>
           </div>
           <div
             v-if="nextGemBug"
-            class="cl-panel px-3.5 py-3 border-sky-400/40"
+            class="cl-panel px-3 py-2.5 sm:px-3.5 sm:py-3 min-w-0 border-sky-400/40"
           >
-            <p class="cl-eyebrow">
+            <p class="cl-eyebrow truncate">
               {{ nextGemBug.name }} {{ nextGemBug.emoji }}
             </p>
-            <p class="cl-display cl-num text-[22px] font-semibold text-sky-300 leading-tight">
-              +{{ nextGemBug.gemsPerCycle }} <span class="text-[13px] text-muted">{{ isStarving ? 'gems, paused' : `gems in ${formatDuration(bugRemainingMs(nextGemBug))}` }}</span>
+            <p class="cl-display cl-num text-lg sm:text-[22px] font-semibold text-sky-300 leading-tight">
+              +{{ nextGemBug.gemsPerCycle }} <span class="block sm:inline text-xs sm:text-[13px] text-muted">{{ isStarving ? 'gems, paused' : `gems in ${formatDuration(bugRemainingMs(nextGemBug))}` }}</span>
             </p>
           </div>
           <div
             v-else
-            class="cl-panel px-3.5 py-3"
+            class="cl-panel px-3 py-2.5 sm:px-3.5 sm:py-3 min-w-0"
           >
-            <p class="cl-eyebrow">
+            <p class="cl-eyebrow truncate">
               Stores worth
             </p>
-            <p class="cl-display cl-num text-[22px] font-semibold text-amber-400 leading-tight">
-              {{ formatNumber(storesValue) }} <span class="text-[13px] text-muted">coins</span>
+            <p class="cl-display cl-num text-lg sm:text-[22px] font-semibold text-amber-400 leading-tight">
+              {{ formatNumber(storesValue) }} <span class="block sm:inline text-xs sm:text-[13px] text-muted">coins</span>
             </p>
           </div>
         </div>
@@ -652,119 +684,148 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
         <!-- Spare -->
         <template v-if="burrowTab === 'spare'">
           <template v-if="bugInventory.length">
+            <!-- One frame for both modes, so switching never moves the cards below -->
             <div
-              v-if="!releaseMode"
-              class="space-y-2"
+              class="cl-toolbar flex flex-col gap-2"
+              :class="releaseMode && 'cl-toolbar-release'"
             >
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <button
-                  v-for="chip in sortChips"
-                  :key="chip.value"
-                  type="button"
-                  class="cl-chip"
-                  :class="inventorySortBy === chip.value && 'cl-chip-gold'"
-                  :aria-pressed="inventorySortBy === chip.value"
-                  @click="pickSort(chip.value)"
-                >
-                  {{ chip.label }}
-                  <UIcon
-                    v-if="inventorySortBy === chip.value"
-                    :name="inventorySortDir === 'desc' ? 'i-lucide-arrow-down' : 'i-lucide-arrow-up'"
-                    class="size-3"
+              <template v-if="!releaseMode">
+                <div class="grid grid-cols-5 gap-1.5">
+                  <button
+                    v-for="chip in sortChips"
+                    :key="chip.value"
+                    type="button"
+                    class="cl-chip justify-center gap-1 !px-1 min-w-0"
+                    :class="inventorySortBy === chip.value && 'cl-chip-gold'"
+                    :aria-pressed="inventorySortBy === chip.value"
+                    @click="pickSort(chip.value)"
+                  >
+                    {{ chip.label }}
+                    <UIcon
+                      v-if="inventorySortBy === chip.value"
+                      :name="inventorySortDir === 'desc' ? 'i-lucide-arrow-down' : 'i-lucide-arrow-up'"
+                      class="size-3"
+                    />
+                  </button>
+                </div>
+                <div class="flex items-center gap-2 min-h-[34px]">
+                  <USelect
+                    v-if="inventoryFilterOptions.length > 2"
+                    v-model="inventoryFilterType"
+                    :items="inventoryFilterOptions"
+                    size="sm"
+                    class="flex-1 min-w-0"
+                    :ui="{ content: 'cl-theme' }"
+                    aria-label="Filter by species"
                   />
-                </button>
-              </div>
-              <div class="flex items-center gap-2">
-                <USelect
-                  v-if="inventoryFilterOptions.length > 2"
-                  v-model="inventoryFilterType"
-                  :items="inventoryFilterOptions"
-                  size="sm"
-                  class="flex-1 min-w-0"
-                  :ui="{ content: 'cl-theme' }"
-                  aria-label="Filter by species"
-                />
-                <span
-                  v-else
-                  class="flex-1"
-                />
-                <button
-                  type="button"
-                  class="cl-btn cl-btn-ghost cl-btn-sm shrink-0"
-                  @click="toggleReleaseMode"
-                >
-                  <UIcon
-                    name="i-lucide-leaf"
-                    class="size-4 text-amber-400"
+                  <span
+                    v-else
+                    class="flex-1"
                   />
-                  Release spares
-                </button>
-              </div>
-              <p class="text-[12.5px] text-muted">
-                <template v-if="terrariumFull">
-                  The terrarium is full. Raise <NuxtLink
-                    to="/colony/habitat"
-                    class="text-amber-400 underline"
-                  >Terrarium Capacity</NuxtLink> in the Habitat.
-                </template>
-                <template v-else>
-                  Tap a card to place it in the terrarium.
-                </template>
-              </p>
-            </div>
-
-            <div
-              v-else
-              class="cl-release-bar"
-            >
-              <div class="flex items-center gap-2 justify-between flex-wrap">
-                <p class="cl-display text-base font-semibold text-amber-200 flex items-center gap-1.5">
-                  <UIcon
-                    name="i-lucide-leaf"
-                    class="size-4.5"
-                  />
-                  Release mode
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-green cl-btn-sm shrink-0"
+                    :disabled="!fillCount"
+                    :title="fillCount ? 'Place your best spare bugs (by coins per hour) in every free slot' : terrariumFull ? 'The terrarium is full' : 'No spare bugs to place'"
+                    @click="fillTerrarium"
+                  >
+                    <UIcon
+                      name="i-lucide-arrow-down-to-line"
+                      class="size-4"
+                    />
+                    Fill{{ fillCount ? ` ${fillCount}` : '' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-ghost cl-btn-sm shrink-0"
+                    @click="toggleReleaseMode"
+                  >
+                    <UIcon
+                      name="i-lucide-leaf"
+                      class="size-4 text-amber-400"
+                    />
+                    Release
+                  </button>
+                </div>
+                <p class="text-[12.5px] text-muted">
+                  <template v-if="terrariumFull">
+                    Full. Raise <NuxtLink
+                      to="/colony/habitat"
+                      class="text-amber-400 underline"
+                    >Terrarium Capacity</NuxtLink> in the Habitat.
+                  </template>
+                  <template v-else>
+                    Tap a card to place it in the terrarium.
+                  </template>
                 </p>
-                <button
-                  type="button"
-                  class="cl-btn cl-btn-ghost cl-btn-sm"
-                  @click="toggleReleaseMode"
-                >
-                  Done
-                </button>
-              </div>
-              <p class="text-[12.5px] text-amber-100/85 mt-1">
-                Tap stacks to set them free for {{ Math.round(REMOVE_REFUND_RATE * 100) }}% of their spawn cost. Placed bugs are never touched.
-              </p>
-              <div class="flex gap-2 mt-2.5 flex-wrap">
-                <button
-                  type="button"
-                  class="cl-btn cl-btn-gold cl-btn-sm flex-1 sm:flex-none"
-                  title="Pick every stack except the best of each species"
-                  @click="pickAllButBest"
-                >
-                  <UIcon
-                    name="i-lucide-crown"
-                    class="size-4"
-                  />
-                  Keep best of each
-                </button>
-                <button
-                  type="button"
-                  class="cl-btn cl-btn-ghost cl-btn-sm"
-                  @click="pickAll"
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  class="cl-btn cl-btn-ghost cl-btn-sm"
-                  :disabled="!releaseCount"
-                  @click="setPicks({})"
-                >
-                  None
-                </button>
-              </div>
+              </template>
+
+              <template v-else>
+                <div class="flex items-center gap-2 min-h-[30px]">
+                  <p class="flex-1 min-w-0 flex items-center gap-1.5 font-semibold text-amber-200 truncate">
+                    <UIcon
+                      name="i-lucide-leaf"
+                      class="size-4 shrink-0"
+                    />
+                    <span
+                      v-if="releaseCount"
+                      class="cl-num truncate"
+                    >{{ formatNumber(releaseCount, false) }} {{ releaseCount === 1 ? 'bug' : 'bugs' }} · +{{ formatNumber(Math.round(releaseTotalRefund)) }}</span>
+                    <span
+                      v-else
+                      class="truncate"
+                    >Release mode</span>
+                  </p>
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-gold cl-btn-xs shrink-0"
+                    :disabled="!releaseCount"
+                    @click="confirmRelease"
+                  >
+                    Release{{ releaseCount ? ` ${formatNumber(releaseCount)}` : '' }}
+                  </button>
+                </div>
+                <div class="flex items-center gap-1.5 sm:gap-2 min-h-[34px]">
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-ghost cl-btn-sm shrink-0 px-2.5 sm:px-3"
+                    title="Pick every stack except the best of each species"
+                    @click="pickAllButBest"
+                  >
+                    <UIcon
+                      name="i-lucide-crown"
+                      class="size-4 text-amber-400"
+                    />
+                    Keep best
+                  </button>
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-ghost cl-btn-sm shrink-0 px-2.5 sm:px-3"
+                    @click="pickAll"
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-ghost cl-btn-sm shrink-0 px-2.5 sm:px-3"
+                    :disabled="!releaseCount"
+                    @click="setPicks({})"
+                  >
+                    None
+                  </button>
+                  <span class="flex-1" />
+                  <button
+                    type="button"
+                    class="cl-btn cl-btn-ghost cl-btn-sm shrink-0 px-2.5 sm:px-3"
+                    @click="toggleReleaseMode"
+                  >
+                    Done
+                  </button>
+                </div>
+                <p class="text-[12.5px] text-amber-100/85">
+                  Pick stacks to free them for a {{ Math.round(REMOVE_REFUND_RATE * 100) }}% refund.
+                </p>
+              </template>
             </div>
 
             <div
@@ -794,30 +855,6 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
               <p class="text-sm text-muted">
                 No bugs match this filter.
               </p>
-            </div>
-
-            <!-- Release dock: the live refund, sticky above the phone nav -->
-            <div
-              v-if="releaseMode"
-              class="cl-release-dock sticky bottom-[calc(var(--cl-bottom-nav-h)+0.75rem)] sm:bottom-4 xl:static z-10 rounded-2xl px-3.5 py-3 flex items-center gap-3"
-            >
-              <div class="flex-1 min-w-0">
-                <p class="cl-eyebrow text-amber-100/80">
-                  {{ releaseCount ? `${formatNumber(releaseCount, false)} ${releaseCount === 1 ? 'bug' : 'bugs'} · ${Math.round(REMOVE_REFUND_RATE * 100)}% refund` : 'Nothing selected' }}
-                </p>
-                <p class="cl-display cl-num text-2xl font-semibold text-amber-400 flex items-center gap-1.5">
-                  <ColonyCurrencyIcon :size="20" />
-                  +{{ formatNumber(Math.round(releaseTotalRefund), false) }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="cl-btn cl-btn-gold shrink-0"
-                :disabled="!releaseCount"
-                @click="confirmRelease"
-              >
-                Release {{ releaseCount ? formatNumber(releaseCount, false) : '' }}
-              </button>
             </div>
           </template>
 
@@ -870,6 +907,16 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
 
         <!-- Stores -->
         <template v-if="burrowTab === 'stores'">
+          <NuxtLink
+            to="/colony/market?tab=trading"
+            class="cl-btn cl-btn-gold cl-btn-sm w-full"
+          >
+            <UIcon
+              name="i-lucide-scale"
+              class="size-4"
+            />
+            Sell in the Trading Post · ≈ {{ formatNumber(storesValue) }}
+          </NuxtLink>
           <div class="grid grid-cols-3 gap-2 sm:gap-2.5">
             <div
               v-for="item in resourcesOwned"
@@ -877,21 +924,15 @@ const chestOverflowing = computed(() => pendingLootValue.value > 0 && pendingLoo
               class="cl-crate"
               :class="[`cl-t${item.tier}`, item.quantity <= 0 && 'cl-crate-empty']"
             >
-              <span class="self-stretch flex justify-between text-[11px] font-semibold cl-num">
+              <span class="self-stretch flex justify-between text-xs font-semibold cl-num">
                 <span class="cl-tc">T{{ item.tier }}</span>
                 <span class="text-muted">{{ formatNumber(item.sellValue) }} ea</span>
               </span>
               <span class="text-[32px] leading-tight">{{ item.emoji }}</span>
               <span class="cl-display cl-num text-xl font-semibold">{{ formatNumber(item.quantity) }}</span>
-              <span class="text-[11.5px] font-semibold text-muted text-center leading-tight">{{ item.name }}</span>
+              <span class="text-xs font-semibold text-muted text-center leading-tight">{{ item.name }}</span>
             </div>
           </div>
-          <NuxtLink
-            to="/colony/market?tab=trading"
-            class="cl-btn cl-btn-ghost w-full"
-          >
-            Sell in the Trading Post · ≈ {{ formatNumber(storesValue) }}
-          </NuxtLink>
         </template>
       </aside>
     </div>
