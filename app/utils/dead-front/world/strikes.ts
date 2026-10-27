@@ -1,12 +1,12 @@
 import * as THREE from 'three'
-import { dfPlanStrike, dfStrikeFlightStart, dfStrikeFlyer } from '#shared/utils/dead-front/killstreaks'
-import type { DfStrikeId, DfStrikePlan } from '#shared/utils/dead-front/killstreaks'
+import { dfPlanStrike, dfStrikeFlightStart, dfStrikeFlyer } from '#shared/utils/dead-front/support'
+import type { DfStrikeId, DfStrikePlan } from '#shared/utils/dead-front/support'
 import type { DfStrikeHit } from '#shared/utils/dead-front/salvage'
 import { DF_ARSENAL_SND, registerDfArsenalSounds } from '../engine/arsenal-sounds'
 import { DfVoxModel } from '../voxel/model'
 import type { DfWorldKit, DfWorldPart } from './kit'
 
-// Killstreak support, staged from the `strike` event's plan (the server
+// Support, staged from the `strike` event's plan (the server
 // resolves the damage; its `explode` events draw the blasts). The barrage: a
 // red smoke flare on the mark and a whistle ahead of every shell. The
 // Zeppelin raid: a grey airship droning over along the caller's line, its

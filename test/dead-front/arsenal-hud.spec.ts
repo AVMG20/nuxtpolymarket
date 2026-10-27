@@ -27,7 +27,7 @@ function world(arsenal: Partial<DfArsenalSnap> = {}, over: Partial<DfWorldSnap> 
         pap: { state: 'idle', timer: 0 },
         egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 },
         double: 0, insta: 0,
-        arsenal: { players: [{ pid: 0, equip: null, kit: false, streak: 0, rewards: [] }], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal },
+        arsenal: { players: [{ pid: 0, equip: null, kit: false, support: [] }], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal },
         ...over
     }
 }
@@ -37,7 +37,7 @@ const bench = dfInteractables(DF_MAP).find(i => i.kind === 'bench')!
 describe('arsenal HUD: the workbench', () => {
     it('lists every recipe and the upgrade, says why one can\'t be made', () => {
         const items = dfBenchList({ world: world({ scrap: 7, parts: 0 }), me: player() }, 'sentry')
-        expect(items.map(i => i.key)).toEqual(['sentry', 'decoy', 'kit', 'bomber', 'launcher', 'upgrade'])
+        expect(items.map(i => i.key)).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber', 'upgrade'])
         expect(items.map(i => i.key)).toEqual([...DF_BENCH_PICKS])
         expect(items.find(i => i.key === 'sentry')).toMatchObject({ ok: true, selected: true })
         expect(items.find(i => i.key === 'launcher')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.launcher.scrap - 7} more scrap` })

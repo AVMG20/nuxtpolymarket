@@ -3,7 +3,7 @@ import { at, decayEnv, filterNode, gainNode, mtof, noise, oscNode, reverbSend, r
 import type { Rt } from '../world/sounds/noise'
 import { clickTrain, crack, crackle, fmBell, metal, noiseBurst, noiseSwell, scatter, thud } from '../world/sounds/parts'
 
-// Sounds of the salvage, the workbench, the crafted gear and the killstreak
+// Sounds of the salvage, the workbench, the crafted gear and the
 // support, all synthesised: scrap clinking into a pack, hammering at the
 // bench, the Lewis sentry's rattle, a gramophone waltz, the field telephone
 // that calls the guns, shells whistling in, a Zeppelin's engines droning
@@ -19,7 +19,7 @@ export const DF_ARSENAL_SND = {
     sentryBroken: 'df:ars-sentry-broken',
     decoyWind: 'df:ars-decoy-wind',
     waltz: 'df:ars-waltz',
-    reward: 'df:ars-reward',
+    crate: 'df:ars-crate',
     callin: 'df:ars-callin',
     whistle: 'df:ars-whistle',
     zeppelin: 'df:ars-zeppelin',
@@ -141,10 +141,12 @@ export function registerDfArsenalSounds(audio: DfAudio): void {
             noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: 2400, q: 0.6, gain: 0.03, dur: beat * 3 })
         })
     }
-    // A reward earned: the field telephone rings and a brass stab answers.
-    r(DF_ARSENAL_SND.reward, (p) => {
+    // A supply crate opened: the lid prised off with a creak and a clunk, then a bright brass stab.
+    r(DF_ARSENAL_SND.crate, (p) => {
         const h = hall(p, 0.3)
-        for (let k = 0; k < 6; k++) fmBell(at(p, k * 0.05), { freq: 1900, dur: 0.05, gain: 0.08, ratio: 1.5, index: 2 })
+        noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: 700, freqEnd: 1400, q: 3, gain: 0.25, dur: 0.22 })
+        thud(at(p, 0.2), { freq: 160, freqEnd: 80, dur: 0.12, gain: 0.4, body: 0.4, click: 0.8 })
+        clickTrain(at(p, 0.22), scatter(4, 0.12, 1.2), { freq: 2600, q: 2, gain: 0.25, len: 0.008 })
         const { ctx } = p
         const tt = p.t + 0.35
         const g = gainNode(ctx, 0, h.out)

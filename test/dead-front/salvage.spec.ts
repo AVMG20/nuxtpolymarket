@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { dfRoundZombieCount } from '#shared/utils/dead-front/enemies'
 import {
-    DF_KILLSTREAK, DF_REWARDS, DF_STRIKE, dfKillstreakDown, dfKillstreakKill, dfNewKillstreak, dfNextReward, dfPlanStrike,
+    DF_SUPPORT_HELD, DF_SUPPORT, DF_STRIKE, dfPlanStrike,
     dfIsStrike, dfStrikeFlightStart
-} from '#shared/utils/dead-front/killstreaks'
+} from '#shared/utils/dead-front/support'
 import { DF_MAP, dfInteractables } from '#shared/utils/dead-front/map'
 import { DF_BENCH_SIZE, dfBenchUsePoint, dfMapBenches } from '#shared/utils/dead-front/map-benches'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight } from '#shared/utils/dead-front/physics'
@@ -42,7 +42,7 @@ function seeded(seed: number): () => number {
     }
 }
 
-const kit = (over: Partial<DfKitState> = {}): DfKitState => ({ equip: null, kit: false, rewards: 0, rewardsMax: DF_KILLSTREAK.maxHeld, ...over })
+const kit = (over: Partial<DfKitState> = {}): DfKitState => ({ equip: null, kit: false, support: 0, supportMax: DF_SUPPORT_HELD.max, ...over })
 
 describe('salvage: drops', () => {
     it('a round\'s regular horde drops about the same scrap whatever its size', () => {
@@ -98,10 +98,17 @@ describe('salvage: drops', () => {
 })
 
 describe('salvage: the workbench rules', () => {
-    it('the bench: sentry, gramophone, field kit, bomber run, launcher; the sentry costs less than the kit', () => {
-        expect(DF_CRAFT_ORDER).toEqual(['sentry', 'decoy', 'kit', 'bomber', 'launcher'])
+    it('the bench sells everything, support included: cheapest gear first, the bomber priciest', () => {
+        expect(DF_CRAFT_ORDER).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber'])
         expect(Object.keys(DF_RECIPES).sort()).toEqual([...DF_CRAFT_ORDER].sort())
-        expect(DF_RECIPES.sentry.scrap + DF_RECIPES.sentry.parts * 4).toBeLessThan(DF_RECIPES.kit.scrap + DF_RECIPES.kit.parts * 4)
+        const price = (id: keyof typeof DF_RECIPES) => DF_RECIPES[id].scrap + DF_RECIPES[id].parts * 4
+        expect(price('sentry')).toBeLessThan(price('kit'))
+        for (const id of DF_CRAFT_ORDER) {
+            if (id !== 'sentry' && id !== 'decoy') expect(price(id)).toBeGreaterThan(Math.max(price('sentry'), price('decoy')))
+            if (id !== 'bomber') expect(price(id)).toBeLessThan(price('bomber'))
+        }
+        // every support item is on the bench
+        expect(Object.keys(DF_SUPPORT).every(id => DF_RECIPES[id as keyof typeof DF_RECIPES]?.use === 'support')).toBe(true)
         // about 6 scrap a round solo: a sentry each round, the bomber every few
         expect(DF_RECIPES.sentry.scrap).toBeLessThanOrEqual(DF_SALVAGE.perRound)
         expect(DF_RECIPES.bomber.scrap).toBeGreaterThan(DF_SALVAGE.perRound * 2)
@@ -113,8 +120,9 @@ describe('salvage: the workbench rules', () => {
         expect(dfCraftBlocked(DF_RECIPES.sentry, { scrap: DF_RECIPES.sentry.scrap, parts: 0 }, kit())).toBeNull()
         expect(dfCraftBlocked(DF_RECIPES.kit, { scrap: 99, parts: 0 }, kit())).toBe('parts')
         expect(dfCraftBlocked(DF_RECIPES.decoy, rich, kit({ equip: 'sentry' }))).toBe('hands')
-        expect(dfCraftBlocked(DF_RECIPES.bomber, rich, kit({ rewards: DF_KILLSTREAK.maxHeld }))).toBe('full')
-        expect(dfCraftBlocked(DF_RECIPES.launcher, rich, kit({ rewards: 1 }))).toBeNull()
+        expect(dfCraftBlocked(DF_RECIPES.bomber, rich, kit({ support: DF_SUPPORT_HELD.max }))).toBe('full')
+        expect(dfCraftBlocked(DF_RECIPES.barrage, rich, kit({ support: DF_SUPPORT_HELD.max }))).toBe('full')
+        expect(dfCraftBlocked(DF_RECIPES.launcher, rich, kit({ support: 1 }))).toBeNull()
         expect(dfCraftBlocked(DF_RECIPES.kit, rich, kit({ kit: true }))).toBe('have')
     })
 
@@ -174,31 +182,7 @@ describe('sentry rules', () => {
     })
 })
 
-describe('killstreak rules', () => {
-    it('earns the barrage at 15, the launcher at 25, the zeppelin at 35, the bomber at 50, then starts over', () => {
-        const st = dfNewKillstreak()
-        const earned: [number, string][] = []
-        for (let i = 1; i <= 65; i++) {
-            const r = dfKillstreakKill(st)
-            if (r) earned.push([i, r])
-        }
-        expect(earned).toEqual([[15, 'barrage'], [25, 'launcher'], [35, 'zeppelin'], [50, 'bomber'], [65, 'barrage']])
-        // held rewards cap out
-        expect(st.rewards).toHaveLength(DF_KILLSTREAK.maxHeld)
-        expect(st.kills).toBe(15)
-    })
-
-    it('going down ends the streak but keeps what was earned', () => {
-        const st = dfNewKillstreak()
-        for (let i = 0; i < 20; i++) dfKillstreakKill(st)
-        dfKillstreakDown(st)
-        expect(st.kills).toBe(0)
-        expect(st.rewards).toEqual(['barrage'])
-        expect(dfNextReward(0)).toEqual({ id: 'barrage', at: 15, from: 0 })
-        expect(dfNextReward(20)).toEqual({ id: 'launcher', at: 25, from: 15 })
-        expect(dfNextReward(45)).toEqual({ id: 'bomber', at: 50, from: 35 })
-    })
-
+describe('support plans', () => {
     it('plans: shells walk round the mark, bombs and bursts run along the line', () => {
         const roll = seeded(3)
         const at = { x: 10, y: 0, z: 5 }
@@ -206,7 +190,7 @@ describe('killstreak rules', () => {
         expect(barrage.hits).toHaveLength(DF_STRIKE.barrage.shells)
         for (const h of barrage.hits) {
             expect(Math.hypot(h.x - at.x, h.z - at.z)).toBeLessThanOrEqual(DF_STRIKE.barrage.spread + 0.01)
-            expect(h.t).toBeGreaterThanOrEqual(DF_REWARDS.barrage.delay - DF_STRIKE.barrage.jitter)
+            expect(h.t).toBeGreaterThanOrEqual(DF_SUPPORT.barrage.delay - DF_STRIKE.barrage.jitter)
         }
         expect([...barrage.hits].sort((a, b) => a.t - b.t)).toEqual(barrage.hits)
         const zep = dfPlanStrike('zeppelin', at, { x: 1, y: 0, z: 0 }, roll)
@@ -313,16 +297,16 @@ describe('salvage: the match', () => {
         expect(sim.arsenal.handle(b!, { k: 'craft', bench: bench.id, item: 'launcher' })).toBe(false)
         // support goes onto the reward list, once from what's left
         for (let i = 0; i < 5; i++) sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'launcher' })
-        expect(sim.arsenal.gearOf(a!).streak.rewards).toEqual(['launcher'])
+        expect(sim.arsenal.gearOf(a!).support).toEqual(['launcher'])
         expect(pool.scrap).toBe(DF_RECIPES.launcher.scrap - 1)
         // the bomber needs its part
         pool.scrap = 99
         expect(sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'bomber' })).toBe(false)
         pool.parts = 1
         expect(sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'bomber' })).toBe(true)
-        expect(sim.arsenal.gearOf(a!).streak.rewards).toEqual(['launcher', 'bomber'])
+        expect(sim.arsenal.gearOf(a!).support).toEqual(['launcher', 'bomber'])
         // and the list is full at three
-        sim.arsenal.gearOf(a!).streak.rewards.push('barrage')
+        sim.arsenal.gearOf(a!).support.push('barrage')
         expect(sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'launcher' })).toBe(false)
     })
 
@@ -429,21 +413,34 @@ describe('salvage: the match', () => {
         expect(p.health).toBe(p.effects.maxHealth)
     })
 
-    it('15 kills without going down earn the barrage; it lands where it\'s called, friendly-safe, once', () => {
-        const { sim, advance } = makeSim(2)
-        const [p, mate] = sim.players
-        sim.snapshot()
-        const origin = { x: p!.pos.x, y: p!.pos.y + 1.1, z: p!.pos.z }
-        for (let i = 0; i < 15; i++) {
-            const z = sim.debugSpawn('shambler', { x: p!.pos.x, y: 0, z: p!.pos.z - 5 }, 1)
-            p!.weapons[0]!.mag = p!.weapons[0]!.stats.magSize
+    it('kills never hand out support', () => {
+        const { sim, advance } = makeSim()
+        const p = sim.player(0)!
+        sim.arsenal.rng.chance = () => false
+        const origin = { x: p.pos.x, y: p.pos.y + 1.1, z: p.pos.z }
+        for (let i = 0; i < 60; i++) {
+            const z = sim.debugSpawn('shambler', { x: p.pos.x, y: 0, z: p.pos.z - 5 }, 1)
+            p.weapons[0]!.mag = p.weapons[0]!.stats.magSize
             sim.fire(0, { origin, dirs: [{ x: 0, y: 0, z: -1 }], hits: [{ z: z.id, zone: 'body', dist: 5 }] })
             sim.step(0.4)
             advance(0.4)
         }
-        const earned = sim.snapshot().events.filter(e => e.k === 'reward')
-        expect(earned).toEqual([{ k: 'reward', p: 0, reward: 'barrage', n: 15 }])
-        expect(sim.arsenal.gearOf(p!).streak.rewards).toEqual(['barrage'])
+        expect(p.kills).toBeGreaterThanOrEqual(60)
+        expect(sim.arsenal.gearOf(p).support).toEqual([])
+        expect(sim.snapshot().world.arsenal!.players[0]!.support).toEqual([])
+    })
+
+    it('a barrage bought at the bench lands where it\'s called, friendly-safe, once', () => {
+        const { sim } = makeSim(2)
+        const [p, mate] = sim.players
+        const bench = dfInteractables(sim.map).find(i => i.kind === 'bench')!
+        const home = { ...p!.pos }
+        p!.pos = { ...bench.pos }
+        sim.arsenal.gearOf(p!).pool.scrap = DF_RECIPES.barrage.scrap
+        expect(sim.arsenal.handle(p!, { k: 'craft', bench: bench.id, item: 'barrage' })).toBe(true)
+        expect(sim.arsenal.gearOf(p!).support).toEqual(['barrage'])
+        expect(sim.arsenal.gearOf(p!).pool.scrap).toBe(0)
+        p!.pos = home
         // the mark: 12 m ahead, a horde and a teammate standing in it
         sim.dev(0, { k: 'hold', on: true })
         const at = { x: p!.pos.x, y: 0, z: p!.pos.z - 12 }
@@ -464,14 +461,14 @@ describe('salvage: the match', () => {
         expect(sim.arsenal.strikes).toHaveLength(0)
     })
 
-    it('a call-in out of range or without a reward does nothing', () => {
+    it('a call-in out of range or without support does nothing', () => {
         const { sim } = makeSim()
         const p = sim.player(0)!
         expect(sim.arsenal.handle(p, { k: 'callin', at: { x: p.pos.x, y: 0, z: p.pos.z - 5 }, dir: { x: 0, y: 0, z: -1 } })).toBe(false)
-        sim.arsenal.debugReward(p, 'bomber')
-        expect(sim.arsenal.handle(p, { k: 'callin', at: { x: p.pos.x + DF_KILLSTREAK.range + 5, y: 0, z: p.pos.z }, dir: { x: 1, y: 0, z: 0 } })).toBe(false)
+        sim.arsenal.debugSupport(p, 'bomber')
+        expect(sim.arsenal.handle(p, { k: 'callin', at: { x: p.pos.x + DF_SUPPORT_HELD.range + 5, y: 0, z: p.pos.z }, dir: { x: 1, y: 0, z: 0 } })).toBe(false)
         expect(sim.arsenal.handle(p, { k: 'callin', at: { x: Number.NaN, y: 0, z: 0 }, dir: { x: 1, y: 0, z: 0 } })).toBe(false)
-        expect(sim.arsenal.gearOf(p).streak.rewards).toEqual(['bomber'])
+        expect(sim.arsenal.gearOf(p).support).toEqual(['bomber'])
     })
 
     it('a round challenge pays the squad when it is met', () => {

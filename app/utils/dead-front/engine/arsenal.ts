@@ -1,19 +1,19 @@
 import * as THREE from 'three'
-import { DF_KILLSTREAK, DF_REWARDS, DF_STRIKE, dfNextReward } from '#shared/utils/dead-front/killstreaks'
-import type { DfRewardId } from '#shared/utils/dead-front/killstreaks'
+import { DF_STRIKE, DF_SUPPORT, DF_SUPPORT_HELD } from '#shared/utils/dead-front/support'
+import type { DfSupportId } from '#shared/utils/dead-front/support'
 import { DF_MAP } from '#shared/utils/dead-front/map'
 import { dfBenchUsePoint } from '#shared/utils/dead-front/map-benches'
 import { dfGroundHeight, dfRaycast } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfEvent, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import { DF_KIT, dfClampRarity, dfRarity } from '#shared/utils/dead-front/rarity'
-import { DF_DECOY, DF_RECIPES, DF_SENTRY } from '#shared/utils/dead-front/salvage'
+import { DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY } from '#shared/utils/dead-front/salvage'
 import type { DfKitDropSnap } from '#shared/utils/dead-front/salvage'
 import type { Vec3 } from '#shared/utils/dead-front/types'
 import type { DfRenderContext } from '../context'
 import type { DfNet } from '../net'
 import { DF_ARSENAL_SND, registerDfArsenalSounds } from './arsenal-sounds'
-import { DF_BENCH_PICKS, dfBenchItem, dfBenchList, dfHeldOf, dfKitPrompt, dfWeaponDisplayName } from './arsenal-prompt'
+import { DF_BENCH_PICKS, dfBenchItem, dfBenchList, dfCratePrompt, dfHeldOf, dfKitPrompt, dfWeaponDisplayName } from './arsenal-prompt'
 import type { DfBenchPick } from './arsenal-prompt'
 import type { DfHudState } from './hud'
 import type { DfInput } from './input'
@@ -21,7 +21,7 @@ import type { DfPrompt } from './prompt'
 import { DF_SND } from './sounds'
 
 // The local player's side of salvage, the workbench, crafted gear, upgrade
-// kits and killstreaks: the bench (tap F for the next item, hold F to make
+// kits, supply crates and support: the bench (tap F for the next item, hold F to make
 // it), placing gear (hold Q to aim, release to place), calling in support
 // (hold X or 4 to mark, release to call it in), taking upgrade kits off the
 // ground, the HUD state and the callouts. The server decides; nothing here
@@ -137,16 +137,19 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         return Math.abs(g - feet.y) < 6
     }
 
-    const nearestKit = (meP: DfPlayerSnap, world: DfWorldSnap): DfKitDropSnap | null => {
+    const nearestKit = (meP: DfPlayerSnap, world: DfWorldSnap): DfKitDropSnap | null => nearest(meP, world.arsenal?.kits ?? [], DF_KIT.reach)
+
+    /** The nearest thing on the ground in reach and roughly in front. */
+    const nearest = <T extends { pos: Vec3 }>(meP: DfPlayerSnap, list: readonly T[], reach: number): T | null => {
         const feet = o.feet()
         o.aim(aimV)
-        let best: DfKitDropSnap | null = null
+        let best: T | null = null
         let bd = Infinity
-        for (const k of world.arsenal?.kits ?? []) {
+        for (const k of list) {
             const dx = k.pos.x - feet.x
             const dz = k.pos.z - feet.z
             const d = Math.hypot(dx, dz)
-            if (d > DF_KIT.reach || Math.abs(k.pos.y - feet.y) > 1.6) continue
+            if (d > reach || Math.abs(k.pos.y - feet.y) > 1.6) continue
             const fl = Math.hypot(aimV.x, aimV.z) || 1
             const facing = d < 0.6 ? 1 : (dx * aimV.x + dz * aimV.z) / (d * fl)
             if (facing < 0.3) continue
@@ -170,7 +173,10 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
 
         prompt(meP, world) {
             const k = nearestKit(meP, world)
-            return k ? dfKitPrompt(k, meP) : null
+            if (k) return dfKitPrompt(k, meP)
+            // a supply crate we can't carry right now says why (one we can is taken by walking over it)
+            const cr = nearest(meP, world.arsenal?.crates ?? [], DF_SALVAGE.pickupRadius + 0.8)
+            return cr ? dfCratePrompt(cr, { world, me: meP }) : null
         },
 
         input(now, prompt, meP, world) {
@@ -236,11 +242,10 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
             }
             // ---- support: hold X (or 4) to mark, release to call it in
             if (input.pressed('KeyX') || input.pressed('Digit4')) {
-                if (!mine?.rewards.length) {
+                if (!mine?.support.length) {
                     deny()
-                    const next = dfNextReward(mine?.streak ?? 0)
-                    say(`No support yet · ${next.at - (mine?.streak ?? 0)} more kills for the ${DF_REWARDS[next.id].name}`)
-                } else if (mine.rewards[mine.rewards.length - 1] === 'launcher') {
+                    say('No support · buy some at a workbench')
+                } else if (mine.support[mine.support.length - 1] === 'launcher') {
                     // the launcher isn't aimed: it comes straight out
                     if (mine.launcher) {
                         deny()
@@ -261,8 +266,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                     if (aimOk) send({ t: 'arsenal', op: { k: 'deploy', pos: { x: target.x, y: target.y, z: target.z }, yaw: Math.atan2(target.x - o.feet().x, target.z - o.feet().z) } })
                     else deny()
                 }
-            } else if (aiming === 'callin' && mine?.rewards.length) {
-                aimOk = aimPoint(DF_KILLSTREAK.range - 2, target)
+            } else if (aiming === 'callin' && mine?.support.length) {
+                aimOk = aimPoint(DF_SUPPORT_HELD.range - 2, target)
                 const held = input.has('KeyX') || input.has('Digit4')
                 if (!held) {
                     aiming = null
@@ -300,11 +305,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 if (a.launcher !== launcher) a.launcher = launcher
                 if (a.equip !== mine.equip) a.equip = mine.equip
                 if (a.kit !== mine.kit) a.kit = mine.kit
-                if (a.streak !== mine.streak) a.streak = mine.streak
-                const next = dfNextReward(mine.streak)
-                if (a.next.at !== next.at || a.next.from !== next.from) a.next = { name: DF_REWARDS[next.id].name, at: next.at, from: next.from }
-                const rk = mine.rewards.join(',')
-                if (a.rewards.map(r => r.id).join(',') !== rk) a.rewards = mine.rewards.map(id => ({ id, name: DF_REWARDS[id].name }))
+                const sk = mine.support.join(',')
+                if (a.support.map(r => r.id).join(',') !== sk) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
             }
             // the bench list while one is in front of us
             const benchPrompt = hud.prompt && meP && world && lastBench
@@ -329,8 +331,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 ring.position.set(target.x, target.y + 0.04, target.z)
                 ring.scale.setScalar(mine.equip === 'sentry' ? 0.55 : 0.8)
                 a.targeting = `Release Q to place the ${DF_RECIPES[mine.equip].name}`
-            } else if (aiming === 'callin' && mine?.rewards.length) {
-                const reward = mine.rewards[mine.rewards.length - 1]!
+            } else if (aiming === 'callin' && mine?.support.length) {
+                const reward = mine.support[mine.support.length - 1]!
                 ring.material = aimOk ? strikeMat : badMat
                 strip.material = ring.material
                 if (reward === 'barrage' || reward === 'bomber') {
@@ -349,7 +351,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 }
                 const pulse = 0.45 + 0.25 * Math.sin(clock * 10)
                 ;(ring.material as THREE.MeshBasicMaterial).opacity = pulse
-                a.targeting = `Release X to call in the ${DF_REWARDS[reward].name}`
+                a.targeting = `Release X to call in the ${DF_SUPPORT[reward].name}`
             } else {
                 ring.visible = strip.visible = false
                 if (clock > flashUntil && a.targeting) a.targeting = null
@@ -361,20 +363,23 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 case 'salvage':
                     if (ev.p === me) hud.arsenal.salvageKey++
                     return
-                case 'reward':
+                case 'crate': {
                     if (ev.p !== me) return
-                    ctx.audio.play(DF_ARSENAL_SND.reward, { volume: 1 })
-                    callout(`${DF_REWARDS[ev.reward].name} ready`, ev.reward === 'launcher' ? `${ev.n} kills without going down · press X to take it` : `${ev.n} kills without going down · hold X to mark, release to call it in`)
+                    const r = DF_RECIPES[ev.item]
+                    ctx.audio.play(DF_ARSENAL_SND.crate, { volume: 1 })
+                    const how = r.use === 'support' ? (ev.item === 'launcher' ? 'Press X to take it' : 'Hold X to mark, release to call it in') : r.use === 'deploy' ? 'Hold Q to place it' : 'It picks you up once when you go down'
+                    callout(`Supply crate: ${r.name}`, how)
                     return
+                }
                 case 'strike':
                     if (ev.p !== me) ctx.audio.play(DF_ARSENAL_SND.callin, { volume: 0.5 })
-                    callout(`${DF_REWARDS[ev.reward as DfRewardId].name} inbound`, ev.p === me ? 'Keep clear of the mark · it won\'t hurt the squad' : 'Support is on its way', 'red')
+                    callout(`${DF_SUPPORT[ev.reward as DfSupportId].name} inbound`, ev.p === me ? 'Keep clear of the mark · it won\'t hurt the squad' : 'Support is on its way', 'red')
                     return
                 case 'craft':
                     if (ev.p !== me) return
                     if (ev.item === 'sentry' || ev.item === 'decoy') say(`Hold Q to aim, release to place the ${DF_RECIPES[ev.item].name}`)
-                    else if (ev.item === 'bomber') say('Hold X to mark the spot, release to send the bomber')
                     else if (ev.item === 'launcher') say('Press X for the Granatwerfer')
+                    else if (ev.item !== 'upgrade' && ev.item !== 'kit') say(`Hold X to mark the spot, release to call in the ${DF_RECIPES[ev.item].name}`)
                     return
                 case 'launcher':
                     if (ev.p !== me) return
@@ -403,7 +408,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
 
         facts(meP, world) {
             const mine = mineOf(world)
-            const reward = mine?.rewards.length ? DF_REWARDS[mine.rewards[mine.rewards.length - 1]!].name : null
+            const reward = mine?.support.length ? DF_SUPPORT[mine.support[mine.support.length - 1]!].name : null
             let benchNear = false
             let canCraft = false
             if (meP && world) {

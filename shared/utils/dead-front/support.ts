@@ -2,22 +2,20 @@ import { dfZombieBaseHealth } from './enemies'
 import type { DfStrikeHit } from './salvage'
 import type { Vec3 } from './types'
 
-// Killstreak rewards (CoD style): kills without going down earn support,
-// held until it is called in (X) on the spot you look at (the grenade
-// launcher simply comes out). The same rewards can be crafted at a workbench.
-// The strike plans are pure (positions and times of every impact), so the
-// server resolves the damage and the client stages the show from the same
-// plan. Friendly-safe: support never hurts a player.
+// Support: artillery, a Zeppelin, a bomber and a lent grenade launcher,
+// bought at a workbench with salvage (salvage.ts), held (up to three) until
+// it is called in (X) on the spot you look at (the launcher simply comes
+// out). The strike plans are pure (positions and times of every impact), so
+// the server resolves the damage and the client stages the show from the
+// same plan. Friendly-safe: support never hurts a player.
 
-export type DfRewardId = 'barrage' | 'launcher' | 'zeppelin' | 'bomber'
+export type DfSupportId = 'barrage' | 'zeppelin' | 'launcher' | 'bomber'
 
-/** The rewards that are called in on a spot (all but the launcher). */
-export type DfStrikeId = Exclude<DfRewardId, 'launcher'>
+/** The support that is called in on a spot (all but the launcher). */
+export type DfStrikeId = Exclude<DfSupportId, 'launcher'>
 
-export interface DfRewardDef {
-    id: DfRewardId
-    /** Kills without going down that earn it. */
-    kills: number
+export interface DfSupportDef {
+    id: DfSupportId
     name: string
     /** One line for the HUD callout. */
     desc: string
@@ -27,78 +25,34 @@ export interface DfRewardDef {
     damageShare: number
 }
 
-export const DF_REWARDS: Record<DfRewardId, DfRewardDef> = {
-    barrage: { id: 'barrage', kills: 15, name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark', delay: 2.4, damageShare: 2.6 },
-    launcher: { id: 'launcher', kills: 25, name: 'Granatwerfer', desc: 'A grenade launcher in your hands for a while', delay: 0, damageShare: 0 },
-    zeppelin: { id: 'zeppelin', kills: 35, name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight', delay: 4.2, damageShare: 3.2 },
-    bomber: { id: 'bomber', kills: 50, name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives', delay: 4.6, damageShare: 4 }
+export const DF_SUPPORT: Record<DfSupportId, DfSupportDef> = {
+    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark', delay: 2.4, damageShare: 2.6 },
+    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight', delay: 4.2, damageShare: 3.2 },
+    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for a while', delay: 0, damageShare: 0 },
+    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives', delay: 4.6, damageShare: 4 }
 }
 
-/** In the order they are earned. */
-export const DF_REWARD_ORDER: readonly DfRewardId[] = ['barrage', 'launcher', 'zeppelin', 'bomber']
-
-/** Is this reward called in on a spot (rather than handed over)? */
-export function dfIsStrike(id: DfRewardId): id is DfStrikeId {
+/** Is this support called in on a spot (rather than handed over)? */
+export function dfIsStrike(id: DfSupportId): id is DfStrikeId {
     return id !== 'launcher'
 }
 
-/** The grenade launcher reward: how long it stays in your hands. */
+/** The lent grenade launcher: how long it stays in your hands. */
 export const DF_LAUNCHER = {
     weapon: 'granatwerfer',
     seconds: 45
 } as const
 
-export const DF_KILLSTREAK = {
-    /** The count starts over after the last reward. */
-    cycle: 50,
-    /** Rewards held at once (more are lost). */
-    maxHeld: 3,
+export const DF_SUPPORT_HELD = {
+    /** Support held at once (the bench won't sell more). */
+    max: 3,
     /** Call-ins reach this far (metres, horizontally). */
     range: 90
 } as const
 
-export interface DfKillstreakState {
-    kills: number
-    rewards: DfRewardId[]
-}
-
-export function dfNewKillstreak(): DfKillstreakState {
-    return { kills: 0, rewards: [] }
-}
-
-/**
- * One kill toward the streak. Returns the reward it earned (also pushed onto
- * `rewards` when there is room), or null. The count starts over after the
- * last tier.
- */
-export function dfKillstreakKill(st: DfKillstreakState): DfRewardId | null {
-    st.kills++
-    const def = DF_REWARD_ORDER.map(id => DF_REWARDS[id]).find(r => r.kills === st.kills)
-    if (st.kills >= DF_KILLSTREAK.cycle) st.kills = 0
-    if (!def) return null
-    if (st.rewards.length < DF_KILLSTREAK.maxHeld) st.rewards.push(def.id)
-    return def.id
-}
-
-/** Going down ends the streak (rewards already earned are kept). */
-export function dfKillstreakDown(st: DfKillstreakState): void {
-    st.kills = 0
-}
-
-/** The next reward up and the kills it needs (for the HUD meter). */
-export function dfNextReward(kills: number): { id: DfRewardId, at: number, from: number } {
-    let from = 0
-    for (const id of DF_REWARD_ORDER) {
-        const at = DF_REWARDS[id].kills
-        if (kills < at) return { id, at, from }
-        from = at
-    }
-    return { id: DF_REWARD_ORDER[0]!, at: DF_REWARDS[DF_REWARD_ORDER[0]!].kills, from: 0 }
-}
-
 /** Damage of one impact on a round. */
-export function dfStrikeDamage(id: DfRewardId, round: number): number {
-    return dfZombieBaseHealth(Math.max(1, round)) * DF_REWARDS[id].damageShare
+export function dfStrikeDamage(id: DfSupportId, round: number): number {
+    return dfZombieBaseHealth(Math.max(1, round)) * DF_SUPPORT[id].damageShare
 }
 
 export const DF_STRIKE = {
@@ -128,7 +82,7 @@ export function dfFlatDir(dir: Vec3): { x: number, z: number } {
 /** Where every impact lands and when; `roll` is uniform in [0, 1). */
 export function dfPlanStrike(id: DfStrikeId, at: Vec3, dir: Vec3, roll: () => number): DfStrikePlan {
     const d = dfFlatDir(dir)
-    const delay = DF_REWARDS[id].delay
+    const delay = DF_SUPPORT[id].delay
     const r2 = (n: number) => Math.round(n * 100) / 100
     if (id === 'barrage') {
         const c = DF_STRIKE.barrage
@@ -190,5 +144,5 @@ export function dfStrikeFlyer(id: 'zeppelin' | 'bomber'): { speed: number, altit
 export function dfStrikeFlightStart(plan: DfStrikePlan): number {
     if (plan.id === 'barrage') return 0
     const f = flight(plan.id)
-    return DF_REWARDS[plan.id].delay - f.lead / f.speed
+    return DF_SUPPORT[plan.id].delay - f.lead / f.speed
 }

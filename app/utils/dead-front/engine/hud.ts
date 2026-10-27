@@ -158,7 +158,7 @@ export interface DfHudState {
      * --df-mk{i}-ang (radians toward it when clamped), like the objective waypoint.
      */
     markers: DfHudMarker[]
-    /** Salvage, crafted gear, the workbench list, killstreaks and the round challenge (arsenal.ts). */
+    /** Salvage, crafted gear, the workbench list, held support and the round challenge (arsenal.ts). */
     arsenal: DfHudArsenal
 }
 
@@ -279,8 +279,8 @@ export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
 
 export function dfNewHudArsenal(): DfHudArsenal {
     return {
-        scrap: 0, parts: 0, launcher: 0, equip: null, kit: false, streak: 0,
-        next: { name: '', at: 15, from: 0 }, rewards: [], bench: null, challenge: null, salvageKey: 0, targeting: null
+        scrap: 0, parts: 0, launcher: 0, equip: null, kit: false,
+        support: [], bench: null, challenge: null, salvageKey: 0, targeting: null
     }
 }
 

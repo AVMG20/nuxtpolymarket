@@ -171,7 +171,7 @@ export class DfMatchSim {
     private rodIds: string[]
     /** Gas rounds, electric traps, crawlers and kill streaks (specials.ts). */
     readonly specials: DfSpecials
-    /** Salvage, the workbench, sentries, decoys and killstreak support (salvage.ts). */
+    /** Salvage, the workbench, sentries, decoys and support (salvage.ts). */
     readonly arsenal: DfArsenal
 
     constructor(setups: DfPlayerSetup[], opts: DfSimOptions = {}) {
@@ -1125,7 +1125,7 @@ export class DfMatchSim {
         }
         if (pap.state !== 'idle') return false
         const w = this.usable(p)
-        // a lent killstreak launcher isn't yours to pack
+        // a lent launcher isn't yours to pack
         if (!w || DF_WEAPONS[w.id]?.temporary) return false
         const cost = dfPapCost(w.pap)
         if (cost === null || !this.spend(p, cost)) return false

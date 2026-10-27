@@ -212,7 +212,7 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
     }
 }
 
-/** The killstreak Granatwerfer: a big, deep tube "THOOMP" with the drum clacking round. */
+/** The lent Granatwerfer: a big, deep tube "THOOMP" with the drum clacking round. */
 const mortar: DfSynth = (ctx, out, o) => {
     const r = rtOf(ctx, out, o)
     const sat = shaperNode(ctx, 1.5, gainNode(ctx, 0.9, out))
@@ -349,7 +349,7 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         // Rapid fire: the oldest tails give way so automatics never pile up.
         for (const name of [DF_WSND.fire(id, 0), DF_WSND.fire(id, 1), DF_WSND.fire(id, 0, true)]) limit(name, 4)
     }
-    // the killstreak launcher isn't in DF_WEAPON_IDS (never in the armory)
+    // the lent launcher isn't in DF_WEAPON_IDS (never in the armory)
     for (const name of [DF_WSND.fire('granatwerfer', 0), DF_WSND.fire('granatwerfer', 1), DF_WSND.fire('granatwerfer', 0, true)]) audio.register(name, mortar)
 
     const r = (name: string, recipe: (r: Rt, o: DfSoundOpts) => void, gainV = 1) => audio.register(name, (ctx, out, o) => {

@@ -1172,7 +1172,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             return { gun: g, grip: [25, 5], bore: B, front: 0, sight: [26, 17], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [18, 12], reload: 'capsule', long: false, glow: true }
         }
         case 'granatwerfer': {
-            // The killstreak Granatwerfer 16: a fat rifled tube on a steel cradle with a flared
+            // The lent Granatwerfer 16: a fat rifled tube on a steel cradle with a flared
             // muzzle ring and a folding ladder sight, a four-shot drum of brass-capped shells
             // under the breech, a pistol grip and a padded shoulder stock. Chunky on purpose:
             // it fills the lower right of the screen like the heavy thing it is.

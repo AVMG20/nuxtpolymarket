@@ -25,7 +25,7 @@ export type DfWeaponId
         | 'webley' // Webley Mk VI break-top revolver, mystery box only
         | 'sawnoff' // sawed-off double-barrel coach gun, mystery box only
         | 'flammen' // Wex trench flamethrower, mystery box only
-        | 'granatwerfer' // the killstreak grenade launcher: temporary, never kept, packed or boxed
+        | 'granatwerfer' // the lent grenade launcher: temporary, never kept, packed or boxed
 
 export type DfWeaponClass = 'pistol' | 'smg' | 'rifle' | 'shotgun' | 'lmg' | 'special'
 

@@ -3,12 +3,13 @@ import * as THREE from 'three'
 import { DF_MAP } from '#shared/utils/dead-front/map'
 import { dfBuildCollision } from '#shared/utils/dead-front/physics'
 import type { DfEvent, DfWorldSnap } from '#shared/utils/dead-front/protocol'
-import { dfPlanStrike } from '#shared/utils/dead-front/killstreaks'
+import { dfPlanStrike } from '#shared/utils/dead-front/support'
 import type { DfArsenalSnap } from '#shared/utils/dead-front/salvage'
 import type { DfAudio, DfFx, DfRenderContext } from '../../app/utils/dead-front/context'
 import { DF_ARSENAL_SND } from '../../app/utils/dead-front/engine/arsenal-sounds'
 import type { DfWorldKit, DfWorldPart } from '../../app/utils/dead-front/world/kit'
 import { createDfWorkbenches } from '../../app/utils/dead-front/world/interact/workbench'
+import { createDfCrates } from '../../app/utils/dead-front/world/crates'
 import { createDfKitDrops } from '../../app/utils/dead-front/world/kits'
 import { createDfSalvageDrops } from '../../app/utils/dead-front/world/salvage'
 import { createDfGear } from '../../app/utils/dead-front/world/sentry'
@@ -101,6 +102,19 @@ describe('dead front arsenal (client world parts)', () => {
         drive(part, world({ kits: [k] }), 0.5)
         expect(root.children.length).toBe(1)
         drive(part, world({ kits: [] }), 0.1)
+        expect(root.children.length).toBe(0)
+        part.dispose()
+    })
+
+    it('supply crates: drawn in their colour, flaring when they open, gone with their event', () => {
+        const { kit, sounds, root } = setup()
+        const part = createDfCrates(kit)
+        const c = { id: 5, item: 'bomber' as const, pos: { x: 0, y: 0, z: 30 }, owner: 0, open: false, opensIn: 10, ttl: 50 }
+        drive(part, world({ crates: [c] }), 0.5)
+        expect(root.children.length).toBe(1)
+        drive(part, world({ crates: [{ ...c, open: true, opensIn: 0 }] }), 0.5)
+        part.onEvent!({ k: 'crate', p: 1, owner: 0, item: 'bomber', id: 5, pos: c.pos })
+        expect(sounds).toContain(DF_ARSENAL_SND.crate)
         expect(root.children.length).toBe(0)
         part.dispose()
     })

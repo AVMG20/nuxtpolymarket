@@ -320,7 +320,7 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
         if (p.kind === 'grenade') {
             mesh = new THREE.Mesh(stickG, solidMat)
         } else if (p.kind === 'mortar') {
-            // the killstreak Granatwerfer's heavy shell: a fat dark round
+            // the lent Granatwerfer's heavy shell: a fat dark round
             mesh = new THREE.Mesh(ball, solidMat)
             mesh.scale.setScalar(1.9)
         } else if (p.kind === 'pap-grenade') {

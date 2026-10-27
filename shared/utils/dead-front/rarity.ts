@@ -35,7 +35,7 @@ export function dfRarity(r: unknown): DfRarityDef {
     return DF_RARITIES[dfClampRarity(r)]!
 }
 
-/** Does rarity apply to this weapon? (The wunderweapon is one of a kind; the killstreak launcher is only lent.) */
+/** Does rarity apply to this weapon? (The wunderweapon is one of a kind; the lent launcher is only lent.) */
 export function dfRarityApplies(id: string): boolean {
     return id !== 'wunder' && id !== 'granatwerfer'
 }

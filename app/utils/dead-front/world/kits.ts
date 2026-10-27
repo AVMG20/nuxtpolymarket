@@ -33,13 +33,18 @@ let shared: { body: THREE.BufferGeometry, band: THREE.BufferGeometry, users: num
 
 /** The kit chest in a tier's colour (a group; `material` glows in the tier colour), its body in `bodyMat`. Release with `dispose`. */
 export function dfBuildKitModel(tier: number, bodyMat: THREE.Material): { obj: THREE.Group, material: DfVoxMaterial, dispose(): void } {
+    return dfBuildChestModel(dfRarity(tier).color, bodyMat)
+}
+
+/** The brass-cornered chest with a band glowing in `color` (upgrade kits, supply crates). Release with `dispose`. */
+export function dfBuildChestModel(color: string, bodyMat: THREE.Material): { obj: THREE.Group, material: DfVoxMaterial, dispose(): void } {
     if (!shared) {
         const m = chestModel()
         shared = { body: m.body.mesh(C, [6, 0, 4])!, band: m.band.mesh(C, [6, 0, 4])!, users: 0 }
     }
     shared.users++
     const material = dfVoxMaterial({ glow: 1.6 })
-    material.color.set(dfRarity(tier).color)
+    material.color.set(color)
     const obj = new THREE.Group()
     const body = new THREE.Mesh(shared.body, bodyMat)
     obj.add(body)

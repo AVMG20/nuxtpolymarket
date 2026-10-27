@@ -1,7 +1,7 @@
 import { DF_ENEMIES, dfRoundZombieCount, dfZombieBaseHealth } from './enemies'
 import { DF_WEAPONS } from './weapons'
 import type { DfAttachmentChoice, DfEnemyType, DfHitZone, DfWeaponId, Vec3 } from './types'
-import type { DfRewardId, DfStrikeId } from './killstreaks'
+import type { DfSupportId, DfStrikeId } from './support'
 import type { DfHeldWeapon } from './protocol'
 
 // Salvage and the workbench, shared by the server (which runs them) and the
@@ -99,7 +99,7 @@ export function dfSalvageRoll(type: DfEnemyType, round: number, players: number,
 
 // ---------------------------------------------------------------- the workbench
 
-export type DfCraftId = 'sentry' | 'decoy' | 'kit' | 'bomber' | 'launcher'
+export type DfCraftId = 'sentry' | 'decoy' | 'kit' | 'barrage' | 'zeppelin' | 'launcher' | 'bomber'
 
 export interface DfRecipe {
     id: DfCraftId
@@ -110,26 +110,56 @@ export interface DfRecipe {
     parts: number
     /**
      * `deploy` goes into the equipment slot (Q to place it); `instant` applies
-     * at once; `support` is a killstreak reward held for X (killstreaks.ts).
+     * at once; `support` is held (up to three) and called in with X (support.ts).
      */
     use: 'deploy' | 'instant' | 'support'
+    /** Its colour (the crate it turns up in as a rare find). */
+    color: string
 }
 
 /**
- * The bench. A solo player finds about 6 scrap a round: a sentry or a
- * gramophone every round, a field kit or the launcher every two, the bomber
- * every three (and the parts it needs).
+ * The bench, the only place support comes from. A solo player finds about 6
+ * scrap a round: a sentry or a gramophone every round, artillery every one or
+ * two, the Zeppelin, the launcher or a field kit every two, the bomber every
+ * three (and the parts they need).
  */
 export const DF_RECIPES: Record<DfCraftId, DfRecipe> = {
-    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 6, parts: 0, use: 'deploy' },
-    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 5, parts: 0, use: 'deploy' },
-    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 10, parts: 1, use: 'instant' },
-    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 16, parts: 1, use: 'support' },
-    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 12, parts: 0, use: 'support' }
+    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 6, parts: 0, use: 'deploy', color: '#c9a25a' },
+    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 5, parts: 0, use: 'deploy', color: '#e2b24f' },
+    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 10, parts: 1, use: 'instant', color: '#e2412f' },
+    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark (X)', scrap: 8, parts: 0, use: 'support', color: '#ff7a3a' },
+    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight (X)', scrap: 12, parts: 1, use: 'support', color: '#9fb4c8' },
+    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 12, parts: 0, use: 'support', color: '#8ab052' },
+    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 16, parts: 1, use: 'support', color: '#b46cff' }
 }
 
 /** The craft list, in the order the bench shows it (the weapon upgrade comes last). */
-export const DF_CRAFT_ORDER: readonly DfCraftId[] = ['sentry', 'decoy', 'kit', 'bomber', 'launcher']
+export const DF_CRAFT_ORDER: readonly DfCraftId[] = ['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber']
+
+/** The support items (held for X). */
+export function dfIsSupport(id: DfCraftId): id is 'barrage' | 'zeppelin' | 'launcher' | 'bomber' {
+    return DF_RECIPES[id].use === 'support'
+}
+
+/**
+ * A rare find: every zombie kill that drops salvage has this chance to drop a
+ * supply crate with one of the bench's items in it, ready to use (picked
+ * uniformly). For its first seconds only the killer sees it and can take it;
+ * then anyone can, until it's gone.
+ */
+export const DF_CRATE = {
+    chance: 0.01,
+    /** Seconds it is the killer's alone. */
+    private: 15,
+    /** Seconds from the drop until it's gone. */
+    life: 60,
+    items: DF_CRAFT_ORDER
+} as const
+
+/** Can this player take a crate's item now? Why not, or null (a full support list, gear in hand, a kit already held). */
+export function dfCrateBlocked(item: DfCraftId, k: DfKitState): DfCraftBlock | null {
+    return dfCraftBlocked(DF_RECIPES[item], { scrap: Infinity, parts: Infinity }, k)
+}
 
 /** A player's salvage pool. */
 export interface DfSalvagePool {
@@ -143,9 +173,9 @@ export interface DfKitState {
     equip: 'sentry' | 'decoy' | null
     /** Holds a field kit (self-revive). */
     kit: boolean
-    /** Support held for X (rewards and crafted), and how many fit. */
-    rewards: number
-    rewardsMax: number
+    /** Support held for X, and how many fit. */
+    support: number
+    supportMax: number
 }
 
 export type DfCraftBlock = 'scrap' | 'parts' | 'hands' | 'full' | 'have'
@@ -153,7 +183,7 @@ export type DfCraftBlock = 'scrap' | 'parts' | 'hands' | 'full' | 'have'
 /** Why this recipe can't be crafted now, or null. */
 export function dfCraftBlocked(r: DfRecipe, pool: DfSalvagePool, k: DfKitState): DfCraftBlock | null {
     if (r.use === 'deploy' && k.equip) return 'hands'
-    if (r.use === 'support' && k.rewards >= k.rewardsMax) return 'full'
+    if (r.use === 'support' && k.support >= k.supportMax) return 'full'
     if (r.id === 'kit' && k.kit) return 'have'
     if (pool.scrap < r.scrap) return 'scrap'
     if (pool.parts < r.parts) return 'parts'
@@ -347,10 +377,8 @@ export interface DfArsenalPlayerSnap {
     pid: number
     equip: 'sentry' | 'decoy' | null
     kit: boolean
-    /** Kills without going down toward the next reward. */
-    streak: number
-    /** Rewards held, oldest first (X calls in the newest). */
-    rewards: DfRewardId[]
+    /** Support held, oldest first (X calls in the newest). */
+    support: DfSupportId[]
     /** Seconds left on the grenade launcher while it is out. */
     launcher?: number
     /** The weapon the launcher stands in for, set aside (the wall-buy prompt treats it as owned). */
@@ -363,6 +391,20 @@ export interface DfSalvageDropSnap {
     pos: Vec3
     n: number
     /** Seconds left before it rusts away. */
+    ttl: number
+}
+
+export interface DfCrateSnap {
+    id: number
+    item: DfCraftId
+    pos: Vec3
+    /** The killer it dropped for (theirs alone while `open` is false). */
+    owner: number
+    /** Anyone may take it now. */
+    open: boolean
+    /** Seconds until it is anyone's (0 once open). */
+    opensIn: number
+    /** Seconds left before it's gone. */
     ttl: number
 }
 
@@ -401,7 +443,7 @@ export interface DfChallengeSnap {
 }
 
 /**
- * The salvage / workbench / sentry / killstreak part of the world snapshot.
+ * The salvage / workbench / sentry / support part of the world snapshot.
  * Salvage is per player: `scrap`, `parts` and `drops` are the receiving
  * player's own, sent to them alone (`DfSnapshot.mine`, merged in on arrival
  * by `dfMergeArsenalMine`).
@@ -415,6 +457,8 @@ export interface DfArsenalSnap {
     decoys: DfDecoySnap[]
     /** Upgrade kits set down on the ground (anyone may take one). */
     kits?: DfKitDropSnap[]
+    /** Supply crates: the open ones here for everyone; the receiver's own still-private ones arrive in `mine`. */
+    crates?: DfCrateSnap[]
     challenge?: DfChallengeSnap
 }
 
@@ -433,6 +477,8 @@ export interface DfArsenalMine {
     scrap: number
     parts: number
     drops: DfSalvageDropSnap[]
+    /** Their own supply crates still private to them. */
+    crates: DfCrateSnap[]
     /** Their pickup events (nobody else hears about them). */
     events: DfArsenalEvent[]
 }
@@ -448,6 +494,7 @@ export function dfMergeArsenalMine<S extends { world: { arsenal?: DfArsenalSnap 
     a.scrap = m.scrap
     a.parts = m.parts
     a.drops = m.drops
+    if (m.crates?.length) a.crates = [...(a.crates ?? []), ...m.crates]
     if (m.events.length) s.events.push(...m.events)
     delete s.mine
     return s
@@ -467,14 +514,14 @@ export interface DfStrikeHit {
 export type DfArsenalEvent =
     /** Salvage picked up (into the player's own pool). */
     | { k: 'salvage', p: number, kind: DfSalvageKind, n: number, id: number, pos: Vec3 }
+    /** A supply crate taken: by its killer (`owner`) or, once open, by anyone. */
+    | { k: 'crate', p: number, owner: number, item: DfCraftId, id: number, pos: Vec3 }
     | { k: 'craft', p: number, item: DfCraftId | 'upgrade', bench: string }
     | { k: 'deploy', p: number, item: 'sentry' | 'decoy', id: number, pos: Vec3 }
     /** A sentry's run is over: out of ammo / time (`spent`) or clawed apart (`broken`). */
     | { k: 'sentry', id: number, what: 'spent' | 'broken', pos: Vec3 }
     | { k: 'decoy', id: number, pos: Vec3 }
-    /** A killstreak reward earned at `n` kills without going down. */
-    | { k: 'reward', p: number, reward: DfRewardId, n: number }
-    /** A reward called in on `at`: every impact and its time after now. */
+    /** Support called in on `at`: every impact and its time after now. */
     | { k: 'strike', p: number, reward: DfStrikeId, id: number, at: Vec3, dir: Vec3, hits: DfStrikeHit[] }
     /** The grenade launcher came out (`on`) or went back for the weapon it stood in for. */
     | { k: 'launcher', p: number, on: boolean }
@@ -489,7 +536,7 @@ export type DfArsenalOp =
     | { k: 'craft', bench: string, item: DfCraftId }
     /** Place the deployable in hand at `pos` (a floor point the client picked), facing `yaw`. */
     | { k: 'deploy', pos: Vec3, yaw: number }
-    /** Call in the newest reward on `at`, flying along `dir` (the caller's facing). */
+    /** Call in the newest support on `at`, flying along `dir` (the caller's facing). */
     | { k: 'callin', at: Vec3, dir: Vec3 }
     /** Upgrade the weapon in `slot` one rarity tier at a bench; `from` is the tier it is now (a repeat finds it changed). */
     | { k: 'upgrade', bench: string, slot: number, from: number, /** The weapon id the client sees there. */ weapon?: DfWeaponId }

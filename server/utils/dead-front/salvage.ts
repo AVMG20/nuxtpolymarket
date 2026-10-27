@@ -1,39 +1,37 @@
 import { DF_PLAYER } from '#shared/utils/dead-front/constants'
-import {
-    DF_KILLSTREAK, DF_LAUNCHER, DF_REWARDS, dfKillstreakDown, dfKillstreakKill, dfNewKillstreak, dfPlanStrike, dfStrikeDamage
-} from '#shared/utils/dead-front/killstreaks'
-import type { DfKillstreakState, DfRewardId, DfStrikeId } from '#shared/utils/dead-front/killstreaks'
+import { DF_LAUNCHER, DF_SUPPORT_HELD, dfPlanStrike, dfStrikeDamage } from '#shared/utils/dead-front/support'
+import type { DfStrikeId, DfSupportId } from '#shared/utils/dead-front/support'
 import type { DfInteractable, DfMapDef } from '#shared/utils/dead-front/map'
 import { dfBodyFits, dfGroundHeight, dfLineOfSight } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfDevOp, DfEvent } from '#shared/utils/dead-front/protocol'
 import {
-    DF_CHALLENGE_REWARD, DF_CHALLENGES, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY,
-    dfChallengeCounts, dfChallengeGoal, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfDecoyDamage,
+    DF_CHALLENGE_REWARD, DF_CHALLENGES, DF_CRATE, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY,
+    dfChallengeCounts, dfChallengeGoal, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfCrateBlocked, dfDecoyDamage,
     dfSalvageBonus, dfSalvageRoll, dfSentryDamage, dfSentryPick, dfTurnToward, dfYawGap
 } from '#shared/utils/dead-front/salvage'
 import type {
-    DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalPlayerSnap, DfArsenalSnap, DfChallengeId, DfCraftId, DfKitState, DfSalvageKind, DfSalvagePool, DfStrikeHit
+    DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalPlayerSnap, DfArsenalSnap, DfChallengeId, DfCraftId, DfCrateSnap, DfKitState, DfSalvageKind, DfSalvagePool, DfStrikeHit
 } from '#shared/utils/dead-front/salvage'
 import type { DfHitZone, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
-import { randomFloat, randomPick } from '#shared/utils/random'
+import { randomChance, randomFloat, randomPick } from '#shared/utils/random'
 import type { DfNav } from './nav'
 import { DF_KIT, dfClampRarity, dfKitFits, dfRarityApplies, dfRarityUpgradeCost } from '#shared/utils/dead-front/rarity'
 import type { DfRarity } from '#shared/utils/dead-front/rarity'
 import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { SimPlayer, SimWeapon, SimZombie } from './sim-types'
 
-// Salvage, the workbench and killstreak support on top of the match
-// simulation. The simulation owns the world; this module keeps its own state
-// (every player's salvage, gear, streak and lent grenade launcher, drops,
-// sentries, decoys, strikes, kits, the round challenge) and is driven through
+// Salvage, the workbench and support on top of the match simulation. The
+// simulation owns the world; this module keeps its own state (every player's
+// salvage, gear, held support and lent grenade launcher, drops, supply
+// crates, sentries, decoys, strikes, kits, the round challenge) and is driven through
 // a handful of hooks: kill, down, round start/end, step, the zombie AI's lure check,
 // client requests and the snapshot. Rules live in shared/utils/dead-front/
-// salvage.ts and killstreaks.ts.
+// salvage.ts and support.ts.
 //
 // Every grant is claim-then-reward: a drop is taken off the list before it
 // pays, a craft takes its cost off the pool (and fails if it can't) before the
-// gear is handed over, a reward is popped off the player's list before it
+// gear is handed over, a support call-in is popped off the player's list before it
 // fires. The second of two identical messages always finds nothing to take.
 
 /** The simulation, as this module sees it (DfMatchSim fits structurally). */
@@ -71,7 +69,8 @@ interface Gear {
     pool: DfSalvagePool
     equip: 'sentry' | 'decoy' | null
     kit: boolean
-    streak: DfKillstreakState
+    /** Support held for X (bought at the bench or found in a crate), oldest first. */
+    support: DfSupportId[]
     /** The grenade launcher out in place of `saved` (given back exactly as it was), until `until`. */
     launcher: { weapon: SimWeapon, saved: SimWeapon, until: number, emptyAt: number } | null
 }
@@ -111,9 +110,17 @@ interface SimDecoy {
 interface SimStrike {
     id: number
     owner: number
-    reward: DfRewardId
+    reward: DfSupportId
     at: number
     hits: (DfStrikeHit & { done?: boolean })[]
+}
+
+interface SimCrate {
+    id: number
+    owner: number
+    item: DfCraftId
+    pos: Vec3
+    droppedAt: number
 }
 
 interface SimKit {
@@ -146,6 +153,9 @@ export class DfArsenal {
     readonly decoys: SimDecoy[] = []
     readonly strikes: SimStrike[] = []
     readonly kits: SimKit[] = []
+    readonly crates: SimCrate[] = []
+    /** The crate roll (tests swap it for a fixed one). */
+    rng = { chance: randomChance, pick: randomPick }
     challenge: SimChallenge | null = null
     private readonly gear = new Map<number, Gear>()
     private readonly lures = new Map<number, LureGoal>()
@@ -162,13 +172,13 @@ export class DfArsenal {
     /** One player's gear (created on first use). */
     gearOf(p: SimPlayer): Gear {
         let g = this.gear.get(p.pid)
-        if (!g) this.gear.set(p.pid, g = { pool: { scrap: 0, parts: 0 }, equip: null, kit: false, streak: dfNewKillstreak(), launcher: null })
+        if (!g) this.gear.set(p.pid, g = { pool: { scrap: 0, parts: 0 }, equip: null, kit: false, support: [], launcher: null })
         return g
     }
 
     private kitState(p: SimPlayer): DfKitState {
         const g = this.gearOf(p)
-        return { equip: g.equip, kit: g.kit, rewards: g.streak.rewards.length, rewardsMax: DF_KILLSTREAK.maxHeld }
+        return { equip: g.equip, kit: g.kit, support: g.support.length, supportMax: DF_SUPPORT_HELD.max }
     }
 
     // ------------------------------------------------------------ client requests
@@ -279,22 +289,26 @@ export class DfArsenal {
         const g = this.gearOf(p)
         if (dfCraftBlocked(r, g.pool, this.kitState(p))) return false
         if (!dfCraftSpend(g.pool, r)) return false
-        switch (r.id) {
-            case 'sentry':
-            case 'decoy':
-                g.equip = r.id
-                break
-            case 'bomber':
-            case 'launcher':
-                // support: held for X like a killstreak reward
-                g.streak.rewards.push(r.id)
-                break
-            case 'kit':
-                g.kit = true
-                break
-        }
+        this.give(p, r.id)
         this.host.emit({ k: 'craft', p: p.pid, item: r.id, bench: benchId })
         return true
+    }
+
+    /** Hands over a bench item (paid for, or out of a crate). */
+    private give(p: SimPlayer, item: DfCraftId): void {
+        const g = this.gearOf(p)
+        switch (item) {
+            case 'sentry':
+            case 'decoy':
+                g.equip = item
+                return
+            case 'kit':
+                g.kit = true
+                return
+            default:
+                // support: held for X
+                g.support.push(item)
+        }
     }
 
     /** Places the deployable in hand near `pos` (the client's pick, checked and corrected here). */
@@ -353,24 +367,24 @@ export class DfArsenal {
     }
 
     /**
-     * Calls in the newest reward: a strike on `at` (in range, its floor found
+     * Calls in the newest support: a strike on `at` (in range, its floor found
      * here), or the grenade launcher into your hands (`at` unused).
      */
     callIn(p: SimPlayer, rawAt: Vec3, rawDir: Vec3): boolean {
         const g = this.gearOf(p)
-        const newest = g.streak.rewards[g.streak.rewards.length - 1]
+        const newest = g.support[g.support.length - 1]
         if (!newest) return false
         if (newest === 'launcher') {
             if (!this.canLaunch(p)) return false
-            // claim the reward before the launcher comes out
-            g.streak.rewards.pop()
+            // claim it before the launcher comes out
+            g.support.pop()
             return this.giveLauncher(p)
         }
         const at = finiteVec(rawAt)
-        if (!at || hdist(at, p.pos) > DF_KILLSTREAK.range) return false
+        if (!at || hdist(at, p.pos) > DF_SUPPORT_HELD.range) return false
         const dir = finiteVec(rawDir) ?? { x: -Math.sin(p.yaw), y: 0, z: -Math.cos(p.yaw) }
-        // claim the reward before it fires
-        const reward = g.streak.rewards.pop() as DfStrikeId
+        // claim it before it fires
+        const reward = g.support.pop() as DfStrikeId
         const plan = dfPlanStrike(reward, at, dir, randomFloat)
         const w = this.host.world
         const hits = plan.hits.map(h => ({ ...h, y: r2(dfGroundHeight(w, h.x, h.z, at.y + 1.5)) }))
@@ -401,17 +415,10 @@ export class DfArsenal {
         this.challenge = null
     }
 
-    /** After every kill: salvage drops, the killer's streak and the round challenge. */
+    /** After every kill: salvage drops (and the odd supply crate) and the round challenge. */
     onKill(z: SimZombie, p: SimPlayer | null, weapon: string, zone: DfHitZone, opts: { explosive?: boolean, noPoints?: boolean, noDrop?: boolean, credit?: DfWeaponId | null }): void {
         const gear = this.gearHit
         if (!opts.noDrop && z.inside && z.state !== 'rise') this.dropSalvage(z, p ?? this.gearOwner, p && opts.credit ? this.silencerBonus(p, opts.credit) : 1)
-        // the streak: the killer's own kills while standing (traps, gear, support and the lent launcher don't chain it)
-        const lent = DF_WEAPONS[weapon as DfWeaponId]?.temporary === true || (opts.credit ? DF_WEAPONS[opts.credit]?.temporary === true : false)
-        if (p && p.life === 'alive' && !opts.noPoints && !gear && !lent && weapon !== 'trap' && weapon !== 'sentry') {
-            const g = this.gearOf(p)
-            const earned = dfKillstreakKill(g.streak)
-            if (earned) this.host.emit({ k: 'reward', p: p.pid, reward: earned, n: DF_REWARDS[earned].kills })
-        }
         const c = this.challenge
         // a nuke or a dev wipe (no points) isn't the squad's work
         if (c && !c.done && (gear || (p !== null && !opts.noPoints))) {
@@ -453,6 +460,64 @@ export class DfArsenal {
         const roll = dfSalvageRoll(z.type, this.host.round, this.host.players.length, randomFloat, bonus)
         if (roll.scrap > 0) this.addDrop(to.pid, 'scrap', roll.scrap, z.pos, 0)
         if (roll.parts > 0) this.addDrop(to.pid, 'part', roll.parts, z.pos, roll.scrap > 0 ? 0.5 : 0)
+        // the rare find: a supply crate with a bench item in it
+        if (this.rng.chance(DF_CRATE.chance)) this.addCrate(to.pid, this.rng.pick(DF_CRATE.items), z.pos)
+    }
+
+    private addCrate(owner: number, item: DfCraftId, at: Vec3): number {
+        const g = dfGroundHeight(this.host.world, at.x, at.z, at.y + 0.5)
+        const y = Math.abs(g - at.y) < 1 ? g : at.y
+        const id = this.nextId++
+        this.crates.push({ id, owner, item, pos: { x: at.x, y, z: at.z }, droppedAt: this.host.time })
+        return id
+    }
+
+    /** Puts a supply crate on the ground for `owner` (tests, dev). */
+    debugCrate(owner: number, item: DfCraftId, pos: Vec3): number {
+        return this.addCrate(owner, item, pos)
+    }
+
+    private crateOpen(c: SimCrate): boolean {
+        return this.host.time - c.droppedAt >= DF_CRATE.private
+    }
+
+    /**
+     * Claim-then-reward: the crate leaves the ground only when this player
+     * may take it (its killer, or anyone once it's open) and can carry what's
+     * in it; otherwise it stays for someone else. A repeat finds it gone.
+     */
+    takeCrate(p: SimPlayer, id: number): boolean {
+        const i = this.crates.findIndex(c => c.id === id)
+        const c = this.crates[i]
+        if (!c || p.life !== 'alive') return false
+        const open = this.crateOpen(c)
+        if (!open && c.owner !== p.pid) return false
+        if (dfCrateBlocked(c.item, this.kitState(p))) return false
+        this.crates.splice(i, 1)
+        this.give(p, c.item)
+        const ev: DfArsenalEvent = { k: 'crate', p: p.pid, owner: c.owner, item: c.item, id: c.id, pos: rv(c.pos) }
+        // a private find is news to its finder alone; an open one, to everyone
+        if (open) this.host.emit(ev)
+        else this.emitTo(p.pid, ev)
+        return true
+    }
+
+    private stepCrates(t: number): void {
+        for (let i = this.crates.length - 1; i >= 0; i--) if (t - this.crates[i]!.droppedAt >= DF_CRATE.life) this.crates.splice(i, 1)
+        for (let i = this.crates.length - 1; i >= 0; i--) {
+            const c = this.crates[i]!
+            const open = this.crateOpen(c)
+            for (const p of this.host.players) {
+                if (p.life !== 'alive' || (!open && p.pid !== c.owner)) continue
+                if (hdist(p.pos, c.pos) >= DF_SALVAGE.pickupRadius || Math.abs(p.pos.y - c.pos.y) >= 1.6) continue
+                if (this.takeCrate(p, c.id)) break
+            }
+        }
+    }
+
+    private crateSnap(c: SimCrate, t: number): DfCrateSnap {
+        const open = this.crateOpen(c)
+        return { id: c.id, item: c.item, pos: rv(c.pos), owner: c.owner, open, opensIn: open ? 0 : r2(c.droppedAt + DF_CRATE.private - t), ttl: r2(c.droppedAt + DF_CRATE.life - t) }
     }
 
     private nearestStanding(at: Vec3): SimPlayer | null {
@@ -487,9 +552,9 @@ export class DfArsenal {
         return this.nextId++
     }
 
-    /** Hands a player a reward (tests, dev). */
-    debugReward(p: SimPlayer, reward: DfRewardId): void {
-        this.gearOf(p).streak.rewards.push(reward)
+    /** Hands a player a support item (tests, dev). */
+    debugSupport(p: SimPlayer, item: DfSupportId): void {
+        this.gearOf(p).support.push(item)
     }
 
     // ------------------------------------------------------------ the grenade launcher
@@ -562,8 +627,8 @@ export class DfArsenal {
 
     /**
      * A player is going down: the launcher goes back first (last stand takes
-     * the real weapons). After: the streak ends, and a field kit picks them
-     * back up (unless Second Wind already will).
+     * the real weapons). After: a field kit picks them back up (unless
+     * Second Wind already will).
      */
     beforeDown(p: SimPlayer): void {
         this.endLauncher(p)
@@ -571,7 +636,6 @@ export class DfArsenal {
 
     onDown(p: SimPlayer): void {
         const g = this.gearOf(p)
-        dfKillstreakDown(g.streak)
         if (g.kit && !(p.selfReviveAt > 0)) {
             g.kit = false
             p.selfReviveAt = this.host.time + SELF_REVIVE_DELAY
@@ -633,6 +697,7 @@ export class DfArsenal {
     step(dt: number): void {
         const t = this.host.time
         this.stepDrops(t)
+        this.stepCrates(t)
         for (let i = this.kits.length - 1; i >= 0; i--) if (this.kits[i]!.expiresAt <= t) this.kits.splice(i, 1)
         this.stepSentries(dt, t)
         this.stepDecoys(t)
@@ -684,6 +749,7 @@ export class DfArsenal {
             scrap: pool.scrap,
             parts: pool.parts,
             drops: this.drops.filter(d => d.owner === pid).map(d => ({ id: d.id, kind: d.kind, pos: rv(d.pos), n: d.n, ttl: r2(d.expiresAt - t) })),
+            crates: this.crates.filter(c => c.owner === pid && !this.crateOpen(c)).map(c => this.crateSnap(c, t)),
             events
         }
     }
@@ -842,7 +908,7 @@ export class DfArsenal {
         const snap: DfArsenalSnap = {
             players: this.host.players.map((p) => {
                 const g = this.gearOf(p)
-                const snap: DfArsenalPlayerSnap = { pid: p.pid, equip: g.equip, kit: g.kit, streak: g.streak.kills, rewards: [...g.streak.rewards] }
+                const snap: DfArsenalPlayerSnap = { pid: p.pid, equip: g.equip, kit: g.kit, support: [...g.support] }
                 if (g.launcher) {
                     snap.launcher = r2(Math.max(0, g.launcher.until - t))
                     const w = g.launcher.saved
@@ -860,6 +926,8 @@ export class DfArsenal {
             }),
             decoys: this.decoys.map(d => ({ id: d.id, owner: d.owner, pos: rv(d.pos), yaw: r2(d.yaw), fuse: r2(d.blowAt - t) }))
         }
+        const open = this.crates.filter(c => this.crateOpen(c))
+        if (open.length) snap.crates = open.map(c => this.crateSnap(c, t))
         if (this.kits.length) snap.kits = this.kits.map(k => ({ id: k.id, tier: k.tier, pos: rv(k.pos), yaw: r2(k.yaw), ttl: r2(k.expiresAt - t) }))
         if (c) snap.challenge = { id: c.id, text: DF_CHALLENGES[c.id].text, n: Math.min(c.n, c.goal), goal: c.goal, done: c.done }
         return snap
@@ -875,17 +943,13 @@ export class DfArsenal {
                 pool.parts = DF_SALVAGE.maxParts
                 return
             }
-            case 'streak': {
-                const n = Number.isFinite(op.n) ? Math.max(1, Math.min(60, Math.floor(op.n!))) : 15
-                const g = this.gearOf(p)
-                for (let i = 0; i < n; i++) {
-                    const earned = dfKillstreakKill(g.streak)
-                    if (earned) this.host.emit({ k: 'reward', p: p.pid, reward: earned, n: DF_REWARDS[earned].kills })
-                }
+            case 'support':
+                this.gearOf(p).support = ['launcher', 'zeppelin', 'bomber']
                 return
+            case 'crate': {
+                const item = (DF_CRATE.items as readonly string[]).includes(op.item ?? '') ? op.item as DfCraftId : randomPick(DF_CRATE.items)
+                this.addCrate(p.pid, item, { ...p.pos })
             }
-            case 'rewards':
-                this.gearOf(p).streak.rewards = ['launcher', 'zeppelin', 'bomber']
         }
     }
 }

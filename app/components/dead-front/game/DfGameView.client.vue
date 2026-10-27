@@ -69,6 +69,7 @@ import type { DfHudFeedContext } from '~/utils/dead-front/engine/hud'
 import { dfPlayerColor } from '~/utils/dead-front/engine/avatars'
 import { DF_POWERUP_NAMES } from '~/utils/dead-front/engine/powerups'
 import { DF_MAP } from '#shared/utils/dead-front/map'
+import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_WEAPONS } from '#shared/utils/dead-front/weapons'
 import { dfLoadSettings, dfSaveSettings } from '~/utils/dead-front/engine/settings'
 import type { DfSettings } from '~/utils/dead-front/engine/settings'
@@ -187,6 +188,8 @@ const feedCtx: DfHudFeedContext = {
     powerupName: kind => DF_POWERUP_NAMES[kind] ?? 'a power-up'
 }
 const offSnap = props.net.on('snap', (m) => {
+    // the player's own slice (their supply crate finds) joins the events, whichever listener runs first
+    dfMergeArsenalMine(m.s)
     feedPlayers = m.s.players
     solo.value = m.s.players.length <= 1
     for (const ev of m.s.events) {

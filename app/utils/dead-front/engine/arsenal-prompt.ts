@@ -1,10 +1,10 @@
-import { DF_KILLSTREAK, DF_REWARDS } from '#shared/utils/dead-front/killstreaks'
-import type { DfRewardId } from '#shared/utils/dead-front/killstreaks'
+import { DF_SUPPORT_HELD, DF_SUPPORT } from '#shared/utils/dead-front/support'
+import type { DfSupportId } from '#shared/utils/dead-front/support'
 import type { DfInteractable } from '#shared/utils/dead-front/map'
 import type { DfEvent, DfHeldWeapon, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import { DF_RARITY_MAX, dfClampRarity, dfKitFits, dfKitName, dfRarity, dfRarityApplies, dfRarityUpgradeCost } from '#shared/utils/dead-front/rarity'
-import { DF_CRAFT_ORDER, DF_RECIPES, dfCraftBlockText, dfCraftBlocked, dfRecipeCost } from '#shared/utils/dead-front/salvage'
-import type { DfCraftId, DfKitDropSnap, DfKitState, DfSalvagePool } from '#shared/utils/dead-front/salvage'
+import { DF_CRAFT_ORDER, DF_RECIPES, dfCraftBlockText, dfCraftBlocked, dfCrateBlocked, dfRecipeCost } from '#shared/utils/dead-front/salvage'
+import type { DfCraftId, DfCrateSnap, DfKitDropSnap, DfKitState, DfSalvagePool } from '#shared/utils/dead-front/salvage'
 import { DF_WEAPONS } from '#shared/utils/dead-front/weapons'
 import type { DfHudFeedLine, DfHudFeedTone } from './hud'
 import type { DfPrompt } from './prompt'
@@ -37,10 +37,8 @@ export interface DfHudArsenal {
     launcher: number
     equip: 'sentry' | 'decoy' | null
     kit: boolean
-    /** Kills toward the next reward. */
-    streak: number
-    next: { name: string, at: number, from: number }
-    rewards: { id: DfRewardId, name: string }[]
+    /** Support held for X, oldest first (X calls in the newest). */
+    support: { id: DfSupportId, name: string }[]
     /** The craft list while at a bench. */
     bench: { items: DfHudBenchItem[], hold: number } | null
     challenge: { text: string, n: number, goal: number, done: boolean } | null
@@ -62,7 +60,7 @@ function pool(w: DfWorldSnap): DfSalvagePool {
 /** The local player's carried gear as the bench rules see it. */
 export function dfKitStateOf(c: DfArsenalPromptCtx): DfKitState {
     const g = c.world.arsenal?.players.find(p => p.pid === c.me.pid)
-    return { equip: g?.equip ?? null, kit: g?.kit ?? false, rewards: g?.rewards.length ?? 0, rewardsMax: DF_KILLSTREAK.maxHeld }
+    return { equip: g?.equip ?? null, kit: g?.kit ?? false, support: g?.support.length ?? 0, supportMax: DF_SUPPORT_HELD.max }
 }
 
 /** The weapon in hand (one in the Pack-a-Punch isn't). */
@@ -118,6 +116,19 @@ export function dfBenchPrompt(it: DfInteractable, c: DfArsenalPromptCtx, pick: D
     return { id: it.id, kind: 'bench', text, sub, cost: null, ok: item.ok, action: 'none', repeat: false, tint: item.tint ?? undefined }
 }
 
+function aOrAn(name: string): string {
+    return /^[AEIOU]/i.test(name) ? 'an' : 'a'
+}
+
+/** The prompt for a supply crate this player can't carry right now (one they can is taken by walking over it). */
+export function dfCratePrompt(cr: DfCrateSnap, c: DfArsenalPromptCtx): DfPrompt | null {
+    const r = DF_RECIPES[cr.item]
+    const block = dfCrateBlocked(cr.item, dfKitStateOf(c))
+    if (!block) return null
+    const why = block === 'full' ? 'Call in your support first (X)' : block === 'hands' ? 'Place your gear first (Q)' : 'Already carrying one'
+    return { id: `crate:${cr.id}`, kind: 'crate', text: `Supply crate: ${r.name}`, sub: why, cost: null, ok: false, action: 'none', repeat: false, tint: r.color }
+}
+
 /** The prompt for an upgrade kit on the ground. */
 export function dfKitPrompt(k: DfKitDropSnap, me: DfPlayerSnap): DfPrompt {
     const name = dfKitName(k.tier)
@@ -148,9 +159,13 @@ export function dfArsenalFeedLine(ev: DfEvent, c: FeedCtx): DfHudFeedLine | null
         case 'kitDrop':
             return { ...c.line('pale', ev.p, `set down a ${dfKitName(ev.tier)}`), textColor: dfRarity(ev.tier).color }
         case 'strike':
-            return c.line('red', ev.p, `called in ${ev.reward === 'barrage' ? 'an' : 'a'} ${DF_REWARDS[ev.reward].name}`)
-        case 'reward':
-            return ev.p === c.me ? null : c.line('gold', ev.p, `earned ${ev.reward === 'barrage' ? 'an' : 'a'} ${DF_REWARDS[ev.reward].name}`)
+            return c.line('red', ev.p, `called in ${aOrAn(DF_SUPPORT[ev.reward].name)} ${DF_SUPPORT[ev.reward].name}`)
+        case 'crate': {
+            // a supply crate: found by its killer, or taken by someone else once it was open
+            const r = DF_RECIPES[ev.item]
+            const line = ev.p === ev.owner ? c.line('gold', ev.p, `found ${aOrAn(r.name)} ${r.name}`) : c.line('gold', ev.p, `took the ${r.name} found by`, ev.owner)
+            return { ...line, textColor: r.color }
+        }
         case 'deploy':
             return ev.p === c.me ? null : c.line('pale', ev.p, ev.item === 'sentry' ? 'set up a Lewis Sentry' : 'wound up a Gramophone')
         case 'sentry':

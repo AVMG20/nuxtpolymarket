@@ -1,19 +1,18 @@
 <template>
     <div class="df-arsenal">
-        <!-- killstreak: kills toward the next reward, rewards ready to call in -->
-        <div class="streak">
+        <!-- support held: the newest is called in with X -->
+        <div v-if="a.support.length" class="support">
             <TransitionGroup name="df-medal" tag="div" class="rewards">
-                <div v-for="(r, i) in a.rewards" :key="`${r.id}${i}`" class="reward" :class="{ next: i === a.rewards.length - 1 }" :title="r.name">
+                <div v-for="(r, i) in a.support" :key="`${r.id}${i}`" class="reward" :class="{ next: i === a.support.length - 1 }" :title="r.name">
                     <svg viewBox="0 0 9 9" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true">
                         <rect v-for="(px, k) in ICONS[r.id]" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
                     </svg>
-                    <span v-if="i === a.rewards.length - 1" class="keycap"><b>X</b></span>
+                    <span v-if="i === a.support.length - 1" class="keycap"><b>X</b></span>
                 </div>
             </TransitionGroup>
             <div class="meter">
-                <span class="label">{{ a.next.name }}</span>
-                <div class="df-seg bar" :style="{ '--p': streakFrac, '--c': '#e2412f', '--seg': '5px' }" />
-                <span class="count">{{ a.streak }}/{{ a.next.at }}</span>
+                <span class="label">Call in support</span>
+                <span class="count">{{ a.support[a.support.length - 1]!.name }}</span>
             </div>
         </div>
 
@@ -57,12 +56,12 @@
 </template>
 
 <script setup lang="ts">
-// Bottom-left, over the perks: the killstreak meter and the support ready to
-// call in (X), the gear in hand (Q), the lent launcher's clock, the field kit, and your
+// Bottom-left, over the perks: the support held to call in (X, bought at a
+// workbench or found in a supply crate), the gear in hand (Q), the lent launcher's clock, the field kit, and your
 // own salvage. Pixel icons as [x, y, width] runs like the HUD's skull.
 import type { DfHudArsenal } from '~/utils/dead-front/engine/arsenal-prompt'
 
-const props = defineProps<{ a: DfHudArsenal }>()
+defineProps<{ a: DfHudArsenal }>()
 
 type Runs = [number, number, number][]
 const COG: Runs = [[2, 0, 3], [0, 1, 7], [1, 2, 2], [4, 2, 2], [0, 3, 2], [5, 3, 2], [1, 4, 2], [4, 4, 2], [0, 5, 7], [2, 6, 3]]
@@ -75,11 +74,6 @@ const ICONS: Record<string, Runs> = {
     zeppelin: [[2, 2, 5], [0, 3, 9], [0, 4, 9], [1, 5, 7], [3, 6, 2], [0, 1, 1], [0, 6, 1]],
     bomber: [[0, 1, 9], [4, 2, 1], [0, 3, 9], [2, 4, 1], [6, 4, 1], [4, 5, 1], [3, 7, 3], [4, 8, 1]]
 }
-
-const streakFrac = computed(() => {
-    const span = Math.max(1, props.a.next.at - props.a.next.from)
-    return Math.max(0, Math.min(1, (props.a.streak - props.a.next.from) / span))
-})
 </script>
 
 <style scoped>
@@ -91,7 +85,7 @@ const streakFrac = computed(() => {
     font-family: var(--df-font-type);
 }
 
-.streak {
+.support {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -128,7 +122,7 @@ const streakFrac = computed(() => {
 
 .meter {
     display: grid;
-    grid-template-columns: auto auto;
+    grid-template-columns: auto;
     align-items: center;
     column-gap: 8px;
     row-gap: 3px;
@@ -141,11 +135,6 @@ const streakFrac = computed(() => {
     text-transform: uppercase;
     color: var(--df-chalk-2);
     text-shadow: 1px 1px 0 #000;
-}
-
-.meter .bar {
-    width: 120px;
-    height: 6px;
 }
 
 .meter .count {

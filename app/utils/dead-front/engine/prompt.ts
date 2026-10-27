@@ -17,7 +17,7 @@ import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 export interface DfPrompt {
     /** Interactable id for `use`, or `revive:<pid>`. */
     id: string
-    kind: DfInteractable['kind'] | 'revive' | 'kit'
+    kind: DfInteractable['kind'] | 'revive' | 'kit' | 'crate'
     /** Text before the cost, e.g. "Hold F to clear the debris". */
     text: string
     /** Optional second line (door label, weapon detail). */

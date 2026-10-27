@@ -108,8 +108,8 @@ const UI: Record<string, RuleRow> = {
     'df:lunge': [0.12, 0.2, 1.5],
     'df:pu-spawn': [0.3, 0.6, 1.5],
     'df:pu-end': [0.3, 0.6, 1.5],
-    // salvage, the workbench and killstreaks (arsenal-sounds.ts)
-    'df:ars-reward': [0.3, 1.2, 2.6],
+    // salvage, the workbench and support (arsenal-sounds.ts)
+    'df:ars-crate': [0.3, 1.2, 2.6],
     'df:ars-callin': [0.3, 1.2, 2.2],
     'df:ars-challenge': [0.5, 0.8, 1.8],
     'df:ars-challenge-done': [0.5, 1.4, 2.4]
@@ -135,7 +135,7 @@ const WORLD: Record<string, RuleRow> = {
     'df:rod-lever': [0.1, 0.8, 1.6],
     'df:rod-crackle': [0.25, 1.4, 1.3],
     'df:rod-sputter': [0.2, 0.6, 1.2],
-    // salvage, the workbench, crafted gear and killstreak support (arsenal-sounds.ts)
+    // salvage, the workbench, crafted gear and support (arsenal-sounds.ts)
     'df:ars-scrap': [0.05, 0.3, 1.2],
     'df:ars-part': [0.1, 0.9, 1.6],
     'df:ars-craft': [0.3, 1.3, 1.6],

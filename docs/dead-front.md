@@ -89,7 +89,7 @@ Code prefix: `Df` / `df` / `DF_`.
   `crawlHitTest` hitbox.
 - **Power-ups** (drops on kill): max ammo, double points, insta-kill, nuke,
   carpenter.
-- **Salvage, the workbench, rarity, killstreaks and round challenges**: see
+- **Salvage, the workbench, supply crates, rarity, support and round challenges**: see
   "Salvage and the workbench" below.
 
 ## Netcode
@@ -229,13 +229,13 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
 ## Salvage and the workbench
 
 Rules in `shared/utils/dead-front/salvage.ts` (salvage, recipes, sentry,
-decoy, challenges), `killstreaks.ts` (rewards, strike plans, the launcher) and
+decoy, supply crates, challenges), `support.ts` (support, strike plans, the launcher) and
 `rarity.ts` (tiers, the box curve, upgrade kits, bench upgrade costs); the
 server state in `server/utils/dead-front/salvage.ts` (`DfArsenal`, driven by
 hooks in `sim.ts`: kill, down, round start/end, step, the hunt's lure check,
 a wall-buy or box use, the snapshot). Every grant is claim-then-reward: a drop leaves the list
 before it pays, a craft or upgrade takes its salvage before it hands anything
-over, a reward is popped before it fires, a kit leaves the ground (or the
+over, held support is popped before it fires, a crate leaves the ground before it pays, a kit leaves the ground (or the
 box) before it applies.
 
 - **Salvage is per player.** A kill drops scrap (some chance) and now and then
@@ -262,8 +262,10 @@ box) before it applies.
   - Gramophone (5, Q to throw within 12 m): zombies within 22 m dance to it
     for 9 s (`DfArsenal.lure`, ahead of the hunt), then it blows (5.5 m).
   - Field Kit (10 + 1 part): a self-revive 3 s after going down.
-  - Bomber Run (16 + 1 part) and Granatwerfer (12): support, held with the
-    killstreak rewards (up to three) and used with X.
+  - Support, held (up to three) and used with X: Artillery Barrage (8),
+    Zeppelin Raid (12 + 1 part), Granatwerfer (12), Bomber Run (16 + 1 part).
+    The bench (and a supply crate) is the only way to get it: kills earn
+    none.
   - Upgrade the weapon in hand one rarity tier (6 / 12 + 1 part / 20 + 2
     parts). The request carries the tier it is at (`from`, an integer CAS)
     and the weapon id the client sees there; a weapon in the Pack-a-Punch,
@@ -284,14 +286,21 @@ box) before it applies.
   down in front of you for 2 minutes (`world.arsenal.kits`, blinking for the
   last 15 s); anyone can take it onto a weapon below its tier (F, "Already
   Epic" otherwise).
-- **Killstreak rewards**: kills without going down (traps, gear and support
-  don't count) earn the Artillery Barrage (15: eight shells round the mark),
-  the Granatwerfer (25), the Zeppelin Raid (35: a bomb run along your line of
-  sight) and the Bomber Run (50), then the count starts over. Up to three
-  held (crafted support shares the list); **hold X** (or 4) to mark where you
-  look, release to call in the newest. The server plans every impact
-  (`dfPlanStrike`), sends it in the `strike` event and resolves the damage at
-  those times; support never hurts a player.
+- **Supply crates**: one kill in a hundred that drops salvage also drops a
+  crate with one of the bench's items in it, picked uniformly (`DF_CRATE`,
+  `DfArsenal.rng`). For 15 s it is the killer's alone (sent only in their
+  `mine` slice, pulsing); then it opens to everyone (in the shared
+  `world.arsenal.crates`, flaring, the feed says who took it), until 60 s
+  after the drop. Walking over it takes it, claim-then-reward; one you can't
+  carry (support full, gear in hand, a kit held) stays and says why.
+- **Support** (`support.ts`): the Artillery Barrage (eight shells round the
+  mark), the Zeppelin Raid (a bomb run along your line of sight), the
+  Granatwerfer and the Bomber Run. Up to three held; **hold X** (or 4) to
+  mark where you look, release to call in the newest ("Call in support"). The
+  server plans every impact (`dfPlanStrike`), sends it in the `strike` event
+  and resolves the damage at those times; support never hurts a player. The
+  multi-kill and headshot bonus points (`streak` events, specials.ts) are
+  separate and unchanged.
   - **Bomber Run**: a Gotha flies over the mark, rows of bombs walk across it,
     then everything within 11 m dies at once (`DfStrikeHit.all`: no cover,
     brutes too), 50 points a kill to the caller.
@@ -310,7 +319,7 @@ box) before it applies.
 - Controls: F at a bench (tap / hold), Q (hold to aim, release to place), X or
   4 (hold to mark, release to call in; the Granatwerfer comes out on the
   press), F at a kit on the ground.
-- Dev: `{ t: 'dev', op: { k: 'arsenal', what: 'salvage' | 'streak' | 'rewards', n } }`.
+- Dev: `{ t: 'dev', op: { k: 'arsenal', what: 'salvage' | 'support' | 'crate', item } }`.
 
 ## Pack-a-Punch
 
@@ -390,8 +399,8 @@ view only reacts to its own kinds so nothing is drawn twice:
 | `hit`, `kill`, `zhit` gore, `gas` (bloater cloud) | zombie view (map agent) |
 | `door`, `plank`, `box`, `pap` (machine), `power`, `fuse`, `rod`, `soul`, `egg`, `perk` (machine jingle) | world view (map agent) |
 | `explode`, `arc` | projectile view (weapons agent) |
-| `craft` (bench), `salvage`, `deploy`, `sentry`, `decoy`, `kitDrop`, `strike` (the show: flare, whistles, Zeppelin, Gotha, the carpet) | world view parts `interact/workbench.ts`, `salvage.ts`, `sentry.ts`, `kits.ts`, `strikes.ts` |
-| `reward`, `strike` and `challenge` callouts, `launcher`, `rarity`, `kitDrop` notices | engine (`engine/arsenal.ts`) |
+| `craft` (bench), `salvage`, `crate`, `deploy`, `sentry`, `decoy`, `kitDrop`, `strike` (the show: flare, whistles, Zeppelin, Gotha, the carpet) | world view parts `interact/workbench.ts`, `salvage.ts`, `crates.ts`, `sentry.ts`, `kits.ts`, `strikes.ts` |
+| `crate`, `strike` and `challenge` callouts, `launcher`, `rarity`, `kitDrop` notices | engine (`engine/arsenal.ts`) |
 | `shot` (remote tracer + sound), `points`, `round`, `roundEnd`, `down`, `revived`, `bleedout`, `respawn`, `powerup`, `buy`, `chat`, hitmarkers, damage feedback | engine (engine agent) |
 
 The squad feed (top right of the HUD: downs, revives, doors, power) is built
@@ -485,7 +494,7 @@ rounds on the real map and prints points earned against costs per round
   each kill takes a bolt from the nearest coil. Sounds: `DF_SPECIAL_SND.trap*`.
 - **Workbenches** (`world/interact/workbench.ts`): a trestle bench with a vice,
   tools and scrap, an oil lamp (a map light), and a slate board chalked with
-  the five craftables; a brass lamp on the board burns green while your
+  the seven craftables; a brass lamp on the board burns green while your
   salvage pays for something. A craft swings the hammer three times, with
   sparks and a ring.
 - **Salvage** (`world/salvage.ts`): rusty scrap heaps and brass rare parts

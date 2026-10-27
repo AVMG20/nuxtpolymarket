@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { DF_COSTS, DF_MACHINE_TIMES } from '#shared/utils/dead-front/constants'
 import { dfBulletDamage } from '#shared/utils/dead-front/combat'
-import { DF_LAUNCHER, DF_STRIKE } from '#shared/utils/dead-front/killstreaks'
+import { DF_LAUNCHER, DF_STRIKE } from '#shared/utils/dead-front/support'
 import { dfInteractables } from '#shared/utils/dead-front/map'
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import { DF_WEAPON_IDS, DF_WEAPONS, dfBoxPool, dfWeaponStats } from '#shared/utils/dead-front/weapons'
@@ -34,7 +34,7 @@ describe('the bomber run', () => {
         const { sim } = makeSim(2)
         const [p, mate] = sim.players
         sim.dev(0, { k: 'hold', on: true })
-        sim.arsenal.debugReward(p!, 'bomber')
+        sim.arsenal.debugSupport(p!, 'bomber')
         const at = { x: p!.pos.x, y: 0, z: p!.pos.z - 14 }
         mate!.pos = { ...at }
         mate!.invulnUntil = 1e9
@@ -72,7 +72,7 @@ describe('the grenade launcher', () => {
         p.slot = 1
         const original = p.weapons[1]!
         const snapshotOf = { ...original }
-        sim.arsenal.debugReward(p, 'launcher')
+        sim.arsenal.debugSupport(p, 'launcher')
         expect(sim.arsenal.handle(p, { k: 'callin', at: { ...p.pos }, dir: { x: 0, y: 0, z: -1 } })).toBe(true)
         return { sim, advance, p, original, snapshotOf }
     }
@@ -84,9 +84,9 @@ describe('the grenade launcher', () => {
         expect(p.weapons[0]!.id).toBe('m1911')
         expect(sim.snapshot().world.arsenal!.players[0]!.launcher).toBeGreaterThan(40)
         // no second one while it's out (the reward isn't spent)
-        sim.arsenal.debugReward(p, 'launcher')
+        sim.arsenal.debugSupport(p, 'launcher')
         expect(sim.arsenal.handle(p, { k: 'callin', at: { ...p.pos }, dir: { x: 0, y: 0, z: -1 } })).toBe(false)
-        expect(sim.arsenal.gearOf(p).streak.rewards).toEqual(['launcher'])
+        expect(sim.arsenal.gearOf(p).support).toEqual(['launcher'])
         run(sim, DF_LAUNCHER.seconds + 0.2, 0.25)
         expect(p.weapons[1]).toBe(original)
         expect({ ...p.weapons[1]! }).toEqual(snapshotOf)
@@ -183,7 +183,7 @@ describe('the grenade launcher: review regressions', () => {
         p.weapons.push({ ...p.weapons[0]!, id: 'thompson', pap: 0, mag: 20, reserve: 60, attachments: {}, stats: dfWeaponStats('thompson', 0, {}) })
         p.slot = 1
         const thompson = p.weapons[1]!
-        sim.arsenal.debugReward(p, 'launcher')
+        sim.arsenal.debugSupport(p, 'launcher')
         sim.arsenal.handle(p, { k: 'callin', at: { ...p.pos }, dir: { x: 0, y: 0, z: -1 } })
         p.swapUntil = 0
         return { sim, advance, p, thompson, launcher: p.weapons[1]! }
@@ -255,14 +255,14 @@ describe('the grenade launcher: review regressions', () => {
         expect(p.weapons.map(w => w.id)).toContain('mp18')
     })
 
-    it('launcher kills don\'t count toward the killstreak', () => {
+    it('launcher kills never hand out support', () => {
         const { sim, advance, p } = launcherOverThompson()
         const horde = [0, 1, 2].map(i => sim.debugSpawn('shambler', { x: p.pos.x + (i - 1) * 1.2, y: 0, z: p.pos.z - 10 }, 50))
         sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: -0.05, z: -1 }], hits: [], weapon: DF_LAUNCHER.weapon })
         run(sim, 1.5)
         advance(1.5)
         expect(horde.filter(z => sim.zombies.includes(z))).toHaveLength(0)
-        expect(sim.arsenal.gearOf(p).streak.kills).toBe(0)
+        expect(sim.arsenal.gearOf(p).support).toEqual([])
     })
 
     it('Max Ammo and the ammo-on-kill perk never refill the launcher; Max Ammo tops up the stashed weapon', () => {

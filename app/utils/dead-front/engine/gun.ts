@@ -391,7 +391,7 @@ export const DF_RECOIL_ID: Partial<Record<DfWeaponId, DfRecoilProfile>> = {
     chauchat: { up: 1.1, side: 0.45, drift: 0.22, cap: 0.24, rise: 0.045, recover: 5, delay: 0.12, shake: 1.2 },
     lewis: { up: 1, side: 0.7, drift: -0.12, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9 },
     flammen: { up: 1, side: 1, drift: 0, cap: 0.03, rise: 0.06, recover: 9, delay: 0.05, shake: 0.4 },
-    // the killstreak launcher heaves up on every shell
+    // the lent launcher heaves up on every shell
     granatwerfer: { up: 1.5, side: 0.3, drift: 0, cap: 0.36, rise: 0.06, recover: 4.5, delay: 0.12, shake: 2.2 }
 }
 

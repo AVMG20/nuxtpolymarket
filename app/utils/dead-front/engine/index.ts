@@ -177,7 +177,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     // ---------------------------------------------------------------- local player
     const input = new DfInput(rr.canvas)
     const player = new DfPlayerController()
-    // salvage, the workbench, crafted gear, upgrade kits, killstreak support (arsenal.ts)
+    // salvage, the workbench, crafted gear, upgrade kits, support (arsenal.ts)
     const arsenal = createDfArsenalClient({
         ctx,
         net,

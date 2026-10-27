@@ -48,7 +48,7 @@ export interface DfHintFacts {
     canCraft?: boolean
     /** The deployable gear in hand (Q), if any. */
     gear?: string | null
-    /** The killstreak reward ready to call in (X), if any. */
+    /** The support ready to call in (X), if any. */
     reward?: string | null
 }
 

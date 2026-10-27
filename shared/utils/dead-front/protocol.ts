@@ -133,7 +133,7 @@ export interface DfZombieSnap {
     masked?: boolean
 }
 
-/** `mortar`: the killstreak Granatwerfer's heavy shell. */
+/** `mortar`: the lent Granatwerfer's heavy shell. */
 export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit' | 'mortar'
 
 export interface DfProjectileSnap {
@@ -197,7 +197,7 @@ export interface DfWorldSnap {
     special?: DfSpecialSnap
     /** Electric traps (map.traps). */
     traps?: DfTrapSnap[]
-    /** Salvage, workbench gear, sentries and killstreaks (salvage.ts, killstreaks.ts). */
+    /** Salvage, workbench gear, sentries and support (salvage.ts, support.ts). */
     arsenal?: DfArsenalSnap
 }
 
@@ -251,7 +251,7 @@ export type DfEvent =
     | { k: 'chat', name: string, text: string }
     /** A multi-kill tier reached or a headshot streak milestone (`n` kills), worth `bonus` points. */
     | { k: 'streak', p: number, kind: 'double' | 'triple' | 'multi' | 'massacre' | 'head', n: number, bonus: number }
-    /** Salvage, crafting, sentries, killstreak rewards and round challenges (salvage.ts). */
+    /** Salvage, crafting, sentries, support, supply crates and round challenges (salvage.ts). */
     | DfArsenalEvent
 
 export interface DfSnapshot {
@@ -357,7 +357,7 @@ export type DfClientMsg =
     | { t: 'ping', at: number }
     /** Development-only test hooks (ignored by production builds). */
     | { t: 'dev', op: DfDevOp }
-    /** Workbench crafts, placing gear, calling in killstreak rewards (salvage.ts). */
+    /** Workbench crafts, placing gear, calling in support (salvage.ts). */
     | { t: 'arsenal', op: DfArsenalOp }
 
 /** Development-only test hooks, see `DfMatchSim.dev`. The server drops them outside `import.meta.dev`. */
@@ -378,8 +378,8 @@ export type DfDevOp
          * (`type`) a few metres in front of you.
          */
         | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn', type?: DfEnemyType }
-        /** Arsenal: `salvage` fills the squad's pool, `streak` adds `n` kills to your streak, `rewards` hands you all three. */
-        | { k: 'arsenal', what: 'salvage' | 'streak' | 'rewards', n?: number }
+        /** Arsenal: `salvage` fills your salvage, `support` hands you three support items, `crate` drops a supply crate (`item`, else random) at your feet. */
+        | { k: 'arsenal', what: 'salvage' | 'support' | 'crate', item?: string }
 
 export type DfServerMsg =
     | { t: 'hello', userId: string, name: string }

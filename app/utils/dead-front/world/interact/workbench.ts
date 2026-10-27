@@ -11,13 +11,13 @@ import { DfSpring, damp } from '../util'
 // The workbenches (map.benches): a heavy trestle bench against the wall with a
 // vice, a hand drill and a scatter of tools and scrap, a shaded oil lamp, and
 // a slate board above it chalked with what the bench can make (a sentry, a
-// gramophone, a field kit, a bomber, a grenade launcher). A brass signal lamp
+// gramophone, a field kit, a shell, a Zeppelin, a grenade launcher, a bomber). A brass signal lamp
 // on the board burns green while your salvage pays for something, amber when it
 // doesn't. Crafting swings the hammer, throws sparks and rings the bench.
 
 const C = 0.0625
-/** The chalk board's finer cell (its five drawings span the bench). */
-const CB = 0.034
+/** The chalk board's finer cell (its seven drawings span the bench). */
+const CB = 0.026
 const GREEN = new THREE.Color(0.35, 1, 0.4)
 const AMBER = new THREE.Color(1, 0.62, 0.18)
 
@@ -26,6 +26,8 @@ const ICONS: Record<string, readonly string[]> = {
     sentry: ['.........', '..####...', '#######..', '..####.##', '...#.....', '..#.#....', '.#...#...'],
     decoy: ['......###', '.....##.#', '....##...', '...##....', '.###.....', '#####....', '#####....'],
     kit: ['.........', '..#####..', '..##.##..', '..#...#..', '..##.##..', '..#####..', '.........'],
+    barrage: ['....#....', '...###...', '...###...', '...###...', '...###...', '..#####..', '..#####..'],
+    zeppelin: ['.........', '..#####..', '#########', '#########', '..#####..', '...##....', '.........'],
     bomber: ['#########', '....#....', '#########', '..#.#.#..', '.........', '..#.#.#..', '.........'],
     launcher: ['.........', '.##......', '#######..', '#########', '..###..##', '..#......', '.........']
 }
@@ -81,7 +83,7 @@ function lampModel(): DfVoxModel {
 
 function boardModel(): DfVoxModel {
     // a slate board in a wooden frame with the five chalk drawings
-    const W = 5 * 10 + 2
+    const W = DF_CRAFT_ORDER.length * 10 + 2
     const H = 12
     const m = new DfVoxModel(W, H, 2)
     const frame = m.shade(0x5a3f26, 0.08, 76)
@@ -133,7 +135,7 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
     const benchGeo = benchModel().mesh(C, [15, 0, 6])!
     const hammerGeo = hammerModel().mesh(C, [2, 0, 1])!
     const lampGeo = lampModel().mesh(C, [2, 0, 2])!
-    const boardGeo = boardModel().mesh(CB, [26, 0, 0])!
+    const boardGeo = boardModel().mesh(CB, [(DF_CRAFT_ORDER.length * 10 + 2) / 2, 0, 0])!
     const sigGeo = signalModel().mesh(C, [1.5, 0, 1.5])!
     geos.push(benchGeo, hammerGeo, lampGeo, boardGeo, sigGeo)
     const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, cast = shadow) => {
@@ -161,7 +163,7 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
         const sig = dfVoxMaterial({ glow: 0 })
         mats.push(sig)
         const sigM = mesh(sigGeo, sig, false)
-        sigM.position.set(0.8, 1.12 + 12 * CB, -halfD + 0.04)
+        sigM.position.set(0.86, 1.12 + 12 * CB, -halfD + 0.04)
         g.add(sigM)
         // the hammer lies on the top; crafting picks it up and swings it
         const hammer = new THREE.Group()
@@ -180,7 +182,7 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
             const pool = { scrap: ars?.scrap ?? 0, parts: ars?.parts ?? 0 }
             // you can make something: anything your salvage pays for (full hands aside)
             const affordable = DF_CRAFT_ORDER.some((id) => {
-                const b = dfCraftBlocked(DF_RECIPES[id], pool, { equip: null, kit: false, rewards: 0, rewardsMax: 1 })
+                const b = dfCraftBlocked(DF_RECIPES[id], pool, { equip: null, kit: false, support: 0, supportMax: 1 })
                 return b === null
             })
             for (const b of benches) {
