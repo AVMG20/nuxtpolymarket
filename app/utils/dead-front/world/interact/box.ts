@@ -9,6 +9,8 @@ import type { DfWorldKit, DfWorldPart } from '../kit'
 import { DF_WORLD_SOUNDS } from '../sound-names'
 import { DfSpring, clamp01, damp, dfShowModel, easeOutBack, easeOutCubic } from '../util'
 import type { DfWeaponCache } from './weapon-cache'
+import { dfRarity } from '#shared/utils/dead-front/rarity'
+import { dfBuildKitModel } from '../kits'
 
 // The mystery box: a brass-bound crate on a trestle under a column of golden
 // light that stands over the rooftops, so the squad can find it from across
@@ -222,6 +224,23 @@ export function createDfMysteryBox(kit: DfWorldKit, weapons: DfWeaponCache): DfW
         halo.position.y = height * 0.4
         spill.position.y = 0.7
     }
+    // an upgrade kit on offer (rarity.ts) instead of a weapon, and the offer's rarity glow
+    let kitModel: ReturnType<typeof dfBuildKitModel> | null = null
+    let kitTier = 0
+    let glintIn = 0
+    const showKit = (tier: number) => {
+        if (tier !== kitTier) {
+            kitModel?.dispose()
+            kitModel = null
+            kitTier = tier
+            if (tier > 0) {
+                kitModel = dfBuildKitModel(tier, kit.mat)
+                kitModel.obj.scale.setScalar(1.6)
+                holder.add(kitModel.obj)
+                popT = 0
+            }
+        }
+    }
     const show = (id: DfWeaponId | null) => {
         if (id !== shownId) {
             shownId = id
@@ -282,6 +301,12 @@ export function createDfMysteryBox(kit: DfWorldKit, weapons: DfWeaponCache): DfW
                 holder.position.set(0, top + 0.3 + easeOutCubic(prog) * 0.75, 0)
                 // Spins fast while it shuffles, slowing into the reveal.
                 holder.rotation.set(0, Math.PI / 2 + (final ? Math.sin(time * 0.8) * 0.15 : rollT * (10 - prog * 8)), 0)
+            } else if (b.state === 'ready' && b.kit) {
+                show(null)
+                showKit(b.kit)
+                const sink = 1 - clamp01(b.timer / DF_MACHINE_TIMES.boxOffer)
+                holder.position.set(0, top + 1.0 - sink * 0.7 + Math.sin(time * 2) * 0.03, 0)
+                holder.rotation.set(0, time * 1.2, 0)
             } else if (b.state === 'ready' && b.weapon) {
                 show(b.weapon)
                 const sink = 1 - clamp01(b.timer / DF_MACHINE_TIMES.boxOffer)
@@ -290,6 +315,21 @@ export function createDfMysteryBox(kit: DfWorldKit, weapons: DfWeaponCache): DfW
             } else {
                 holder.position.y = damp(holder.position.y, top, 10, dt)
                 if (holder.position.y < top + 0.1) show(null)
+            }
+            if (!(b.state === 'ready' && b.kit)) showKit(0)
+            if (kitModel) kitModel.material.userData.uGlow.value = 1.4 + 0.6 * Math.sin(time * 4)
+            // a rare (or better) offer glints in its colour
+            const tier = b.state === 'ready' ? (b.kit ?? b.rarity ?? 0) : 0
+            if (tier > 0) {
+                glintIn -= dt
+                if (glintIn <= 0) {
+                    glintIn = 0.18
+                    v3.set(0, 0, 0)
+                    holder.localToWorld(v3)
+                    const c = dfRarity(tier).color
+                    ctx.fx.burst('powerup', v3, { count: 2 + tier, color: c, scale: 0.5 + tier * 0.15 })
+                    ctx.fx.flash(v3, c, 1.5 + tier, 0.2)
+                }
             }
             // Each swap pops in with a little overshoot; the reveal swells once.
             holder.scale.setScalar((0.55 + 0.45 * easeOutBack(clamp01(popT / 0.14), 2.2)) * (1 + 0.3 * Math.sin(reveal * Math.PI)))
@@ -393,6 +433,7 @@ export function createDfMysteryBox(kit: DfWorldKit, weapons: DfWeaponCache): DfW
             }
         },
         dispose() {
+            kitModel?.dispose()
             g.removeFromParent()
             beam.removeFromParent()
             motes.removeFromParent()

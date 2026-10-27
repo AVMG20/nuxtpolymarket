@@ -6,7 +6,8 @@ import { dfCriticalSpring } from './interp'
 
 // Local player movement, simulated at a fixed 60 Hz against the shared
 // collision world: walk / sprint with stamina / crouch / jump with coyote
-// time and buffering / stairs / air control, plus the downed crawl.
+// time and buffering / stairs / air control / the CoD slide (crouch out of a
+// sprint), plus the downed crawl.
 
 export const DF_STEP = 1 / 60
 const CRAWL_SPEED = 0.85
@@ -21,6 +22,26 @@ const FALL_GRAVITY = 1.4
 const EYE_SPRING = 22
 const COYOTE = 0.1
 const JUMP_BUFFER = 0.14
+/**
+ * The slide: crouching out of a sprint on the ground launches you low at
+ * `DF_SLIDE.boost` x your speed (capped well inside the server's movement
+ * budget), coasting on friction with the crouched body (so you fit under what
+ * a crouch fits under). It ends when it runs out, slows to a crawl, leaves the
+ * ground, or crouch is pressed again; jumping out of it keeps the momentum,
+ * and a sprint still held at the end stands you straight back into it.
+ */
+export const DF_SLIDE = {
+    time: 0.8,
+    boost: 1.22,
+    maxSpeed: 9.6,
+    /** Deceleration, m/s². */
+    friction: 6.5,
+    /** Steering: how fast (rad/s) the slide turns toward where you look. */
+    steer: 1.2,
+    cooldown: 0.5,
+    /** Seconds after a slide in which the ground barely slows you: a slide-jump keeps its speed. */
+    carry: 0.3
+} as const
 
 export interface DfMoveIntent {
     /** -1..1 forward / back. */
@@ -60,6 +81,10 @@ export class DfPlayerController {
     /** 0 standing .. 1 crouched, eased. */
     crouchBlend = 0
     sprinting = false
+    /** In a slide (see `DF_SLIDE`). */
+    sliding = false
+    /** 0..1 eased, for the camera's lean. */
+    slideBlend = 0
     stamina = 4
     tired = false
     downed = false
@@ -76,6 +101,11 @@ export class DfPlayerController {
     private readonly bobOut: DfHeadBob = { x: 0, y: 0, step: false }
     onLand: ((impact: number) => void) | null = null
     onJump: (() => void) | null = null
+    onSlide: (() => void) | null = null
+    private slideLeft = 0
+    private slideReadyAt = 0
+    /** Crouch was pressed since the last step (a press during a sprint slides). */
+    private crouchPressed = false
     private airTime = 0
     private jumpBuffered = -1
     private readonly corr: Vec3 = { x: 0, y: 0, z: 0 }
@@ -95,6 +125,8 @@ export class DfPlayerController {
         this.corr.x = this.corr.y = this.corr.z = 0
         this.stepOffset = 0
         this.viewY = Number.NaN
+        this.sliding = false
+        this.slideBlend = 0
     }
 
     /**
@@ -152,6 +184,7 @@ export class DfPlayerController {
 
     toggleCrouch(): void {
         this.crouchToggle = !this.crouchToggle
+        this.crouchPressed = true
     }
 
     get wantsCrouch(): boolean {
@@ -172,13 +205,32 @@ export class DfPlayerController {
         this.jumpBuffered = now
     }
 
+    private lastNow = 0
+    private carryUntil = -1
+
     step(dt: number, now: number, intent: DfMoveIntent, world: DfCollisionWorld, sp: DfMoveSpeeds): void {
+        this.lastNow = now
         this.prev.x = this.pos.x
         this.prev.y = this.pos.y
         this.prev.z = this.pos.z
 
+        // slide: a crouch press in a sprint on the ground
+        const pressed = this.crouchPressed
+        this.crouchPressed = false
+        if (this.sliding && (pressed || !this.crouchToggle || this.downed)) this.endSlide()
+        else if (pressed && this.crouchToggle && this.sprinting && this.grounded && !this.downed && now >= this.slideReadyAt && this.speed > sp.walk * 1.05) {
+            const hs = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z) || 1
+            const v = Math.min(DF_SLIDE.maxSpeed, Math.max(hs, sp.sprint) * DF_SLIDE.boost)
+            this.vel.x = (this.vel.x / hs) * v
+            this.vel.z = (this.vel.z / hs) * v
+            this.sliding = true
+            this.slideLeft = DF_SLIDE.time
+            this.onSlide?.()
+        }
+        this.slideBlend += ((this.sliding ? 1 : 0) - this.slideBlend) * Math.min(1, dt * 10)
+
         // crouch (can't stand up under a low ceiling)
-        const wantCrouch = (intent.crouch || this.crouchToggle) && !this.downed
+        const wantCrouch = (intent.crouch || this.crouchToggle || this.sliding) && !this.downed
         if (wantCrouch) this.crouched = true
         else if (this.crouched) {
             if (dfBodyFits(world, this.pos, { radius: DF_PLAYER.radius, height: DF_PLAYER.height })) this.crouched = false
@@ -189,7 +241,7 @@ export class DfPlayerController {
         // stamina and sprint
         const moving = Math.abs(intent.fwd) + Math.abs(intent.right) > 0.1
         const canSprint = intent.sprint && intent.fwd > 0.3 && !this.crouched && !this.downed && !this.tired && intent.ads < 0.3
-        this.sprinting = canSprint && moving
+        this.sprinting = canSprint && moving && !this.sliding
         if (this.sprinting) {
             this.stamina = Math.max(0, this.stamina - dt)
             this.sprintRest = 0
@@ -225,23 +277,49 @@ export class DfPlayerController {
         const tx = wx * speed
         const tz = wz * speed
         let accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL
+        if (this.grounded && now < this.carryUntil) accel = AIR_ACCEL * 2
         if (this.grounded && moving && speed > sp.walk) {
             const cur = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z)
             const wl = Math.sqrt(wx * wx + wz * wz) || 1
             // only the gain in speed is soft: turning in a sprint stays sharp
             if (cur > sp.walk * 0.95 && (this.vel.x * wx + this.vel.z * wz) / (cur * wl) > 0.85) accel = SPRINT_ACCEL
         }
-        let dvx = tx - this.vel.x
-        let dvz = tz - this.vel.z
-        const dl = Math.sqrt(dvx * dvx + dvz * dvz)
-        const maxDv = accel * dt
-        if (dl > maxDv) {
-            dvx *= maxDv / dl
-            dvz *= maxDv / dl
-        }
-        if (this.grounded || moving) {
-            this.vel.x += dvx
-            this.vel.z += dvz
+        if (this.sliding) {
+            // coast: friction bleeds the speed, the heading turns a little toward the look
+            const hs = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z)
+            const ns = Math.max(0, hs - DF_SLIDE.friction * dt)
+            let hx = hs > 1e-4 ? this.vel.x / hs : -sy
+            let hz = hs > 1e-4 ? this.vel.z / hs : -cy
+            const cross = hx * -cy - hz * -sy
+            const turn = Math.max(-DF_SLIDE.steer * dt, Math.min(DF_SLIDE.steer * dt, Math.asin(Math.max(-1, Math.min(1, cross)))))
+            if (hx * -sy + hz * -cy > 0) {
+                const c = Math.cos(turn)
+                const s = Math.sin(turn)
+                const nx = hx * c - hz * s
+                hz = hx * s + hz * c
+                hx = nx
+            }
+            this.vel.x = hx * ns
+            this.vel.z = hz * ns
+            this.slideLeft -= dt
+            if (this.slideLeft <= 0 || ns < sp.crouch * 1.1 || !this.grounded) {
+                this.endSlide()
+                // a sprint held through the slide stands straight back up into it
+                if (intent.sprint && intent.fwd > 0.3 && !this.tired && this.grounded) this.crouchToggle = false
+            }
+        } else {
+            let dvx = tx - this.vel.x
+            let dvz = tz - this.vel.z
+            const dl = Math.sqrt(dvx * dvx + dvz * dvz)
+            const maxDv = accel * dt
+            if (dl > maxDv) {
+                dvx *= maxDv / dl
+                dvz *= maxDv / dl
+            }
+            if (this.grounded || moving) {
+                this.vel.x += dvx
+                this.vel.z += dvz
+            }
         }
 
         // jump: buffered press + coyote time
@@ -295,12 +373,19 @@ export class DfPlayerController {
 
         const hs = Math.sqrt(this.vel.x * this.vel.x + this.vel.z * this.vel.z)
         this.speed = hs
-        if (this.grounded) {
+        if (this.grounded && !this.sliding) {
             this.stride += hs * dt
             // a continuous phase, so switching walk / sprint / crouch never jumps the bob
             const strideLen = this.sprinting ? 2.3 : this.crouched ? 1.25 : 1.7
             this.bobPhase += (hs * dt / strideLen) * Math.PI * 2
         }
+    }
+
+    private endSlide(): void {
+        if (!this.sliding) return
+        this.sliding = false
+        this.slideReadyAt = this.lastNow + DF_SLIDE.cooldown
+        this.carryUntil = this.lastNow + DF_SLIDE.carry
     }
 
     /**
@@ -309,7 +394,7 @@ export class DfPlayerController {
      * while aiming. `step` is true on the frame a footstep lands.
      */
     headBob(dt: number, walkSpeed: number, ads: number): DfHeadBob {
-        const want = this.grounded && !this.downed ? Math.min(1, this.speed / Math.max(0.5, walkSpeed)) * (1 - ads * 0.85) : 0
+        const want = this.grounded && !this.downed && !this.sliding ? Math.min(1, this.speed / Math.max(0.5, walkSpeed)) * (1 - ads * 0.85) : 0
         this.bobAmp += (want - this.bobAmp) * Math.min(1, dt * 8)
         const amp = this.bobAmp * (this.sprinting ? 1.35 : this.crouched ? 0.7 : 1)
         const out = this.bobOut

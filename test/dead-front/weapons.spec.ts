@@ -67,13 +67,50 @@ describe('weapon defs', () => {
         expect(wall).toEqual(['kar98k', 'm1897', 'mp18', 'thompson'])
         for (const id of wall) expect(DF_WEAPONS[id].ammoCost).toBeGreaterThan(0)
         expect(dfBoxPool().sort()).toEqual(DF_WEAPON_IDS.filter(id => id !== 'm1911' && id !== 'wunder').sort())
-        expect(DF_WEAPON_IDS.filter(id => !DF_WEAPONS[id].startable).sort()).toEqual(['wunder', 'xray'])
+        // the box-only finds are never a start weapon (everyone starts with the M1911)
+        for (const id of ['chauchat', 'flammen', 'sawnoff', 'webley', 'win1895', 'wunder', 'xray'] as const) expect(DF_WEAPONS[id].startable, id).toBe(false)
+    })
+
+    it('stocks the box with the new finds, each with a distinct job', () => {
+        const pool = dfBoxPool()
+        for (const id of ['chauchat', 'flammen', 'sawnoff', 'webley', 'win1895'] as const) {
+            expect(pool).toContain(id)
+            expect(DF_WEAPONS[id].wallCost).toBeUndefined()
+        }
+        const s = (id: (typeof DF_WEAPON_IDS)[number]) => dfWeaponStats(id, 0)
+        // Webley: the heaviest-hitting pistol, but six rounds and a slow cycle
+        expect(s('webley').damage).toBeGreaterThan(s('c96').damage)
+        expect(s('webley').magSize).toBeLessThan(s('m1911').magSize)
+        expect(s('webley').rpm).toBeLessThan(s('m1911').rpm)
+        // Coach gun: the biggest single pull of all, two shells, the shortest reach
+        expect(s('sawnoff').damage * s('sawnoff').pellets).toBeGreaterThan(s('m1897').damage * s('m1897').pellets)
+        expect(s('sawnoff').magSize).toBe(2)
+        expect(s('sawnoff').maxRange).toBeLessThan(s('m1897').maxRange)
+        expect(dfWeaponStats('sawnoff', 3).magSize).toBe(2)
+        // Brenneke slugs: one big ball instead of buckshot
+        const slug = dfWeaponStats('sawnoff', 0, { magazine: 'sawnoff-slugs' })
+        expect(slug.pellets).toBe(1)
+        expect(slug.damage).toBeGreaterThan(s('sawnoff').damage * 5)
+        // Winchester: cycles much faster than the Kar98k, hits a little lighter
+        expect(s('win1895').rpm).toBeGreaterThan(s('kar98k').rpm * 1.4)
+        expect(s('win1895').damage).toBeLessThan(s('kar98k').damage)
+        expect(s('win1895').fireMode).toBe('bolt')
+        // Chauchat: slow and hammering, a small magazine for a machine gun, goes through a line
+        expect(s('chauchat').rpm).toBeLessThan(s('lewis').rpm * 0.6)
+        expect(s('chauchat').damage).toBeGreaterThan(s('lewis').damage)
+        expect(s('chauchat').magSize).toBeLessThan(s('lewis').magSize)
+        expect(s('chauchat').penetration).toBeGreaterThanOrEqual(2)
+        // Flamethrower: a short fan of rays burning through a crowd
+        expect(s('flammen').maxRange).toBeLessThanOrEqual(10)
+        expect(s('flammen').pellets).toBeGreaterThan(1)
+        expect(s('flammen').penetration).toBeGreaterThanOrEqual(4)
+        expect(s('flammen').fireMode).toBe('auto')
     })
 
     it('gives regular weapons a choice in each of the four slots, unlocked at levels 2-5', () => {
         for (const id of DF_WEAPON_IDS) {
             const list = DF_WEAPONS[id].attachments
-            if (id === 'xray' || id === 'wunder') {
+            if (DF_WEAPONS[id].class === 'special') {
                 expect(list).toHaveLength(0)
                 continue
             }

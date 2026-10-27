@@ -22,10 +22,12 @@ Code prefix: `Df` / `df` / `DF_`.
   `{ t: 'rejoin', id, host }`, which rebuilds the lobby under its old id and
   gives the old host the lead back. A match in progress is lost with the
   restart and the client returns to the lobby.
-- **Loadout (pre-game)**: start weapon (any *unlocked* `startable` weapon) and
-  attachments per weapon (unlocked by weapon level). Weapons unlock
-  permanently by being *found* in a match: bought off a wall, taken from the
-  mystery box or claimed from the easter egg. Everyone starts with the M1911.
+- **Loadout (pre-game)**: attachments per weapon (unlocked by weapon level).
+  There is no start weapon to pick: everyone starts, respawns and goes into
+  last stand with the M1911 (`DfLoadout.startWeapon` is always `m1911`; one
+  stored from before is ignored, and the loadout endpoint takes attachments
+  only). Weapons unlock permanently by being *found* in a match: bought off a
+  wall, taken from the mystery box or claimed from the easter egg.
 - **Perk research**: pick one perk to research. Every match played adds XP to
   it (`dfPerkXpFromMatch`). Research levels 1–6 each unlock one modifier
   (6 per perk). Per perk the player selects up to **2** unlocked modifiers;
@@ -38,21 +40,23 @@ Code prefix: `Df` / `df` / `DF_`.
   Four enemy types phase in: Shambler (r1), Ghoul (r5, sprinter), Ironclad
   Brute (r8, armoured helmet, heavy), Bloater (r12, ranged spit, toxic death
   cloud). Max 24 alive. 10 s intermission.
-- **Downs**: a downed player gets last stand with their pistol; teammates hold
-  to revive (3 s). Bleed-out → dead, respawns next round with the start
-  weapon. Everyone down/dead → game over and the end screen.
+- **Downs**: a downed player gets last stand with their pistol (the M1911 if
+  they carry none); teammates hold to revive (3 s). Bleed-out → dead, respawns
+  next round with the M1911. Everyone down/dead → game over and the end screen.
 - **Map "Sainte-Croix"** (~84 m across, voxel art): five zones in a ring
   around a block of gutted houses: the Square (start), Farmyard, Chapel (PaP
   in the chancel), Cemetery (power in the crypt, the pedestal) and the
   Ramparts (generator in the bailey, a wall walk at y = 3 reached by two wide
   stairs). 4 buyable doors close the ring, 12 boarded windows, wall-buys, 6
-  perk machines, 3 box spots, power switch, 2 electric traps. Power powers
+  perk machines, 3 box spots, power switch, 2 electric traps, 2 workbenches. Power powers
   perks, PaP and the traps. The
   layout is authored on a 0.5 m voxel grid (`shared/utils/dead-front/map-world.ts`)
   and compiled in `map.ts` to greedy-merged collision boxes and a nav graph;
   the client greedy-meshes the same grid (`app/utils/dead-front/voxel/`).
 - **Pack-a-Punch**: 3 tiers (5,000 / 15,000 / 30,000). Each tier renames the
-  weapon, raises damage/mag/reserve and changes the camo glow. The M1911 at
+  weapon, raises damage/mag/reserve and changes the camo glow (a bright band
+  sweeps down the gun and the edges take a tier-coloured sheen,
+  `weapons/materials.ts`). The M1911 at
   tier 1+ becomes twin grenade-launcher pistols.
 - **Mystery box**: 950, rolls a box weapon incl. the **X-Ray** (brass ray
   pistol firing green bolts with splash). Never starts in the start zone;
@@ -65,7 +69,10 @@ Code prefix: `Df` / `df` / `DF_`.
   runs out (60 s solo, 45 s co-op from the first throw; a timeout resets them
   with `rod` events, `on: false`, and the squad tries again) → claim the
   **wunderweapon** (chain-lightning arc
-  rifle) from the pedestal. Steps in `DF_EGG_STEPS`; the HUD shows the step
+  rifle) from the pedestal. Its first target is the zombie the client claims,
+  else the one the ray takes (`dfArcAim`, `combat.ts`: the closest point of the
+  body's axis, a ~13° cone, and point blank, within `DF_ARC_POINT_BLANK` of the
+  body, any zombie in front). Steps in `DF_EGG_STEPS`; the HUD shows the step
   text and a waypoint.
 - **Electric traps** (`shared/utils/dead-front/map-traps.ts`, rules in
   `specials.ts`): a lever beside the Churchyard Passage and the Cemetery Gate.
@@ -82,6 +89,8 @@ Code prefix: `Df` / `df` / `DF_`.
   `crawlHitTest` hitbox.
 - **Power-ups** (drops on kill): max ammo, double points, insta-kill, nuke,
   carpenter.
+- **Salvage, the workbench, rarity, killstreaks and round challenges**: see
+  "Salvage and the workbench" below.
 
 ## Netcode
 
@@ -114,19 +123,42 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   and play the buy sound at once; a bought door opens and stops blocking at
   once. The server's `buy` event settles it, a missing one rolls it back.
 - Projectile weapons (grenades, PaP pistol, X-Ray bolts) and the wunderweapon
-  arc are simulated by the server.
+  arc are simulated by the server. The `explode` event of an X-Ray bolt or a
+  PaP shell carries its `tier`, so the blast is drawn in the right colour even
+  when the bolt was never seen in a snapshot (point blank).
 - Snapshots at 20 Hz (`DfSnapshot`) with events. Remote players interpolate
   `DF_INTERP_DELAY_MS` behind (adaptive to jitter). Zombies and view events run
   on a shorter delay (`DfSnapBuffer.zombieDelay`, about one tick): past the
-  newest snapshot zombies dead-reckon along `DfZombieSnap.vel`, and
-  `DfZombieSmoother` blends corrections in and springs the height separately.
+  newest snapshot zombies dead-reckon along `DfZombieSnap.vel` (omitted when
+  zero) for up to `DF_MAX_ZOMBIE_EXTRAPOLATE`, and `DfZombieSmoother` blends
+  corrections in (at most 2.5 m/s) and springs the height separately.
+- Weak links (production: 40-90 ms round trip, regular 300 ms spikes; see
+  `test/dead-front/netcode-lag.spec.ts`): the clock offset is the earliest
+  arrival over the last second, so a spike and the stale burst it releases
+  never move it, and the render clock slews toward it (5%, 20% when far off)
+  instead of stepping. Lateness beyond the jitter margin is a spike, kept
+  apart (`DfSnapBuffer.spike`, fading over ~50 s); snapshots landing together
+  count once. Remote players widen their delay to ride spikes out (up to
+  `DF_MAX_PLAYER_DELAY_MS`); zombies keep a short delay and dead-reckon through
+  them. Delays change at most 10% / 5% of real time (`dfEaseDelay`). The ping is
+  the median of the last 5 (1 s apart), so one caught in a spike is ignored.
+- Predictions settle on the snapshot `ack`, not a timeout: each one remembers
+  the next input seq, and a snapshot acking it has the server's answer (one
+  ordered socket, messages handled as they land), so a late echo is never
+  taken for a refusal (`dfPredictionSettled`; 3 s fallback). The same guards
+  the magazine against snapshots from before the last shot or reload.
+- Server tick loop: fixed 50 ms steps on the wall clock, catching up to 0.6 s
+  of host stall (4 steps and one snapshot per callback), so a stall doesn't
+  shift the snapshot clock. A peer whose frames Bun drops, or with 8 MB queued,
+  is disconnected and resyncs through the reconnect grace.
 - Stairs: the server sends a zombie's shown height (`viewY`), a ramp over the
   steps (`dfRampHeight`) eased at walking pace instead of the physics'
   instant step-up. The camera rides the same kind of ramp through a critically
   damped spring (`DfPlayerController.viewFloor`).
 - Lag: every `in` carries the client's `rtt`. A zombie swipe whose windup ends
   waits `rtt + 50 ms` (capped at 0.3 s) before it lands, so a step back made on
-  the player's screen has reached the server. A player whose movement reports
+  the player's screen has reached the server; if their reports have stalled
+  (older than 0.15 s, a spike) it holds up to 0.45 s more for fresh ones. A player whose movement reports
   stopped arriving for `DF_STALE_INPUT` (a lag spike, up to 3 s) can't be hit
   by zombies (not again within 10 s of their last stall), and a solo match
   holds still until their reports resume (`DfMatchSim.soloStalled`; a
@@ -143,6 +175,20 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   sprint-out before the shot); a fresh sprint press, a swap or the knife
   cancels a reload, keeping the magazine once it is seated (the last fifth,
   `DF_RELOAD_SEATED`) and reporting it with `{ t: 'reload', mag }`.
+- Slide (`DF_SLIDE`, `engine/player.ts`): crouch (C) in a sprint on the ground
+  launches a short slide (x1.22 speed, capped at 9.6 m/s, inside the server's
+  movement budget) on the crouched body; it coasts on friction, steers a
+  little, keeps the sprint FOV and leans the view. Jumping out of it (or
+  crouching again) ends it with the momentum carried for a moment, and a
+  sprint held to the end stands straight back into the sprint. The gun can
+  fire throughout.
+- Recoil patterns: per class (`DF_RECOIL`) with per-weapon overrides
+  (`DF_RECOIL_ID`): the Chauchat climbs and pulls right, the Lewis drifts
+  left, the Webley bucks straight up, the flamethrower only trembles.
+- Viewmodel momentum: the gun leans into strafes, trails jumps and dips
+  harder on hard landings, swings a figure-eight in a sprint and cants over
+  in a slide; I inspects the weapon (any action cancels it). Swaps are
+  CoD-quick (0.4 s pistols to 0.72 s LMGs, before Quickhand).
 - Shaders: the engine compiles every program at spawn (`warmUp`: both scenes,
   every weapon model plain and packed, one of each projectile) into the
   composer's linear target, so the first flash, explosion or camo never
@@ -161,7 +207,10 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   "Open doors with points", "Find the power", "Perk machines need the
   power", each once per browser (`localStorage` `df-hints-v1`), one at a time
   with a gap, taken down as soon as the player does the thing. A downed
-  teammate is always called out ("Hold F next to Bea to revive").
+  teammate is always called out ("Hold F next to Bea to revive"). The
+  arsenal adds "Salvage builds gear at a workbench", "Press F at the
+  workbench to craft", "Hold Q to place your gear" and "Hold X to call in
+  the …" (facts from `DfArsenalClient.facts`).
 - Hit points: every own hit floats its points ("+10", kills "+60" / "+100" /
   "+130") up off the zombie where it was hit (`hud.hitPops`, positioned per
   frame through `--df-hp{i}-x/y/on`), besides the classic popups at the score.
@@ -176,6 +225,75 @@ client-authoritative and feel instant; the server keeps only sanity bounds.
   to spot, and `hud.markers` (with downed teammates) are placed every frame
   through `--df-mk{i}-x/y/on/ang` like the objective waypoint. From round 2 the
   last two walkers break into a run so a round never stalls on a straggler.
+
+## Salvage and the workbench
+
+Rules in `shared/utils/dead-front/salvage.ts` (salvage, recipes, sentry,
+decoy, armour, challenges), `killstreaks.ts` (rewards, strike plans) and
+`rarity.ts` (tiers, the box curve, upgrade kits, bench upgrade costs); the
+server state in `server/utils/dead-front/salvage.ts` (`DfArsenal`, driven by
+hooks in `sim.ts`: kill, hurt, down, round start/end, step, the hunt's lure
+check, the snapshot). Every grant is claim-then-reward: a drop leaves the list
+before it pays, a craft or upgrade takes its salvage before it hands anything
+over, a reward is popped before it fires, a kit leaves the ground (or the
+box) before it applies.
+
+- **Salvage is per player.** A kill drops scrap (some chance) and now and then
+  a rare part for the killer only (kills by gear and support: their owner;
+  traps: the nearest soldier). Brutes always drop a pile, bloaters usually.
+  The chance is set per round so a solo horde drops about 6 scrap a round
+  whatever its size (`dfSalvageChance`, more per extra player); a craft every
+  two or three rounds. Only the owner sees their drops and can walk over them
+  (the client takes it at once and plays the pickup; the server's `salvage`
+  event settles it). Pools, drops and pickup events travel in the receiving
+  player's private slice `DfSnapshot.mine` (appended per recipient by
+  `match.ts`), folded into `world.arsenal` and `events` on arrival by
+  `dfMergeArsenalMine`, so nothing leaks to teammates. A Maxim silencer on the
+  killing weapon raises the drop chances by a quarter (`attachment.salvage`,
+  `dfSalvageBonus`) instead of the old headshot bonus.
+- **Workbenches** (`map-benches.ts`, collision in `map-world.ts`): one against
+  the Square's north wall, one in the Ramparts bailey. The prompt shows the
+  selected item: **tap F** for the next, **hold F** (0.6 s) to make it; the
+  list (`DfHudBench`) shows every item, its cost and why it can't be made.
+  - Lewis Sentry (12 scrap + 1 part, Q to place within 4 m): 60 s, 240 rounds,
+    guns down the nearest zombie it can see in 22 m, 40 points a kill to its
+    owner, clawed apart by zombies standing on it; one per player.
+  - Trench Plate (7): 120 armour that takes 75% of each hit.
+  - Trench Bombs (4): a full satchel of grenades.
+  - Gramophone (8, Q to throw within 12 m): zombies within 22 m dance to it
+    for 9 s (`DfArsenal.lure`, ahead of the hunt), then it blows (5.5 m).
+  - Field Kit (8 + 1 part): a self-revive 3 s after going down.
+  - Upgrade the weapon in hand one rarity tier (6 / 12 + 1 part / 20 + 2
+    parts). The request carries the tier it is at (`from`), an integer CAS.
+- **Rarity** (Cold War style, `rarity.ts`): Common, Rare (green), Epic
+  (purple), Legendary (orange), +0 / 25 / 55 / 100% damage through
+  `dfWeaponStats(id, pap, attachments, rarity)` (so prediction agrees);
+  `DfHeldWeapon.rarity`, kept through Pack-a-Punch, any weapon but the
+  wunderweapon. Wall-buys are common. The box rolls a tier
+  (`dfBoxRarityWeights`: mostly common through round 5, no commons and a
+  quarter legendary by round 20), shown on offer (`DfBoxState.rarity`, a glint
+  in its colour), in the prompt, the ammo plate and the squad feed.
+- **Upgrade kits**: a box roll may offer a kit instead (`dfBoxKitChance` 4%
+  rising to 12%, better tiers later; `DfBoxState.kit`). Taking it raises the
+  held weapon to its tier, or, when that weapon is already as good, sets it
+  down in front of you for 2 minutes (`world.arsenal.kits`, blinking for the
+  last 15 s); anyone can take it onto a weapon below its tier (F, "Already
+  Epic" otherwise).
+- **Killstreak rewards**: kills without going down (traps, gear and support
+  don't count) earn the Artillery Barrage (15: eight shells round the mark),
+  the Zeppelin Raid (30: a bomb run along your line of sight) and the Sopwith
+  Strafing Run (50: Vickers raking a 44 m line), then the count starts over.
+  Up to three held; **hold X** (or 4) to mark where you look, release to call
+  in the newest. The server plans every impact (`dfPlanStrike`), sends it in
+  the `strike` event and resolves the damage at those times; support never
+  hurts a player.
+- **Round challenges**: from round 2 (not in the gas) each round deals one
+  (headshot kills, knife kills, explosive kills, the brute, kills by gear and
+  support); meeting it gives everyone 4 scrap, a part and 250 points. Shown
+  under the objective tracker.
+- Controls: F at a bench (tap / hold), Q (hold to aim, release to place), X or
+  4 (hold to mark, release to call in), F at a kit on the ground.
+- Dev: `{ t: 'dev', op: { k: 'arsenal', what: 'salvage' | 'streak' | 'rewards', n } }`.
 
 ## Pack-a-Punch
 
@@ -255,10 +373,14 @@ view only reacts to its own kinds so nothing is drawn twice:
 | `hit`, `kill`, `zhit` gore, `gas` (bloater cloud) | zombie view (map agent) |
 | `door`, `plank`, `box`, `pap` (machine), `power`, `fuse`, `rod`, `soul`, `egg`, `perk` (machine jingle) | world view (map agent) |
 | `explode`, `arc` | projectile view (weapons agent) |
+| `craft` (bench), `salvage`, `deploy`, `sentry`, `decoy`, `kitDrop`, `strike` (the show: flare, whistles, Zeppelin, Sopwith) | world view parts `interact/workbench.ts`, `salvage.ts`, `sentry.ts`, `kits.ts`, `strikes.ts` |
+| `reward`, `strike` and `challenge` callouts, `armor`, `rarity`, `kitDrop` notices | engine (`engine/arsenal.ts`) |
 | `shot` (remote tracer + sound), `points`, `round`, `roundEnd`, `down`, `revived`, `bleedout`, `respawn`, `powerup`, `buy`, `chat`, hitmarkers, damage feedback | engine (engine agent) |
 
 The squad feed (top right of the HUD: downs, revives, doors, power) is built
-by `DfGameView` from the snapshot events with `dfHudFeedLine` (`engine/hud.ts`).
+by `DfGameView` from the snapshot events with `dfHudFeedLine` (`engine/hud.ts`;
+the arsenal's lines, a weapon's rarity in its colour, come from
+`dfArsenalFeedLine` in `engine/arsenal-prompt.ts`).
 In development, `/dead-front?hud` (or `?hud=down|dead|board|round`) shows the
 HUD over mock state for checking hard-to-reach states.
 
@@ -280,8 +402,20 @@ tension bed follows `audio.setTension(alive / 18)`. In dev,
 
 Wall-buys on the map: `kar98k`, `mp18`, `m1897`, `thompson` (the weapons
 agent sets `wallCost`/`ammoCost` for exactly these). Box only: `c96`, `ppsh`,
-`bar`, `lewis`, `xray` (plus the wall weapons). `m1911` is the default start weapon;
-`wunder` comes only from the easter egg.
+`bar`, `lewis`, `xray` and the five box finds below (plus the wall weapons).
+`m1911` is everyone's start weapon; `wunder` comes only from the easter egg.
+None of the box weapons is `startable`. Odds per weapon are `dfBoxWeight`
+(the X-Ray about one roll in seventeen, the flamethrower a little more often).
+
+The box finds, each with its own job:
+
+| Id | Weapon | Role |
+| --- | --- | --- |
+| `webley` | Webley Mk VI (pistol) | Hand cannon: six heavy .455 rounds, a slow cycle; the top-break action tips open, spills the brass and takes a speedloader. The cylinder turns a chamber per shot. |
+| `sawnoff` | Coach Gun (shotgun) | The biggest single trigger pull in the game, two shells, the shortest reach; both barrels break open and reload together. Brenneke slugs trade the pattern for one huge penetrating ball. |
+| `win1895` | Winchester 1895 (rifle) | Lever action: much faster follow-ups than the Kar98k for a little less punch; the lever is worked between shots. |
+| `chauchat` | Chauchat (LMG) | Slow, hammering 8 mm in a 20-round half-moon; hits harder and goes through more than the Lewis, climbs and pulls right. |
+| `flammen` | Wex Flammenwerfer (special) | Flamethrower (`DfWeaponDef.flame`): a hitscan fan of short rays (`pellets`) that each burn through several zombies (`penetration`) with steep falloff past 5 m. Drawn as a jet of fire (`fx` preset `flame`) and a lit pilot burner, no tracers, impacts or brass; a pressure-bottle reload. No attachments. |
 
 ## Zombie dimensions
 
@@ -332,6 +466,26 @@ rounds on the real map and prints points earned against costs per round
   either side of the passage joined by a wire overhead. Live, the wire glows,
   arcs leap between the coils, a pooled light stutters over the passage and
   each kill takes a bolt from the nearest coil. Sounds: `DF_SPECIAL_SND.trap*`.
+- **Workbenches** (`world/interact/workbench.ts`): a trestle bench with a vice,
+  tools and scrap, an oil lamp (a map light), and a slate board chalked with
+  the five craftables; a brass lamp on the board burns green while your
+  salvage pays for something. A craft swings the hammer three times, with
+  sparks and a ring.
+- **Salvage** (`world/salvage.ts`): rusty scrap heaps and brass rare parts
+  with a blue tube; they pop out, bob, turn and blink before rusting away.
+- **Gear** (`world/sentry.ts`): the Lewis sentry on its tripod swings onto its
+  target, flashes, draws a tracer per shot and turns its pan; a lamp blinks
+  red when it runs low, it smokes when clawed. The gramophone's record turns
+  and its horn throbs to a looping waltz, faster and flashing red before it
+  blows.
+- **Upgrade kits** (`world/kits.ts`, also in the box): a tool chest banded in
+  its rarity colour.
+- **Support** (`world/strikes.ts`): a red smoke flare on the barrage's mark and
+  a falling whistle ahead of each shell; a grey Zeppelin droning over, bombs
+  falling from the gondola; a Sopwith diving along the line with its Vickers
+  leaving tracers and dust. Blasts are the projectile view's `explode`
+  events. Sounds: `DF_ARSENAL_SND` (`engine/arsenal-sounds.ts`), mixed by
+  category in `engine/audio.ts`.
 - **Atmosphere** (`world/atmosphere.ts`): ground mist masked to open ground
   (roofed cells from the voxel grid stay clear), drifting ash and embers
   around the camera. A new round bleeds the sky red for a few seconds; shell

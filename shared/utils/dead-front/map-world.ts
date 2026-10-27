@@ -1,5 +1,6 @@
 import type { DfBarricade, DfDoor, DfLight, DfPerkMachine, DfSolid, DfSpot, DfWallBuy, DfZone } from './map'
 import type { DfPerkId, Vec3 } from './types'
+import { DF_BENCH_SIZE, dfMapBenches } from './map-benches'
 import { DfVox, dfHash3, dfVoxGreedyBoxes } from './voxel'
 import type { DfVoxFill, DfVoxPaletteEntry } from './voxel'
 
@@ -682,6 +683,8 @@ function buildWorld(): DfMapWorld {
         { id: 'box-ramparts', pos: v(21.45, 0, 23.5), yaw: PI / 2, zone: 'ramparts' }
     ]
     for (const s of boxSpots) spotProxy(s, 1.7, 0.8, 0.55, 'wood', 'boxstand')
+    // workbenches (map-benches.ts): a trestle bench against the wall
+    for (const b of dfMapBenches()) spotProxy(b, DF_BENCH_SIZE.along, DF_BENCH_SIZE.depth, DF_BENCH_SIZE.height, 'wood', 'workbench')
     const pap: DfSpot = { id: 'pap', pos: v(-37, 0.5, -38.2), yaw: PI / 2, zone: 'chapel' }
     spotProxy(pap, 1.6, 1.2, 2.2, 'metal', 'pap')
     const power: DfSpot = { id: 'power', pos: v(26, 0, -36.75), yaw: 0, zone: 'cemetery' }
@@ -774,6 +777,9 @@ function buildWorld(): DfMapWorld {
         { pos: v(26, 3.4, -34), color: BULB, intensity: 1.6, distance: 10, power: true },
         { pos: v(21, 3.2, -21), color: LAMP, intensity: 1.4, distance: 13, flicker: true },
         { pos: v(31.5, 3.2, -21), color: LAMP, intensity: 1.4, distance: 13, flicker: true },
+        // workbench lamps
+        { pos: v(16.5, 2.3, 2.6), color: LAMP, intensity: 1.1, distance: 7, flicker: true },
+        { pos: v(21.6, 2.3, 10), color: LAMP, intensity: 1.1, distance: 7, flicker: true },
         // ramparts
         { pos: v(33, 3.2, 7), color: LAMP, intensity: 1.4, distance: 13, flicker: true },
         { pos: v(33, 3.2, 21), color: LAMP, intensity: 1.4, distance: 13, flicker: true },

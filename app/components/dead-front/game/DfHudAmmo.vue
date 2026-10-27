@@ -2,7 +2,7 @@
     <div class="df-ammo" :class="{ low: low && !ammo.reloading, reloading: ammo.reloading, pap: ammo.pap > 0 }" :style="papStyle">
         <!-- name plate with Pack-a-Punch tier blocks; pops on every weapon change -->
         <div :key="swapKey" class="plate">
-            <span class="name">{{ ammo.name }}</span>
+            <span class="name" :style="rarityStyle">{{ ammo.name }}</span>
             <span v-if="ammo.pap > 0" class="gems" :aria-label="`Pack-a-Punch tier ${ammo.pap}`">
                 <i v-for="i in 3" :key="i" :class="{ on: i <= ammo.pap }" :style="{ '--g': DF_PAP_COLORS[i - 1] }" />
             </span>
@@ -41,6 +41,7 @@
 // Bottom-right ammo: the weapon's name plate (with Pack-a-Punch tier blocks),
 // a big magazine count over the reserve, and the cartridges left as blocks.
 import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
+import { dfRarity } from '#shared/utils/dead-front/rarity'
 import type { DfHudState } from '~/utils/dead-front/engine/hud'
 
 const props = defineProps<{
@@ -50,6 +51,8 @@ const props = defineProps<{
     swapKey: number
 }>()
 
+// rarity (rarity.ts): the name in its tier's colour, over a dark edge so it reads on the plate
+const rarityStyle = computed(() => ((props.ammo.rarity ?? 0) > 0 ? { color: dfRarity(props.ammo.rarity).color, textShadow: '1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000' } : undefined))
 const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[Math.min(3, props.ammo.pap) - 1] } : {}))
 </script>
 

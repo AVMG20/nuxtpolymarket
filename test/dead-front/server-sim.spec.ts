@@ -235,6 +235,8 @@ describe('DfMatchSim interactions', () => {
             sim.box.spot = 0
             sim.use(0, 'box-0')
             sim['boxInternal'].willMove = false
+            // a weapon, not an upgrade kit (rarity.ts; kits have their own tests)
+            sim['boxInternal'].kit = null
             expect(p.points).toBe(5000 - DF_COSTS.box)
             expect(sim.box.state).toBe('rolling')
             for (let i = 0; i < 90 && sim.box.state === 'rolling'; i++) sim.step(0.05)
@@ -378,7 +380,7 @@ describe('DfMatchSim rounds and downs', () => {
         expect(sim.over).toBe(true)
     })
 
-    it('bleeds out into dead and respawns next round with the start weapon', () => {
+    it('bleeds out into dead and respawns next round with the M1911', () => {
         const { sim } = makeSim(2)
         const a = sim.player(0)!
         sim['hurtPlayer'](a, 10_000, 1, false)
@@ -435,8 +437,11 @@ describe('DfMatch', () => {
             totalKills: 0,
             eggsCompleted: 0
         }
-        expect(dfPlayerSetup({ userId: 'u', name: 'U' }, profile).startWeapon).toBe('m1911')
-        expect(dfPlayerSetup({ userId: 'u', name: 'U' }, { ...profile, loadout: { startWeapon: 'mp18', attachments: {} } }).startWeapon).toBe('mp18')
+        // start weapons can't be chosen: a stored one is ignored and the match starts everyone with the M1911
+        const setup = dfPlayerSetup({ userId: 'u', name: 'U' }, { ...profile, loadout: { startWeapon: 'mp18', attachments: {} } })
+        expect(setup.startWeapon).toBeUndefined()
+        const sim = new DfMatchSim([setup], { map: MAP, now: () => 0, startDelay: 1000 })
+        expect(sim.player(0)!.weapons.map(w => w.id)).toEqual(['m1911'])
         expect(dfPlayerSetup({ userId: 'u', name: 'U' }, profile).perkMods).toEqual({ ironhide: ['x'] })
     })
 

@@ -1,6 +1,8 @@
 import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
 import type { DfEvent, DfPlayerLife } from '#shared/utils/dead-front/protocol'
 import type { DfEggStep, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
+import { dfArsenalFeedLine } from './arsenal-prompt'
+import type { DfHudArsenal } from './arsenal-prompt'
 
 // HUD state the engine writes (~20 Hz) and the Vue overlay renders. Fast
 // per-frame values (crosshair spread, waypoint position, damage indicator
@@ -89,6 +91,8 @@ export interface DfHudState {
         pap: number
         reloading: boolean
         infinite: boolean
+        /** Rarity tier 0..3 (rarity.ts): the name shows in its colour. */
+        rarity?: number
     }
     grenades: number
     perks: DfHudPerk[]
@@ -101,7 +105,7 @@ export interface DfHudState {
     reviving: { name: string, progress: number } | null
     powerups: DfHudPowerup[]
     announce: { key: number, title: string, sub: string, tone: 'gold' | 'red' | 'pale' } | null
-    prompt: { text: string, sub: string, cost: number | null, ok: boolean, denyKey: number, hold: number } | null
+    prompt: { text: string, sub: string, cost: number | null, ok: boolean, denyKey: number, hold: number, /** Colour of the text (a rarity's). */ tint?: string | null } | null
     objective: {
         visible: boolean
         step: DfEggStep
@@ -154,6 +158,8 @@ export interface DfHudState {
      * --df-mk{i}-ang (radians toward it when clamped), like the objective waypoint.
      */
     markers: DfHudMarker[]
+    /** Salvage, crafted gear, the workbench list, killstreaks and the round challenge (arsenal.ts). */
+    arsenal: DfHudArsenal
 }
 
 export const DF_HUD_MARKERS = 4
@@ -182,6 +188,8 @@ export interface DfHudFeedItem {
     /** Optional second name, e.g. the revived soldier. */
     target: string | null
     targetColor: string | null
+    /** Colour of the text itself (a weapon's rarity), else the tone's. */
+    textColor?: string | null
 }
 
 export type DfHudFeedLine = Omit<DfHudFeedItem, 'id' | 'born'>
@@ -251,7 +259,7 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
             return null
         }
         default:
-            return null
+            return dfArsenalFeedLine(ev, { me: c.me, line, weaponName: c.weaponName })
     }
 }
 
@@ -267,6 +275,13 @@ export function dfHudPushFeed(feed: DfHudFeedItem[], line: DfHudFeedLine, now: n
 /** Drops entries older than DF_HUD_FEED_MS. */
 export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
     while (feed.length && now - feed[0]!.born > DF_HUD_FEED_MS) feed.shift()
+}
+
+export function dfNewHudArsenal(): DfHudArsenal {
+    return {
+        scrap: 0, parts: 0, armor: 0, equip: null, kit: false, streak: 0,
+        next: { name: '', at: 15, from: 0 }, rewards: [], bench: null, challenge: null, salvageKey: 0, targeting: null
+    }
 }
 
 export function dfCreateHudState(): DfHudState {
@@ -314,6 +329,7 @@ export function dfCreateHudState(): DfHudState {
         hint: null,
         ammoHint: null,
         lastZombies: 0,
-        markers: []
+        markers: [],
+        arsenal: dfNewHudArsenal()
     }
 }

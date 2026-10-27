@@ -79,7 +79,7 @@ import DfTitleLockup from '~/components/dead-front/ui/DfTitleLockup.vue'
 const keys = [
     { keys: ['W', 'A', 'S', 'D'], what: 'move' },
     { keys: ['Shift'], what: 'sprint' },
-    { keys: ['C'], what: 'crouch' },
+    { keys: ['C'], what: 'crouch · slide' },
     { keys: ['Space'], what: 'jump' },
     { keys: ['LMB'], what: 'fire' },
     { keys: ['RMB'], what: 'aim' },
@@ -87,6 +87,7 @@ const keys = [
     { keys: ['F'], what: 'use' },
     { keys: ['V'], what: 'knife' },
     { keys: ['G'], what: 'grenade' },
+    { keys: ['I'], what: 'inspect' },
     { keys: ['1', '2', 'Wheel'], what: 'swap' },
     { keys: ['Tab'], what: 'ledger' },
     { keys: ['T'], what: 'chat' }

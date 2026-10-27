@@ -1,6 +1,6 @@
 import { DF_PERKS, DF_PERK_IDS, DF_MAX_PERK_MODS } from '#shared/utils/dead-front/perks'
 import { dfPerkLevel, dfPerkXpFromMatch } from '#shared/utils/dead-front/progression'
-import { DF_WEAPONS, DF_WEAPON_IDS, DF_WEAPON_XP_PER_KILL, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
+import { DF_WEAPON_IDS, DF_WEAPON_XP_PER_KILL, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
 import type { DfAttachmentChoice, DfLoadout, DfMatchResult, DfPerkId, DfProfileView, DfProgressReport, DfWeaponId } from '#shared/utils/dead-front/types'
 
 // Pure profile rules (no DB): normalising stored JSON, validating REST
@@ -59,21 +59,16 @@ export function dfNormalizeProfile(row: DfProfileRowLike): DfProfileView {
         eggsCompleted: int(row.eggsCompleted)
     }
     const stored = (row.loadout && typeof row.loadout === 'object' ? row.loadout : {}) as Partial<DfLoadout>
-    view.loadout = dfValidateLoadout(view, stored.startWeapon, stored.attachments, true) ?? view.loadout
+    // a start weapon stored back when it could be chosen is ignored
+    view.loadout = dfValidateLoadout(view, stored.attachments)
     return view
 }
 
 /**
- * Validates a loadout against the profile. Returns null when the start weapon is
- * not allowed (unless `lenient`, which falls back to the M1911).
+ * Validates a loadout's attachments against the profile (unlocked weapons,
+ * weapon levels). The start weapon is always the M1911: it can't be chosen.
  */
-export function dfValidateLoadout(view: DfProfileView, startWeapon: unknown, attachments: unknown, lenient = false): DfLoadout | null {
-    let start: DfWeaponId = 'm1911'
-    if (isDfWeaponId(startWeapon) && DF_WEAPONS[startWeapon].startable && view.unlockedWeapons.includes(startWeapon)) {
-        start = startWeapon
-    } else if (!lenient) {
-        return null
-    }
+export function dfValidateLoadout(view: DfProfileView, attachments: unknown): DfLoadout {
     const out: DfLoadout['attachments'] = {}
     if (attachments && typeof attachments === 'object' && !Array.isArray(attachments)) {
         for (const [k, v] of Object.entries(attachments)) {
@@ -84,7 +79,7 @@ export function dfValidateLoadout(view: DfProfileView, startWeapon: unknown, att
             if (Object.keys(choice).length) out[k] = choice
         }
     }
-    return { startWeapon: start, attachments: out }
+    return { startWeapon: 'm1911', attachments: out }
 }
 
 /** Keeps known, unlocked, distinct modifier ids for a perk, at most DF_MAX_PERK_MODS. */

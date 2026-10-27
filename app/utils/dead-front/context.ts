@@ -22,6 +22,7 @@ export type DfFxPreset
         | 'gas' // bloater cloud puffs (sickly green)
         | 'soul' // wisp flying to the generator
         | 'embers'
+        | 'flame' // flamethrower jet: rolling fire puffs thrown along the normal
 
 export interface DfFxOpts {
     normal?: Vec3 | THREE.Vector3
@@ -127,6 +128,12 @@ export interface DfViewmodelInput {
     /** Wants to aim; the viewmodel eases its own ADS blend using the weapon's adsTime / effects.adsMult. */
     ads: boolean
     adsMult: number
+    /** Sliding (sprint into crouch): the gun cants hard and drops. */
+    sliding?: boolean
+    /** Sideways velocity in camera space, -1..1 of sprint speed (+ right): the gun leans into strafes. */
+    strafe?: number
+    /** Vertical velocity in m/s: the gun trails a jump and lands with a dip. */
+    vy?: number
 }
 
 export interface DfViewmodelWeapon {
@@ -148,6 +155,8 @@ export interface DfViewmodel {
     reload(empty: boolean, seconds: number, shell?: boolean): void
     cancelReload(): void
     melee(): void
+    /** Look the weapon over (cancelled by any action). */
+    inspect?(): void
     /** Downed: lower to the pistol last-stand pose. */
     setDowned(down: boolean): void
     /** Muzzle position in WORLD space (the engine passes the world camera), for tracers. */

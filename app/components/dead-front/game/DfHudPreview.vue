@@ -49,6 +49,29 @@ function setup() {
     hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, rods: null, rodTimer: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
     hud.ping = 24
     hud.chat = [{ id: 1, name: 'Pvt. Hale', text: 'door by the chapel, need 750', born: 0 }]
+    hud.ammo.rarity = 2
+    // salvage, gear, the bench list, killstreaks and the round challenge
+    hud.arsenal = {
+        scrap: 14, parts: 1, armor: 0.6, equip: 'sentry', kit: true, streak: 22,
+        next: { name: 'Zeppelin Raid', at: 30, from: 15 },
+        rewards: [{ id: 'barrage', name: 'Artillery Barrage' }],
+        bench: mode.value === 'board'
+            ? null
+            : {
+                    hold: 0.45,
+                    items: [
+                        { key: 'sentry', name: 'Lewis Sentry', cost: '12 scrap · 1 part', ok: false, why: 'Place your gear first (Q)', selected: false, tint: null },
+                        { key: 'plate', name: 'Trench Plate', cost: '7 scrap', ok: true, why: 'Steel body armour that soaks up hits', selected: true, tint: null },
+                        { key: 'bombs', name: 'Trench Bombs', cost: '4 scrap', ok: true, why: 'A full satchel of grenades', selected: false, tint: null },
+                        { key: 'decoy', name: 'Gramophone', cost: '8 scrap', ok: false, why: 'Place your gear first (Q)', selected: false, tint: null },
+                        { key: 'kit', name: 'Field Kit', cost: '8 scrap · 1 part', ok: false, why: 'Already carrying one', selected: false, tint: null },
+                        { key: 'upgrade', name: 'M1921 Thompson → Legendary', cost: '20 scrap · 2 parts', ok: false, why: 'Need 6 more scrap', selected: false, tint: '#ff9a26' }
+                    ]
+                },
+        challenge: { text: 'Headshot kills', n: 4, goal: 7, done: false },
+        salvageKey: 0,
+        targeting: 'Release X to call in the Artillery Barrage'
+    }
 }
 
 const feedCtx: DfHudFeedContext = {

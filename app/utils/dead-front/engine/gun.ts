@@ -1,5 +1,5 @@
 import type { DfHeldWeapon } from '#shared/utils/dead-front/protocol'
-import type { DfWeaponClass } from '#shared/utils/dead-front/types'
+import type { DfWeaponClass, DfWeaponId } from '#shared/utils/dead-front/types'
 import { DF_WEAPONS } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 
@@ -377,7 +377,29 @@ export const DF_RECOIL: Record<DfWeaponClass, DfRecoilProfile> = {
 }
 
 /**
- * Camera recoil with a learnable per-class pattern: automatic fire climbs
+ * Guns that kick unlike their class, so each has a pattern of its own: the
+ * PPSh buzzes with small kicks and a wide shimmy, the Webley bucks straight
+ * up, the coach gun throws the muzzle high, the Chauchat climbs and pulls hard
+ * right (its long recoil), the Lewis drifts left and the flamethrower only
+ * trembles.
+ */
+export const DF_RECOIL_ID: Partial<Record<DfWeaponId, DfRecoilProfile>> = {
+    ppsh: { up: 0.85, side: 0.8, drift: 0.04, cap: 0.13, rise: 0.022, recover: 9, delay: 0.07, shake: 0.6 },
+    webley: { up: 1.25, side: 0.2, drift: 0, cap: 0.24, rise: 0.035, recover: 8.5, delay: 0.07, shake: 1.6 },
+    sawnoff: { up: 1.3, side: 0.4, drift: 0, cap: 0.32, rise: 0.05, recover: 5.5, delay: 0.1, shake: 1.8 },
+    win1895: { up: 1, side: 0.25, drift: 0, cap: 0.24, rise: 0.04, recover: 7, delay: 0.09, shake: 1.3 },
+    chauchat: { up: 1.1, side: 0.45, drift: 0.22, cap: 0.24, rise: 0.045, recover: 5, delay: 0.12, shake: 1.2 },
+    lewis: { up: 1, side: 0.7, drift: -0.12, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9 },
+    flammen: { up: 1, side: 1, drift: 0, cap: 0.03, rise: 0.06, recover: 9, delay: 0.05, shake: 0.4 }
+}
+
+/** The recoil profile a weapon fires with: its own when it has one, else its class's. */
+export function dfRecoilProfile(cls: DfWeaponClass, id?: DfWeaponId): DfRecoilProfile {
+    return (id && DF_RECOIL_ID[id]) || DF_RECOIL[cls] || DF_RECOIL.pistol
+}
+
+/**
+ * Camera recoil with a learnable per-class (and per-weapon) pattern: automatic fire climbs
  * hard for the first rounds then settles under a cap while the muzzle walks
  * left and right; the kick lands fast and recovers smoothly (two first-order
  * filters, so it never overshoots below where you aimed). Pulling the mouse
@@ -396,11 +418,12 @@ export class DfRecoil {
 
     /**
      * Kicks for one shot. `amount` is the weapon's recoil already scaled by
-     * perks, aiming and stance; `jitter` is a number in [0, 1) (cosmetic).
+     * perks, aiming and stance; `jitter` is a number in [0, 1) (cosmetic);
+     * `id` picks the weapon's own pattern (`DF_RECOIL_ID`) over its class's.
      * Returns the camera shake to apply.
      */
-    kick(now: number, cls: DfWeaponClass, auto: boolean, amount: number, jitter: number): number {
-        const p = DF_RECOIL[cls] ?? DF_RECOIL.pistol
+    kick(now: number, cls: DfWeaponClass, auto: boolean, amount: number, jitter: number, id?: DfWeaponId): number {
+        const p = dfRecoilProfile(cls, id)
         this.profile = p
         if (now - this.lastShot > 0.4 || this.targetPitch < 0.002) this.shots = 0
         const n = this.shots++

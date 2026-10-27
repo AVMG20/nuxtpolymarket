@@ -1,8 +1,8 @@
 import { DF_RECONNECT_GRACE, DF_TICK_HZ } from '#shared/utils/dead-front/constants'
 import { DF_MAP } from '#shared/utils/dead-front/map'
 import type { DfClientMsg, DfMatchEnd, DfMatchStart, DfServerMsg } from '#shared/utils/dead-front/protocol'
-import type { DfProfileView, DfProgressReport, DfWeaponId } from '#shared/utils/dead-front/types'
-import { DF_WEAPONS, DF_WEAPON_IDS, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
+import type { DfProfileView, DfProgressReport } from '#shared/utils/dead-front/types'
+import { DF_WEAPON_IDS, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
 import { DfMatchSim } from './sim'
 import type { DfPlayerSetup } from './sim-types'
 
@@ -38,18 +38,24 @@ interface MatchPlayer {
 }
 
 let matchSeq = 0
+/** Seconds of simulation a late tick loop catches up on (a weak host's stalls); beyond this the world just pauses. */
+const MAX_CATCH_UP = 0.6
+/** Steps per callback while catching up: one snapshot carries them all, so clients see a single longer tick. */
+const MAX_STEPS_PER_TICK = 4
 
-/** Resolves a profile into the simulation's player setup (validated start weapon, sanitised attachments). */
+/**
+ * Resolves a profile into the simulation's player setup (sanitised attachments,
+ * research mods). There is no start weapon to pick: everyone starts with the
+ * M1911, whatever an old stored loadout says.
+ */
 export function dfPlayerSetup(member: DfMatchMember, profile: DfProfileView): DfPlayerSetup {
-    const wanted = profile.loadout?.startWeapon
-    const startWeapon: DfWeaponId = wanted && DF_WEAPONS[wanted] && DF_WEAPONS[wanted].startable && profile.unlockedWeapons.includes(wanted) ? wanted : 'm1911'
     const attachments: DfPlayerSetup['attachments'] = {}
     for (const id of DF_WEAPON_IDS) {
         const choice = profile.loadout?.attachments?.[id]
         if (!choice) continue
         attachments[id] = dfSanitizeAttachments(id, dfWeaponLevel(profile.weaponXp?.[id] ?? 0), choice)
     }
-    return { userId: member.userId, name: member.name, startWeapon, attachments, perkMods: profile.perkMods ?? {} }
+    return { userId: member.userId, name: member.name, attachments, perkMods: profile.perkMods ?? {} }
 }
 
 export class DfMatch {
@@ -78,7 +84,7 @@ export class DfMatch {
                 return dfPlayerSetup(m, await hooks.loadProfile(m.userId))
             } catch (e) {
                 console.error('[dead-front] profile load failed', m.userId, e)
-                return { userId: m.userId, name: m.name, startWeapon: 'm1911' as DfWeaponId, attachments: {}, perkMods: {} }
+                return { userId: m.userId, name: m.name, attachments: {}, perkMods: {} }
             }
         }))
         const sim = new DfMatchSim(setups)
@@ -142,6 +148,11 @@ export class DfMatch {
                     break
                 case 'chat': sim.chat(p.pid, msg.text)
                     break
+                case 'arsenal': {
+                    const sp = sim.player(p.pid)
+                    if (sp) sim.arsenal.handle(sp, msg.op)
+                    break
+                }
                 case 'dev':
                     // test hooks for local development only; production builds drop this branch
                     if (import.meta.dev) sim.dev(p.pid, msg.op)
@@ -220,13 +231,16 @@ export class DfMatch {
         // Fixed steps driven by the wall clock: on a busy host setInterval fires late, and
         // stepping once per callback would let the sim (and the snapshot clock clients
         // interpolate on) fall behind real time, which reads as stuttering zombies.
+        // A host stall of up to MAX_CATCH_UP is made up for (a few steps per callback, so it never
+        // spirals); time beyond it is dropped. Losing time would shift the snapshot clock clients
+        // sync to, and every spike on a weak server would cost them a re-sync.
         const dt = 1 / DF_TICK_HZ
         const now = Date.now()
-        this.tickDebt += this.lastTickAt ? Math.min(0.25, (now - this.lastTickAt) / 1000) : dt
+        this.tickDebt = Math.min(MAX_CATCH_UP, this.tickDebt + (this.lastTickAt ? Math.max(0, now - this.lastTickAt) / 1000 : dt))
         this.lastTickAt = now
         let steps = 0
         // Half a tick of tolerance keeps a callback that fires a hair early from skipping a step.
-        while (this.tickDebt >= dt * 0.5 && steps < 4) {
+        while (this.tickDebt >= dt * 0.5 && steps < MAX_STEPS_PER_TICK) {
             try {
                 sim.step(dt)
             } catch (e) {
@@ -254,7 +268,8 @@ export class DfMatch {
         const head = `{"t":"snap","s":${shared.slice(0, -1)},"ack":`
         for (const p of this.players) {
             if (p.gone) continue
-            this.hooks.send(p.userId, `${head}${this.sim.ack(p.pid)}}}`)
+            // the player's own salvage rides along after `ack`: nobody else sees it
+            this.hooks.send(p.userId, `${head}${this.sim.ack(p.pid)},"mine":${JSON.stringify(this.sim.arsenal.mine(p.pid))}}}`)
         }
     }
 

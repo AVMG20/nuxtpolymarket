@@ -13,14 +13,42 @@ const pending = new Map<string, Promise<boolean>>()
 interface PeerLike {
     id: string
     request?: { headers?: unknown }
+    websocket?: { bufferedAmount?: unknown, getBufferedAmount?: () => unknown }
     send: (data: unknown) => unknown
     close: (code?: number, reason?: string) => void
 }
 
+/** Bytes queued for a peer that stopped reading (a sleeping phone) before it is dropped: ~2 min of snapshots. */
+const MAX_BACKLOG = 8 * 1024 * 1024
+/** Only Bun's `send` reports a dropped frame (0); crossws's Node adapter always returns 0. */
+const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+
+function backlog(peer: PeerLike): number {
+    try {
+        const ws = peer.websocket
+        // Bun's ServerWebSocket has getBufferedAmount(), Node's ws has bufferedAmount
+        const n = typeof ws?.getBufferedAmount === 'function' ? ws.getBufferedAmount() : ws?.bufferedAmount
+        return typeof n === 'number' ? n : 0
+    } catch {
+        return 0
+    }
+}
+
 function socketOf(peer: PeerLike): DfSocket {
+    let closed = false
     return {
         id: peer.id,
-        send: frame => void peer.send(frame),
+        send: (frame) => {
+            if (closed) return
+            const sent = peer.send(frame)
+            // Bun returns 0 for a frame it dropped (and Node keeps queueing for a peer that stopped
+            // reading). A client missing frames silently loses their events, so cut it: it reconnects
+            // and resyncs inside the match's grace period.
+            if ((IS_BUN && sent === 0) || backlog(peer) > MAX_BACKLOG) {
+                closed = true
+                peer.close(4408, 'Connection too slow')
+            }
+        },
         close: (code, reason) => peer.close(code, reason)
     }
 }
