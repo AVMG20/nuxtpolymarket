@@ -69,6 +69,38 @@ describe('car physics', () => {
         expect(car.nitro).toBeCloseTo(earned)
     })
 
+    it('straightens out of a drift soon after the wheel is let go', () => {
+        const track = new Track({ ...ovalTrack(), wallOffset: 400 })
+        const car = createCar(track, 0)
+        car.speed = 45
+        for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
+        for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ throttle: 1, steer: -1 }), track, DT)
+        expect(car.drifting).toBe(true)
+        let t = 0
+        let earned = 0
+        while (car.drifting && t < 2) {
+            earned = stepCar(car, input({ throttle: 1 }), track, DT).nitroEarned
+            t += DT
+        }
+        expect(car.drifting).toBe(false)
+        expect(t).toBeLessThan(0.6)
+        expect(earned).toBeGreaterThan(0)
+    })
+
+    it('holds a drift while the wheel is kept or tapped into it', () => {
+        const track = new Track({ ...ovalTrack(), wallOffset: 400 })
+        for (const tapped of [false, true]) {
+            const car = createCar(track, 0)
+            car.speed = 45
+            for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
+            for (let i = 0; i < PHYSICS_HZ * 2; i++) {
+                const on = !tapped || i % 48 < 30
+                stepCar(car, input({ throttle: 1, steer: on ? -1 : 0 }), track, DT)
+            }
+            expect(car.drifting).toBe(true)
+        }
+    })
+
     it('never drifts below the minimum speed', () => {
         const car = createCar(track, 0)
         car.speed = DRIFT_MIN_SPEED - 2

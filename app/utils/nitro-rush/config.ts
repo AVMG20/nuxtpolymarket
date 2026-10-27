@@ -38,11 +38,12 @@ export const DRIFT_LATERAL = 34
 export const DRIFT_MIN_SPEED = 16
 /** How fast the travel direction swings toward the nose, per radian of slip. */
 export const DRIFT_ALIGN = 1.5
-/** Slip angle with the wheel straight, fully into the drift, and fully countersteered. */
-export const DRIFT_SLIP_NEUTRAL = 0.32
+/** Slip angle with the wheel fully into the drift, and fully countersteered; a centred wheel aims for none, so letting go ends it. */
 export const DRIFT_SLIP_IN = 0.78
-export const DRIFT_SLIP_COUNTER = 0
+export const DRIFT_SLIP_COUNTER = -0.2
 export const DRIFT_SLIP_RESPONSE = 4.5
+/** Straightening up is quicker than swinging out, so the car comes out of a drift crisply. */
+export const DRIFT_SLIP_RECOVER = 8
 /** Speed scrubbed per second at a full sideways slide; scaled by sin(slip). */
 export const DRIFT_SCRUB = 26
 export const HANDBRAKE_DECEL = 9

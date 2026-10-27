@@ -1,6 +1,6 @@
 import {
     AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_EXIT_SLIP, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_MIN_TIME, DRIFT_SCRUB,
-    DRIFT_SLIP_COUNTER, DRIFT_SLIP_IN, DRIFT_SLIP_NEUTRAL, DRIFT_SLIP_RESPONSE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL,
+    DRIFT_SLIP_COUNTER, DRIFT_SLIP_IN, DRIFT_SLIP_RECOVER, DRIFT_SLIP_RESPONSE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL,
     HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
     ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
@@ -56,6 +56,8 @@ export interface StepEvents {
 const CAR_HALF_LENGTH = 2.25
 /** Wheel the brake needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
+/** Wheel into the drift below which the player counts as letting go of it. */
+const DRIFT_LET_GO = 0.1
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
@@ -130,18 +132,18 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     if (car.drifting) {
         const d = car.driftDir
         const into = left * d
-        let target = into >= 0
-            ? DRIFT_SLIP_NEUTRAL + (DRIFT_SLIP_IN - DRIFT_SLIP_NEUTRAL) * into
-            : DRIFT_SLIP_NEUTRAL + (DRIFT_SLIP_COUNTER - DRIFT_SLIP_NEUTRAL) * -into
+        let target = into >= 0 ? DRIFT_SLIP_IN * into : DRIFT_SLIP_COUNTER * -into
         if (input.handbrake) target += 0.12
         let slip = slipAngle(car)
         // The path bends toward the nose, as hard as the sliding tyres allow.
         const turn = Math.sign(slip) * Math.min(Math.abs(slip) * DRIFT_ALIGN, DRIFT_LATERAL / Math.max(car.speed, 1))
         car.travel = wrapAngle(car.travel + turn * dt)
-        slip += (target * d - slip) * (1 - Math.exp(-DRIFT_SLIP_RESPONSE * dt))
+        // Only a centred or countered wheel straightens up quickly and ends the drift, so tapping the key into it holds a shallow slide.
+        const letGo = into < DRIFT_LET_GO
+        slip += (target * d - slip) * (1 - Math.exp(-(letGo ? DRIFT_SLIP_RECOVER : DRIFT_SLIP_RESPONSE) * dt))
         car.heading = wrapAngle(car.travel + slip)
         car.driftTime += dt
-        const settled = car.driftTime > DRIFT_MIN_TIME && (Math.abs(slip) < DRIFT_EXIT_SLIP || Math.sign(slip) !== d)
+        const settled = car.driftTime > DRIFT_MIN_TIME && letGo && (Math.abs(slip) < DRIFT_EXIT_SLIP || Math.sign(slip) !== d)
         if (settled || car.speed < DRIFT_MIN_SPEED * 0.6) endDrift(car, ev, true)
     } else {
         const angle = MAX_STEER_ANGLE / (1 + Math.abs(car.speed) / STEER_FALLOFF_SPEED) * left
