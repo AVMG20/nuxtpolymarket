@@ -1,4 +1,4 @@
-import { avgTickYield, bugStackKey, getBug, type ColonyBugStack } from '#shared/utils/colony'
+import { avgTickYield, bugStackKey, getBug, getItem, HABITAT_BUILDER_JOB_ID, type ColonyBugStack } from '#shared/utils/colony'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,12 +35,20 @@ export function colonyFoodSpent(bugs: any[], since: number, now: number): number
   }, 0)
 }
 
-export const useColony = () => {
+export interface ColonyOptions {
+  /** Leave errors to the caller instead of showing a toast (spreadsheet mode shows them in cells) */
+  silent?: boolean
+  /** Fetch the state right away (default) or wait for the first refresh() */
+  immediate?: boolean
+}
+
+export const useColony = (opts: ColonyOptions = {}) => {
   const toast = useToast()
 
   const { data: state, pending } = useFetch('/api/colony/state', {
     key: 'colony-state',
-    default: () => null
+    default: () => null,
+    immediate: opts.immediate ?? true
   })
 
   const bugs = computed(() => state.value?.bugs ?? [])
@@ -73,17 +81,45 @@ export const useColony = () => {
   const initialized = computed(() => state.value?.initialized ?? false)
   const serverNow = computed(() => state.value?.serverNow ?? Date.now())
 
-  const { user, fetchSession, setBalance } = useAuth()
+  const { user, balanceNum, fetchSession, applyWallet } = useAuth()
+  const gems = computed(() => user.value?.gems ?? 0)
+
+  function ownedQty(itemTypeId: string) {
+    return inventory.value.find((i: any) => i.id === itemTypeId)?.quantity ?? 0
+  }
+
+  // ─── Habitat and track gating, shared by the habitat page and spreadsheet mode ───
+
+  const tracksMeetingRequirement = computed(() => upgrades.value.filter((t: any) => t.meetsHabitatRequirement).length)
+  const habitatUpgradeReady = computed(() => tracksMeetingRequirement.value === upgrades.value.length && upgrades.value.length > 0)
+
+  /** Why the habitat can't be dug a level deeper right now, or null when it can. */
+  const habitatBlockedReason = computed<string | null>(() => {
+    const short = upgrades.value.length - tracksMeetingRequirement.value
+    if (!upgrades.value.length) return 'Found your colony first'
+    if (busyTrackIds.value.has(HABITAT_BUILDER_JOB_ID)) return 'The dig is under way'
+    if (!habitatUpgradeReady.value) return `${short} ${short === 1 ? 'track' : 'tracks'} short`
+    if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
+    const coinsOk = balanceNum.value >= habitatLevelUpCost.value
+    const gemsOk = gems.value >= habitatLevelUpGemCost.value
+    if (!coinsOk || !gemsOk) return `Not enough ${coinsOk ? 'gems' : 'coins'}`
+    return null
+  })
+
+  /** Why an upgrade track can't be started right now, or null when it can. */
+  function trackBlockedReason(track: { id: string, nextCost: { coins: number, items: { itemTypeId: string, quantity: number }[] } | null }): string | null {
+    if (busyTrackIds.value.has(track.id)) return 'Under construction'
+    if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
+    const cost = track.nextCost
+    if (!cost) return 'Not enough resources'
+    const missing = cost.items.filter(need => ownedQty(need.itemTypeId) < need.quantity).map(need => getItem(need.itemTypeId)?.emoji ?? '?')
+    if (balanceNum.value < cost.coins) missing.unshift('coins')
+    return missing.length ? `Short on ${missing.join(' ')}` : null
+  }
 
   interface WalletOptions {
     /** Leave the header to the caller: a batch of sells settles it once at the end. */
     settleWallet?: boolean
-  }
-
-  /** Apply the balance and gems a colony action sent back: settling can pay out Gem Snail gems on any action. */
-  function applyWallet(res: any) {
-    if (res?.balance != null) setBalance(res.balance)
-    if (res?.gems != null && user.value) user.value.gems = res.gems
   }
 
   type ColonyState = NonNullable<typeof state.value>
@@ -104,7 +140,7 @@ export const useColony = () => {
   }
 
   function fail(e: any): never {
-    toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
+    if (!opts.silent) toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
     throw e
   }
 
@@ -377,6 +413,11 @@ export const useColony = () => {
     gemBuffActive,
     gemFeedCost,
     gemFeedNutritionPerGem,
+    ownedQty,
+    tracksMeetingRequirement,
+    habitatUpgradeReady,
+    habitatBlockedReason,
+    trackBlockedReason,
     initColony,
     feedSwarm,
     buyBug,

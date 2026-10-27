@@ -4,6 +4,7 @@ import { format, formatDistance } from 'date-fns'
 import {
   GEM_EXCHANGE_MAX_QUANTITY,
   GEM_EXCHANGE_MIN_PRICE,
+  gemDefaultPrice,
   gemOrderTotal,
   getGemBookLevelOrder
 } from '#shared/utils/gamelogic/gem-exchange'
@@ -85,12 +86,11 @@ function round2(value: number) {
   return Math.round(value * 100) / 100
 }
 
-// Smart default: buying starts at the cheapest sell offer, selling at the
-// highest buy offer — the price that trades right now. Guide when book empty.
-const defaultPrice = computed(() => {
-  const smart = tradeMode.value === 'buy' ? data.value?.bestAsk : data.value?.bestBid
-  return round2(smart ?? guidePrice.value)
-})
+const defaultPrice = computed(() => gemDefaultPrice(tradeMode.value, {
+  bestBid: data.value?.bestBid ?? null,
+  bestAsk: data.value?.bestAsk ?? null,
+  guidePrice: guidePrice.value
+}))
 
 // Follow the smart default until the user edits the price themselves.
 watchEffect(() => {

@@ -9,11 +9,20 @@ export interface LimboResult {
   [key: string]: unknown
 }
 
+/** Target multiplier bounds */
+export const LIMBO_MIN_TARGET = 1.1
+export const LIMBO_MAX_TARGET = 1_000_000
+
+/** 98% RTP: the chance (0..1) that the result reaches the target */
+export function limboWinChance(target: number): number {
+  return Math.min(0.98 / target, 0.98)
+}
+
 export function playLimbo(bet: number, options?: Record<string, unknown>): LimboResult {
   const target = Number(options?.target ?? 2)
 
-  if (!Number.isFinite(target) || target < 1.10 || target > 1_000_000) {
-    throw createError({ statusCode: 400, message: 'Target must be between 1.01 and 1000000' })
+  if (!Number.isFinite(target) || target < LIMBO_MIN_TARGET || target > LIMBO_MAX_TARGET) {
+    throw createError({ statusCode: 400, message: `Target must be between ${LIMBO_MIN_TARGET} and ${LIMBO_MAX_TARGET}` })
   }
 
   const rand = randomFloat()

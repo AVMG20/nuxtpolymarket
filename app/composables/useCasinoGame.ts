@@ -2,9 +2,17 @@
 // /api/games/play-game + capped history. Balance/history are applied by the
 // page, not here, because each page delays them until its animation finishes.
 
-interface PlayResponse<TResult> {
+export interface PlayResponse<TResult> {
   gameData: TResult
   balance: number
+}
+
+/** One round of a play-game casino game; the response carries the new balance. */
+export function playCasinoRound<TResult>(game: string, bet: number, options: Record<string, unknown> = {}) {
+  return $fetch('/api/games/play-game', {
+    method: 'POST',
+    body: { bet, game, options }
+  }) as Promise<PlayResponse<TResult>>
 }
 
 export function useCasinoGame<TResult, THistory extends Record<string, unknown> = Record<string, unknown>>(
@@ -38,10 +46,7 @@ export function useCasinoGame<TResult, THistory extends Record<string, unknown> 
     onStart?.()
 
     try {
-      const data = await $fetch('/api/games/play-game', {
-        method: 'POST',
-        body: { bet: bet.value, game, options }
-      }) as PlayResponse<TResult>
+      const data = await playCasinoRound<TResult>(game, bet.value, options)
       isFetching.value = false
       return data
     } catch (e: unknown) {

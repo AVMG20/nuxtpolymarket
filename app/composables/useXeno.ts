@@ -11,12 +11,20 @@ let generation = 0
 let sellsInFlight = 0
 let sellBurst = false
 
-export const useXeno = () => {
+export interface XenoOptions {
+  /** Leave errors to the caller instead of showing a toast (spreadsheet mode shows them in cells) */
+  silent?: boolean
+  /** Fetch the state right away (default) or wait for the first refresh() */
+  immediate?: boolean
+}
+
+export const useXeno = (opts: XenoOptions = {}) => {
   const toast = useToast()
 
   const { data: state, refresh, pending } = useFetch('/api/xeno/state', {
     key: 'xeno-state',
     default: () => null,
+    immediate: opts.immediate ?? true,
   })
 
   const plantTypes = PLANT_TYPES
@@ -62,7 +70,7 @@ export const useXeno = () => {
       generation++
       return res
     } catch (e: any) {
-      toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
+      if (!opts.silent) toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
       throw e
     } finally {
       inFlight--
@@ -99,7 +107,7 @@ export const useXeno = () => {
       return await request()
     } catch (e: any) {
       if (prev && gen === generation) state.value = prev
-      toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
+      if (!opts.silent) toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
       throw e
     } finally {
       inFlight--
@@ -406,6 +414,7 @@ export const useXeno = () => {
     highestTier,
     upgrades,
     hybrids,
+    canHost,
     initGame,
     unlockGridSlot,
     plantInSlot,

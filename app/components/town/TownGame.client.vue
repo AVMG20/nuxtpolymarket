@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { parseAmount } from '#shared/utils/parse-amount'
-import { rankTownUpgrades } from '#shared/utils/gamelogic/town-advisor'
+import { rankTownUpgrades, townCanAfford, townTicksPerHour, townUpgradeCandidates, TOWN_ADVICE_LABELS } from '#shared/utils/gamelogic/town-advisor'
 import TownCoin from '~/components/town/TownCoin.vue'
 import { townIsTyping } from '~/utils/town/camera'
 import TownAsset from '~/components/town/TownAsset.vue'
@@ -200,9 +200,7 @@ function cycleTier(dir: 1 | -1) {
 }
 
 function canAfford(cost: { coins: number, resources: Record<string, number> }) {
-    if (balance.value < cost.coins) return false
-    for (const [id, q] of Object.entries(cost.resources)) if ((town.inventory.value[id] ?? 0) < q) return false
-    return true
+    return townCanAfford(cost, balance.value, town.inventory.value)
 }
 
 /** Why the town may not put up another of `type`, or null. Mirrors the server's count cap. */
@@ -1841,34 +1839,9 @@ const starvedGoods = computed(() => Object.entries(town.netPerTick.value)
     .sort((a, b) => a[1] - b[1])
     .map(([id]) => id))
 
-/**
- * Every upgrade a free crew could take, one row per building type: its lowest
- * level, the cheapest rung. Six houses in a row is not six recommendations.
- */
-const upgradeCandidates = computed(() => {
-    const cap = town.constants.value.maxLevel
-    const rows: {
-        id: string
-        type: string
-        name: string
-        level: number
-        tier: number
-        affordable: boolean
-        cost: { coins: number, resources: Record<string, number> }
-    }[] = []
-    for (const b of town.buildings.value) {
-        const entry = town.catalogById.value.get(b.type)
-        const def = getTownBuilding(b.type)
-        if (!entry || !def || entry.kind === 'road' || entry.kind === 'monument') continue
-        if (b.level <= 0 || b.upgradingTo !== null || b.completesAt > now.value) continue
-        if (b.level >= (entry.maxLevel ?? cap)) continue
-        const cost = townLevelCost(def, b.level + 1)
-        rows.push({ id: b.id, type: b.type, name: entry.name, level: b.level, tier: entry.tier, affordable: canAfford(cost), cost })
-    }
-    rows.sort((a, b) => a.tier - b.tier || a.level - b.level)
-    const seen = new Set<string>()
-    return rows.filter(r => !seen.has(r.type) && seen.add(r.type))
-})
+/** Every upgrade a free crew could take, one row per building type (see townUpgradeCandidates). */
+const upgradeCandidates = computed(() => townUpgradeCandidates(
+    town.buildings.value, town.catalogById.value, town.constants.value.maxLevel, now.value, canAfford))
 
 /** What the town needs most, best first (see rankTownUpgrades). */
 const recommendedUpgrades = computed(() => rankTownUpgrades({
@@ -1937,7 +1910,7 @@ const workersDemanded = computed(() => town.state.value?.workersDemanded ?? 0)
 // Floor income counts the workshops only, so a surge doubles all of it.
 const incomePerDay = computed(() => (town.state.value?.floorIncomePerDay ?? 0) * productionMult.value)
 const storageCap = computed(() => town.state.value?.storageCap ?? 0)
-const ticksPerHour = computed(() => (3_600_000 / town.constants.value.tickMs) * speed.value)
+const ticksPerHour = computed(() => townTicksPerHour(town.constants.value.tickMs, speed.value))
 /** Per-tick amounts are an implementation detail; every number the player sees is per hour. */
 function perHour(perTick: number) {
     return Math.round(perTick * ticksPerHour.value)
@@ -2250,10 +2223,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                         <b :data-tip="r.name">{{ r.name }}</b>
                                         <span class="rec-meta">
                                             <span class="rec-level">Lv {{ r.level }} → {{ r.level + 1 }}</span>
-                                            <span v-if="r.reason === 'short' && r.resource" class="g-tag g-tag-red"><TownAsset :id="r.resource" />short</span>
-                                            <span v-else-if="r.reason === 'residents'" class="g-tag g-tag-warn">Residents</span>
-                                            <span v-else-if="r.reason === 'happiness'" class="g-tag g-tag-warn">Mood</span>
-                                            <span v-else-if="r.reason === 'storage'" class="g-tag">Storage</span>
+                                            <span v-if="r.reason === 'short' && r.resource" class="g-tag g-tag-red"><TownAsset :id="r.resource" />{{ TOWN_ADVICE_LABELS.short }}</span>
+                                            <span v-else-if="r.reason === 'residents' || r.reason === 'happiness'" class="g-tag g-tag-warn">{{ TOWN_ADVICE_LABELS[r.reason] }}</span>
+                                            <span v-else-if="r.reason === 'storage'" class="g-tag">{{ TOWN_ADVICE_LABELS.storage }}</span>
                                         </span>
                                     </span>
                                     <span class="rec-cost" :class="r.affordable ? '' : 'bad'">

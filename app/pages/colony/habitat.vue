@@ -1,6 +1,5 @@
 <script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { getItem, BUG_TYPES, HABITAT_BUILDER_JOB_ID, TIER_NAMES, bugsByTier } from '#shared/utils/colony'
+import { getItem, BUG_TYPES, TIER_NAMES, bugsByTier } from '#shared/utils/colony'
 import { formatDuration, progressPct } from '~/lib/colony-format'
 
 function foragedBy(itemId: string) {
@@ -8,11 +7,8 @@ function foragedBy(itemId: string) {
 }
 
 const colony = useColony()
-const { upgrades, builders, builderCount, buildersFree, busyTrackIds, inventory, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpDurationMs, habitatLevelUpGemCost } = colony
+const { upgrades, builders, builderCount, buildersFree, habitatLevel, maxTier, habitatLevelUpCost, habitatLevelUpDurationMs, habitatLevelUpGemCost } = colony
 
-const { user } = useAuth()
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-const gems = computed(() => user.value?.gems ?? 0)
 
 const now = ref(Date.now())
 let interval: ReturnType<typeof setInterval> | null = null
@@ -73,28 +69,13 @@ const strata = computed(() => Array.from({ length: maxTier.value }, (_, i) => {
 
 const nextLayer = computed(() => strata.value.find(s => s.next) ?? null)
 
-const tracksMeetingRequirement = computed(() => upgrades.value.filter((t: any) => t.meetsHabitatRequirement).length)
-const habitatUpgradeReady = computed(() => tracksMeetingRequirement.value === upgrades.value.length && upgrades.value.length > 0)
-const canAffordCoins = computed(() => habitatLevelUpCost.value !== null && balance.value >= habitatLevelUpCost.value)
-const canAffordGems = computed(() => gems.value >= (habitatLevelUpGemCost.value ?? 0))
-const canAffordHabitatLevelUp = computed(() => canAffordCoins.value && canAffordGems.value)
-const habitatUnderConstruction = computed(() => busyTrackIds.value.has(HABITAT_BUILDER_JOB_ID))
-const canStartHabitatLevelUp = computed(() =>
-  habitatUpgradeReady.value
-  && canAffordHabitatLevelUp.value
-  && !habitatUnderConstruction.value
-  && buildersFree.value > 0
-)
+const { tracksMeetingRequirement, habitatUpgradeReady, habitatBlockedReason, ownedQty } = colony
+const { user, balanceNum: balance } = useAuth()
+const canAffordCoins = computed(() => balance.value >= habitatLevelUpCost.value)
+const canAffordGems = computed(() => (user.value?.gems ?? 0) >= habitatLevelUpGemCost.value)
+const canStartHabitatLevelUp = computed(() => habitatBlockedReason.value === null)
 
-const habitatButtonLabel = computed(() => {
-  const short = upgrades.value.length - tracksMeetingRequirement.value
-  if (!upgrades.value.length) return 'Found your colony first'
-  if (habitatUnderConstruction.value) return 'The dig is under way'
-  if (!habitatUpgradeReady.value) return `${short} ${short === 1 ? 'track' : 'tracks'} short`
-  if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
-  if (!canAffordHabitatLevelUp.value) return `Not enough ${canAffordCoins.value ? 'gems' : 'coins'}`
-  return `Dig to Level ${habitatLevel.value + 1}`
-})
+const habitatButtonLabel = computed(() => habitatBlockedReason.value ?? `Dig to Level ${habitatLevel.value + 1}`)
 
 const digging = ref(false)
 async function startDig() {
@@ -120,30 +101,8 @@ function requirementPips(track: UpgradeTrack) {
 
 // ─── Tracks ─────────────────────────────────────────────────────────────────
 
-function ownedQty(itemTypeId: string) {
-  const owned = inventory.value.find((i: any) => i.id === itemTypeId)
-  return owned?.quantity ?? 0
-}
-
-function affordCost(cost: { coins: number, items: { itemTypeId: string, quantity: number }[] } | null) {
-  if (!cost) return false
-  if (balance.value < cost.coins) return false
-  return cost.items.every(need => ownedQty(need.itemTypeId) >= need.quantity)
-}
-
 /** Why a track's Build button is disabled, or null when it can be started. */
-function buildBlockedReason(track: UpgradeTrack): string | null {
-  if (busyTrackIds.value.has(track.id)) return 'Under construction'
-  if (buildersFree.value === 0) return builderCount.value === 1 ? 'Builder busy' : 'All builders busy'
-  if (!affordCost(track.nextCost)) {
-    const cost = track.nextCost
-    if (!cost) return 'Not enough resources'
-    const missing = cost.items.filter(need => ownedQty(need.itemTypeId) < need.quantity).map(need => getItem(need.itemTypeId)?.emoji ?? '?')
-    if (balance.value < cost.coins) missing.unshift('coins')
-    return `Short on ${missing.join(' ')}`
-  }
-  return null
-}
+const buildBlockedReason = (track: UpgradeTrack) => colony.trackBlockedReason(track)
 
 const startingTrack = ref<string | null>(null)
 async function startTrack(track: UpgradeTrack) {
