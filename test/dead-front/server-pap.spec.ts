@@ -239,7 +239,8 @@ describe('Pack-a-Punch keeps every weapon', () => {
             expect(ids(p)).toEqual(['kar98k', 'thompson'])
             use(sim, 0, 'box-0')
             step(sim, DF_MACHINE_TIMES.boxRoll + 0.1)
-            if (sim.box.state === 'ready') {
+            // (an upgrade kit instead of a weapon leaves the weapons alone too)
+            if (sim.box.state === 'ready' && sim.box.weapon) {
                 const offered = sim.box.weapon!
                 use(sim, 0, 'box-0')
                 expect(ids(p)).toEqual([offered, 'thompson'])

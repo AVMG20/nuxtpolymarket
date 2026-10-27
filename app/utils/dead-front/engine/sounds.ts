@@ -35,6 +35,7 @@ export const DF_SND = {
     hurt: 'df:hurt',
     jump: 'df:jump',
     land: 'df:land',
+    slide: 'df:slide',
     throw: 'df:throw',
     lunge: 'df:lunge',
     powerupSpawn: 'df:pu-spawn',
@@ -359,6 +360,13 @@ export function registerDfEngineSounds(audio: DfAudio): void {
         noiseSwell(p, { kind: 'pink', type: 'bandpass', freq: 500, freqEnd: 1200, q: 1, gain: 0.12, dur: 0.12, peakAt: 0.3 })
         noiseBurst(p, { kind: 'brown', type: 'lowpass', freq: 300, q: 0.7, gain: 0.12, dur: 0.05 })
     }, 2)
+    // Slide: a body dropping onto the ground and a long scuff of cloth and grit.
+    r(DF_SND.slide, (p) => {
+        blip(p, 120, 60, 0.1, 0.25)
+        noiseSwell(p, { kind: 'pink', type: 'bandpass', freq: 900, freqEnd: 500, q: 0.8, gain: 0.3, dur: 0.6, peakAt: 0.15 })
+        noiseSwell(p, { kind: 'brown', type: 'lowpass', freq: 500, freqEnd: 200, q: 0.7, gain: 0.25, dur: 0.55, peakAt: 0.2 })
+        clickTrain(at(p, 0.05), scatter(8, 0.45, 1.3), { freq: 2600, q: 2, gain: 0.04, len: 0.008, jitter: 0.6 })
+    }, 1)
     r(DF_SND.land, (p) => {
         blip(p, 95, 50, 0.12, 0.4)
         noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: 600, freqEnd: 150, q: 0.7, gain: 0.3, dur: 0.12 })

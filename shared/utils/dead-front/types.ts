@@ -20,6 +20,12 @@ export type DfWeaponId
         | 'lewis' // Lewis LMG
         | 'xray' // the X-Ray: a 1900s brass-and-valve ray pistol, mystery box only
         | 'wunder' // the map's wunderweapon, easter egg only
+        | 'chauchat' // French Chauchat LMG, mystery box only
+        | 'win1895' // Winchester 1895 lever-action rifle, mystery box only
+        | 'webley' // Webley Mk VI break-top revolver, mystery box only
+        | 'sawnoff' // sawed-off double-barrel coach gun, mystery box only
+        | 'flammen' // Wex trench flamethrower, mystery box only
+        | 'granatwerfer' // the lent grenade launcher: temporary, never kept, packed or boxed
 
 export type DfWeaponClass = 'pistol' | 'smg' | 'rifle' | 'shotgun' | 'lmg' | 'special'
 
@@ -31,7 +37,7 @@ export type DfAttachmentId = string
 export type DfAttachmentChoice = Partial<Record<DfAttachmentSlot, DfAttachmentId>>
 
 export interface DfLoadout {
-    /** The weapon a player spawns with. Must be unlocked, never `xray` or `wunder`. */
+    /** Always `m1911`: everyone starts with the pistol (kept for the stored row; a chosen one is ignored). */
     startWeapon: DfWeaponId
     attachments: Partial<Record<DfWeaponId, DfAttachmentChoice>>
 }

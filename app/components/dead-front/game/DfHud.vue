@@ -3,6 +3,7 @@
         <!-- top-left: the objective + waypoint -->
         <div class="df-corner-tl absolute">
             <DfHudObjective :objective="hud.objective" />
+            <DfHudChallenge v-if="hud.arsenal.challenge" :c="hud.arsenal.challenge" />
         </div>
 
         <!-- top-centre: the line -->
@@ -66,7 +67,7 @@
                         <span v-if="promptParts.key" class="keycap" :class="{ holding: hud.prompt.hold > 0 }" :style="{ '--h': hud.prompt.hold }">
                             <b>{{ promptParts.key }}</b>
                         </span>
-                        <span class="text">{{ promptParts.text }}</span>
+                        <span class="text" :style="hud.prompt.tint ? { color: hud.prompt.tint } : undefined">{{ promptParts.text }}</span>
                         <span v-if="hud.prompt.cost !== null" class="cost" :class="{ no: !hud.prompt.ok }">
                             {{ hud.prompt.cost.toLocaleString('en-US') }}
                         </span>
@@ -76,6 +77,16 @@
                 </div>
             </Transition>
         </div>
+        <!-- the workbench's list while at one -->
+        <Transition name="df-fade">
+            <div v-if="hud.arsenal.bench && hud.life === 'alive'" class="df-bench-wrap absolute">
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :parts="hud.arsenal.parts" />
+            </div>
+        </Transition>
+        <!-- placing gear / calling in support, and short arsenal notices -->
+        <Transition name="df-fade">
+            <div v-if="hud.arsenal.targeting && hud.life === 'alive'" :key="hud.arsenal.targeting" class="df-targeting absolute inset-x-0 text-center">{{ hud.arsenal.targeting }}</div>
+        </Transition>
         <!-- points floating off the zombies we hit -->
         <DfHudHitPops v-if="hud.hitPops.length" :pops="hud.hitPops" />
 
@@ -169,6 +180,7 @@
 
         <!-- bottom-left: perks over the round -->
         <div class="df-corner-bl absolute flex flex-col items-start gap-3">
+            <DfHudArsenal v-if="hud.life !== 'dead'" :a="hud.arsenal" />
             <DfHudPerks :perks="hud.perks" :pulse="hud.perkPulse" />
             <DfHudRound :round="hud.round" :round-key="hud.roundKey" :phase="hud.phase" :phase-timer="hud.phaseTimer" />
         </div>
@@ -208,6 +220,9 @@ import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
 import type { DfHudState } from '~/utils/dead-front/engine/hud'
 import { dfDrawPowerupIcon } from '~/utils/dead-front/engine/powerups'
 import DfHudAmmo from './DfHudAmmo.vue'
+import DfHudArsenal from './DfHudArsenal.vue'
+import DfHudBench from './DfHudBench.vue'
+import DfHudChallenge from './DfHudChallenge.vue'
 import DfHudFeed from './DfHudFeed.vue'
 import DfHudHitPops from './DfHudHitPops.vue'
 import DfHudMarkers from './DfHudMarkers.vue'
@@ -275,6 +290,21 @@ function iconFor(kind: DfPowerupKind): string {
 .df-corner-tr {
     top: calc(var(--edge) - 6px);
     right: var(--edge);
+}
+
+.df-bench-wrap {
+    right: calc(var(--edge) + 2rem);
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.df-targeting {
+    top: calc(50% + 72px);
+    font-family: var(--df-font-type);
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    color: var(--df-chalk);
+    text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
 }
 
 .df-corner-bl {

@@ -18,7 +18,7 @@
                             <template v-else>{{ w.def.class }} · Lv {{ w.level }}</template>
                         </span>
                     </span>
-                    <span v-if="profile.loadout.startWeapon === w.id" class="df-rack-tag df-brass">Start</span>
+                    <span v-if="w.id === 'm1911'" class="df-rack-tag df-brass" title="Everyone starts with the M1911">Start</span>
                 </button>
             </li>
         </ul>
@@ -34,12 +34,7 @@
                     </h2>
                     <p class="mt-1.5 max-w-prose text-[0.95rem] italic leading-snug text-[var(--df-ink-2)]">{{ current.def.description }}</p>
                 </div>
-                <template v-if="current.unlocked && current.def.startable">
-                    <span v-if="profile.loadout.startWeapon === current.id" class="df-stamp df-stamp-land mt-1 !text-sm" style="--df-tilt: -5deg">Issued as start weapon</span>
-                    <DfButton v-else tone="blood" icon="check" :loading="saving" @click="save(current.id, profile.loadout.attachments)">
-                        Issue as start weapon
-                    </DfButton>
-                </template>
+                <span v-if="current.id === 'm1911'" class="df-stamp df-stamp-land mt-1 !text-sm" style="--df-tilt: -5deg">Standard issue · everyone starts with it</span>
             </header>
 
             <!-- drawing -->
@@ -174,7 +169,6 @@
 import { DF_WEAPONS, DF_WEAPON_IDS, DF_WEAPON_LEVEL_XP, dfWeaponLevel, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfAttachmentChoice, DfAttachmentSlot, DfLoadout, DfProfileView, DfWeaponId } from '#shared/utils/dead-front/types'
-import DfButton from '~/components/dead-front/ui/DfButton.vue'
 import DfIcon from '~/components/dead-front/ui/DfIcon.vue'
 import DfGauge from '~/components/dead-front/ui/DfGauge.vue'
 import DfWeaponSilhouette from '~/components/dead-front/ui/DfWeaponSilhouette.vue'
@@ -184,7 +178,7 @@ const emit = defineEmits<{ update: [profile: DfProfileView] }>()
 
 const toast = useToast()
 const saving = ref(false)
-const selected = ref<DfWeaponId>(props.profile.loadout.startWeapon)
+const selected = ref<DfWeaponId>('m1911')
 const activeSlot = ref<DfAttachmentSlot | null>(null)
 const previewFailed = ref(false)
 
@@ -297,6 +291,8 @@ const slots = computed(() => {
             if (!pct) return []
             return [{ label: r.label, text: `${pct > 0 ? '+' : ''}${pct}%`, good: r.lowerIsBetter ? pct < 0 : pct > 0 }]
         })
+        // the Maxim silencer's salvage bonus (not a weapon stat)
+        if (def.salvage && def.salvage !== 1) deltas.push({ label: 'Salvage', text: `+${Math.round((def.salvage - 1) * 100)}%`, good: true })
         const list = groups.get(def.slot) ?? []
         list.push({ def, unlocked: def.level <= w.level, active: choice.value[def.slot] === def.id, deltas })
         groups.set(def.slot, list)
@@ -324,13 +320,13 @@ function lockedHint(id: DfWeaponId): string {
 function toggle(slot: DfAttachmentSlot, id: string) {
     const next = Object.fromEntries(Object.entries(choice.value).filter(([k]) => k !== slot)) as DfAttachmentChoice
     if (choice.value[slot] !== id) next[slot] = id
-    save(props.profile.loadout.startWeapon, { ...props.profile.loadout.attachments, [selected.value]: next })
+    save({ ...props.profile.loadout.attachments, [selected.value]: next })
 }
 
-async function save(startWeapon: DfWeaponId, attachments: DfLoadout['attachments']) {
+async function save(attachments: DfLoadout['attachments']) {
     saving.value = true
     try {
-        const profile = await apiFetch<DfProfileView>('/api/dead-front/loadout', { method: 'POST', body: { startWeapon, attachments } })
+        const profile = await apiFetch<DfProfileView>('/api/dead-front/loadout', { method: 'POST', body: { attachments } })
         emit('update', profile)
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Could not save the loadout'), color: 'error' })

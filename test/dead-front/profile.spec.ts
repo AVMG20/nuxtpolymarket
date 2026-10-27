@@ -21,12 +21,20 @@ describe('dead front profile rules', () => {
         expect(v.perkMods).toEqual({})
     })
 
-    it('rejects locked or unstartable start weapons', () => {
+    it('always starts with the M1911 and keeps attachments only for unlocked weapons', () => {
         const v = fresh()
-        expect(dfValidateLoadout(v, 'kar98k', {})).toBeNull()
-        v.unlockedWeapons.push('kar98k', 'xray')
-        expect(dfValidateLoadout(v, 'kar98k', {})?.startWeapon).toBe('kar98k')
-        expect(dfValidateLoadout(v, 'xray', {})).toBeNull()
+        v.unlockedWeapons.push('kar98k')
+        v.weaponXp.kar98k = 1_000_000
+        const out = dfValidateLoadout(v, { kar98k: { optic: 'kar98k-scope', muzzle: 'nope' }, thompson: { optic: 'x' } })
+        expect(out.startWeapon).toBe('m1911')
+        expect(out.attachments.kar98k).toEqual({ optic: 'kar98k-scope' })
+        expect(out.attachments.thompson).toBeUndefined()
+        // a start weapon stored back when it could be chosen is ignored
+        const old = dfNormalizeProfile({
+            unlockedWeapons: ['m1911', 'kar98k'], weaponXp: {}, loadout: { startWeapon: 'kar98k', attachments: {} },
+            researchPerk: null, perkXp: {}, perkMods: {}, gamesPlayed: 0, bestRound: 0, totalKills: 0, eggsCompleted: 0
+        })
+        expect(old.loadout.startWeapon).toBe('m1911')
     })
 
     it('validates modifiers against research level', () => {

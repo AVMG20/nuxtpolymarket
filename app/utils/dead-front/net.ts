@@ -9,15 +9,31 @@ type Handler<T extends DfServerMsg['t']> = (msg: Extract<DfServerMsg, { t: T }>)
 
 export type DfNetStatus = 'connecting' | 'open' | 'closed'
 
-const PING_MS = 2000
+const PING_MS = 1000
+/** Ping samples the round-trip estimate takes the median of (a lone spike never moves it). */
+const RTT_WINDOW = 5
+
+/**
+ * The smoothed round trip (ms) after a new ping sample: the median of the last
+ * few samples, eased in. A 300 ms spike on one ping is ignored; a lasting
+ * change shows within a few seconds. `samples` is updated in place.
+ */
+export function dfSmoothRtt(prev: number, samples: number[], sample: number): number {
+    samples.push(sample)
+    if (samples.length > RTT_WINDOW) samples.shift()
+    const sorted = [...samples].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]!
+    return prev === 0 ? median : prev * 0.7 + median * 0.3
+}
 /** Kept short: a deploy restart takes ~10 s and players wait on the line coming back. */
 const MAX_BACKOFF_MS = 3000
 
 export class DfNet {
     /** 'connecting' | 'open' | 'closed' */
     status: DfNetStatus = 'closed'
-    /** Smoothed round-trip time in ms. */
+    /** Smoothed round-trip time in ms (`dfSmoothRtt`: spikes don't move it). */
     rtt = 0
+    private rttSamples: number[] = []
     /** Reconnect attempts since the last successful open. */
     attempts = 0
     private ws: WebSocket | null = null
@@ -158,7 +174,7 @@ export class DfNet {
     private onPong(at: number): void {
         const sample = performance.now() - at
         if (!(sample >= 0) || sample > 10000) return
-        this.rtt = this.rtt === 0 ? sample : this.rtt * 0.8 + sample * 0.2
+        this.rtt = dfSmoothRtt(this.rtt, this.rttSamples, sample)
     }
 
     send(msg: DfClientMsg): void {

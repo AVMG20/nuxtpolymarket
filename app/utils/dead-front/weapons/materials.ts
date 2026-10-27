@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
 import { dfVoxMaterial } from '../voxel/material'
 import type { DfVoxMaterial } from '../voxel/material'
 
@@ -9,6 +10,41 @@ import type { DfVoxMaterial } from '../voxel/material'
 
 let base: DfVoxMaterial | null = null
 const pap: (DfVoxMaterial | null)[] = [null, null, null]
+/** Shared clock for the camo shimmer (seconds). */
+const papTime = { value: 0 }
+
+/**
+ * Pack-a-Punch camo shimmer on top of the voxel glow: a bright band sweeps
+ * down the gun's length every couple of seconds (lighting the glowing camo
+ * voxels it crosses) and a tier-coloured sheen rims the silhouette. All the
+ * shader inputs are clamped; the rim is a cube, not a pow().
+ */
+function patchPapShimmer(m: DfVoxMaterial, tier: number): void {
+    const col = new THREE.Color(DF_PAP_COLORS[tier - 1] ?? '#a04dff')
+    const uCol = { value: new THREE.Vector3(col.r, col.g, col.b) }
+    const speed = 1.4 + tier * 0.35
+    const prev = m.onBeforeCompile
+    m.onBeforeCompile = (shader, renderer) => {
+        prev.call(m, shader, renderer)
+        shader.uniforms.uPapTime = papTime
+        shader.uniforms.uPapCol = uCol
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vPapPos;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPapPos = position;')
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nuniform float uPapTime;\nuniform vec3 uPapCol;\nvarying vec3 vPapPos;')
+            .replace('#include <emissivemap_fragment>', [
+                '#include <emissivemap_fragment>',
+                `float papSweep = fract(uPapTime * ${(speed / 4).toFixed(3)} - vPapPos.z * 0.9 - vPapPos.y * 0.6);`,
+                'float papBand = clamp(1.0 - abs(papSweep - 0.5) * 9.0, 0.0, 1.0);',
+                'float papRim = clamp(1.0 - abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0);',
+                'totalEmissiveRadiance += diffuseColor.rgb * clamp(vGlow, 0.0, 2.0) * papBand * 2.2;',
+                'totalEmissiveRadiance += uPapCol * (papRim * papRim * papRim) * 0.22 + uPapCol * papBand * 0.05;'
+            ].join('\n'))
+    }
+    const prevKey = m.customProgramCacheKey.bind(m)
+    m.customProgramCacheKey = () => `dfpap${tier}|${prevKey()}`
+}
 
 /** The plain weapon material. */
 export function dfWeaponMat(): DfVoxMaterial {
@@ -26,6 +62,7 @@ export function dfPapMat(tier: number): DfVoxMaterial {
     if (!m) {
         m = dfVoxMaterial({ glow: 1 })
         m.name = `df-weapon-pap${i + 1}`
+        patchPapShimmer(m, i + 1)
         pap[i] = m
     }
     return m
@@ -34,6 +71,7 @@ export function dfPapMat(tier: number): DfVoxMaterial {
 /** Pulses the PaP glow; hooked on camo meshes' onBeforeRender. */
 export function dfTickPap(): void {
     const t = performance.now() / 1000
+    papTime.value = t % 1000
     for (let i = 0; i < 3; i++) {
         const m = pap[i]
         if (m) m.userData.uGlow.value = 0.75 + 0.45 * (0.5 + 0.5 * Math.sin(t * (2.2 + i * 0.6) + i))

@@ -123,7 +123,7 @@ describe('last stand', () => {
 })
 
 describe('bleed-out and respawn', () => {
-    it('bleeds out, spectates, and comes back at the next round with the start weapon and their points', () => {
+    it('bleeds out, spectates, and comes back at the next round with the M1911 and their points', () => {
         const { sim, tick } = makeSim(['c96', 'm1911'])
         const a = sim.player(0)!
         a.points = 4321
@@ -134,7 +134,7 @@ describe('bleed-out and respawn', () => {
         expect(sim.over).toBe(false) // the teammate still stands
         sim.startRound()
         expect(a.life).toBe('alive')
-        expect(a.weapons.map(w => w.id)).toEqual(['c96'])
+        expect(a.weapons.map(w => w.id)).toEqual(['m1911'])
         expect(a.perks).toEqual([])
         expect(a.points).toBe(4321)
         expect(a.health).toBe(a.effects.maxHealth)

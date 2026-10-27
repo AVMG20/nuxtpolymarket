@@ -1432,6 +1432,46 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 }
                 break
             }
+            case 'flame': {
+                // A flamethrower jet: hot puffs thrown hard along the normal that swell, rise and
+                // cool from yellow-white to deep orange, and a little dark smoke off the end.
+                for (let i = 0, c = cnt(5); i < c; i++) {
+                    base(px, py, pz, floor)
+                    cone(nx, ny, nz, 0.08)
+                    vel(rnd(13, 17) * sc)
+                    S.drag = 1.1
+                    S.grav = -2.2
+                    S.life = rnd(0.42, 0.62)
+                    S.s0 = 0.05 * sc
+                    S.s1 = rnd(0.75, 1.25) * sc
+                    S.fadeIn = 0.03
+                    S.fadePow = 1.6
+                    S.spin = rnd(-4, 4)
+                    S.shape = SHAPE.smoke
+                    S.c0.copy(custom ?? PRESET_COLORS.fire0)
+                    S.c1.copy(PRESET_COLORS.fire1)
+                    emit(add)
+                }
+                if (Math.random() < 0.5 * q) {
+                    base(px, py, pz, floor)
+                    cone(nx, ny, nz, 0.15)
+                    vel(rnd(6, 9) * sc)
+                    S.drag = 1.4
+                    S.grav = -0.9
+                    S.life = rnd(0.9, 1.4)
+                    S.s0 = 0.2 * sc
+                    S.s1 = rnd(1.2, 1.8) * sc
+                    S.alpha = 0.22
+                    S.fadeIn = 0.35
+                    S.fadePow = 2
+                    S.spin = rnd(-1, 1)
+                    S.shape = SHAPE.smoke
+                    S.c0.copy(PRESET_COLORS.smoke1)
+                    S.c1.copy(PRESET_COLORS.smoke1)
+                    emit(alpha)
+                }
+                break
+            }
             case 'embers': {
                 for (let i = 0, c = cnt(10); i < c; i++) {
                     base(px + rnd(-0.3, 0.3) * sc, py, pz + rnd(-0.3, 0.3) * sc, floor)

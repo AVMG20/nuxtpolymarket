@@ -5,7 +5,7 @@
 // teammate is down) repeat whenever they apply. Also the ammo line under the
 // crosshair (reload / low / empty).
 
-export type DfHintId = 'rebuild' | 'knife' | 'wallbuy' | 'doors' | 'power' | 'perks' | 'revive'
+export type DfHintId = 'rebuild' | 'knife' | 'wallbuy' | 'doors' | 'power' | 'perks' | 'revive' | 'salvage' | 'bench' | 'deploy' | 'callin'
 
 export interface DfHint {
     id: DfHintId
@@ -41,6 +41,15 @@ export interface DfHintFacts {
     downedMate: string | null
     /** You are already reviving someone. */
     reviving: boolean
+    /** Your salvage (scrap + parts). */
+    salvage?: number
+    /** A workbench is close by, and your salvage pays for something on it. */
+    benchNear?: boolean
+    canCraft?: boolean
+    /** The deployable gear in hand (Q), if any. */
+    gear?: string | null
+    /** The support ready to call in (X), if any. */
+    reward?: string | null
 }
 
 /** Seconds a hint stays up (unless the player does the thing first). */
@@ -108,6 +117,34 @@ const RULES: HintRule[] = [
         when: f => f.alive && !f.power && f.perkNear,
         text: () => 'Perk machines need the power',
         sub: () => 'Turn it on, then come back with points'
+    },
+    {
+        id: 'callin',
+        once: true,
+        when: f => f.alive && !!f.reward,
+        text: f => `Hold X to call in the ${f.reward}`,
+        sub: () => 'Mark the spot you look at, release to call it in'
+    },
+    {
+        id: 'deploy',
+        once: true,
+        when: f => f.alive && !!f.gear,
+        text: () => 'Hold Q to place your gear',
+        sub: () => 'Aim at the floor and let go'
+    },
+    {
+        id: 'bench',
+        once: true,
+        when: f => f.alive && f.benchNear === true && f.canCraft === true,
+        text: () => 'Press F at the workbench to craft',
+        sub: () => 'Tap F for the next item, hold F to make it'
+    },
+    {
+        id: 'salvage',
+        once: true,
+        when: f => f.alive && (f.salvage ?? 0) > 0,
+        text: () => 'Salvage builds gear at a workbench',
+        sub: () => 'Your kills drop scrap and rare parts only you can pick up'
     }
 ]
 

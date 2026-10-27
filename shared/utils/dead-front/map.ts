@@ -1,6 +1,7 @@
 import type { DfPerkId, DfWeaponId, Vec3 } from './types'
 import { DF_WALK_Y, dfMapWorld } from './map-world'
 import { dfMapTraps } from './map-traps'
+import { dfBenchUsePoint, dfMapBenches } from './map-benches'
 import type { Rect } from './map-world'
 import type { DfTrap } from './specials'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight } from './physics'
@@ -152,6 +153,8 @@ export interface DfMapDef {
     lights: DfLight[]
     /** Buyable electric traps across passages (shared/utils/dead-front/map-traps.ts). */
     traps?: DfTrap[]
+    /** Workbenches that turn salvage into gear (shared/utils/dead-front/map-benches.ts). */
+    benches?: DfSpot[]
 }
 
 /** Floor height of the raised level. */
@@ -417,14 +420,15 @@ function compile(): DfMapDef {
         riserSpawns: w.riserSpawns,
         nav: buildNav({ solids: w.solids, doors: w.doors, barricades: w.barricades, zoneRects: w.zoneRects, pockets: w.pockets, stairs: w.stairs, start: w.playerSpawns[0]! }),
         lights: w.lights,
-        traps: dfMapTraps()
+        traps: dfMapTraps(),
+        benches: dfMapBenches()
     }
 }
 
 export const DF_MAP: DfMapDef = compile()
 
 /** Interactable ids used in `{ t: 'use', id }`. Built from the map so client prompts and server checks agree. */
-export type DfInteractKind = 'door' | 'wallbuy' | 'perk' | 'box' | 'pap' | 'power' | 'fuse' | 'rod' | 'generator' | 'pedestal' | 'barricade' | 'trap'
+export type DfInteractKind = 'door' | 'wallbuy' | 'perk' | 'box' | 'pap' | 'power' | 'fuse' | 'rod' | 'generator' | 'pedestal' | 'barricade' | 'trap' | 'bench'
 
 export interface DfInteractable {
     id: string
@@ -450,6 +454,7 @@ export function dfInteractables(map: DfMapDef): DfInteractable[] {
     out.push({ id: map.egg.generator.id, kind: 'generator', pos: map.egg.generator.pos, zone: map.egg.generator.zone })
     out.push({ id: map.egg.pedestal.id, kind: 'pedestal', pos: map.egg.pedestal.pos, zone: map.egg.pedestal.zone })
     for (const t of map.traps ?? []) out.push({ id: t.id, kind: 'trap', pos: t.lever.pos, zone: t.zone, ref: t.id })
+    for (const b of map.benches ?? []) out.push({ id: b.id, kind: 'bench', pos: dfBenchUsePoint(b), zone: b.zone, ref: b.id })
     return out
 }
 

@@ -3,12 +3,14 @@ import { DF_PLAYER } from '#shared/utils/dead-front/constants'
 import type { DfMapDef } from '#shared/utils/dead-front/map'
 import { dfCollisionFromSolids } from '#shared/utils/dead-front/physics'
 import type { DfShotHit } from '#shared/utils/dead-front/protocol'
-import { dfWeaponStats } from '#shared/utils/dead-front/weapons'
+import { DF_WEAPON_IDS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponId } from '#shared/utils/dead-front/types'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import * as THREE from 'three'
-import { DF_RECOIL, DF_RELOAD_SEATED, DfGunState, DfRecoil, dfAimDir, dfConeDir, dfShotInterval, dfSpread, dfSprintOutTime } from '../../app/utils/dead-front/engine/gun'
-import { DF_STEP, DfPlayerController } from '../../app/utils/dead-front/engine/player'
+import {
+    DF_RECOIL, DF_RECOIL_ID, DF_RELOAD_SEATED, DfGunState, DfRecoil, dfAimDir, dfConeDir, dfRecoilProfile, dfShotInterval, dfSpread, dfSprintOutTime
+} from '../../app/utils/dead-front/engine/gun'
+import { DF_SLIDE, DF_STEP, DfPlayerController } from '../../app/utils/dead-front/engine/player'
 import type { DfMoveIntent, DfMoveSpeeds } from '../../app/utils/dead-front/engine/player'
 
 // Gun feel on the client (fire timing, the sprint-out, recoil) and the
@@ -156,13 +158,15 @@ describe('aim', () => {
     })
 
     it('a rested shot down the sights lands on the centre (within 0.1 degrees) for every weapon', () => {
-        for (const id of ['m1911', 'c96', 'm1897', 'kar98k', 'thompson', 'mp18', 'ppsh', 'bar', 'lewis', 'xray'] as const) {
+        for (const id of DF_WEAPON_IDS) {
+            if (id === 'wunder') continue
             const s = dfWeaponStats(id, 0)
+            // a shotgun or flame pattern is a pattern
+            if (s.pellets > 1) continue
             const spread = dfSpread({ hipSpread: s.hipSpread, adsSpread: s.adsSpread, adsBlend: 1, spreadMult: 1, move: 0, airborne: false, crouched: false, bloom: 0 })
             const d = dfAimDir(0.3, -0.05, { x: 0, y: 0, z: 0 })
             for (const [u, v] of [[0.999, 0.25], [0.5, 0.75], [0.999, 0.999]]) {
                 const o = dfConeDir(d, spread, u!, v!, { x: 0, y: 0, z: 0 })
-                if (id === 'm1897') continue // a shotgun pattern is a pattern
                 expect((Math.acos(Math.min(1, d.x * o.x + d.y * o.y + d.z * o.z)) * 180) / Math.PI, id).toBeLessThan(0.1)
             }
         }
@@ -222,6 +226,30 @@ describe('recoil', () => {
             return out
         }
         expect(path(a)).toEqual(path(b))
+    })
+
+    it('gives guns their own patterns: the Chauchat pulls right, the Lewis left, the flamethrower barely moves', () => {
+        expect(dfRecoilProfile('lmg', 'chauchat')).toBe(DF_RECOIL_ID.chauchat)
+        expect(dfRecoilProfile('smg', 'mp18')).toBe(DF_RECOIL.smg)
+        expect(dfRecoilProfile('smg')).toBe(DF_RECOIL.smg)
+        const burst = (id: DfWeaponId) => {
+            const r = new DfRecoil()
+            const s = dfWeaponStats(id, 0)
+            let t = 0
+            for (let i = 0; i < 12; i++) {
+                r.kick(t, 'lmg', true, s.recoil, 0.5, id)
+                for (let k = 0; k < 6; k++) {
+                    t += 1 / 60
+                    r.update(1 / 60, t)
+                }
+            }
+            return r
+        }
+        expect(burst('chauchat').yaw).toBeGreaterThan(0)
+        expect(burst('lewis').yaw).toBeLessThan(0)
+        expect(burst('flammen').pitch).toBeLessThan(burst('chauchat').pitch * 0.2)
+        // the same burst always walks the same way
+        expect(burst('chauchat').yaw).toBeCloseTo(burst('chauchat').yaw, 9)
     })
 
     it('credits pulling down against the climb', () => {
@@ -349,6 +377,96 @@ describe('movement', () => {
         expect(steps).toBeGreaterThanOrEqual(6)
         expect(steps).toBeLessThanOrEqual(9)
         expect(Math.abs(prev)).toBeLessThan(0.004)
+    })
+
+    describe('slide', () => {
+        /** Sprints along the flat (toward -x) for `seconds`, then presses crouch. */
+        function sprintThenCrouch(seconds = 0.6) {
+            const pc = new DfPlayerController()
+            pc.teleport({ x: 9, y: 0, z: 5 })
+            pc.yaw = Math.PI / 2
+            let t = 0
+            for (; t < seconds; t += DF_STEP) pc.step(DF_STEP, t, intent({ sprint: true }), world, speeds)
+            expect(pc.sprinting).toBe(true)
+            pc.toggleCrouch()
+            return { pc, t }
+        }
+
+        it('crouching out of a sprint launches a slide that coasts to a crouch', () => {
+            const { pc, t: t0 } = sprintThenCrouch()
+            let t = t0
+            pc.step(DF_STEP, t, intent({ sprint: false }), world, speeds)
+            expect(pc.sliding).toBe(true)
+            expect(pc.crouched).toBe(true)
+            expect(pc.sprinting).toBe(false)
+            expect(pc.speed).toBeGreaterThan(DF_PLAYER.sprintSpeed * 1.1)
+            let top = 0
+            let slid = 0
+            const x0 = pc.pos.x
+            for (let i = 0; i < 90 && pc.sliding; i++) {
+                t += DF_STEP
+                pc.step(DF_STEP, t, intent({ sprint: false }), world, speeds)
+                top = Math.max(top, pc.speed)
+                slid += DF_STEP
+            }
+            expect(pc.sliding).toBe(false)
+            // short, punchy and inside the server's movement budget (sprint x 1.5 + 1)
+            expect(slid).toBeLessThanOrEqual(DF_SLIDE.time + DF_STEP)
+            expect(top).toBeLessThanOrEqual(DF_SLIDE.maxSpeed + 1e-6)
+            expect(top).toBeLessThan(DF_PLAYER.sprintSpeed * 1.5 + 1)
+            expect(x0 - pc.pos.x).toBeGreaterThan(3)
+            // it ends in a crouch
+            expect(pc.crouched).toBe(true)
+        })
+
+        it('only slides out of a sprint, with a short cooldown', () => {
+            const pc = new DfPlayerController()
+            pc.teleport({ x: 9, y: 0, z: 5 })
+            pc.yaw = Math.PI / 2
+            let t = 0
+            for (; t < 0.5; t += DF_STEP) pc.step(DF_STEP, t, intent(), world, speeds)
+            pc.toggleCrouch()
+            pc.step(DF_STEP, t, intent(), world, speeds)
+            expect(pc.sliding).toBe(false)
+            expect(pc.crouched).toBe(true)
+        })
+
+        it('jumping out of a slide keeps the momentum', () => {
+            const { pc, t: t0 } = sprintThenCrouch()
+            let t = t0
+            for (let i = 0; i < 10; i++, t += DF_STEP) pc.step(DF_STEP, t, intent(), world, speeds)
+            expect(pc.sliding).toBe(true)
+            // what the engine does on Space: stand up and queue the jump
+            pc.wantsCrouch = false
+            pc.queueJump(t)
+            pc.step(DF_STEP, t, intent(), world, speeds)
+            expect(pc.sliding).toBe(false)
+            expect(pc.crouched).toBe(false)
+            expect(pc.vel.y).toBeGreaterThan(0)
+            expect(pc.speed).toBeGreaterThan(DF_PLAYER.sprintSpeed)
+        })
+
+        it('a sprint held through the slide stands straight back into the sprint', () => {
+            const { pc, t: t0 } = sprintThenCrouch()
+            let t = t0
+            for (let i = 0; i < 90; i++, t += DF_STEP) pc.step(DF_STEP, t, intent({ sprint: true }), world, speeds)
+            expect(pc.sliding).toBe(false)
+            expect(pc.crouched).toBe(false)
+            expect(pc.sprinting).toBe(true)
+        })
+
+        it('the head bob and footsteps go quiet in a slide', () => {
+            const { pc, t: t0 } = sprintThenCrouch()
+            let t = t0
+            let steps = 0
+            for (let i = 0; i < 30; i++, t += DF_STEP) {
+                pc.step(DF_STEP, t, intent(), world, speeds)
+                const step = pc.headBob(DF_STEP, DF_PLAYER.walkSpeed, 0).step
+                if (i > 1 && step) steps++
+            }
+            expect(steps).toBe(0)
+            expect(pc.slideBlend).toBeGreaterThan(0.9)
+        })
     })
 })
 

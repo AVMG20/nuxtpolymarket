@@ -49,6 +49,30 @@ function setup() {
     hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, rods: null, rodTimer: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
     hud.ping = 24
     hud.chat = [{ id: 1, name: 'Pvt. Hale', text: 'door by the chapel, need 750', born: 0 }]
+    hud.ammo.rarity = 2
+    // salvage, gear, the bench list, held support and the round challenge
+    hud.arsenal = {
+        scrap: 14, parts: 1, launcher: 31, equip: 'sentry', kit: true,
+        support: [{ id: 'barrage', name: 'Artillery Barrage' }, { id: 'bomber', name: 'Bomber Run' }],
+        bench: mode.value === 'board'
+            ? null
+            : {
+                    hold: 0.45,
+                    items: [
+                        { key: 'sentry', name: 'Lewis Sentry', cost: '6 scrap', ok: false, why: 'Place your gear first (Q)', selected: false, tint: null },
+                        { key: 'decoy', name: 'Gramophone', cost: '5 scrap', ok: false, why: 'Place your gear first (Q)', selected: false, tint: null },
+                        { key: 'kit', name: 'Field Kit', cost: '10 scrap · 1 part', ok: false, why: 'Already carrying one', selected: false, tint: null },
+                        { key: 'barrage', name: 'Artillery Barrage', cost: '8 scrap', ok: true, why: 'Eight shells on the spot you mark (X)', selected: false, tint: null },
+                        { key: 'zeppelin', name: 'Zeppelin Raid', cost: '12 scrap · 1 part', ok: true, why: 'A bomb run along your line of sight (X)', selected: false, tint: null },
+                        { key: 'launcher', name: 'Granatwerfer', cost: '12 scrap', ok: true, why: 'A grenade launcher in your hands for 45 s (X)', selected: true, tint: null },
+                        { key: 'bomber', name: 'Bomber Run', cost: '16 scrap · 1 part', ok: false, why: 'Need 2 more scrap', selected: false, tint: null },
+                        { key: 'upgrade', name: 'M1921 Thompson → Legendary', cost: '20 scrap · 2 parts', ok: false, why: 'Need 6 more scrap', selected: false, tint: '#ff9a26' }
+                    ]
+                },
+        challenge: { text: 'Headshot kills', n: 4, goal: 7, done: false },
+        salvageKey: 0,
+        targeting: 'Release X to call in the Bomber Run'
+    }
 }
 
 const feedCtx: DfHudFeedContext = {

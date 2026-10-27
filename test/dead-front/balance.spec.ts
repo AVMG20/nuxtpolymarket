@@ -181,8 +181,10 @@ describe('weapon niches and the box', () => {
         // the Kar98k hits hardest per shot and goes through a line
         expect(hitscan.every(id => id === 'kar98k' || stat(id).damage * stat(id).headMult < stat('kar98k').damage * stat('kar98k').headMult)).toBe(true)
         expect(stat('kar98k').penetration).toBeGreaterThanOrEqual(2)
-        // the trench gun owns point-blank: the biggest single trigger pull
-        expect(hitscan.every(id => id === 'm1897' || bullets(id, 330) > bullets('m1897', 330))).toBe(true)
+        // the trench gun owns point-blank among repeaters: the biggest single trigger pull
+        // (the coach gun hits harder still, but only twice before it breaks open)
+        expect(hitscan.every(id => id === 'm1897' || id === 'sawnoff' || bullets(id, 330) > bullets('m1897', 330))).toBe(true)
+        expect(stat('sawnoff').magSize).toBeLessThan(stat('m1897').magSize)
         // the Thompson out-damages the cheaper MP18, which is steadier
         expect(dps('thompson')).toBeGreaterThan(dps('mp18'))
         expect(stat('mp18').recoil).toBeLessThan(stat('thompson').recoil)

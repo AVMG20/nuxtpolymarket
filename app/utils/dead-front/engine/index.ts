@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { DF_GRENADES, DF_INTERP_DELAY_MS, DF_TICK_HZ, DF_MELEE, DF_PLAYER, DF_BASE_EFFECTS, DF_POINTS } from '#shared/utils/dead-front/constants'
-import { dfBulletDamage, dfKillPoints, dfScalePoints } from '#shared/utils/dead-front/combat'
+import { dfArcAim, dfArcBody, dfBulletDamage, dfFlameHitPays, dfKillPoints, dfScalePoints } from '#shared/utils/dead-front/combat'
 import { DF_ENEMIES, dfZombieBaseHealth, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
 import { DF_BARRICADE_PLANKS, DF_MAP, dfInteractables, dfMaterialSurface } from '#shared/utils/dead-front/map'
 import { DF_PERKS, dfComputeEffects } from '#shared/utils/dead-front/perks'
@@ -15,7 +15,7 @@ import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { randomFloat } from '#shared/utils/random'
 import {
-    buildDfWeaponModel, createDfProjectileView, createDfViewmodel, dfMuzzleFlashColor, dfShotSoundName,
+    buildDfWeaponModel, createDfProjectileView, createDfViewmodel, DF_WSND, dfMuzzleFlashColor, dfShotSoundName,
     registerDfWeaponSounds
 } from '~/utils/dead-front/weapons'
 import { createDfWorldView, createDfZombieView, registerDfWorldSounds } from '~/utils/dead-front/world'
@@ -32,7 +32,7 @@ import type { DfHintFacts } from './hints'
 import { DF_HUD_HIT_POPS, DF_HUD_MARKERS } from './hud'
 import type { DfHudState } from './hud'
 import { DfInput } from './input'
-import { DfSnapBuffer, DfZombieSmoother, dfInterpPlayer, dfInterpZombies, dfNewInterpPlayer, dfNewSample, dfWrapAngle } from './interp'
+import { DF_MAX_ZOMBIE_EXTRAPOLATE, DfSnapBuffer, DfZombieSmoother, dfEaseDelay, dfInterpPlayer, dfPredictionSettled, dfInterpZombies, dfNewInterpPlayer, dfNewSample, dfWrapAngle } from './interp'
 import type { DfInterpPlayer } from './interp'
 import { dfClampToScreen, dfEggRodSpots, dfObjectiveTarget, dfObjectiveText } from './objective'
 import type { DfScreenPoint } from './objective'
@@ -47,6 +47,8 @@ import { dfVerticalFov } from './settings'
 import type { DfSettings } from './settings'
 import { DF_SND, registerDfEngineSounds } from './sounds'
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
+import { createDfArsenalClient } from './arsenal'
+import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_STREAK_TITLES, dfGasDepth } from '#shared/utils/dead-front/specials'
 
 // The Dead Front client engine: owns the renderer, the loop, input and the
@@ -100,7 +102,7 @@ function safe<T>(label: string, make: () => T, fallback: T): T {
 function weaponKey(w: DfHeldWeapon | null | undefined): string {
     if (!w) return ''
     const a = w.attachments ?? {}
-    return `${w.id}:${w.pap}:${a.optic ?? ''}:${a.muzzle ?? ''}:${a.magazine ?? ''}:${a.stock ?? ''}`
+    return `${w.id}:${w.pap}:${w.rarity ?? 0}:${a.optic ?? ''}:${a.muzzle ?? ''}:${a.magazine ?? ''}:${a.stock ?? ''}`
 }
 
 export function createDfEngine(opts: DfEngineOptions): DfEngine {
@@ -175,6 +177,18 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     // ---------------------------------------------------------------- local player
     const input = new DfInput(rr.canvas)
     const player = new DfPlayerController()
+    // salvage, the workbench, crafted gear, upgrade kits, support (arsenal.ts)
+    const arsenal = createDfArsenalClient({
+        ctx,
+        net,
+        me,
+        hud,
+        input,
+        collision: () => collision,
+        feet: () => player.pos,
+        aim: out => aimDirection(out),
+        announce: (title, sub, tone) => announce(title, sub, tone)
+    })
     const gun = new DfGunState()
     const recoil = new DfRecoil()
     let effects: DfPlayerEffects = { ...DF_BASE_EFFECTS }
@@ -210,17 +224,24 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** Zombies this client just hit (render clock): their flinch played locally, so the server's echo is skipped. */
     const predictedFlinch = new Map<number, number>()
     const localHits: { z: number, zone: DfHitZone, pos: Vec3 }[] = []
-    // ---- client-side prediction (hits, kills, points, buys); the server reconciles
+    // ---- client-side prediction (hits, kills, points, buys); the server reconciles.
+    // Each prediction keeps `ack`, the input seq sent next: a snapshot acking it has the answer
+    // (dfPredictionSettled), so a slow line never rolls back a prediction the server took.
     let shotSeq = 0
     /** Points this client predicted per shot id, until the server's points event for that shot. */
-    const pendingPoints = new Map<number, { amount: number, at: number }>()
+    const pendingPoints = new Map<number, { amount: number, at: number, ack: number }>()
     /** Damage dealt that the latest snapshot doesn't show yet, per zombie id. */
-    const pendingDamage = new Map<number, { dmg: number, shot: number, at: number }[]>()
+    const pendingDamage = new Map<number, { dmg: number, shot: number, at: number, ack: number }[]>()
     /** Zombies this client killed (predicted, render clock): hidden at once, the server's kill echo is skipped. */
-    const predictedDead = new Map<number, number>()
+    const predictedDead = new Map<number, { at: number, ack: number }>()
     /** Optimistic purchases: points shown spent at once, refunded on screen if the server never confirms. */
-    const pendingBuys: { id: string, cost: number, at: number, door?: string, perk?: DfPlayerSnap['perks'][number] }[] = []
+    const pendingBuys: { id: string, cost: number, at: number, ack: number, door?: string, perk?: DfPlayerSnap['perks'][number] }[] = []
+    /** The last local ammo change (shot, reload, swap): snapshots older than its ack can't overwrite the magazine. */
+    let ammoAck = 0
+    let ammoAt = -10
     const smoother = new DfZombieSmoother()
+    /** When each zombie last paid our flame hit points (`dfFlameHitPays`). */
+    const flamePaid = new Map<number, number>()
     /** Kill punch 0..1: a quick FOV squeeze on kills (more on headshots). */
     let killPunch = 0
     let damagePulse = 0
@@ -305,7 +326,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function equip(w: DfHeldWeapon, now: number): void {
         let s: DfWeaponStats
         try {
-            s = dfWeaponStats(w.id, w.pap, w.attachments ?? {})
+            s = dfWeaponStats(w.id, w.pap, w.attachments ?? {}, w.rarity ?? 0)
         } catch {
             return
         }
@@ -427,6 +448,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
     // ---------------------------------------------------------------- snapshots
     function onSnap(s: DfSnapshot): void {
+        // the player's own salvage rides in its own slice: fold it into the world and events
+        dfMergeArsenalMine(s)
         const nowMs = performance.now()
         // after a pause or a stall the server clock resumes where it stopped: re-sync the render clock
         if (nowMs - lastSnapAt > 1000) buffer.offset = null
@@ -511,7 +534,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                     equip(w, now)
                 }
             } else if (w) {
-                gun.reconcile(w, now, 0.45 + net.rtt / 1000)
+                // a snapshot from before our last shot / reload reached the server must not refill the magazine
+                gun.reconcile(w, now, dfPredictionSettled(ammoAck, s.ack, now - ammoAt, net.rtt) ? 0.45 + net.rtt / 1000 : Infinity)
             } else if (heldKey !== '') {
                 // weapon handed to Pack-a-Punch: nothing in hand
                 heldKey = ''
@@ -520,11 +544,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 gun.cancelReload()
             }
         }
+        // HUD-side reactions happen on arrival; view events wait for the render clock
+        for (const ev of s.events) handleImmediate(ev, s)
+        // after this snapshot's events (their echoes settle predictions first)
         reconcilePredictions(s)
         // the collision world follows the bought doors (and the ones we just bought, predicted)
         updateCollision(s)
-        // HUD-side reactions happen on arrival; view events wait for the render clock
-        for (const ev of s.events) handleImmediate(ev, s)
         if (s.events.length) eventQueue.push({ time: s.time, events: s.events })
         if (hud.round !== s.round && s.round > 0 && hud.round === 0) {
             hud.round = s.round
@@ -552,19 +577,19 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
     /** Settles predictions against a fresh snapshot: rejected shots, kills the server didn't take, buys it never confirmed. */
     function reconcilePredictions(s: DfSnapshot): void {
-        const settle = 0.6 + (net.rtt / 1000) * 2
-        for (const [shot, pp] of pendingPoints) if (time - pp.at > settle + 0.6) pendingPoints.delete(shot)
+        const settled = (ack: number, at: number) => dfPredictionSettled(ack, s.ack, time - at, net.rtt)
+        for (const [shot, pp] of pendingPoints) if (settled(pp.ack, pp.at)) pendingPoints.delete(shot)
         for (const [id, list] of pendingDamage) {
-            const keep = list.filter(d => time - d.at <= settle + 0.6)
+            const keep = list.filter(d => !settled(d.ack, d.at))
             if (keep.length) pendingDamage.set(id, keep)
             else pendingDamage.delete(id)
         }
         if (predictedDead.size) {
             const alive = new Set(s.zombies.map(z => z.id))
-            for (const [id, at] of predictedDead) {
+            for (const [id, d] of predictedDead) {
                 if (!alive.has(id)) {
-                    if (time - at > 4) predictedDead.delete(id)
-                } else if (time - at > settle) {
+                    if (time - d.at > 4) predictedDead.delete(id)
+                } else if (settled(d.ack, d.at)) {
                     // the server kept it alive (a refused shot): bring it back
                     predictedDead.delete(id)
                     smoother.forget(id)
@@ -580,8 +605,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const b = pendingBuys[i]!
             if (b.door && s.world.doors.includes(b.door)) {
                 pendingBuys.splice(i, 1)
-            } else if (time - b.at > settle + 0.3) {
-                // never confirmed: the points come back on screen
+            } else if (settled(b.ack, b.at)) {
+                // the server answered without a `buy`: the points come back on screen
                 pendingBuys.splice(i, 1)
                 audio.play(DF_SND.denied, { volume: 0.6 })
             }
@@ -669,14 +694,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const left = zombieHpLeft(z)
         let list = pendingDamage.get(z.id)
         if (!list) pendingDamage.set(z.id, list = [])
-        list.push({ dmg, shot, at: time })
+        list.push({ dmg, shot, at: time, ack: seq + 1 })
         if (!insta && left - dmg > 0) return { points: DF_POINTS.hit, kill: false }
         predictKill(z, zone, melee ? 'knife' : gun.id)
         return { points: dfKillPoints(zone, melee), kill: true }
     }
 
     function predictKill(z: DfZombieSnap, zone: DfHitZone, weapon: Extract<DfEvent, { k: 'kill' }>['weapon']): void {
-        predictedDead.set(z.id, time)
+        predictedDead.set(z.id, { at: time, ack: seq + 1 })
         try {
             zombieView.onEvent({ k: 'kill', z: z.id, p: me, zone, weapon, pos: { x: z.pos.x, y: z.pos.y, z: z.pos.z } })
         } catch (e) {
@@ -701,12 +726,17 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** Shows a shot's predicted points at once and remembers them for the server's echo. */
     function predictPoints(shot: number, amount: number): void {
         if (amount <= 0) return
-        pendingPoints.set(shot, { amount, at: time })
+        pendingPoints.set(shot, { amount, at: time, ack: seq + 1 })
         popup(amount, (latest?.world.double ?? 0) > 0)
         audio.play(DF_SND.points, { volume: 0.5, rate: amount >= 100 ? 1.12 : 1 })
     }
 
     function handleImmediate(ev: DfEvent, s: DfSnapshot): void {
+        try {
+            arsenal.onEvent(ev)
+        } catch (e) {
+            console.error('[dead-front] arsenal event', e)
+        }
         switch (ev.k) {
             case 'points': {
                 if (ev.p === me && ev.shot !== undefined) {
@@ -732,7 +762,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
             case 'hit': {
                 if (ev.p !== me) break
-                if (time - predictedHitAt > 0.3) {
+                // our own hits already marked and sounded when we fired (the echo may come late on a slow line)
+                if (time - predictedHitAt > 0.3 && time - (predictedFlinch.get(ev.z) ?? -10) > 1.5) {
                     hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
                     audio.play(ev.zone === 'head' ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
                 } else if (ev.zone === 'head' && hud.hitmarker.kind === 'hit') {
@@ -858,7 +889,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         try {
             // our own hits already flinched locally when we fired
-            const echo = (ev.k === 'hit' && ev.p === me && time - (predictedFlinch.get(ev.z) ?? -10) < 0.7)
+            const echo = (ev.k === 'hit' && ev.p === me && time - (predictedFlinch.get(ev.z) ?? -10) < 1.5)
                 || ((ev.k === 'kill' || ev.k === 'hit') && predictedDead.has(ev.z))
             if (!echo) zombieView.onEvent(ev)
         } catch (e) {
@@ -886,8 +917,19 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             // ignore
         }
         avatars.fired(ev.p)
-        fx.flash(from, 0xffb060, 20, 0.06)
+        // in the weapon's own colour: the X-Ray and Pack-a-Punched guns flash in their tier's
+        fx.flash(from, ev.pap > 0 || ev.weapon === 'xray' || ev.weapon === 'wunder' ? dfMuzzleFlashColor(ev.weapon, ev.pap) : 0xffb060, 20, 0.06)
         if (shot !== 'hitscan') return
+        if (DF_WEAPONS[ev.weapon]?.flame) {
+            // a flamethrower: a jet of fire toward where it was aimed, no tracer or impact
+            const fdx = ev.to.x - from.x
+            const fdy = ev.to.y - from.y
+            const fdz = ev.to.z - from.z
+            const fl = Math.sqrt(fdx * fdx + fdy * fdy + fdz * fdz) || 1
+            tmpV2.set(fdx / fl, fdy / fl, fdz / fl)
+            fx.burst('flame', from, { normal: tmpV2, count: 3 })
+            return
+        }
         fx.tracer(from, ev.to)
         // impact on the world, if the shot ended on a surface
         const dx = ev.to.x - ev.from.x
@@ -954,6 +996,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const dirs: Vec3[] = []
         const hits: DfShotHit[] = []
         const hitscan = s.shot === 'hitscan'
+        const flame = !!DF_WEAPONS[gun.id]?.flame
         let tracerEnd: Vec3 | null = null
         let claimed = false
         for (let i = 0; i < pellets; i++) {
@@ -982,7 +1025,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             if (n > 0) claimed = true
             const stopped = n > 0 && n >= through
             if (wh && !stopped) {
-                surfaceFx(wh.point, wh.normal, wh.mat)
+                if (!flame) surfaceFx(wh.point, wh.normal, wh.mat)
+                else if (i === 0 && wh.dist < 6 && shotCount % 4 === 0) fx.decal(wh.point, wh.normal, 'scorch', 0.35)
                 if (i === 0) tracerEnd = wh.point
             } else if (i === 0) {
                 const d = stopped ? cands[n - 1]!.dist : maxRange
@@ -1000,6 +1044,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const z = zList.find(q => q.id === h.z)
             if (!z) continue
             const r = predictHit(z, dfBulletDamage(s, effects, h.zone, h.dist, life === 'down'), h.zone, shot, false)
+            // a flame jet pays its +10 per zombie every DF_FLAME_POINT_INTERVAL, like the server
+            if (flame && !r.kill && !dfFlameHitPays(flamePaid, z.id, time)) r.points = 0
             const pts = scalePoints(r.points)
             base += pts
             if (r.kill) {
@@ -1017,7 +1063,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         predictPoints(shot, base)
         for (const pop of pops.values()) hitPop(pop.at, pop.amount, pop.kind)
-        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits, shot, mag: Math.max(0, gun.mag - 1) })
+        // the wunderweapon claims the zombie its arc takes on this screen (point blank included); the server chains from it
+        const claims = s.shot === 'arc' ? arcClaim(eye, dirs[0]!, s.maxRange > 0 ? s.maxRange : 40) : hits
+        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits: claims, shot, mag: Math.max(0, gun.mag - 1), weapon: gun.id })
+        markAmmo()
         // the zombie flinches (and bleeds) on this frame, not a round trip later; the server's echo is skipped
         for (let i = 0; i < localHits.length; i++) {
             const h = localHits[i]!
@@ -1031,7 +1080,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         localHits.length = 0
         if (predictedFlinch.size > 64) {
-            for (const [z, at] of predictedFlinch) if (time - at > 1) predictedFlinch.delete(z)
+            for (const [z, at] of predictedFlinch) if (time - at > 2) predictedFlinch.delete(z)
         }
         if (gun.reloading) safe('vm cancel', () => viewmodel.cancelReload(), undefined)
         gun.fired(now, effects.fireRateMult)
@@ -1041,16 +1090,25 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // recoil
         const ads = viewmodel.adsBlend
         const kick = Math.max(0, s.recoil) * effects.recoilMult * (1 - ads * 0.35) * (player.crouched ? 0.85 : 1)
-        fx.shake(recoil.kick(now, gun.cls, gun.auto, kick, Math.random()))
+        fx.shake(recoil.kick(now, gun.cls, gun.auto, kick, Math.random(), gun.id))
         // muzzle light in both scenes
         viewmodel.muzzleWorld(camera, tmpV2)
         // candela: has to beat the ~5-12 cd lantern pools to visibly light the surroundings
         // (one pooled light per shot; Pack-a-Punched guns flash in their tier colour)
         const flashColor = dfMuzzleFlashColor(gun.id, gun.pap)
-        fx.flash(tmpV2, flashColor, 28, 0.06)
-        vmMuzzle.intensity = s.shot === 'hitscan' ? 3 : 1.5
+        fx.flash(tmpV2, flashColor, flame ? 16 : 28, flame ? 0.12 : 0.06)
+        vmMuzzle.color.set(flashColor)
+        vmMuzzle.intensity = flame ? 2.2 : s.shot === 'hitscan' ? 3 : 1.5
+        // burning: embers lick off whatever the jet touched
+        if (flame) {
+            let n = 0
+            for (const pop of pops.values()) {
+                if (n++ >= 3) break
+                fx.burst('embers', pop.at, { count: 2, scale: 0.6 })
+            }
+        }
         // tracers on some rounds
-        if (hitscan && tracerEnd) {
+        if (hitscan && tracerEnd && !flame) {
             const every = gun.auto ? 3 : pellets > 1 ? 1 : 2
             if (shotCount % every === 0) fx.tracer(tmpV2, tracerEnd)
         }
@@ -1064,6 +1122,37 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
         }
         if (gun.mag <= 0) reloadEmptyPending = true
+    }
+
+    /** A local ammo change just went out: older snapshots must not overwrite the magazine. */
+    function markAmmo(): void {
+        ammoAck = seq + 1
+        ammoAt = time
+    }
+
+    /** The zombie the wunderweapon's arc takes first, as drawn (the server takes the claim within sanity bounds). */
+    function arcClaim(from: Vec3, dir: Vec3, range: number): DfShotHit[] {
+        let best: DfShotHit | null = null
+        let bestScore = Infinity
+        for (const z of zList) {
+            if (predictedDead.has(z.id)) continue
+            const aim = dfArcAim(dfArcBody(z.type, z.pos, z.crawl), from, dir, range)
+            if (!aim || aim.score >= bestScore) continue
+            // a wall in between blocks it (the eye pressed against a body is always clear)
+            const dx = aim.point.x - from.x
+            const dy = aim.point.y - from.y
+            const dz = aim.point.z - from.z
+            const l = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (l > 0.05) {
+                shotDir.x = dx / l
+                shotDir.y = dy / l
+                shotDir.z = dz / l
+                if (dfRaycast(collision, from, shotDir, l - 0.05)) continue
+            }
+            best = { z: z.id, zone: 'body', dist: aim.dist }
+            bestScore = aim.score
+        }
+        return best ? [best] : []
     }
 
     function tryReload(now: number): void {
@@ -1182,7 +1271,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const shown = shownPoints(mine)
         const meShown = shown === mine.points && !pendingBuys.some(b => b.perk) ? mine : { ...mine, points: shown, perks: shownPerks(mine) }
         const world = pendingBuys.some(b => b.door) ? { ...latest.world, doors: doorsWithPredicted(latest.world) } : latest.world
-        const pctx = { map: DF_MAP, world, me: meShown, solo }
+        const pctx = { map: DF_MAP, world, me: meShown, solo, benchPick: arsenal.pick }
         // downed teammates first
         let bestRevive: DfPrompt | null = null
         let bestD = Infinity
@@ -1205,6 +1294,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         aimDirection(aim)
         fwdFlat.x = aim.x
         fwdFlat.z = aim.z
+        // an upgrade kit on the ground in front of us comes first
+        const kitPrompt = arsenal.prompt(meShown, world)
+        if (kitPrompt) {
+            currentPrompt = kitPrompt
+            return
+        }
         const idx = dfPickInteractable(interactables, camera.position, fwdFlat.x, fwdFlat.z, DF_PLAYER.useRange, (i) => dfPromptFor(interactables[i]!, pctx) === null)
         if (idx < 0) return
         currentPrompt = dfPromptFor(interactables[idx]!, pctx)
@@ -1221,7 +1316,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const it = interactables.find(i => i.id === p.id)
         const door = p.kind === 'door' && it ? (it.ref ?? it.id) : undefined
         const perk = p.kind === 'perk' && it?.ref && DF_PERKS[it.ref as keyof typeof DF_PERKS] ? it.ref as DfPlayerSnap['perks'][number] : undefined
-        pendingBuys.push({ id: p.id, cost: p.cost ?? 0, at: time, door, perk })
+        pendingBuys.push({ id: p.id, cost: p.cost ?? 0, at: time, ack: seq + 1, door, perk })
         audio.play(DF_SND.buy, { volume: 0.7 })
         if (door && latest) {
             updateCollision(latest)
@@ -1317,6 +1412,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             tryReload(now)
             return
         }
+        // out of everything: the hammer falls on nothing
+        if (gun.mag <= 0 && !gun.reloading) audio.play(DF_WSND.dry, { volume: 0.6 })
         if (!player.sprinting && gun.canFire(now, true)) fire(now)
     }
 
@@ -1333,7 +1430,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         gun.cancelReload(now)
         safe('vm cancel', () => viewmodel.cancelReload(), undefined)
         // the server runs its own reload timer: settle it with what we have now
-        net.send({ t: 'reload', mag: gun.mag })
+        net.send({ t: 'reload', mag: gun.mag, weapon: gun.id })
+        markAmmo()
     }
 
     function handleInput(dt: number, now: number): void {
@@ -1418,13 +1516,19 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 melee(now)
             }
             if (input.pressed('KeyG')) throwGrenade(now)
+            if (input.pressed('KeyI') && !gun.reloading) safe('vm inspect', () => viewmodel.inspect?.(), undefined)
             handleUse(now)
+            // the workbench, upgrade kits, placing gear (Q) and calling in support (X)
+            arsenal.input(now, currentPrompt, mine, latest?.world ?? null)
         }
         // reload / shell progress
         const ev = gun.update(now, dt, effects.reloadMult)
         if (ev === 'shell' && stats) safe('vm shell', () => viewmodel.reload(false, stats!.perRoundReload / Math.max(0.1, effects.reloadMult), true), undefined)
         // ammo is client-driven: report the magazine a finished reload left
-        if (ev === 'done') net.send({ t: 'reload', mag: gun.mag })
+        if (ev === 'done') {
+            net.send({ t: 'reload', mag: gun.mag, weapon: gun.id })
+            markAmmo()
+        }
     }
 
     function cycleSpectate(dir: number): void {
@@ -1559,15 +1663,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // ---- interpolation
         // Ease toward the jitter-adapted delay so the render clock never jumps.
         const targetDelay = buffer.targetDelay(DF_INTERP_DELAY_MS, 1000 / DF_TICK_HZ)
-        interpDelay += (targetDelay - interpDelay) * Math.min(1, dt * (targetDelay > interpDelay ? 2 : 0.3))
+        interpDelay = dfEaseDelay(interpDelay, targetDelay, dt)
         const renderT = buffer.renderTime(nowMs, interpDelay)
         const sample = buffer.at(renderT)
         // Zombies (and the events that hit them) run on their own, shorter delay:
         // about a tick, dead-reckoned past the newest snapshot and smoothed.
         const zTarget = buffer.zombieDelay(1000 / DF_TICK_HZ)
-        zombieDelay += (zTarget - zombieDelay) * Math.min(1, dt * (zTarget > zombieDelay ? 2 : 0.3))
+        zombieDelay = dfEaseDelay(zombieDelay, zTarget, dt)
         const zRenderT = buffer.renderTime(nowMs, zombieDelay)
-        const zs = buffer.at(zRenderT, zSample)
+        // zombies dead-reckon through a whole lag spike instead of freezing at the players' cap
+        const zs = buffer.at(zRenderT, zSample, DF_MAX_ZOMBIE_EXTRAPOLATE)
         while (eventQueue.length && eventQueue[0]!.time <= zRenderT + 1e-4) {
             const q = eventQueue.shift()!
             for (const ev of q.events) dispatchView(ev)
@@ -1633,6 +1738,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         mark(6)
         avatars.update(dt, now, pList, pCount)
         powerupView.update(dt, now, latest?.powerups ?? [])
+        try {
+            arsenal.frame(dt, life === 'alive' ? mine : null, latest?.world ?? null)
+        } catch (e) {
+            console.error('[dead-front] arsenal frame', e)
+        }
         mark(7)
 
         // viewmodel
@@ -1641,6 +1751,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         vmInput.crouching = player.crouched
         vmInput.grounded = player.grounded
         vmInput.adsMult = effects.adsMult
+        vmInput.sliding = player.sliding
+        // sideways velocity in camera space (+ right) and the vertical speed, for the gun's momentum
+        vmInput.strafe = (player.vel.x * Math.cos(player.yaw) - player.vel.z * Math.sin(player.yaw)) / Math.max(0.1, speeds.sprint)
+        vmInput.vy = player.vel.y
         viewmodel.root.visible = life !== 'dead'
         try {
             viewmodel.update(dt, vmInput)
@@ -1793,15 +1907,17 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         recoil.update(dt, now)
         const downRoll = player.downed ? 0.16 + Math.sin(now * 0.9) * 0.03 : 0
         const strafeRoll = -(player.vel.x * cy - player.vel.z * sy) * 0.0035 * (1 - ads)
+        // a slide leans the view a touch, like a body dropping onto one hip
+        const slideRoll = player.slideBlend * 0.06 * (1 - ads)
         camera.rotation.set(
             player.pitch + recoil.pitch + fx.shakePitch - landOff * 0.02,
             player.yaw + recoil.yaw + fx.shakeYaw,
-            fx.shakeRoll + downRoll + strafeRoll + bobX * 0.3,
+            fx.shakeRoll + downRoll + strafeRoll + slideRoll + bobX * 0.3,
             'YXZ'
         )
 
         // FOV: sprint kick, ADS zoom
-        sprintFov += ((sprint ? 1 : 0) - sprintFov) * Math.min(1, dt * 6)
+        sprintFov += ((sprint || player.sliding ? 1 : 0) - sprintFov) * Math.min(1, dt * 6)
         killPunch *= Math.exp(-dt * 11)
         const base = dfVerticalFov(settings.fov, camera.aspect) + sprintFov * 5 - killPunch * 1.6
         const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * ads
@@ -1899,6 +2015,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             hud.ammo.magSize = st?.magSize ?? 0
             hud.ammo.reserve = gun.reserve
             hud.ammo.pap = gun.pap
+            const rar = st && mine ? mine.weapons[localSlot]?.rarity ?? 0 : 0
+            if (hud.ammo.rarity !== rar) hud.ammo.rarity = rar
             hud.ammo.reloading = gun.reloading
             hud.lowAmmo = !!st && gun.mag <= Math.max(1, Math.floor(st.magSize * 0.25)) && !gun.reloading
             hud.stamina = player.stamina / Math.max(0.1, effects.sprintDuration)
@@ -1936,8 +2054,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             // hold actions fill the prompt's bar: a revive's progress, the boards of a barrier being rebuilt
             let holdProgress = p.action === 'revive' && hud.reviving ? hud.reviving.progress : 0
             if (p.repeat && p.kind === 'barricade' && input.has('KeyF')) holdProgress = Math.min(1, (w.planks[p.id] ?? 0) / DF_BARRICADE_PLANKS)
-            if (!hud.prompt) hud.prompt = { text: p.text, sub: p.sub ?? '', cost: p.cost, ok: p.ok, denyKey: 0, hold: holdProgress }
+            if (p.kind === 'bench') holdProgress = arsenal.holdProgress
+            if (!hud.prompt) hud.prompt = { text: p.text, sub: p.sub ?? '', cost: p.cost, ok: p.ok, denyKey: 0, hold: holdProgress, tint: p.tint ?? null }
             else {
+                hud.prompt.tint = p.tint ?? null
                 hud.prompt.text = p.text
                 hud.prompt.sub = p.sub ?? ''
                 hud.prompt.cost = p.cost
@@ -2032,6 +2152,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 break
             }
         }
+        const af = arsenal.facts(alive ? m : null, s.world)
+        f.salvage = af.salvage
+        f.benchNear = af.benchNear
+        f.canCraft = af.canCraft
+        f.gear = af.equip
+        f.reward = af.reward
         const h = hints.update(f)
         if (!h) hud.hint = null
         else if (hud.hint?.key !== h.key) hud.hint = { key: h.key, text: h.text, sub: h.sub }
@@ -2198,6 +2324,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (impact > 0.5) fx.shake(impact * 0.15)
     }
     player.onJump = () => audio.play(DF_SND.jump, { volume: 0.4 })
+    player.onSlide = () => {
+        audio.play(DF_SND.slide, { volume: 0.55 })
+        fx.shake(0.04)
+    }
     const down = { x: 0, y: -1, z: 0 }
     const stepFrom = { x: 0, y: 0, z: 0 }
     avatars.onStep = (_pid, pos, running) => {
@@ -2463,6 +2593,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
             avatars.dispose()
             powerupView.dispose()
+            arsenal.dispose()
             fx.dispose()
             audio.dispose()
             envRt.dispose()
