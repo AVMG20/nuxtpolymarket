@@ -336,9 +336,15 @@ export type DfClientMsg =
         shot?: number
         /** The client's magazine after this shot (ammo is client-driven; the server keeps the total honest). */
         mag?: number
+        /** The weapon the client fired: a shot from a weapon the server no longer has in hand (a lent launcher just swapped in or out) is dropped. */
+        weapon?: DfWeaponId
     }
-    /** Starts a reload (cosmetic flag, reload perks); `mag` reports the magazine a finished reload or shell left. */
-    | { t: 'reload', mag?: number }
+    /**
+     * Starts a reload (cosmetic flag, reload perks); `mag` reports the magazine a
+     * finished reload or shell left, for `weapon` (ignored when that isn't the
+     * weapon in hand on the server any more).
+     */
+    | { t: 'reload', mag?: number, weapon?: DfWeaponId }
     | { t: 'swap', slot: number }
     | { t: 'melee', z?: number, zone?: DfHitZone, shot?: number, kill?: boolean }
     /** Solo only: freeze or resume the match (pause menu, lost pointer lock). Ignored in co-op. */

@@ -365,7 +365,8 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
             l.light.intensity = 0
             l.light.userData.used = false
         }
-        if (l.kind === 'pap-grenade' || l.kind === 'xray-bolt' || l.kind === 'grenade') recent.push({ pos: l.pos.clone(), vel: l.vel.clone(), tier: l.tier, kind: l.kind, at: time })
+        // a launcher shell bursts as a 'grenade' blast: file it as one so its scorch finds the heading
+        if (l.kind === 'pap-grenade' || l.kind === 'xray-bolt' || l.kind === 'grenade' || l.kind === 'mortar') recent.push({ pos: l.pos.clone(), vel: l.vel.clone(), tier: l.tier, kind: l.kind === 'mortar' ? 'grenade' : l.kind, at: time })
         live.delete(id)
     }
 

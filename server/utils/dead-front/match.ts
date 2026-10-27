@@ -132,7 +132,7 @@ export class DfMatch {
                     break
                 case 'fire': sim.fire(p.pid, msg)
                     break
-                case 'reload': sim.reload(p.pid, typeof msg.mag === 'number' ? msg.mag : undefined)
+                case 'reload': sim.reload(p.pid, typeof msg.mag === 'number' ? msg.mag : undefined, typeof msg.weapon === 'string' ? msg.weapon : undefined)
                     break
                 case 'pause': sim.pause(p.pid, msg.paused === true)
                     break

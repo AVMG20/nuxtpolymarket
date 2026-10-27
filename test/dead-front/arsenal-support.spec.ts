@@ -9,6 +9,7 @@ import { DF_WEAPON_IDS, DF_WEAPONS, dfBoxPool, dfWeaponStats } from '#shared/uti
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup } from '#server/utils/dead-front/sim-types'
 import { dfBenchItem } from '../../app/utils/dead-front/engine/arsenal-prompt'
+import { dfPromptFor } from '../../app/utils/dead-front/engine/prompt'
 import { dfBuildGunRig } from '../../app/utils/dead-front/weapons/models'
 
 const setup = (userId: string): DfPlayerSetup => ({ userId, name: userId, startWeapon: 'm1911', attachments: {}, perkMods: {} })
@@ -171,6 +172,114 @@ describe('the grenade launcher', () => {
         const item = dfBenchItem('upgrade', { world: sim.snapshot().world, me }, true)
         expect(item.ok).toBe(false)
         expect(item.why).toContain('borrowed')
+    })
+})
+
+describe('the grenade launcher: review regressions', () => {
+    function launcherOverThompson() {
+        const { sim, advance } = makeSim()
+        const p = sim.player(0)!
+        sim.dev(0, { k: 'hold', on: true })
+        p.weapons.push({ ...p.weapons[0]!, id: 'thompson', pap: 0, mag: 20, reserve: 60, attachments: {}, stats: dfWeaponStats('thompson', 0, {}) })
+        p.slot = 1
+        const thompson = p.weapons[1]!
+        sim.arsenal.debugReward(p, 'launcher')
+        sim.arsenal.handle(p, { k: 'callin', at: { ...p.pos }, dir: { x: 0, y: 0, z: -1 } })
+        p.swapUntil = 0
+        return { sim, advance, p, thompson, launcher: p.weapons[1]! }
+    }
+    const origin = (p: { pos: { x: number, z: number } }) => ({ x: p.pos.x, y: 1.5, z: p.pos.z })
+
+    it('a shot or a reload reported for the other weapon (in flight across the swap) is dropped', () => {
+        const { sim, advance, p, thompson, launcher } = launcherOverThompson()
+        // the client still holds the Thompson as the launcher comes out
+        expect(sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: 0, z: -1 }], hits: [], mag: 19, weapon: 'thompson' })).toBe(false)
+        sim.reload(0, 30, 'thompson')
+        expect(launcher.mag).toBe(launcher.stats.magSize)
+        expect(launcher.reserve).toBe(8)
+        // time runs out with a launcher shot and reload still on the way
+        run(sim, DF_LAUNCHER.seconds + 0.2, 0.25)
+        advance(DF_LAUNCHER.seconds)
+        expect(p.weapons[1]).toBe(thompson)
+        expect(sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: 0, z: -1 }], hits: [], mag: 2, weapon: DF_LAUNCHER.weapon })).toBe(false)
+        sim.reload(0, 3, DF_LAUNCHER.weapon)
+        expect(thompson.mag).toBe(20)
+        expect(thompson.reserve).toBe(60)
+        // an old client that doesn't say which weapon still fires
+        expect(sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: 0, z: -1 }], hits: [], mag: 19 })).toBe(true)
+        expect(thompson.mag).toBe(19)
+    })
+
+    it('a refused wall-buy or a box roll leaves the launcher out; the stashed weapon is still owned', () => {
+        const { sim, p, thompson, launcher } = launcherOverThompson()
+        const wall = (w: string) => dfInteractables(sim.map).find(i => i.kind === 'wallbuy' && i.ref === w)!
+        // can't afford the MP18: refused, the launcher stays
+        p.points = 0
+        p.pos = { ...wall('mp18').pos }
+        sim.use(0, wall('mp18').id)
+        expect(p.weapons[1]).toBe(launcher)
+        // the Thompson wall: full ammo on the stashed Thompson is refused, nothing bought
+        p.points = 100000
+        thompson.reserve = Math.round(thompson.stats.reserve * p.effects.reserveAmmoMult)
+        thompson.mag = thompson.stats.magSize
+        p.pos = { ...wall('thompson').pos }
+        p.useCooldown.clear()
+        sim.use(0, wall('thompson').id)
+        expect(p.points).toBe(100000)
+        expect(p.weapons[1]).toBe(launcher)
+        // the client sees it as owned too: ammo, not a second copy at full price
+        const snap = sim.snapshot()
+        const me = snap.players[0]!
+        expect(dfPromptFor(wall('thompson'), { map: sim.map, world: snap.world, me, solo: true })!.text).toBe('Ammo full')
+        thompson.reserve = 10
+        const prompt = dfPromptFor(wall('thompson'), { map: sim.map, world: sim.snapshot().world, me, solo: true })!
+        expect(prompt.text).toBe('Hold F for ammo')
+        p.useCooldown.clear()
+        sim.use(0, wall('thompson').id)
+        expect(p.points).toBe(100000 - prompt.cost!)
+        expect(thompson.reserve).toBe(Math.round(thompson.stats.reserve * p.effects.reserveAmmoMult))
+        expect(p.weapons[1]).toBe(launcher)
+        // a box roll (paid, maybe moving) doesn't end it, and never offers the stashed Thompson
+        const box = sim.map.boxSpots[sim.box.spot]!
+        p.pos = { ...box.pos }
+        p.useCooldown.clear()
+        sim.use(0, box.id)
+        expect(sim.box.state).toBe('rolling')
+        expect(sim['boxInternal'].final).not.toBe('thompson')
+        expect(p.weapons[1]).toBe(launcher)
+        // a wall-buy of a new weapon that goes through: the launcher goes back first
+        p.pos = { ...wall('mp18').pos }
+        p.useCooldown.clear()
+        sim.use(0, wall('mp18').id)
+        expect(p.weapons.some(w => w.id === DF_LAUNCHER.weapon)).toBe(false)
+        expect(p.weapons.map(w => w.id)).toContain('mp18')
+    })
+
+    it('launcher kills don\'t count toward the killstreak', () => {
+        const { sim, advance, p } = launcherOverThompson()
+        const horde = [0, 1, 2].map(i => sim.debugSpawn('shambler', { x: p.pos.x + (i - 1) * 1.2, y: 0, z: p.pos.z - 10 }, 50))
+        sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: -0.05, z: -1 }], hits: [], weapon: DF_LAUNCHER.weapon })
+        run(sim, 1.5)
+        advance(1.5)
+        expect(horde.filter(z => sim.zombies.includes(z))).toHaveLength(0)
+        expect(sim.arsenal.gearOf(p).streak.kills).toBe(0)
+    })
+
+    it('Max Ammo and the ammo-on-kill perk never refill the launcher; Max Ammo tops up the stashed weapon', () => {
+        const { sim, advance, p, thompson, launcher } = launcherOverThompson()
+        thompson.reserve = 3
+        launcher.reserve = 0
+        p.effects.ammoOnKillChance = 1
+        sim.debugSpawn('shambler', { x: p.pos.x, y: 0, z: p.pos.z - 10 }, 50)
+        sim.fire(0, { origin: origin(p), dirs: [{ x: 0, y: -0.05, z: -1 }], hits: [], weapon: DF_LAUNCHER.weapon })
+        const magAfter = launcher.mag
+        run(sim, 1.5)
+        advance(1.5)
+        expect(launcher.mag).toBe(magAfter)
+        sim.dropPowerup('maxammo', { ...p.pos })
+        run(sim, 0.2)
+        expect(launcher.reserve).toBe(0)
+        expect(thompson.reserve).toBe(Math.round(thompson.stats.reserve * p.effects.reserveAmmoMult))
     })
 })
 

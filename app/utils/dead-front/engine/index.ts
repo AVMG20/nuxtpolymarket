@@ -1065,7 +1065,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         for (const pop of pops.values()) hitPop(pop.at, pop.amount, pop.kind)
         // the wunderweapon claims the zombie its arc takes on this screen (point blank included); the server chains from it
         const claims = s.shot === 'arc' ? arcClaim(eye, dirs[0]!, s.maxRange > 0 ? s.maxRange : 40) : hits
-        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits: claims, shot, mag: Math.max(0, gun.mag - 1) })
+        net.send({ t: 'fire', origin: { x: eye.x, y: eye.y, z: eye.z }, dirs, hits: claims, shot, mag: Math.max(0, gun.mag - 1), weapon: gun.id })
         markAmmo()
         // the zombie flinches (and bleeds) on this frame, not a round trip later; the server's echo is skipped
         for (let i = 0; i < localHits.length; i++) {
@@ -1430,7 +1430,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         gun.cancelReload(now)
         safe('vm cancel', () => viewmodel.cancelReload(), undefined)
         // the server runs its own reload timer: settle it with what we have now
-        net.send({ t: 'reload', mag: gun.mag })
+        net.send({ t: 'reload', mag: gun.mag, weapon: gun.id })
         markAmmo()
     }
 
@@ -1526,7 +1526,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (ev === 'shell' && stats) safe('vm shell', () => viewmodel.reload(false, stats!.perRoundReload / Math.max(0.1, effects.reloadMult), true), undefined)
         // ammo is client-driven: report the magazine a finished reload left
         if (ev === 'done') {
-            net.send({ t: 'reload', mag: gun.mag })
+            net.send({ t: 'reload', mag: gun.mag, weapon: gun.id })
             markAmmo()
         }
     }

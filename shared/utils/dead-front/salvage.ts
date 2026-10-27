@@ -2,6 +2,7 @@ import { DF_ENEMIES, dfRoundZombieCount, dfZombieBaseHealth } from './enemies'
 import { DF_WEAPONS } from './weapons'
 import type { DfAttachmentChoice, DfEnemyType, DfHitZone, DfWeaponId, Vec3 } from './types'
 import type { DfRewardId, DfStrikeId } from './killstreaks'
+import type { DfHeldWeapon } from './protocol'
 
 // Salvage and the workbench, shared by the server (which runs them) and the
 // client (HUD, prompts, the craft list): zombies drop scrap and the odd rare
@@ -352,6 +353,8 @@ export interface DfArsenalPlayerSnap {
     rewards: DfRewardId[]
     /** Seconds left on the grenade launcher while it is out. */
     launcher?: number
+    /** The weapon the launcher stands in for, set aside (the wall-buy prompt treats it as owned). */
+    stash?: DfHeldWeapon
 }
 
 export interface DfSalvageDropSnap {
@@ -473,7 +476,6 @@ export type DfArsenalEvent =
     | { k: 'reward', p: number, reward: DfRewardId, n: number }
     /** A reward called in on `at`: every impact and its time after now. */
     | { k: 'strike', p: number, reward: DfStrikeId, id: number, at: Vec3, dir: Vec3, hits: DfStrikeHit[] }
-    /** The plate took its last hit. */
     /** The grenade launcher came out (`on`) or went back for the weapon it stood in for. */
     | { k: 'launcher', p: number, on: boolean }
     | { k: 'challenge', what: 'new' | 'done' | 'failed', id: DfChallengeId, text: string, goal: number }

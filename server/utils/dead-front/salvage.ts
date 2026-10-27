@@ -405,8 +405,9 @@ export class DfArsenal {
     onKill(z: SimZombie, p: SimPlayer | null, weapon: string, zone: DfHitZone, opts: { explosive?: boolean, noPoints?: boolean, noDrop?: boolean, credit?: DfWeaponId | null }): void {
         const gear = this.gearHit
         if (!opts.noDrop && z.inside && z.state !== 'rise') this.dropSalvage(z, p ?? this.gearOwner, p && opts.credit ? this.silencerBonus(p, opts.credit) : 1)
-        // the streak: the killer's own kills while standing (traps, gear and support don't chain it)
-        if (p && p.life === 'alive' && !opts.noPoints && !gear && weapon !== 'trap' && weapon !== 'sentry') {
+        // the streak: the killer's own kills while standing (traps, gear, support and the lent launcher don't chain it)
+        const lent = DF_WEAPONS[weapon as DfWeaponId]?.temporary === true || (opts.credit ? DF_WEAPONS[opts.credit]?.temporary === true : false)
+        if (p && p.life === 'alive' && !opts.noPoints && !gear && !lent && weapon !== 'trap' && weapon !== 'sentry') {
             const g = this.gearOf(p)
             const earned = dfKillstreakKill(g.streak)
             if (earned) this.host.emit({ k: 'reward', p: p.pid, reward: earned, n: DF_REWARDS[earned].kills })
@@ -498,6 +499,11 @@ export class DfArsenal {
         const ok = (w: SimWeapon | undefined) => !!w && !w.away && w.id !== 'wunder' && !DF_WEAPONS[w.id]?.temporary
         if (ok(p.weapons[p.slot])) return p.slot
         return p.weapons.findIndex(w => ok(w))
+    }
+
+    /** The weapon a lent launcher stands in for (set aside, untouched), or null. */
+    stashed(p: SimPlayer): SimWeapon | null {
+        return this.gear.get(p.pid)?.launcher?.saved ?? null
     }
 
     private canLaunch(p: SimPlayer): boolean {
@@ -837,7 +843,11 @@ export class DfArsenal {
             players: this.host.players.map((p) => {
                 const g = this.gearOf(p)
                 const snap: DfArsenalPlayerSnap = { pid: p.pid, equip: g.equip, kit: g.kit, streak: g.streak.kills, rewards: [...g.streak.rewards] }
-                if (g.launcher) snap.launcher = r2(Math.max(0, g.launcher.until - t))
+                if (g.launcher) {
+                    snap.launcher = r2(Math.max(0, g.launcher.until - t))
+                    const w = g.launcher.saved
+                    snap.stash = { id: w.id, pap: w.pap, mag: w.mag, reserve: w.reserve, attachments: w.attachments, maxReserve: Math.max(0, Math.round(w.stats.reserve * p.effects.reserveAmmoMult)), rarity: w.rarity || undefined }
+                }
                 return snap
             }),
             sentries: this.sentries.map((s) => {

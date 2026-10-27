@@ -87,7 +87,9 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             const wid = it.ref as DfHeldWeapon['id'] | undefined
             if (!wid || !DF_WEAPONS[wid]) return null
             const def = DF_WEAPONS[wid]
-            const owned = me.weapons.find(w => w.id === wid)
+            // the weapon a lent launcher stands in for is still yours (its ammo, not a second copy)
+            const stash = world.arsenal?.players.find(x => x.pid === me.pid)?.stash
+            const owned = me.weapons.find(w => w.id === wid) ?? (stash?.id === wid ? stash : undefined)
             if (owned?.away) return info(it.id, 'wallbuy', 'In the Pack-a-Punch', weaponName(wid, owned.pap))
             if (owned) {
                 const stats = dfWeaponStats(wid, owned.pap, owned.attachments)

@@ -1205,11 +1205,15 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.box(70, 72, B - 9, B + 2, 5, BRASS)
             // The drum: four fat shells round a steel hub, swapped on the reload.
             g.part('mag')
+            // a round drum turning about the bore's axis (a disc in j / i, deep along k)
             for (let k = 38; k < 50; k++) {
-                for (let j = B - 15; j < B - 5; j++) {
-                    const d = Math.hypot(j - (B - 10), 0)
-                    if (d > 5) continue
-                    g.boxI(k, k + 1, j, j + 1, ci - 4, ci + 5, k === 38 || k === 49 ? STEEL_HI : (j & 1) ? STEEL : BLACK)
+                for (let j = B - 15; j <= B - 5; j++) {
+                    for (let i = 0; i < g.W; i++) {
+                        const d = Math.hypot(j - (B - 10), i - ci)
+                        if (d > 5.2) continue
+                        const rim = d > 4.2 || k === 38 || k === 49
+                        g.boxI(k, k + 1, j, j + 1, i, i + 1, rim ? STEEL_HI : (j + i) & 1 ? STEEL : BLACK)
+                    }
                 }
             }
             for (const [dj, di] of [[-3, -3], [-3, 3], [3, -3], [3, 3]] as const) g.boxI(37, 38, B - 10 + dj - 1, B - 10 + dj + 1, ci + di - 1, ci + di + 1, BRASS)

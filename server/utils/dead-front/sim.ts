@@ -542,11 +542,13 @@ export class DfMatchSim {
      * honest (the magazine is refilled from the reserve, never from nothing)
      * and the fire rate within reason.
      */
-    fire(pid: number, msg: { origin: Vec3, dirs: Vec3[], hits: DfShotHit[], shot?: number, mag?: number }): boolean {
+    fire(pid: number, msg: { origin: Vec3, dirs: Vec3[], hits: DfShotHit[], shot?: number, mag?: number, weapon?: string }): boolean {
         const p = this.player(pid)
         if (!p || p.life === 'dead') return false
         const w = this.usable(p)
         if (!w) return false
+        // fired from a weapon the server no longer has in hand (a lent launcher swapped in or out meanwhile): drop it
+        if (typeof msg.weapon === 'string' && msg.weapon !== w.id) return false
         const reported = typeof msg.mag === 'number' && Number.isFinite(msg.mag)
         if (reported) {
             // the client finished (or interrupted) its own reload: adopt its magazine
@@ -741,12 +743,13 @@ export class DfMatchSim {
      * `mag`: the client's reload finished (or a shell went in) and left the
      * magazine at `mag`, taken from the reserve.
      */
-    reload(pid: number, mag?: number): void {
+    reload(pid: number, mag?: number, weapon?: string): void {
         const p = this.player(pid)
         if (!p || p.life === 'dead') return
         if (typeof mag === 'number' && Number.isFinite(mag)) {
             const w = this.usable(p)
-            if (!w) return
+            // a magazine reported for another weapon (the launcher came or went meanwhile) isn't this one's
+            if (!w || (weapon !== undefined && weapon !== w.id)) return
             this.syncMag(w, mag)
             p.reload = null
             return
@@ -883,8 +886,6 @@ export class DfMatchSim {
             const ready = p.useCooldown.get(id) ?? 0
             if (this.time < ready) return
         }
-        // reaching for a new weapon gives a lent grenade launcher back first (the trade swaps the real one)
-        if (it.kind === 'wallbuy' || it.kind === 'box') this.arsenal.endLauncher(p)
         const handled = this.useKind(p, it)
         if (handled && it.kind !== 'barricade') p.useCooldown.set(id, this.time + 0.9)
     }
@@ -931,7 +932,9 @@ export class DfMatchSim {
         const id = it.ref as DfWeaponId | undefined
         if (!id || !DF_WEAPONS[id]) return false
         const def = DF_WEAPONS[id]
-        const owned = p.weapons.find(w => w.id === id)
+        // the weapon a lent launcher stands in for still counts as owned (its ammo is bought, not a second copy)
+        const stashed = this.arsenal.stashed(p)
+        const owned = p.weapons.find(w => w.id === id) ?? (stashed?.id === id ? stashed : undefined)
         // its slot is reserved while it's in the Pack-a-Punch: no second copy, no ammo for the placeholder
         if (owned?.away) return false
         if (owned) {
@@ -945,6 +948,8 @@ export class DfMatchSim {
         }
         if (def.wallCost === undefined) return false
         if (!this.spend(p, def.wallCost)) return false
+        // a new weapon: a lent launcher goes back first (the trade swaps the real one)
+        this.arsenal.endLauncher(p)
         this.giveWeapon(p, this.makeWeapon(p, id, 0), true)
         this.emit({ k: 'buy', p: p.pid, what: `weapon:${id}` })
         return true
@@ -1016,12 +1021,15 @@ export class DfMatchSim {
             const tier = box.kit
             this.resetBox()
             this.emit({ k: 'box', what: 'take' })
+            // the kit is for your own weapon: a lent launcher goes back first
+            this.arsenal.endLauncher(p)
             this.arsenal.claimKit(p, tier)
             return true
         }
         if (box.state === 'ready' && box.owner === p.pid && box.weapon) {
             const weapon = box.weapon
             const rarity = box.rarity ?? 0
+            this.arsenal.endLauncher(p)
             this.giveWeapon(p, this.makeWeapon(p, weapon, 0, rarity), true)
             box.state = 'idle'
             box.weapon = undefined
@@ -1036,7 +1044,8 @@ export class DfMatchSim {
         if (!this.spend(p, DF_COSTS.box)) return false
         const bi = this.boxInternal
         bi.paid = DF_COSTS.box
-        bi.final = dfBoxRoll(dfBoxChoices(dfBoxPool(), p.weapons.map(w => w.id)), randomFloat())
+        const stash = this.arsenal.stashed(p)
+        bi.final = dfBoxRoll(dfBoxChoices(dfBoxPool(), [...p.weapons.map(w => w.id), ...(stash ? [stash.id] : [])]), randomFloat())
         // its rarity, or now and then an upgrade kit instead (rarity.ts)
         bi.rarity = dfBoxRarityRoll(this.round, randomFloat())
         bi.kit = dfBoxKitRoll(this.round, randomFloat(), randomFloat())
@@ -2576,7 +2585,8 @@ export class DfMatchSim {
             if (src.credit && !DF_WEAPONS[src.credit]?.temporary) p.weaponKills[src.credit] = (p.weaponKills[src.credit] ?? 0) + 1
             this.addPoints(p, dfKillPoints(zone, src.melee === true))
             if (p.effects.killHeal > 0 && p.life === 'alive') p.health = Math.min(p.effects.maxHealth, p.health + p.effects.killHeal)
-            if (p.effects.ammoOnKillChance > 0 && src.credit && randomChance(p.effects.ammoOnKillChance)) {
+            // (never the lent launcher: its 12 shells are all it gets)
+            if (p.effects.ammoOnKillChance > 0 && src.credit && !DF_WEAPONS[src.credit]?.temporary && randomChance(p.effects.ammoOnKillChance)) {
                 const w = p.weapons.find(x => x.id === src.credit)
                 if (w && w.mag < w.stats.magSize) w.mag++
             }
@@ -2634,8 +2644,10 @@ export class DfMatchSim {
         switch (pu.kind) {
             case 'maxammo':
                 for (const q of this.players) {
-                    for (const w of [...q.weapons, ...(q.savedWeapons ?? [])]) {
-                        if (!w.away) w.reserve = this.maxReserve(q, w.stats.reserve)
+                    // the lent launcher keeps its 12 shells; the weapon it stands in for is topped up like the rest
+                    const stash = this.arsenal.stashed(q)
+                    for (const w of [...q.weapons, ...(q.savedWeapons ?? []), ...(stash ? [stash] : [])]) {
+                        if (!w.away && !DF_WEAPONS[w.id]?.temporary) w.reserve = this.maxReserve(q, w.stats.reserve)
                     }
                     q.grenades = DF_GRENADES.max
                 }
