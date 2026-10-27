@@ -305,12 +305,13 @@ export function dfInterpZombies(sample: DfSample, pool: DfZombieSnap[], out: DfZ
         vel.x = zb.vel?.x ?? 0
         vel.y = zb.vel?.y ?? 0
         vel.z = zb.vel?.z ?? 0
-        if (t > 1 && zb.vel) {
-            // past the newest snapshot: dead-reckon along the reported velocity
+        if (t > 1) {
+            // past the newest snapshot: dead-reckon along the reported velocity (a standing
+            // zombie sends none and stays put; extrapolating a→b would carry it on)
             const over = (t - 1) * sample.span
-            z.pos.x = zb.pos.x + zb.vel.x * over
-            z.pos.y = zb.pos.y + zb.vel.y * over
-            z.pos.z = zb.pos.z + zb.vel.z * over
+            z.pos.x = zb.pos.x + vel.x * over
+            z.pos.y = zb.pos.y + vel.y * over
+            z.pos.z = zb.pos.z + vel.z * over
             z.yaw = zb.yaw
         } else if (za && za !== zb) {
             // a long jump between snapshots (respawn / teleport) snaps instead of sliding

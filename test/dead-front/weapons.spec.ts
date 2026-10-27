@@ -91,6 +91,8 @@ describe('weapon defs', () => {
         const slug = dfWeaponStats('sawnoff', 0, { magazine: 'sawnoff-slugs' })
         expect(slug.pellets).toBe(1)
         expect(slug.damage).toBeGreaterThan(s('sawnoff').damage * 5)
+        // still one slug per barrel once Pack-a-Punched (the tiers add buckshot pellets)
+        for (const tier of [1, 2, 3]) expect(dfWeaponStats('sawnoff', tier, { magazine: 'sawnoff-slugs' }).pellets).toBe(1)
         // Winchester: cycles much faster than the Kar98k, hits a little lighter
         expect(s('win1895').rpm).toBeGreaterThan(s('kar98k').rpm * 1.4)
         expect(s('win1895').damage).toBeLessThan(s('kar98k').damage)

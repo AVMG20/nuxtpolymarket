@@ -285,6 +285,18 @@ function coop(weapon: DfWeaponId = 'm1911') {
 }
 
 describe('server under a lag spike', () => {
+    it('acks a remounted game view from its own first input, not the old one', () => {
+        const sim = new DfMatchSim([{ userId: 'u', name: 'u', attachments: {}, perkMods: {} }], { startDelay: 1000 })
+        for (let seq = 1; seq <= 500; seq++) sim.input(0, { seq, pos: sim.player(0)!.pos, yaw: 0, pitch: 0, flags: 0 })
+        expect(sim.ack(0)).toBe(500)
+        sim.setConnected(0, false)
+        sim.setConnected(0, true)
+        // the new engine counts from 1: until then nothing it predicts is acked
+        expect(sim.ack(0)).toBe(0)
+        sim.input(0, { seq: 1, pos: sim.player(0)!.pos, yaw: 0, pitch: 0, flags: 0 })
+        expect(sim.ack(0)).toBe(1)
+    })
+
     it('takes the burst of movement reports a spike releases without a snap-back', () => {
         for (const stall of [300, 700]) {
             const c = coop()

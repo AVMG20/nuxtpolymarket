@@ -355,6 +355,9 @@ export class DfMatchSim {
             p.awaitingInput = true
             p.moveBudget = 2
             p.tp++
+            // a remounted game view counts its inputs from 1 again: an old ack would settle its
+            // predictions at once (a reconnecting one just carries on counting past 0)
+            p.seq = 0
             // a fresh client (remounted game view) needs snapshots to resume: it re-pauses if it wants
             this.paused = false
         } else {

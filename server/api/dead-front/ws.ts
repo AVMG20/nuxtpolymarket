@@ -14,6 +14,8 @@ interface PeerLike {
     id: string
     request?: { headers?: unknown }
     websocket?: { bufferedAmount?: unknown, getBufferedAmount?: () => unknown }
+    /** crossws internals: the raw socket (`websocket` is a Proxy Bun's native methods reject). */
+    _internal?: { ws?: { bufferedAmount?: unknown, getBufferedAmount?: () => unknown } }
     send: (data: unknown) => unknown
     close: (code?: number, reason?: string) => void
 }
@@ -25,7 +27,7 @@ const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 
 function backlog(peer: PeerLike): number {
     try {
-        const ws = peer.websocket
+        const ws = peer._internal?.ws ?? peer.websocket
         // Bun's ServerWebSocket has getBufferedAmount(), Node's ws has bufferedAmount
         const n = typeof ws?.getBufferedAmount === 'function' ? ws.getBufferedAmount() : ws?.bufferedAmount
         return typeof n === 'number' ? n : 0

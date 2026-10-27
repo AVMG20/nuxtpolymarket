@@ -101,6 +101,16 @@ describe('DfSnapBuffer', () => {
         expect(far.alpha).toBeCloseTo(1 + DF_MAX_EXTRAPOLATE / 0.05, 3)
     })
 
+    it('holds a zombie that stopped in the newest snapshot instead of carrying it on', () => {
+        const buf = new DfSnapBuffer()
+        buf.push(snap(1, [{ ...zombie(1, 0), vel: { x: 1.5, y: 0, z: 0 } }]), 1000)
+        // moved 7.5 cm, then stood still (no velocity sent)
+        buf.push(snap(1.05, [zombie(1, 0.075)]), 1050)
+        const out: DfZombieSnap[] = []
+        dfInterpZombies(buf.at(1.45)!, [], out)
+        expect(out[0]!.pos.x).toBeCloseTo(0.075, 3)
+    })
+
     it('rejects stale snapshots and reuses pooled objects', () => {
         const buf = new DfSnapBuffer()
         expect(buf.push(snap(2, [zombie(1, 0)]), 0)).toBe(true)

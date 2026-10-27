@@ -576,6 +576,8 @@ export function dfWeaponStats(id: DfWeaponId, pap: number, attachments: DfAttach
     }
     for (const [k, v] of Object.entries(mul) as [DfNumericStat, number][]) s[k] *= v
     for (const [k, v] of Object.entries(add) as [DfNumericStat, number][]) s[k] += v
+    // Slugs are one per barrel, whatever buckshot a Pack-a-Punch tier adds
+    if (id === 'sawnoff' && attachments.magazine === 'sawnoff-slugs') s.pellets = 1
 
     // rarity (rarity.ts): more damage per tier, on top of everything else
     const rar = dfRarityDamageMult(id, rarity)
