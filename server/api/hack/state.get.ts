@@ -88,6 +88,9 @@ export default defineEventHandler(async (event) => {
     // these numbers there.
     return {
       ...template, status, bestPower,
+      // The squad bestPower and the success chance are for, so a one-click
+      // dispatch sends exactly the team the numbers describe
+      bestTeamIds: bestTeam.map(a => a.id),
       effectiveSuccessChance: opSuccessChance(bestPower, template.minPower),
     }
   })

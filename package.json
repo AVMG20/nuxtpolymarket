@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
+    "@iconify-json/material-symbols": "^1.2.96",
     "@iconify-json/simple-icons": "^1.2.74",
     "@nuxt/ui": "^4.8.2",
     "@sentry/nuxt": "^10.68.0",

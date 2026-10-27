@@ -12,6 +12,7 @@
 
 import { TOWN_BUILDINGS, TOWN_PLOT_SIZE, getTownBuilding, townBuildersBusy, townBuildingCountIssue, townBuildingMaxLevel, townLevelCost, townMonumentJob, townPlaceCost, townRoadAccess, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { townStoredIsJob, type TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
+import { townBoostedNet } from '#shared/utils/gamelogic/town-advisor'
 
 export interface TownBuildingView {
     id: string
@@ -407,26 +408,9 @@ export const useTown = () => {
         return Date.now() + serverOffsetMs.value
     }
 
-    /**
-     * Net units per tick with a production surge counted in. A surge doubles
-     * what the workshops make and use, never what the townsfolk eat, so the
-     * needs come off the base net, the rest doubles, and they go back on.
-     */
-    const boostedNetPerTick = computed<Record<string, number>>(() => {
-        const net = state.value?.netPerTick ?? {}
-        const m = boostMultiplier.value.production
-        if (m === 1) return net
-        const eaten: Record<string, number> = {}
-        for (const n of state.value?.needs ?? []) {
-            if (n.active) eaten[n.resource] = (eaten[n.resource] ?? 0) + n.perTick
-        }
-        const out: Record<string, number> = {}
-        for (const id of new Set([...Object.keys(net), ...Object.keys(eaten)])) {
-            const e = eaten[id] ?? 0
-            out[id] = ((net[id] ?? 0) + e) * m - e
-        }
-        return out
-    })
+    /** Net units per tick with a production surge counted in (see townBoostedNet). */
+    const boostedNetPerTick = computed<Record<string, number>>(() =>
+        townBoostedNet(state.value?.netPerTick ?? {}, state.value?.needs ?? [], boostMultiplier.value.production))
 
     // Refetch right after the earliest pending build finishes (+ a little slack
     // so the server-side settle sees it as done).

@@ -1,4 +1,4 @@
-import { getTownBuilding } from './town'
+import { getTownBuilding, townLevelCost } from './town'
 
 // The builders popover's "recommended upgrades". Every open upgrade gets a
 // score from what the town needs most right now, and the best few are the
@@ -132,4 +132,96 @@ export function rankTownUpgrades<C extends TownAdvisorCandidate>(state: TownAdvi
         .sort((a, b) => b.advice.score - a.advice.score || a.i - b.i)
         .slice(0, count)
         .map(r => ({ ...r.c, ...r.advice }))
+}
+
+/** How each reason reads next to a suggestion; `short` follows the good's name. */
+export const TOWN_ADVICE_LABELS: Record<TownAdviceReason, string> = {
+    residents: 'Residents',
+    short: 'short',
+    happiness: 'Mood',
+    storage: 'Storage'
+}
+
+export interface TownUpgradeBuilding {
+    id: string
+    type: string
+    level: number
+    upgradingTo: number | null
+    completesAt: number
+}
+
+export interface TownUpgradeCatalogEntry {
+    name: string
+    kind: string
+    tier: number
+    maxLevel?: number
+}
+
+export type TownUpgradeCost = ReturnType<typeof townLevelCost>
+
+export interface TownUpgradeCandidate extends TownAdvisorCandidate {
+    id: string
+    name: string
+    tier: number
+    cost: TownUpgradeCost
+}
+
+/**
+ * Every upgrade a free crew could take, one row per building type: its lowest
+ * level, the cheapest rung. Six houses in a row is not six recommendations.
+ */
+export function townUpgradeCandidates(
+    buildings: readonly TownUpgradeBuilding[],
+    catalog: ReadonlyMap<string, TownUpgradeCatalogEntry>,
+    maxLevel: number,
+    now: number,
+    canAfford: (cost: TownUpgradeCost) => boolean
+): TownUpgradeCandidate[] {
+    const rows: TownUpgradeCandidate[] = []
+    for (const b of buildings) {
+        const entry = catalog.get(b.type)
+        const def = getTownBuilding(b.type)
+        if (!entry || !def || entry.kind === 'road' || entry.kind === 'monument') continue
+        if (b.level <= 0 || b.upgradingTo !== null || b.completesAt > now) continue
+        if (b.level >= (entry.maxLevel ?? maxLevel)) continue
+        const cost = townLevelCost(def, b.level + 1)
+        rows.push({ id: b.id, type: b.type, name: entry.name, level: b.level, tier: entry.tier, affordable: canAfford(cost), cost })
+    }
+    rows.sort((a, b) => a.tier - b.tier || a.level - b.level)
+    const seen = new Set<string>()
+    return rows.filter(r => !seen.has(r.type) && seen.add(r.type))
+}
+
+/**
+ * Net units per tick with a production surge counted in. A surge multiplies
+ * what the workshops make and use, never what the townsfolk eat, so the needs
+ * come off the base net, the rest scales, and they go back on.
+ */
+export function townBoostedNet(
+    net: Readonly<Record<string, number>>,
+    needs: readonly { resource: string, perTick: number, active: boolean }[],
+    productionMultiplier: number
+): Record<string, number> {
+    if (productionMultiplier === 1) return { ...net }
+    const eaten: Record<string, number> = {}
+    for (const n of needs) {
+        if (n.active) eaten[n.resource] = (eaten[n.resource] ?? 0) + n.perTick
+    }
+    const out: Record<string, number> = {}
+    for (const id of new Set([...Object.keys(net), ...Object.keys(eaten)])) {
+        const e = eaten[id] ?? 0
+        out[id] = ((net[id] ?? 0) + e) * productionMultiplier - e
+    }
+    return out
+}
+
+/** Whether coins and stock cover a cost. */
+export function townCanAfford(cost: TownUpgradeCost, coins: number, stock: Readonly<Record<string, number>>): boolean {
+    if (coins < cost.coins) return false
+    return Object.entries(cost.resources).every(([id, q]) => (stock[id] ?? 0) >= (q ?? 0))
+}
+
+/** Production ticks per real hour at the town's mood speed. */
+export function townTicksPerHour(tickMs: number, speedMultiplier = 0.75): number {
+    return (3_600_000 / tickMs) * speedMultiplier
 }

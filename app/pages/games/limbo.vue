@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LimboResult } from '#shared/utils/gamelogic/limbo'
+import { LIMBO_MAX_TARGET, LIMBO_MIN_TARGET, limboWinChance, type LimboResult } from '#shared/utils/gamelogic/limbo'
 
 type LimboHistoryEntry = { result: number; won: boolean; payout: number; target: number; bet: number }
 
@@ -12,12 +12,13 @@ const lastResult = ref<LimboResult | null>(null)
 const animResult = ref<number | null>(null)
 const showHelp = ref(false)
 
-const winChance = computed(() => Math.min(98 / target.value, 98))
+// In percent
+const winChance = computed(() => limboWinChance(target.value) * 100)
 const totalPayout = computed(() => bet.value * target.value)
 const displayResult = computed(() => animResult.value ?? lastResult.value?.result ?? null)
 
 function clampTarget(v: number) {
-  return Math.round(Math.min(1000000, Math.max(1.01, v)) * 100) / 100
+  return Math.round(Math.min(LIMBO_MAX_TARGET, Math.max(LIMBO_MIN_TARGET, v)) * 100) / 100
 }
 
 let animTimer: ReturnType<typeof setTimeout> | null = null
@@ -91,7 +92,7 @@ onUnmounted(() => {
               <input
                 v-model.number="target"
                 :disabled="isRolling"
-                type="number" min="1.10" max="1000000" step="1"
+                type="number" :min="LIMBO_MIN_TARGET" :max="LIMBO_MAX_TARGET" step="1"
                 class="w-full bg-elevated border border-default rounded-lg px-3 py-2 font-bold font-mono text-lg focus:outline-none focus:border-primary/60 [appearance:textfield] disabled:opacity-40 transition-colors"
                 @change="target = clampTarget(Number(target))"
               />

@@ -9,9 +9,12 @@ import type { InternalApi } from 'nitropack/types'
  * while the runtime stays the exact same $fetch.
  */
 
-type ApiPath = keyof InternalApi
-type GetPayload<P extends ApiPath> = 'get' extends keyof InternalApi[P]
+export type ApiPath = keyof InternalApi
+export type GetPayload<P extends ApiPath> = 'get' extends keyof InternalApi[P]
     ? InternalApi[P]['get']
+    : never
+export type PostPayload<P extends ApiPath> = 'post' extends keyof InternalApi[P]
+    ? InternalApi[P]['post']
     : never
 
 /** $fetch without route-type inference; pass the payload type explicitly.
@@ -31,6 +34,10 @@ export const apiFetch = <T = unknown>(
     }
     return (fetcher as (url: string, opts?: Record<string, unknown>) => Promise<T>)(url, opts)
 }
+
+/** POST to a route, typed by the route map. */
+export const apiPost = <P extends ApiPath>(path: P, body: Record<string, unknown> = {}) =>
+    apiFetch<PostPayload<P>>(path as string, { method: 'POST', body })
 
 /** useFetch('/api/x') replacement: typed by route-map index, keyed by path. */
 export function useApiState<P extends ApiPath>(path: P, key?: string) {
