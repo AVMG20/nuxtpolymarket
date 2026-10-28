@@ -109,7 +109,7 @@ describe.skipIf(SKIP)('NeighcassoTable', () => {
             .where(eq(neighcassoHorses.id, result.winnerSeat === 0 ? horseA : horseB))
         // the horse's record is written after the payout, off the request: wait for it
         let after = winnerHorse
-        for (let i = 0; i < 40 && after!.races < 1; i++) {
+        for (let i = 0; i < 40 && (after!.races < 1 || after!.wins < 1); i++) {
             await new Promise(r => setTimeout(r, 50))
             ;[after] = await db.select().from(neighcassoHorses).where(eq(neighcassoHorses.id, winnerHorse!.id))
         }
