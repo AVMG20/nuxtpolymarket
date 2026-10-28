@@ -792,6 +792,8 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
     font-size: clamp(56px, 13vw, 120px);
     line-height: 0.85;
     font-style: italic;
+    /* The gradient only paints inside the box, and the faked slant leans the last letter past it. */
+    padding: 0.06em 0.16em;
     background: linear-gradient(180deg, #fff 10%, var(--nr-gold) 45%, var(--nr-pink) 80%);
     -webkit-background-clip: text;
     background-clip: text;
