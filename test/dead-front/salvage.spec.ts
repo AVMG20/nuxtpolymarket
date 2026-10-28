@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { dfRoundZombieCount } from '#shared/utils/dead-front/enemies'
 import {
     DF_SUPPORT_HELD, DF_SUPPORT, DF_STRIKE, dfPlanStrike,
     dfIsStrike, dfStrikeFlightStart
@@ -10,9 +9,10 @@ import { dfBodyFits, dfBuildCollision, dfGroundHeight } from '#shared/utils/dead
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import {
     DF_CRAFT_ORDER, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY, dfChallengeCounts, dfChallengePool,
-    dfCraftBlocked, dfCraftSpend, dfPartChance, dfSalvageBonus, dfSalvageChance, DF_SILENCER_SALVAGE, dfSalvageRoll, dfSentryPick, dfTurnToward, dfYawGap
+    dfCraftBlocked, dfCraftSpend, dfSalvageBonus, dfSalvageFade, DF_SILENCER_SALVAGE, dfSalvageRoll, dfSentryPick, dfTurnToward, dfYawGap
 } from '#shared/utils/dead-front/salvage'
 import type { DfKitState } from '#shared/utils/dead-front/salvage'
+import { DF_RARITY_UPGRADE } from '#shared/utils/dead-front/rarity'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup } from '#server/utils/dead-front/sim-types'
 
@@ -45,80 +45,44 @@ function seeded(seed: number): () => number {
 const kit = (over: Partial<DfKitState> = {}): DfKitState => ({ equip: null, kit: false, support: 0, supportMax: DF_SUPPORT_HELD.max, ...over })
 
 describe('salvage: drops', () => {
-    it('a round\'s regular horde drops about the same scrap whatever its size', () => {
-        for (const players of [1, 2, 4]) {
-            for (const round of [1, 3, 6, 10, 15]) {
-                const count = dfRoundZombieCount(round, players)
-                const expected = count * dfSalvageChance(round, players) * 1.5
-                const target = DF_SALVAGE.perRound * (1 + DF_SALVAGE.squad * (players - 1))
-                // the chance caps on round 1 (a tiny horde), everywhere else it hits the budget
-                if (dfSalvageChance(round, players) < 0.6) expect(expected).toBeCloseTo(target, 5)
-                else expect(expected).toBeLessThanOrEqual(target)
-                expect(dfPartChance(round, players)).toBeGreaterThan(0)
-            }
-        }
-    })
-
     it('brutes always drop a pile; bloaters usually; the roll stays in range', () => {
         const roll = seeded(7)
         let parts = 0
         for (let i = 0; i < 400; i++) {
-            const b = dfSalvageRoll('brute', 9, 1, roll)
+            const b = dfSalvageRoll('brute', 9, roll)
             expect(b.scrap).toBeGreaterThanOrEqual(DF_SALVAGE.brute.scrap[0])
             expect(b.scrap).toBeLessThanOrEqual(DF_SALVAGE.brute.scrap[1])
             parts += b.parts
-            const s = dfSalvageRoll('shambler', 5, 1, roll)
-            expect([0, 1, 2]).toContain(s.scrap)
+            const s = dfSalvageRoll('shambler', 9, roll)
+            expect(s.scrap === 0 || (s.scrap >= DF_SALVAGE.amount[0] && s.scrap <= DF_SALVAGE.amount[1])).toBe(true)
         }
-        expect(parts / 400).toBeGreaterThan(0.35)
-        expect(parts / 400).toBeLessThan(0.65)
-    })
-
-    it('a craft every two or three rounds: solo salvage over rounds 1-9 pays for several', () => {
-        const roll = seeded(11)
-        let scrap = 0
-        let parts = 0
-        for (let round = 1; round <= 9; round++) {
-            for (let i = 0; i < dfRoundZombieCount(round, 1); i++) {
-                const r = dfSalvageRoll(round >= 5 && i % 6 === 0 ? 'ghoul' : 'shambler', round, 1, roll)
-                scrap += r.scrap
-                parts += r.parts
-            }
-            if (round >= 8) {
-                const b = dfSalvageRoll('brute', round, 1, roll)
-                scrap += b.scrap
-                parts += b.parts
-            }
-        }
-        // roughly 50-70 scrap: 4-8 crafts at 4-12 scrap each over nine rounds
-        expect(scrap).toBeGreaterThan(40)
-        expect(scrap).toBeLessThan(90)
-        expect(parts).toBeGreaterThanOrEqual(1)
+        expect(parts / 400).toBeGreaterThan(DF_SALVAGE.brute.part - 0.12)
+        expect(parts / 400).toBeLessThan(DF_SALVAGE.brute.part + 0.12)
     })
 })
 
 describe('salvage: the workbench rules', () => {
-    it('the bench sells everything, support included: cheapest gear first, the bomber priciest', () => {
+    it('the bench sells everything, support included: cheapest gear first, the bomber the priciest support, the field kit dearest of all', () => {
         expect(DF_CRAFT_ORDER).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber'])
         expect(Object.keys(DF_RECIPES).sort()).toEqual([...DF_CRAFT_ORDER].sort())
         const price = (id: keyof typeof DF_RECIPES) => DF_RECIPES[id].scrap + DF_RECIPES[id].parts * 4
         expect(price('sentry')).toBeLessThan(price('kit'))
         for (const id of DF_CRAFT_ORDER) {
             if (id !== 'sentry' && id !== 'decoy') expect(price(id)).toBeGreaterThan(Math.max(price('sentry'), price('decoy')))
-            if (id !== 'bomber') expect(price(id)).toBeLessThan(price('bomber'))
+            if (id !== 'bomber' && id !== 'kit') expect(price(id)).toBeLessThan(price('bomber'))
+            if (id !== 'kit') expect(price(id)).toBeLessThan(price('kit'))
         }
+        // a cheat death costs as much as a Legendary upgrade
+        expect({ scrap: DF_RECIPES.kit.scrap, parts: DF_RECIPES.kit.parts }).toEqual(DF_RARITY_UPGRADE[2])
         // every support item is on the bench
         expect(Object.keys(DF_SUPPORT).every(id => DF_RECIPES[id as keyof typeof DF_RECIPES]?.use === 'support')).toBe(true)
-        // about 6 scrap a round solo: a sentry each round, the bomber every few
-        expect(DF_RECIPES.sentry.scrap).toBeLessThanOrEqual(DF_SALVAGE.perRound)
-        expect(DF_RECIPES.bomber.scrap).toBeGreaterThan(DF_SALVAGE.perRound * 2)
     })
 
     it('blocks for cost, full hands, full support and a kit in the pack', () => {
-        const rich = { scrap: 99, parts: 9 }
+        const rich = { scrap: DF_SALVAGE.maxScrap, parts: DF_SALVAGE.maxParts }
         expect(dfCraftBlocked(DF_RECIPES.sentry, { scrap: DF_RECIPES.sentry.scrap - 1, parts: 0 }, kit())).toBe('scrap')
         expect(dfCraftBlocked(DF_RECIPES.sentry, { scrap: DF_RECIPES.sentry.scrap, parts: 0 }, kit())).toBeNull()
-        expect(dfCraftBlocked(DF_RECIPES.kit, { scrap: 99, parts: 0 }, kit())).toBe('parts')
+        expect(dfCraftBlocked(DF_RECIPES.kit, { scrap: DF_SALVAGE.maxScrap, parts: 0 }, kit())).toBe('parts')
         expect(dfCraftBlocked(DF_RECIPES.decoy, rich, kit({ equip: 'sentry' }))).toBe('hands')
         expect(dfCraftBlocked(DF_RECIPES.bomber, rich, kit({ support: DF_SUPPORT_HELD.max }))).toBe('full')
         expect(dfCraftBlocked(DF_RECIPES.barrage, rich, kit({ support: DF_SUPPORT_HELD.max }))).toBe('full')
@@ -259,8 +223,20 @@ describe('salvage: the match', () => {
     it('a silencer turns up more salvage', () => {
         expect(dfSalvageBonus('thompson', { muzzle: 'thompson-maxim' })).toBe(DF_SILENCER_SALVAGE)
         expect(dfSalvageBonus('thompson', {})).toBe(1)
-        expect(dfSalvageRoll('shambler', 6, 1, () => dfSalvageChance(6, 1) * 1.1, DF_SILENCER_SALVAGE).scrap).toBeGreaterThan(0)
-        expect(dfSalvageRoll('shambler', 6, 1, () => dfSalvageChance(6, 1) * 1.1).scrap).toBe(0)
+        // a roll just over the plain chance only drops with the silencer
+        const at = () => DF_SALVAGE.chance * (1 + (DF_SILENCER_SALVAGE - 1) / 2)
+        expect(dfSalvageRoll('shambler', 1, at, DF_SILENCER_SALVAGE).scrap).toBeGreaterThan(0)
+        expect(dfSalvageRoll('shambler', 1, at).scrap).toBe(0)
+    })
+
+    it('the drop chances fade with the round, so the horde outgrows the income', () => {
+        expect(dfSalvageFade(1)).toBe(1)
+        expect(dfSalvageFade(DF_SALVAGE.fadeFrom)).toBe(1)
+        expect(dfSalvageFade(DF_SALVAGE.fadeFrom * 4)).toBeCloseTo(0.5, 5)
+        // a roll that drops early doesn't late
+        const at = () => DF_SALVAGE.chance * 0.9
+        expect(dfSalvageRoll('shambler', 1, at).scrap).toBeGreaterThan(0)
+        expect(dfSalvageRoll('shambler', 30, at).scrap).toBe(0)
     })
 
     it('kills drop salvage on the ground (brutes always) and it rusts away', () => {
@@ -299,10 +275,11 @@ describe('salvage: the match', () => {
         for (let i = 0; i < 5; i++) sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'launcher' })
         expect(sim.arsenal.gearOf(a!).support).toEqual(['launcher'])
         expect(pool.scrap).toBe(DF_RECIPES.launcher.scrap - 1)
-        // the bomber needs its part
-        pool.scrap = 99
+        // the bomber needs its parts
+        pool.scrap = DF_RECIPES.bomber.scrap
+        pool.parts = DF_RECIPES.bomber.parts - 1
         expect(sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'bomber' })).toBe(false)
-        pool.parts = 1
+        pool.parts++
         expect(sim.arsenal.handle(a!, { k: 'craft', bench: bench.id, item: 'bomber' })).toBe(true)
         expect(sim.arsenal.gearOf(a!).support).toEqual(['launcher', 'bomber'])
         // and the list is full at three
@@ -314,8 +291,8 @@ describe('salvage: the match', () => {
         const { sim } = makeSim()
         const p = sim.player(0)!
         const bench = dfInteractables(sim.map).find(i => i.kind === 'bench')!
-        sim.arsenal.gearOf(p).pool.scrap = 99
-        sim.arsenal.gearOf(p).pool.parts = 9
+        sim.arsenal.gearOf(p).pool.scrap = DF_SALVAGE.maxScrap
+        sim.arsenal.gearOf(p).pool.parts = DF_SALVAGE.maxParts
         p.pos = { x: bench.pos.x + 8, y: 0, z: bench.pos.z }
         expect(sim.arsenal.handle(p, { k: 'craft', bench: bench.id, item: 'kit' })).toBe(false)
         p.pos = { ...bench.pos }
@@ -489,7 +466,9 @@ describe('salvage: the match', () => {
         }
         const events = sim.snapshot().events
         expect(events.some(e => e.k === 'challenge' && e.what === 'done')).toBe(true)
-        expect(sim.arsenal.gearOf(p).pool.parts).toBe(1)
+        // a kill's own part drop may land at the player's feet and get picked up too
+        expect(sim.arsenal.gearOf(p).pool.parts).toBeGreaterThanOrEqual(1)
+        expect(sim.arsenal.gearOf(p).pool.scrap).toBeGreaterThanOrEqual(2)
         expect(p.points - pts).toBeGreaterThanOrEqual(250)
         expect(sim.snapshot().world.arsenal!.challenge?.done).toBe(true)
     })

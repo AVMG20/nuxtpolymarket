@@ -130,7 +130,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         papNames: ['Brimstone Brothers', 'Brimstone Furies', 'Brimstone Eternal'],
         attachments: [
             att('m1911-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight with a glowing red dot. Aim with both eyes open: tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.06 }),
-            { ...att('m1911-maxim', 'muzzle', 'Maxim Silencer', 3, 'A threaded Maxim can. Soft-shooting and steady, and quiet kills turn up more salvage (+25%), but it bleeds a little punch and reach.', { recoil: 0.78, hipSpread: 0.9, damage: 0.92, range: 0.85, maxRange: 0.9 }), salvage: 1.25 },
+            { ...att('m1911-maxim', 'muzzle', 'Maxim Silencer', 3, 'A threaded Maxim can. Soft-shooting and steady, and quiet kills turn up more salvage (+10%), but it bleeds a little punch and reach.', { recoil: 0.78, hipSpread: 0.9, damage: 0.92, range: 0.85, maxRange: 0.9 }), salvage: 1.1 },
             att('m1911-cutts', 'muzzle', 'Cutts Compensator', 3, 'A slotted brake that keeps the muzzle down for quick follow-ups. Loud, and the blast widens the hip cone.', { recoil: 0.72, hipSpread: 1.1 }),
             att('m1911-extended', 'magazine', 'Extended Magazine', 4, 'A twelve-round trench magazine. More rounds, a slower swap.', { magSize: 1.5, reserve: 1.2, reloadTime: 1.12, reloadEmptyTime: 1.12 }),
             att('m1911-grips', 'stock', 'Checkered Walnut Grips', 5, 'Hand-checkered grips that tame the kick, at the cost of a slower draw to the sights.', { recoil: 0.8, hipSpread: 0.85, adsTime: 1.08 })
@@ -147,7 +147,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         papNames: ['Witch\'s Broom', 'Hexenbesen', 'Broom of Ages'],
         attachments: [
             att('c96-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight bolted over the receiver. Tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.68, hipSpread: 0.9, adsTime: 1.08 }),
-            { ...att('c96-maxim', 'muzzle', 'Maxim Silencer', 3, 'A threaded Maxim can on the long barrel. Soft-shooting and steady, and quiet kills turn up more salvage (+25%), but it bleeds some punch and reach.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('c96-maxim', 'muzzle', 'Maxim Silencer', 3, 'A threaded Maxim can on the long barrel. Soft-shooting and steady, and quiet kills turn up more salvage (+10%), but it bleeds some punch and reach.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('c96-cutts', 'muzzle', 'Cutts Compensator', 3, 'Slotted brake that keeps the muzzle down. Loud, and the blast widens the hip cone.', { recoil: 0.68, hipSpread: 1.12 }),
             att('c96-box', 'magazine', '20-Round Box Magazine', 4, 'A detachable box magazine in place of stripper clips. Twice the rounds, heavier in hand.', { magSize: 2, reserve: 1.2, reloadTime: 1.1, reloadEmptyTime: 1.05, moveMult: 0.97 }),
             att('c96-holster', 'stock', 'Shoulder-Stock Holster', 5, 'The walnut holster clipped on as a stock. Rock-steady aim, clumsy from the hip.', { recoil: 0.58, adsSpread: 0.6, hipSpread: 1.15, adsTime: 1.2, moveMult: 0.96 })
@@ -184,7 +184,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         startable: true,
         papNames: ['Iron Verdict', 'Iron Requiem', 'Iron Absolution'],
         attachments: [
-            { ...att('kar98k-maxim', 'muzzle', 'Maxim Silencer', 2, 'A long Maxim can. Softer kick and quiet kills that turn up more salvage (+25%), at a little damage and reach.', { recoil: 0.85, damage: 0.92, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('kar98k-maxim', 'muzzle', 'Maxim Silencer', 2, 'A long Maxim can. Softer kick and quiet kills that turn up more salvage (+10%), at a little damage and reach.', { recoil: 0.85, damage: 0.92, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('kar98k-scope', 'optic', 'Telescopic Sight', 3, 'A Zeiss 4x telescope. Deep zoom and pinpoint aim, slower to raise, worse from the hip.', { adsZoom: 2.3, adsTime: 1.5, adsSpread: 0.5, hipSpread: 1.2, moveMult: 0.97 }),
             att('kar98k-trench', 'magazine', 'Trench Magazine', 4, 'The 20-round detachable trench magazine. Fewer clip reloads, a much heavier rifle.', { magSize: 4, reserve: 1.2, reloadTime: 1.12, reloadEmptyTime: 1.05, moveMult: 0.94, adsTime: 1.15 }),
             att('kar98k-light', 'stock', 'Lightened Stock', 5, 'A stock drilled out for weight. Faster to aim and to move with, more kick.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.25 })
@@ -203,7 +203,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         papNames: ['Chicago Choir', 'Crimson Choir', 'Gilded Choir'],
         attachments: [
             att('thompson-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight over the receiver. Tighter aimed and hip fire, a beat slower to aim.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.08 }),
-            { ...att('thompson-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the finned barrel. Steadier bursts and quiet kills that turn up more salvage (+25%), but less reach and punch.', { recoil: 0.82, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('thompson-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the finned barrel. Steadier bursts and quiet kills that turn up more salvage (+10%), but less reach and punch.', { recoil: 0.82, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('thompson-cutts', 'muzzle', 'Cutts Compensator', 3, 'Keeps the climb in check. The blast widens hip fire a little.', { recoil: 0.7, hipSpread: 1.1, range: 0.95 }),
             att('thompson-drum', 'magazine', '50-Round Drum', 4, 'The famous drum magazine. Fifty rounds, slower to swap and heavier to carry.', { magSize: 1.67, reserve: 1.25, reloadTime: 1.3, reloadEmptyTime: 1.22, moveMult: 0.95, adsTime: 1.1 }),
             att('thompson-light', 'stock', 'Lightened Stock', 5, 'A slimmer butt. Quicker on your feet and to the sights, more recoil.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })
@@ -222,7 +222,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         papNames: ['Bergmann\'s Bane', 'Bergmann\'s Wrath', 'Bergmann\'s Ruin'],
         attachments: [
             att('mp18-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight on the receiver. Tighter aimed and hip fire, a little slower to aim.', { adsSpread: 0.72, hipSpread: 0.92, adsTime: 1.08 }),
-            { ...att('mp18-maxim', 'muzzle', 'Maxim Silencer', 3, 'Soft, steady bursts and quiet kills that turn up more salvage (+25%), but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('mp18-maxim', 'muzzle', 'Maxim Silencer', 3, 'Soft, steady bursts and quiet kills that turn up more salvage (+10%), but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('mp18-snail', 'magazine', '32-Round Snail Drum', 4, 'The Trommelmagazin 08. Thirty-two rounds, slower to swap, heavier.', { magSize: 1.6, reserve: 1.2, reloadTime: 1.25, reloadEmptyTime: 1.18, moveMult: 0.96 }),
             att('mp18-light', 'stock', 'Lightened Stock', 5, 'A slimmer stock. Quicker to move and aim, more kick.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })
         ]
@@ -238,7 +238,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         papNames: ['Red Blizzard', 'Red Tempest', 'General Winter'],
         attachments: [
             att('ppsh-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight on the top cover. Tighter aimed and hip fire, a beat slower to aim.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.08 }),
-            { ...att('ppsh-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the jacket nose. Steadier bursts and quiet kills that turn up more salvage (+25%), but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('ppsh-maxim', 'muzzle', 'Maxim Silencer', 3, 'A Maxim can on the jacket nose. Steadier bursts and quiet kills that turn up more salvage (+10%), but less reach and punch.', { recoil: 0.8, damage: 0.93, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('ppsh-brake', 'muzzle', 'Extended Brake', 3, 'A longer slanted nose that throws the blast up and forward. Much less climb, a little wider from the hip.', { recoil: 0.72, hipSpread: 1.1, range: 0.95 }),
             att('ppsh-box', 'magazine', '35-Round Box Magazine', 4, 'The curved wartime box. Half the rounds, but quick to swap and lighter to carry.', { magSize: 0.493, reloadTime: 0.75, reloadEmptyTime: 0.78, moveMult: 1.03, adsTime: 0.95 }),
             att('ppsh-light', 'stock', 'Cut-Down Stock', 5, 'A shortened walnut butt. Quicker on your feet and to the sights, more climb.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })
@@ -256,7 +256,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         attachments: [
             att('bar-cutts', 'muzzle', 'Cutts Compensator', 2, 'A slotted brake that holds the muzzle down; the blast widens hip fire.', { recoil: 0.75, hipSpread: 1.1 }),
             att('bar-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight over the receiver. Tighter aimed and hip fire, a little slower to aim.', { adsSpread: 0.75, hipSpread: 0.92, adsTime: 1.06 }),
-            { ...att('bar-maxim', 'muzzle', 'Maxim Silencer', 3, 'A heavy Maxim can on the Browning. Much softer kick and quiet kills that turn up more salvage (+25%), but less reach and a heavier gun.', { recoil: 0.8, damage: 0.94, range: 0.9, maxRange: 0.92, moveMult: 0.98 }), salvage: 1.25 },
+            { ...att('bar-maxim', 'muzzle', 'Maxim Silencer', 3, 'A heavy Maxim can on the Browning. Much softer kick and quiet kills that turn up more salvage (+10%), but less reach and a heavier gun.', { recoil: 0.8, damage: 0.94, range: 0.9, maxRange: 0.92, moveMult: 0.98 }), salvage: 1.1 },
             att('bar-scope', 'optic', 'Telescopic Sight', 3, 'A 3x telescope. Real zoom and precise fire, slower to raise.', { adsZoom: 1.9, adsTime: 1.4, adsSpread: 0.6, hipSpread: 1.15 }),
             att('bar-40', 'magazine', '40-Round Magazine', 4, 'An extended box. Twice the rounds, slower to swap, heavier.', { magSize: 2, reserve: 1.2, reloadTime: 1.2, reloadEmptyTime: 1.15, moveMult: 0.95 }),
             att('bar-light', 'stock', 'Cut-Down Stock', 5, 'A shortened butt. Quicker to aim and move, more recoil.', { moveMult: 1.06, adsTime: 0.85, recoil: 1.2 })
@@ -331,7 +331,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
         startable: false,
         papNames: ['Lever of Lazarus', 'Lazarus Unchained', 'Lazarus Ascendant'],
         attachments: [
-            { ...att('win1895-maxim', 'muzzle', 'Maxim Silencer', 2, 'A long Maxim can. Softer kick and quiet kills that turn up more salvage (+25%), at a little damage and reach.', { recoil: 0.85, damage: 0.92, range: 0.88, maxRange: 0.92 }), salvage: 1.25 },
+            { ...att('win1895-maxim', 'muzzle', 'Maxim Silencer', 2, 'A long Maxim can. Softer kick and quiet kills that turn up more salvage (+10%), at a little damage and reach.', { recoil: 0.85, damage: 0.92, range: 0.88, maxRange: 0.92 }), salvage: 1.1 },
             att('win1895-scope', 'optic', 'A5 Telescope', 3, 'A Winchester A5 telescope on offset mounts. Real zoom and pinpoint aim, slower to raise, worse from the hip.', { adsZoom: 2.1, adsTime: 1.45, adsSpread: 0.5, hipSpread: 1.2, moveMult: 0.97 }),
             att('win1895-box', 'magazine', 'Ten-Round Box', 4, 'A deeper box magazine. Twice the rounds between clips, a heavier rifle.', { magSize: 2, reserve: 1.2, reloadTime: 1.12, reloadEmptyTime: 1.08, moveMult: 0.96 }),
             att('win1895-carbine', 'stock', 'Carbine Stock', 5, 'A short saddle-ring carbine stock. Quicker to move and aim, more kick.', { moveMult: 1.05, adsTime: 0.85, recoil: 1.2 })

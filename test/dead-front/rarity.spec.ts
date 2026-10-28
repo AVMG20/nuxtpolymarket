@@ -179,7 +179,7 @@ describe('rarity in the match', () => {
         p.pos = { ...bench.pos }
         const pool = sim.arsenal.gearOf(p).pool
         pool.scrap = DF_RARITY_UPGRADE[0]!.scrap + DF_RARITY_UPGRADE[1]!.scrap - 1
-        pool.parts = 1
+        pool.parts = DF_RARITY_UPGRADE[1]!.parts
         let ok = 0
         for (let i = 0; i < 8; i++) if (sim.arsenal.handle(p, { k: 'upgrade', bench: bench.id, slot: 0, from: 0 })) ok++
         expect(ok).toBe(1)

@@ -1,4 +1,4 @@
-import { DF_ENEMIES, dfRoundZombieCount, dfZombieBaseHealth } from './enemies'
+import { DF_ENEMIES, dfZombieBaseHealth } from './enemies'
 import { DF_WEAPONS } from './weapons'
 import type { DfAttachmentChoice, DfEnemyType, DfHitZone, DfWeaponId, Vec3 } from './types'
 import type { DfSupportId, DfStrikeId } from './support'
@@ -17,29 +17,34 @@ import type { DfHeldWeapon } from './protocol'
 export type DfSalvageKind = 'scrap' | 'part'
 
 export const DF_SALVAGE = {
-    /** Scrap a solo round's regular horde drops on average, whatever its size. */
-    perRound: 6,
-    /** Rare parts a solo round's regular horde drops on average. */
-    partsPerRound: 0.3,
-    /** Each extra player adds this share to the round's salvage (the pool is the squad's). */
-    squad: 0.55,
+    /**
+     * Chance a regular (shambler / ghoul) kill drops scrap on the early
+     * rounds. Every zombie rolls, so a bigger horde pays more, but from round
+     * `fadeFrom` the chances fall with the square root of the round
+     * (`dfSalvageFade`): the horde grows faster than the income, and the
+     * bench stays a treat deep into the night.
+     */
+    chance: 0.15,
+    fadeFrom: 5,
     /** Scrap in one regular drop. */
-    amount: [1, 2] as const,
+    amount: [1, 3] as const,
+    /** Chance a regular kill drops a rare part. */
+    partChance: 0.004,
     /** Ghouls carry a little more. */
     ghoulMult: 1.25,
     /** Brutes always drop a pile, and often a part. */
-    brute: { scrap: [4, 6] as const, part: 0.5 },
+    brute: { scrap: [6, 10] as const, part: 0.3 },
     /** Bloaters usually do. */
-    bloater: { chance: 0.75, scrap: [2, 3] as const, part: 0.25 },
+    bloater: { chance: 0.5, scrap: [3, 5] as const, part: 0.1 },
     /** Seconds a drop lies on the ground. */
     life: 40,
     /** Drops on the ground at once (the oldest rusts away first). */
     maxOnGround: 30,
     /** Walking this close (horizontally) picks it up. */
     pickupRadius: 1.35,
-    /** The squad's pool tops out here. */
-    maxScrap: 99,
-    maxParts: 9
+    /** A player's pool tops out here. */
+    maxScrap: 999,
+    maxParts: 20
 } as const
 
 export interface DfSalvageRoll {
@@ -47,20 +52,10 @@ export interface DfSalvageRoll {
     parts: number
 }
 
-/** Chance a regular (shambler / ghoul) kill drops scrap this round. */
-export function dfSalvageChance(round: number, players: number): number {
-    const n = Math.max(1, Math.min(4, Math.floor(players)))
-    const count = Math.max(1, dfRoundZombieCount(round, n))
-    const perKill = (DF_SALVAGE.perRound * (1 + DF_SALVAGE.squad * (n - 1))) / count
-    const avg = (DF_SALVAGE.amount[0] + DF_SALVAGE.amount[1]) / 2
-    return Math.min(0.6, perKill / avg)
-}
-
-/** Chance a regular kill drops a rare part this round. */
-export function dfPartChance(round: number, players: number): number {
-    const n = Math.max(1, Math.min(4, Math.floor(players)))
-    const count = Math.max(1, dfRoundZombieCount(round, n))
-    return Math.min(0.15, (DF_SALVAGE.partsPerRound * (1 + DF_SALVAGE.squad * (n - 1))) / count)
+/** The drop chances' share on a round: 1 until `fadeFrom`, then sqrt(fadeFrom / round). */
+export function dfSalvageFade(round: number): number {
+    const r = Math.max(1, Math.floor(Number.isFinite(round) ? round : 1))
+    return r <= DF_SALVAGE.fadeFrom ? 1 : Math.sqrt(DF_SALVAGE.fadeFrom / r)
 }
 
 function span(range: readonly [number, number], roll: number): number {
@@ -68,7 +63,7 @@ function span(range: readonly [number, number], roll: number): number {
 }
 
 /** A Maxim silencer on the killing weapon: quiet kills turn up this much more salvage (chance, relative). */
-export const DF_SILENCER_SALVAGE = 1.25
+export const DF_SILENCER_SALVAGE = 1.1
 
 /** The salvage bonus of a weapon's attachments (a Maxim silencer's `salvage`), 1 without. */
 export function dfSalvageBonus(id: DfWeaponId, attachments: DfAttachmentChoice | undefined): number {
@@ -82,18 +77,19 @@ export function dfSalvageBonus(id: DfWeaponId, attachments: DfAttachmentChoice |
     return k
 }
 
-/** What a kill drops; `roll` is uniform in [0, 1). `bonus` scales the drop chances (the silencer's 1.25). */
-export function dfSalvageRoll(type: DfEnemyType, round: number, players: number, roll: () => number, bonus = 1): DfSalvageRoll {
+/** What a kill on `round` drops; `roll` is uniform in [0, 1). `bonus` scales the drop chances (the silencer's 1.1). */
+export function dfSalvageRoll(type: DfEnemyType, round: number, roll: () => number, bonus = 1): DfSalvageRoll {
+    const k = (Number.isFinite(bonus) && bonus > 0 ? bonus : 1) * dfSalvageFade(round)
     if (type === 'brute') {
         return { scrap: span(DF_SALVAGE.brute.scrap, roll()), parts: roll() < DF_SALVAGE.brute.part ? 1 : 0 }
     }
     if (type === 'bloater') {
-        if (roll() >= Math.min(1, DF_SALVAGE.bloater.chance * bonus)) return { scrap: 0, parts: 0 }
+        if (roll() >= Math.min(1, DF_SALVAGE.bloater.chance * k)) return { scrap: 0, parts: 0 }
         return { scrap: span(DF_SALVAGE.bloater.scrap, roll()), parts: roll() < DF_SALVAGE.bloater.part ? 1 : 0 }
     }
-    const mult = (type === 'ghoul' ? DF_SALVAGE.ghoulMult : 1) * (Number.isFinite(bonus) && bonus > 0 ? bonus : 1)
-    const scrap = roll() < dfSalvageChance(round, players) * mult ? span(DF_SALVAGE.amount, roll()) : 0
-    const parts = roll() < dfPartChance(round, players) * mult ? 1 : 0
+    const mult = (type === 'ghoul' ? DF_SALVAGE.ghoulMult : 1) * k
+    const scrap = roll() < Math.min(1, DF_SALVAGE.chance * mult) ? span(DF_SALVAGE.amount, roll()) : 0
+    const parts = roll() < Math.min(1, DF_SALVAGE.partChance * mult) ? 1 : 0
     return { scrap, parts }
 }
 
@@ -118,19 +114,20 @@ export interface DfRecipe {
 }
 
 /**
- * The bench, the only place support comes from. A solo player finds about 6
- * scrap a round: a sentry or a gramophone every round, artillery every one or
- * two, the Zeppelin, the launcher or a field kit every two, the bomber every
- * three (and the parts they need).
+ * The bench, the only place support comes from, and a treat rather than a
+ * routine. Priced against the solo income: the first craft around round 7,
+ * a saved-up bomber around round 17, and the field kit (a cheat death)
+ * priced like a Legendary upgrade, around round 22. Even deep into the night
+ * a round pays for a sentry or so, not a handful.
  */
 export const DF_RECIPES: Record<DfCraftId, DfRecipe> = {
-    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 6, parts: 0, use: 'deploy', color: '#c9a25a' },
-    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 5, parts: 0, use: 'deploy', color: '#e2b24f' },
-    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 10, parts: 1, use: 'instant', color: '#e2412f' },
-    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark (X)', scrap: 8, parts: 0, use: 'support', color: '#ff7a3a' },
-    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight (X)', scrap: 12, parts: 1, use: 'support', color: '#9fb4c8' },
-    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 12, parts: 0, use: 'support', color: '#8ab052' },
-    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 16, parts: 1, use: 'support', color: '#b46cff' }
+    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 60, parts: 0, use: 'deploy', color: '#c9a25a' },
+    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 50, parts: 0, use: 'deploy', color: '#e2b24f' },
+    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 700, parts: 6, use: 'instant', color: '#e2412f' },
+    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark (X)', scrap: 100, parts: 0, use: 'support', color: '#ff7a3a' },
+    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight (X)', scrap: 200, parts: 2, use: 'support', color: '#9fb4c8' },
+    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 140, parts: 0, use: 'support', color: '#8ab052' },
+    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 350, parts: 3, use: 'support', color: '#b46cff' }
 }
 
 /** The craft list, in the order the bench shows it (the weapon upgrade comes last). */
@@ -142,13 +139,13 @@ export function dfIsSupport(id: DfCraftId): id is 'barrage' | 'zeppelin' | 'laun
 }
 
 /**
- * A rare find: every zombie kill that drops salvage has this chance to drop a
+ * A rare find: every zombie kill has this chance (fading like salvage) to drop a
  * supply crate with one of the bench's items in it, ready to use (picked
  * uniformly). For its first seconds only the killer sees it and can take it;
  * then anyone can, until it's gone.
  */
 export const DF_CRATE = {
-    chance: 0.01,
+    chance: 0.003,
     /** Seconds it is the killer's alone. */
     private: 15,
     /** Seconds from the drop until it's gone. */
@@ -334,14 +331,20 @@ export interface DfChallengeDef {
 }
 
 export const DF_CHALLENGES: Record<DfChallengeId, DfChallengeDef> = {
-    heads: { id: 'heads', text: 'Headshot kills', goal: r => Math.min(14, 3 + Math.floor(r * 0.6)), from: 2 },
-    knife: { id: 'knife', text: 'Knife kills', goal: r => Math.min(8, 2 + Math.floor(r / 3)), from: 2 },
-    blast: { id: 'blast', text: 'Explosive kills', goal: r => Math.min(12, 3 + Math.floor(r / 2)), from: 3 },
+    heads: { id: 'heads', text: 'Headshot kills', goal: r => Math.min(14, 3 + Math.floor(r * 0.6)), from: 3 },
+    knife: { id: 'knife', text: 'Knife kills', goal: r => Math.min(8, 2 + Math.floor(r / 3)), from: 3 },
+    blast: { id: 'blast', text: 'Explosive kills', goal: r => Math.min(12, 3 + Math.floor(r / 2)), from: 4 },
     brute: { id: 'brute', text: 'Kill the Ironclad Brute', goal: () => 1, from: DF_ENEMIES.brute.minRound },
     gear: { id: 'gear', text: 'Kills by crafted gear and air support', goal: r => Math.min(16, 4 + Math.floor(r / 2)), from: 4 }
 }
 
-export const DF_CHALLENGE_REWARD = { scrap: 4, parts: 1, points: 250 } as const
+export const DF_CHALLENGE_REWARD = { scrap: 4, scrapPerRound: 1, maxScrap: 20, parts: 1, points: 250 } as const
+
+/** A challenge's reward on a round: the scrap grows with the round (7 on round 3, 20 from round 16). */
+export function dfChallengeReward(round: number): { scrap: number, parts: number, points: number } {
+    const scrap = Math.min(DF_CHALLENGE_REWARD.maxScrap, DF_CHALLENGE_REWARD.scrap + DF_CHALLENGE_REWARD.scrapPerRound * Math.max(1, Math.floor(round)))
+    return { scrap, parts: DF_CHALLENGE_REWARD.parts, points: DF_CHALLENGE_REWARD.points }
+}
 
 /** Goal for the squad (a bigger squad has more to do). */
 export function dfChallengeGoal(id: DfChallengeId, round: number, players: number): number {
@@ -350,9 +353,9 @@ export function dfChallengeGoal(id: DfChallengeId, round: number, players: numbe
     return Math.round(g * (1 + 0.5 * Math.max(0, Math.min(3, players - 1))))
 }
 
-/** The challenges that can be dealt on a round (none on round 1, the gas rounds take a break). */
+/** The challenges that can be dealt on a round (none before round 3, the gas rounds take a break). */
 export function dfChallengePool(round: number, opts: { gas: boolean, brutes: number }): DfChallengeId[] {
-    if (round < 2 || opts.gas) return []
+    if (round < 3 || opts.gas) return []
     return (Object.keys(DF_CHALLENGES) as DfChallengeId[]).filter((id) => {
         if (round < DF_CHALLENGES[id].from) return false
         if (id === 'brute') return opts.brutes > 0

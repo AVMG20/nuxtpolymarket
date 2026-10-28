@@ -6,9 +6,9 @@ import { dfBodyFits, dfGroundHeight, dfLineOfSight } from '#shared/utils/dead-fr
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfDevOp, DfEvent } from '#shared/utils/dead-front/protocol'
 import {
-    DF_CHALLENGE_REWARD, DF_CHALLENGES, DF_CRATE, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY,
-    dfChallengeCounts, dfChallengeGoal, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfCrateBlocked, dfDecoyDamage,
-    dfSalvageBonus, dfSalvageRoll, dfSentryDamage, dfSentryPick, dfTurnToward, dfYawGap
+    DF_CHALLENGES, DF_CRATE, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY,
+    dfChallengeCounts, dfChallengeGoal, dfChallengeReward, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfCrateBlocked, dfDecoyDamage,
+    dfSalvageBonus, dfSalvageFade, dfSalvageRoll, dfSentryDamage, dfSentryPick, dfTurnToward, dfYawGap
 } from '#shared/utils/dead-front/salvage'
 import type {
     DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalPlayerSnap, DfArsenalSnap, DfChallengeId, DfCraftId, DfCrateSnap, DfKitState, DfSalvageKind, DfSalvagePool, DfStrikeHit
@@ -432,10 +432,11 @@ export class DfArsenal {
     private completeChallenge(c: SimChallenge): void {
         c.done = true
         // everyone gets the reward in their own pack
+        const reward = dfChallengeReward(this.host.round)
         for (const q of this.host.players) {
-            this.grant(q, 'scrap', DF_CHALLENGE_REWARD.scrap)
-            this.grant(q, 'part', DF_CHALLENGE_REWARD.parts)
-            if (q.life !== 'dead') this.hooks.points(q, DF_CHALLENGE_REWARD.points)
+            this.grant(q, 'scrap', reward.scrap)
+            this.grant(q, 'part', reward.parts)
+            if (q.life !== 'dead') this.hooks.points(q, reward.points)
         }
         this.host.emit({ k: 'challenge', what: 'done', id: c.id, text: DF_CHALLENGES[c.id].text, goal: c.goal })
     }
@@ -457,11 +458,11 @@ export class DfArsenal {
     private dropSalvage(z: SimZombie, owner: SimPlayer | null, bonus: number): void {
         const to = owner ?? this.nearestStanding(z.pos)
         if (!to) return
-        const roll = dfSalvageRoll(z.type, this.host.round, this.host.players.length, randomFloat, bonus)
+        const roll = dfSalvageRoll(z.type, this.host.round, randomFloat, bonus)
         if (roll.scrap > 0) this.addDrop(to.pid, 'scrap', roll.scrap, z.pos, 0)
         if (roll.parts > 0) this.addDrop(to.pid, 'part', roll.parts, z.pos, roll.scrap > 0 ? 0.5 : 0)
         // the rare find: a supply crate with a bench item in it
-        if (this.rng.chance(DF_CRATE.chance)) this.addCrate(to.pid, this.rng.pick(DF_CRATE.items), z.pos)
+        if (this.rng.chance(DF_CRATE.chance * dfSalvageFade(this.host.round))) this.addCrate(to.pid, this.rng.pick(DF_CRATE.items), z.pos)
     }
 
     private addCrate(owner: number, item: DfCraftId, at: Vec3): number {

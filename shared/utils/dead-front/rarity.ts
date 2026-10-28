@@ -120,9 +120,9 @@ export function dfKitName(tier: unknown): string {
 
 /** Salvage to raise a weapon from tier `from` to `from + 1` (null at the top). */
 export const DF_RARITY_UPGRADE: readonly { scrap: number, parts: number }[] = [
-    { scrap: 6, parts: 0 },
-    { scrap: 12, parts: 1 },
-    { scrap: 20, parts: 2 }
+    { scrap: 50, parts: 0 },
+    { scrap: 250, parts: 3 },
+    { scrap: 700, parts: 6 }
 ]
 
 export function dfRarityUpgradeCost(from: unknown): { scrap: number, parts: number } | null {

@@ -99,7 +99,7 @@ function boardModel(): DfVoxModel {
             for (let c = 0; c < row.length; c++) if (row[c] === '#') m.set(1 + n * 10 + c, H - 3 - r, 1, chalk)
         })
         // a tally of the cost underneath
-        for (let t = 0; t < Math.min(8, Math.ceil(DF_RECIPES[id].scrap / 2)); t++) m.set(2 + n * 10 + t, 1 + (t % 2), 1, chalk)
+        for (let t = 0; t < Math.min(8, Math.ceil(DF_RECIPES[id].scrap / 15)); t++) m.set(2 + n * 10 + t, 1 + (t % 2), 1, chalk)
     })
     return m
 }

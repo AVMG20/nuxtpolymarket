@@ -29,8 +29,9 @@ function kill(sim: DfMatchSim, p: SimPlayer, z: SimZombie): void {
 }
 
 describe('supply crates', () => {
-    it('one kill in a hundred drops a crate with a bench item in it, picked uniformly', () => {
-        expect(DF_CRATE.chance).toBe(0.01)
+    it('a rare kill drops a crate with a bench item in it, picked uniformly', () => {
+        expect(DF_CRATE.chance).toBeGreaterThan(0)
+        expect(DF_CRATE.chance).toBeLessThan(0.01)
         expect(DF_CRATE.items).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber'])
         const sim = makeSim(1)
         const p = sim.player(0)!
