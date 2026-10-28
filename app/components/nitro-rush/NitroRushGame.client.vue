@@ -347,7 +347,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="nr-label">{{ hud.closed ? 'LAP' : 'RUN' }} <b class="nr-lap tabular-nums">{{ hud.lap }}</b></div>
-          <div class="nr-time tabular-nums">{{ time(hud.lapTime) }}</div>
+          <NitroRushDigits class="nr-time block" :text="time(hud.lapTime)" />
           <div class="mt-1.5 flex flex-col gap-0.5">
             <div class="nr-label tabular-nums">LAST <span class="nr-mono">{{ time(hud.lastLap) }}</span></div>
             <div class="nr-label tabular-nums">BEST <span class="nr-mono nr-best">{{ time(hud.bestLap) }}</span></div>
@@ -369,7 +369,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 
       <div class="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-3 sm:p-5" :class="{ 'pb-32': isTouch }">
         <div class="nr-speedo">
-          <span class="tabular-nums">{{ hud.speedKmh }}</span>
+          <NitroRushDigits :text="hud.speedKmh" />
           <span class="nr-label">KM/H</span>
         </div>
         <div class="flex flex-1 flex-col items-center gap-1.5 pb-1">
@@ -572,7 +572,9 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
     --nr-violet: #b46bff;
     background: #0b0221;
     touch-action: none;
-    font-family: 'Lilita One', system-ui, sans-serif;
+    font-family: 'Tilt Neon', system-ui, sans-serif;
+    /* Tilt Neon has one weight; a faked bold smears its tube strokes. */
+    font-synthesis-weight: none;
     color: #fff;
 }
 
@@ -586,7 +588,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 }
 
 .nr-lap {
-    font-family: 'Lilita One', system-ui, sans-serif;
+    font-family: 'Tilt Neon', system-ui, sans-serif;
     font-weight: 400;
     font-size: 22px;
     letter-spacing: 0.02em;
@@ -608,7 +610,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 
 .nr-mono {
     margin-left: 4px;
-    font-family: 'Lilita One', system-ui, sans-serif;
+    font-family: 'Tilt Neon', system-ui, sans-serif;
     font-weight: 400;
     font-size: 15px;
     letter-spacing: 0.04em;
@@ -932,6 +934,8 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 }
 
 .nr-track-times dt {
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
     font-size: 10px;
     letter-spacing: 0.08em;
     color: rgb(255 255 255 / 0.5);
@@ -942,7 +946,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
     align-items: baseline;
     gap: 6px;
     min-width: 0;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--nr-gold);
 }
 
