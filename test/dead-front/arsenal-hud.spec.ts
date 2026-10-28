@@ -4,7 +4,7 @@ import type { DfPlayerSnap, DfSnapshot, DfWorldSnap } from '#shared/utils/dead-f
 import { DF_RARITIES, DF_RARITY_UPGRADE } from '#shared/utils/dead-front/rarity'
 import { DF_RECIPES, dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import type { DfArsenalSnap } from '#shared/utils/dead-front/salvage'
-import { DF_BENCH_PICKS, dfArsenalFeedLine, dfBenchList, dfBenchPrompt, dfKitPrompt } from '../../app/utils/dead-front/engine/arsenal-prompt'
+import { DF_BENCH_PICKS, dfArsenalFeedLine, dfBenchItem, dfBenchList, dfBenchPrompt, dfKitPrompt } from '../../app/utils/dead-front/engine/arsenal-prompt'
 import { dfHudFeedLine } from '../../app/utils/dead-front/engine/hud'
 import type { DfHudFeedContext } from '../../app/utils/dead-front/engine/hud'
 import { DfHintTracker } from '../../app/utils/dead-front/engine/hints'
@@ -49,17 +49,21 @@ describe('arsenal HUD: the workbench', () => {
         expect(up.tint).toBe(DF_RARITIES[1]!.color)
     })
 
-    it('the prompt: hold F to make it, scroll for another; greyed with the reason', () => {
+    it('the prompt opens the shop and says how much it would make; the cards say why not', () => {
         const ok = dfPromptFor(bench, { map: DF_MAP, world: world({ scrap: DF_RECIPES.sentry.scrap }), me: player(), solo: true, benchPick: 'sentry' })!
-        expect(ok.text).toBe('Hold F to craft Lewis Sentry')
+        expect(ok.text).toBe('Press F to open the workbench')
         expect(ok.ok).toBe(true)
         expect(ok.action).toBe('none')
-        const no = dfBenchPrompt(bench, { world: world({ scrap: 0 }), me: player() }, 'decoy')!
-        expect(no.ok).toBe(false)
-        expect(no.sub).toContain('more scrap')
-        const legendary = dfBenchPrompt(bench, { world: world({ scrap: 99, parts: 9 }), me: player({ weapons: [{ id: 'thompson', pap: 0, mag: 30, reserve: 120, attachments: {}, rarity: 3 }] }) }, 'upgrade')!
+        expect(ok.sub).toContain(`${DF_RECIPES.sentry.scrap} scrap`)
+        const broke = dfBenchPrompt(bench, { world: world({ scrap: 0 }), me: player() })!
+        expect(broke.sub).toContain('nothing you can afford yet')
+        const decoy = dfBenchItem('decoy', { world: world({ scrap: 0 }), me: player() }, true)
+        expect(decoy).toMatchObject({ ok: false, shortScrap: true, scrap: DF_RECIPES.decoy.scrap, color: DF_RECIPES.decoy.color })
+        expect(decoy.why).toContain('more scrap')
+        const legendary = dfBenchItem('upgrade', { world: world({ scrap: 99, parts: 9 }), me: player({ weapons: [{ id: 'thompson', pap: 0, mag: 30, reserve: 120, attachments: {}, rarity: 3 }] }) }, true)
         expect(legendary.ok).toBe(false)
-        expect(legendary.sub).toContain('Already Legendary')
+        expect(legendary.why).toContain('Already Legendary')
+        expect(legendary.weapon).toEqual({ id: 'thompson', rarity: 3 })
     })
 
     it('upgrade kits on the ground: apply, or "Already Epic"', () => {

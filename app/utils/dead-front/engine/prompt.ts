@@ -184,7 +184,7 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
         case 'trap':
             return trapPrompt(it, c)
         case 'bench':
-            return dfBenchPrompt(it, c, c.benchPick ?? 'sentry')
+            return dfBenchPrompt(it, c)
     }
     return null
 }

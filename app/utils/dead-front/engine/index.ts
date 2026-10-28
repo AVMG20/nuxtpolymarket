@@ -1381,6 +1381,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function applyLook(): void {
         input.takeLook(lookIn)
         if (!input.locked || (lookIn.x === 0 && lookIn.y === 0)) return
+        // the open workbench shop takes the mouse: it moves the selection, not the view
+        if (arsenal.shopOpen) {
+            arsenal.nudge(lookIn.x, lookIn.y)
+            return
+        }
         frameLook.x += lookIn.x
         frameLook.y += lookIn.y
         const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * viewmodel.adsBlend
@@ -1418,7 +1423,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     function onTriggerEvent(code: string): void {
-        if (code !== 'Mouse0' || disposed || !spawned || !input.locked || life === 'dead' || !mine) return
+        if (code !== 'Mouse0' || disposed || !spawned || !input.locked || life === 'dead' || !mine || arsenal.shopOpen) return
         applyLook()
         pressHandled = true
         pullTrigger(eventTime())
@@ -1448,11 +1453,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         const alive = life !== 'dead'
         const canAct = locked && alive && spawned
-        // at a workbench ↑/↓ pick from its list instead of walking
-        const arrows = currentPrompt?.kind !== 'bench'
+        // the open workbench shop holds the player still (a step away closes it)
+        const shop = arsenal.shopOpen
+        const walk = canAct && !shop
         // movement intent
-        intent.fwd = canAct ? (input.has('KeyW') || (arrows && input.has('ArrowUp')) ? 1 : 0) - (input.has('KeyS') || (arrows && input.has('ArrowDown')) ? 1 : 0) : 0
-        intent.right = canAct ? (input.has('KeyD') || input.has('ArrowRight') ? 1 : 0) - (input.has('KeyA') || input.has('ArrowLeft') ? 1 : 0) : 0
+        intent.fwd = walk ? (input.has('KeyW') || input.has('ArrowUp') ? 1 : 0) - (input.has('KeyS') || input.has('ArrowDown') ? 1 : 0) : 0
+        intent.right = walk ? (input.has('KeyD') || input.has('ArrowRight') ? 1 : 0) - (input.has('KeyA') || input.has('ArrowLeft') ? 1 : 0) : 0
         // ADS and sprint: whichever was pressed last wins while both are held (CoD style)
         if (input.pressed('Mouse2')) adsOverSprint = true
         if (input.pressed('ShiftLeft')) {
@@ -1460,15 +1466,15 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             reloadHoldsSprint = false
         }
         const adsHeld = input.has('Mouse2')
-        intent.sprint = canAct && input.has('ShiftLeft') && now >= sprintLockUntil && life === 'alive'
+        intent.sprint = walk && input.has('ShiftLeft') && now >= sprintLockUntil && life === 'alive'
             && !(adsHeld && adsOverSprint) && !(gun.reloading && reloadHoldsSprint)
         intent.crouch = false
-        if (canAct && input.pressed('KeyC')) player.toggleCrouch()
-        if (canAct && input.pressed('Space')) player.queueJump(now)
-        if (canAct && input.pressed('Space') && player.crouched) player.wantsCrouch = false
+        if (walk && input.pressed('KeyC')) player.toggleCrouch()
+        if (walk && input.pressed('Space')) player.queueJump(now)
+        if (walk && input.pressed('Space') && player.crouched) player.wantsCrouch = false
         // a fresh sprint press over a held ADS lowers the sights so the sprint can start
         const sprintWins = input.has('ShiftLeft') && !adsOverSprint && !player.tired && now >= sprintLockUntil && intent.fwd > 0
-        const wantsAds = canAct && adsHeld && !player.sprinting && !sprintWins
+        const wantsAds = walk && adsHeld && !player.sprinting && !sprintWins
         intent.ads = viewmodel.adsBlend
 
         if (life === 'dead') {
@@ -1482,8 +1488,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         vmInput.ads = wantsAds
 
         // weapon actions (a press already handled on its event isn't pulled twice)
-        const trigger = input.has('Mouse0')
-        if (input.pressed('Mouse0') && !pressHandled) pullTrigger(now)
+        // the shop's left button crafts, it doesn't fire
+        const trigger = !shop && input.has('Mouse0')
+        if (!shop && input.pressed('Mouse0') && !pressHandled) pullTrigger(now)
         if (trigger && player.sprinting) sprintLockUntil = now + 0.3
         // breaking into a sprint drops the reload (tap sprint to cancel one, as in CoD)
         if (player.sprinting && !wasSprinting && gun.reloading) interruptReload(now)
@@ -1510,8 +1517,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             if (input.pressed('Digit1')) swapTo(0, now)
             if (input.pressed('Digit2')) swapTo(1, now)
             if (input.pressed('Digit3')) swapTo(2, now)
-            // at a workbench the wheel picks from its list instead
-            if (input.wheel !== 0 && currentPrompt?.kind !== 'bench') swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now, true)
+            // in the workbench shop the wheel picks instead
+            if (input.wheel !== 0 && !shop) swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now, true)
             // a knife press a moment early (still recovering) is kept and swings when ready
             if (input.pressed('KeyV')) meleeQueuedUntil = now + 0.2
             if (meleeQueuedUntil >= now && now >= meleeReadyAt) {
@@ -2052,7 +2059,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (pu.length !== n) pu.length = n
 
         // prompt
-        const p = currentPrompt
+        // the open shop is its own panel
+        const p = currentPrompt?.kind === 'bench' && arsenal.shopOpen ? null : currentPrompt
         if (p) {
             // hold actions fill the prompt's bar: a revive's progress, the boards of a barrier being rebuilt
             let holdProgress = p.action === 'revive' && hud.reviving ? hud.reviving.progress : 0

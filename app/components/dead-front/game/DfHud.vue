@@ -77,10 +77,10 @@
                 </div>
             </Transition>
         </div>
-        <!-- the workbench's list while at one -->
+        <!-- the workbench shop, centred while it is open -->
         <Transition name="df-fade">
-            <div v-if="hud.arsenal.bench && hud.life === 'alive'" class="df-bench-wrap absolute">
-                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :parts="hud.arsenal.parts" />
+            <div v-if="hud.arsenal.bench && hud.life === 'alive'" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :parts="hud.arsenal.parts" :deny-key="hud.arsenal.denyKey" />
             </div>
         </Transition>
         <!-- placing gear / calling in support, and short arsenal notices -->
@@ -293,9 +293,9 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 .df-bench-wrap {
-    right: calc(var(--edge) + 2rem);
-    top: 50%;
-    transform: translateY(-50%);
+    z-index: 5;
+    padding: var(--edge);
+    pointer-events: none;
 }
 
 .df-targeting {

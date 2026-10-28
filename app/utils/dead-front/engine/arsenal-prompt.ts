@@ -18,16 +18,31 @@ export type DfBenchPick = DfCraftId | 'upgrade'
 
 export const DF_BENCH_PICKS: readonly DfBenchPick[] = [...DF_CRAFT_ORDER, 'upgrade']
 
+/** Cards per row in the bench shop (the arrows step a row with up / down). */
+export const DF_BENCH_COLS = 4
+
 export interface DfHudBenchItem {
     key: DfBenchPick
     name: string
+    /** "12 scrap · 1 part" (empty when there's nothing to pay for). */
     cost: string
     ok: boolean
-    /** Why not, when it can't be made. */
+    /** Why not, when it can't be made (its description when it can). */
     why: string
+    /** One line on what it does. */
+    desc: string
     selected: boolean
     /** Name colour (an upgrade's tier). */
     tint: string | null
+    /** Its accent colour (the card's icon and glow). */
+    color: string
+    scrap: number
+    parts: number
+    /** Short of scrap / parts for it. */
+    shortScrap: boolean
+    shortParts: boolean
+    /** The weapon an upgrade improves, and the tier it reaches. */
+    weapon?: { id: DfHeldWeapon['id'], rarity: number }
 }
 
 export interface DfHudArsenal {
@@ -39,8 +54,10 @@ export interface DfHudArsenal {
     kit: boolean
     /** Support held for X, oldest first (X calls in the newest). */
     support: { id: DfSupportId, name: string }[]
-    /** The craft list while at a bench. */
+    /** The bench shop while it is open. */
     bench: { items: DfHudBenchItem[], hold: number } | null
+    /** Bumps when a craft is refused (the shop shakes). */
+    denyKey: number
     challenge: { text: string, n: number, goal: number, done: boolean } | null
     /** Bumps on every pickup (the counter pops). */
     salvageKey: number
@@ -76,12 +93,14 @@ export function dfWeaponDisplayName(id: DfHeldWeapon['id'], pap = 0): string {
     return pap > 0 ? def.papNames[Math.min(3, pap) - 1] ?? def.name : def.name
 }
 
-/** One line of the bench's list. */
+const UPGRADE_DESC = 'Raises the weapon in your hands one rarity tier: more damage, a bigger magazine'
+
+/** One card of the bench shop. */
 export function dfBenchItem(pick: DfBenchPick, c: DfArsenalPromptCtx, selected: boolean): DfHudBenchItem {
     const pl = pool(c.world)
     if (pick === 'upgrade') {
         const w = dfHeldOf(c.me)
-        const base = { key: pick, selected, tint: null as string | null }
+        const base = { key: pick, selected, tint: null as string | null, desc: UPGRADE_DESC, color: dfRarity(1).color, scrap: 0, parts: 0, shortScrap: false, shortParts: false }
         if (!w || !dfRarityApplies(w.id)) {
             const why = !w
                 ? c.me.weapons[c.me.slot]?.away ? 'Your weapon is in the Pack-a-Punch' : 'Nothing in hand'
@@ -91,14 +110,20 @@ export function dfBenchItem(pick: DfBenchPick, c: DfArsenalPromptCtx, selected: 
         const r = dfClampRarity(w.rarity)
         const cost = dfRarityUpgradeCost(r)
         const name = `${dfWeaponDisplayName(w.id, w.pap)} → ${r >= DF_RARITY_MAX ? dfRarity(r).name : dfRarity(r + 1).name}`
-        if (!cost) return { ...base, name, cost: '', ok: false, why: 'Already Legendary', tint: dfRarity(r).color }
+        if (!cost) return { ...base, name, cost: '', ok: false, why: 'Already Legendary', tint: dfRarity(r).color, color: dfRarity(r).color, weapon: { id: w.id, rarity: r } }
         const costText = cost.parts > 0 ? `${cost.scrap} scrap · ${cost.parts} part${cost.parts > 1 ? 's' : ''}` : `${cost.scrap} scrap`
-        const short = pl.scrap < cost.scrap ? `Need ${cost.scrap - pl.scrap} more scrap` : pl.parts < cost.parts ? (cost.parts - pl.parts === 1 ? 'Need a rare part' : `Need ${cost.parts - pl.parts} more rare parts`) : ''
-        return { ...base, name, cost: costText, ok: !short, why: short, tint: dfRarity(r + 1).color }
+        const shortScrap = pl.scrap < cost.scrap
+        const shortParts = pl.parts < cost.parts
+        const short = shortScrap ? `Need ${cost.scrap - pl.scrap} more scrap` : shortParts ? (cost.parts - pl.parts === 1 ? 'Need a rare part' : `Need ${cost.parts - pl.parts} more rare parts`) : ''
+        const next = dfRarity(r + 1).color
+        return { ...base, name, cost: costText, ok: !short, why: short || UPGRADE_DESC, tint: next, color: next, scrap: cost.scrap, parts: cost.parts, shortScrap, shortParts, weapon: { id: w.id, rarity: r + 1 } }
     }
     const r = DF_RECIPES[pick]
     const b = dfCraftBlocked(r, pl, dfKitStateOf(c))
-    return { key: pick, name: r.name, cost: dfRecipeCost(r), ok: b === null, why: b ? dfCraftBlockText(b, r, pl) : r.desc, selected, tint: null }
+    return {
+        key: pick, name: r.name, cost: dfRecipeCost(r), ok: b === null, why: b ? dfCraftBlockText(b, r, pl) : r.desc, desc: r.desc, selected, tint: null,
+        color: r.color, scrap: r.scrap, parts: r.parts, shortScrap: pl.scrap < r.scrap, shortParts: pl.parts < r.parts
+    }
 }
 
 /** The bench's whole list, `pick` selected. */
@@ -106,14 +131,13 @@ export function dfBenchList(c: DfArsenalPromptCtx, pick: DfBenchPick): DfHudBenc
     return DF_BENCH_PICKS.map(k => dfBenchItem(k, c, k === pick))
 }
 
-/** The workbench prompt for the selected item: hold F to make it, scroll or ↑/↓ for another. */
-export function dfBenchPrompt(it: DfInteractable, c: DfArsenalPromptCtx, pick: DfBenchPick): DfPrompt | null {
+/** The workbench prompt (the shop is closed): press F to open it, and how much it would make. */
+export function dfBenchPrompt(it: DfInteractable, c: DfArsenalPromptCtx): DfPrompt | null {
     if (c.me.life !== 'alive') return null
-    const item = dfBenchItem(pick, c, true)
-    const verb = pick === 'upgrade' ? 'upgrade' : 'craft'
-    const text = item.ok ? `Hold F to ${verb} ${item.name}` : `${pick === 'upgrade' ? 'Upgrade' : 'Craft'} ${item.name}`
-    const sub = item.ok ? `${item.cost} · scroll for another` : `${item.why}${item.cost ? ` · ${item.cost}` : ''} · scroll for another`
-    return { id: it.id, kind: 'bench', text, sub, cost: null, ok: item.ok, action: 'none', repeat: false, tint: item.tint ?? undefined }
+    const pl = pool(c.world)
+    const can = DF_BENCH_PICKS.filter(k => dfBenchItem(k, c, false).ok).length
+    const sub = `${pl.scrap} scrap · ${pl.parts} part${pl.parts === 1 ? '' : 's'} · ${can ? `${can} thing${can === 1 ? '' : 's'} you can make` : 'nothing you can afford yet'}`
+    return { id: it.id, kind: 'bench', text: 'Press F to open the workbench', sub, cost: null, ok: true, action: 'none', repeat: false }
 }
 
 function aOrAn(name: string): string {

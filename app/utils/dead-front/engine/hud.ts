@@ -280,7 +280,7 @@ export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
 export function dfNewHudArsenal(): DfHudArsenal {
     return {
         scrap: 0, parts: 0, launcher: 0, equip: null, kit: false,
-        support: [], bench: null, challenge: null, salvageKey: 0, targeting: null
+        support: [], bench: null, denyKey: 0, challenge: null, salvageKey: 0, targeting: null
     }
 }
 
