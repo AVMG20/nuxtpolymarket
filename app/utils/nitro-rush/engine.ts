@@ -387,9 +387,11 @@ export class NitroRushEngine {
 
     private resetRace() {
         this.state = createCar(this.track, this.gridS)
+        // Every run starts with a full tank; the meter already says so, so no NITRO READY over the GO.
+        this.state.nitro = 1
         this.accumulator = 0
         this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET, this.track.checkpointDistances)
-        this.nitroReadyAnnounced = false
+        this.nitroReadyAnnounced = true
         this.wrongWayTime = 0
         this.skids.clear()
         this.sparks.clear()
