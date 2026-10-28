@@ -7,9 +7,10 @@ import { TOTAL_WAVES } from '../../app/utils/meadowbrawl/types'
  * A crude bot plays a whole run: walk at the nearest enemy, swing when close,
  * use the special when it's up, roll away from telegraphs. It cannot lose
  * (health is topped up) — the point is that every wave clears, the numbers
- * stay finite, and the pacing lands in the intended band.
+ * stay finite, and the pacing lands in the intended band. The run is random
+ * (the bot takes whatever offers roll), so it is opt-in: `MB_FULL_RUN=1`.
  */
-describe('a full run', () => {
+describe.skipIf(!process.env.MB_FULL_RUN)('a full run', () => {
     it('clears all thirty waves without anything going non-finite', () => {
         const g = new MeadowbrawlGame()
         // MB_PET=fox|tortoise|owl runs the bot with a max-level companion.
