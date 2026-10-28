@@ -53,7 +53,8 @@ describe('xeno plant art', () => {
                 expect(sil.air).toHaveLength(0)
             }
         }
-    })
+    // every plant at every stage, twice: seconds on a slow CI runner
+    }, 30_000)
 
     it('is deterministic per id', () => {
         for (const id of ALL_IDS) {
