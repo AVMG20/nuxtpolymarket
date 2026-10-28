@@ -10,7 +10,7 @@ import { DF_FLAG } from '#shared/utils/dead-front/protocol'
 import type {
     DfEvent, DfHeldWeapon, DfMatchStart, DfPlayerSnap, DfProjectileSnap, DfShotHit, DfSnapshot, DfZombieSnap
 } from '#shared/utils/dead-front/protocol'
-import type { DfHitZone, DfPlayerEffects, DfProfileView, Vec3 } from '#shared/utils/dead-front/types'
+import type { DfAttachmentChoice, DfHitZone, DfPlayerEffects, DfProfileView, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
 import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { randomFloat } from '#shared/utils/random'
@@ -157,7 +157,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     const zombieView: DfZombieView = safe('zombie view', () => createDfZombieView(ctx), noopView)
     const projectileView: DfProjectileView = safe('projectile view', () => createDfProjectileView(ctx), noopView)
     const viewmodel: DfViewmodel = safe('viewmodel', () => createDfViewmodel(ctx), {
-        root: new THREE.Group(), adsBlend: 0, equip: () => 0.4, fire: noop, reload: noop, cancelReload: noop,
+        root: new THREE.Group(), adsBlend: 0, scope: { dark: 0, view: 0 }, equip: () => 0.4, fire: noop, reload: noop, cancelReload: noop,
         melee: noop, setDowned: noop, muzzleWorld: (c: THREE.Camera, out: THREE.Vector3) => out.copy(c.position), update: noop, dispose: noop
     })
     const avatars: DfAvatarManager = createDfAvatars(ctx)
@@ -2239,6 +2239,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     let lastSpread = -1
+    let lastScope = 0
     let lastWp = -1
     /** One number per on-screen state (whole pixels, edge flag, angle in centiradians): no per-frame strings. */
     function screenKey(p: DfScreenPoint): number {
@@ -2269,6 +2270,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 root.style.setProperty('--df-spread', `${Math.max(3, px)}px`)
                 root.style.setProperty('--df-xhair', vis.toFixed(2))
             }
+        }
+        // a telescopic sight's picture (the HUD draws it over the world)
+        const sc = viewmodel.scope
+        const scopeKey = Math.round(sc.dark * 100) * 1000 + Math.round(sc.view * 100)
+        if (scopeKey !== lastScope) {
+            lastScope = scopeKey
+            root.style.setProperty('--df-scope-dark', sc.dark.toFixed(2))
+            root.style.setProperty('--df-scope-view', sc.view.toFixed(2))
         }
         // the damage arcs are the only reader of the camera yaw: skip the style write otherwise
         if (hud.damage.length) root.style.setProperty('--df-yaw', (camera.rotation.y).toFixed(4))
@@ -2411,6 +2420,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             },
             hold(code: string, down = true) {
                 input.devInject(code, down)
+            },
+            /** Put a weapon in the first-person view only (the server's loadout is untouched): checks sights and scopes. */
+            viewWeapon(id: DfWeaponId, attachments: DfAttachmentChoice = {}, pap = 0) {
+                return viewmodel.equip({ id, pap, attachments }, 4)
             },
             /** Pretend the pointer is locked, so injected keys and clicks act. */
             fakeLock(on = true) {

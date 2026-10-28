@@ -147,6 +147,11 @@ export interface DfViewmodel {
     readonly root: THREE.Object3D
     /** Current ADS blend 0..1 (the engine lerps camera FOV with it). */
     readonly adsBlend: number
+    /**
+     * A telescopic sight coming up: `dark` blacks out the screen around the
+     * eyepiece (0..1), `view` opens the scope picture (0..1); both 0 without a scope.
+     */
+    readonly scope: { dark: number, view: number }
     /** Swap to a weapon with a raise animation; returns the raise time in seconds. */
     equip(w: DfViewmodelWeapon, swapMult: number): number
     /** Play a shot: recoil kick, muzzle flash, smoke, shell ejection, slide/bolt motion. */

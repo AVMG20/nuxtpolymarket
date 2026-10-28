@@ -942,7 +942,8 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             g.rivets([56, 64], 11, 3, STEEL_HI)
             g.box(52, 61, 2, 7, 3, STEEL)
             g.box(52, 53, 2, 7, 3, STEEL_HI)
-            g.box(66, 68, 14, 16, 1, STEEL_HI).box(67, 69, 16, 17, 1, STEEL_HI)
+            // the hammer stays under the sight line: the eye sits just behind it when aiming
+            g.box(66, 68, 13, 15, 1, STEEL_HI).box(67, 69, 14, 15, 1, STEEL_HI)
             g.box(63, 64, 5, 7, 1, BLACK)
             // Straight wrist and stock with a crescent butt plate.
             const end = carbine ? 88 : 96
@@ -972,7 +973,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             if (sc) scope(g, 46, 70, 18)
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, B)
             return {
-                gun: g, grip: [71, 7], bore: B, front: 2, sight: sc ? [60, 18.5] : [41, B + 4], eyeRelief: sc ? 0.07 : 0.3, left: [-0.02, -0.005, -0.36], eject: [60, 14],
+                gun: g, grip: [71, 7], bore: B, front: 2, sight: sc ? [60, 18.5] : [41, B + 4], eyeRelief: sc ? 0.07 : 0.34, left: [-0.02, -0.005, -0.36], eject: [60, 14],
                 reload: big ? 'mag' : 'stripper', long: true, scoped: sc ? { j: 18, k0: 46, k1: 70 } : undefined, cycle: 'lever', leverAxis: [6, 62]
             }
         }

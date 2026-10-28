@@ -1,5 +1,16 @@
 <template>
     <div class="df-hud pointer-events-none absolute inset-0" :class="{ off: !hud.started }">
+        <!-- a telescopic sight: black around the eyepiece, a Zeiss post reticle over the world (the engine sets the vars) -->
+        <div class="df-scope absolute inset-0" aria-hidden="true">
+            <div class="lens">
+                <svg class="reticle" viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+                    <rect x="-100" y="-2.2" width="86" height="4.4" />
+                    <rect x="14" y="-2.2" width="86" height="4.4" />
+                    <path d="M-2.6 100V9l2.6-7 2.6 7v91z" />
+                    <rect x="-0.4" y="-100" width="0.8" height="86" />
+                </svg>
+            </div>
+        </div>
         <!-- top-left: the objective + waypoint -->
         <div class="df-corner-tl absolute">
             <DfHudObjective :objective="hud.objective" />
@@ -343,6 +354,33 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 /* centre stack */
+.df-scope {
+    --dark: var(--df-scope-dark, 0);
+    --view: var(--df-scope-view, 0);
+    opacity: var(--dark);
+    background: radial-gradient(circle at 50% 50%, transparent 0 38.5vmin, #000 39vmin);
+}
+
+.df-scope .lens {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 78vmin;
+    height: 78vmin;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    /* black until the picture opens, then only the lens edge stays dark */
+    background: rgba(0, 0, 0, calc(1 - var(--view)));
+    box-shadow: inset 0 0 5vmin 1.5vmin rgba(0, 0, 0, calc(0.85 * var(--view)));
+}
+
+.df-scope .reticle {
+    width: 100%;
+    height: 100%;
+    opacity: var(--view);
+    fill: #0b0b0b;
+}
+
 .df-center {
     position: absolute;
     left: 50%;

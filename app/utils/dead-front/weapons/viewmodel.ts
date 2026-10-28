@@ -37,6 +37,16 @@ const smooth = (x: number) => {
 }
 /** 0 -> 1 -> 0 bump between a and b with eased flanks. */
 const bump = (u: number, a: number, b: number, ramp = 0.15) => smooth((u - a) / ramp) * (1 - smooth((u - (b - ramp)) / ramp))
+/**
+ * A scope comes up in three beats: the screen darkens around the eyepiece
+ * (SCOPE_DARK), the gun is put away behind the black (SCOPE_SWAP), then the
+ * scope picture opens (SCOPE_VIEW). The HUD draws the picture full screen.
+ */
+const SCOPE_DARK = [0.5, 0.8] as const
+const SCOPE_SWAP = 0.82
+const SCOPE_VIEW = [0.82, 0.97] as const
+/** Red dots fade in as the sight lines up, not at a threshold. */
+const DOT_FADE = [0.55, 0.85] as const
 
 /** Critically damped spring toward a target (exact for any dt). */
 class Crit {
@@ -422,10 +432,15 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         return rig?.muzzle ?? null
     }
 
+    const scopeOut = { dark: 0, view: 0 }
+
     const api: DfViewmodel = {
         root,
         get adsBlend() {
             return clamp01(ads.x)
+        },
+        get scope() {
+            return scopeOut
         },
         equip(w, swapMult) {
             // CoD-quick swaps: pistols flick up, heavy guns take a beat longer.
@@ -958,12 +973,19 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                     : 1.3 + Math.sin(time * 2.6) * 0.18 + Math.sin(time * 17) * 0.04 + glowPulse * 2.4
                 g.glow.userData.uGlow.value = Math.max(0.2, live - drain)
             }
-            if (g.lens) g.lens.visible = a > 0.6
+            if (g.lens) {
+                // a scope's picture is the HUD's; a red dot fades in as it lines up
+                const k = g.scoped ? 0 : smooth((a - DOT_FADE[0]) / (DOT_FADE[1] - DOT_FADE[0]))
+                g.lens.visible = k > 0
+                ;(g.lens.material as THREE.MeshBasicMaterial).opacity = k
+            }
         }
         apply(r)
         if (rigL) apply(rigL)
-        // The glove hides once a scope is up (the scope fills the view).
-        glove.visible = !(r.scoped && a > 0.6)
+        // A scope: the gun goes away behind the black, then the picture opens.
+        scopeOut.dark = r.scoped ? smooth((a - SCOPE_DARK[0]) / (SCOPE_DARK[1] - SCOPE_DARK[0])) : 0
+        scopeOut.view = r.scoped ? smooth((a - SCOPE_VIEW[0]) / (SCOPE_VIEW[1] - SCOPE_VIEW[0])) : 0
+        r.root.visible = !(r.scoped && a >= SCOPE_SWAP)
 
         root.updateMatrixWorld(true)
         knife.visible = knifeK > 0
