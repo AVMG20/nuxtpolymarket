@@ -106,13 +106,13 @@ export function dfBenchList(c: DfArsenalPromptCtx, pick: DfBenchPick): DfHudBenc
     return DF_BENCH_PICKS.map(k => dfBenchItem(k, c, k === pick))
 }
 
-/** The workbench prompt for the selected item: hold F to make it, tap F for the next. */
+/** The workbench prompt for the selected item: hold F to make it, scroll or ↑/↓ for another. */
 export function dfBenchPrompt(it: DfInteractable, c: DfArsenalPromptCtx, pick: DfBenchPick): DfPrompt | null {
     if (c.me.life !== 'alive') return null
     const item = dfBenchItem(pick, c, true)
     const verb = pick === 'upgrade' ? 'upgrade' : 'craft'
     const text = item.ok ? `Hold F to ${verb} ${item.name}` : `${pick === 'upgrade' ? 'Upgrade' : 'Craft'} ${item.name}`
-    const sub = item.ok ? `${item.cost} · tap F for the next` : `${item.why}${item.cost ? ` · ${item.cost}` : ''} · tap F for the next`
+    const sub = item.ok ? `${item.cost} · scroll for another` : `${item.why}${item.cost ? ` · ${item.cost}` : ''} · scroll for another`
     return { id: it.id, kind: 'bench', text, sub, cost: null, ok: item.ok, action: 'none', repeat: false, tint: item.tint ?? undefined }
 }
 

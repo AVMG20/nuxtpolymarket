@@ -12,7 +12,7 @@
                 <div v-if="it.selected && bench.hold > 0" class="df-seg hold" :style="{ '--p': bench.hold, '--c': '#ffd978', '--seg': '6px' }" />
             </li>
         </ul>
-        <div class="foot">Tap F for the next · hold F to make it</div>
+        <div class="foot">Scroll or ↑/↓ to pick · hold F to make it</div>
     </div>
 </template>
 

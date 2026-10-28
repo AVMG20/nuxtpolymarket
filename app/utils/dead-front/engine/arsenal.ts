@@ -21,7 +21,7 @@ import type { DfPrompt } from './prompt'
 import { DF_SND } from './sounds'
 
 // The local player's side of salvage, the workbench, crafted gear, upgrade
-// kits, supply crates and support: the bench (tap F for the next item, hold F to make
+// kits, supply crates and support: the bench (scroll or ↑/↓ to pick, hold F to make
 // it), placing gear (hold Q to aim, release to place), calling in support
 // (hold X or 4 to mark, release to call it in), taking upgrade kits off the
 // ground, the HUD state and the callouts. The server decides; nothing here
@@ -59,7 +59,6 @@ export interface DfArsenalClient {
     dispose(): void
 }
 
-const TAP = 0.28
 const HOLD = 0.6
 
 function ringMaterial(color: number): THREE.MeshBasicMaterial {
@@ -180,11 +179,20 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         },
 
         input(now, prompt, meP, world) {
-            // ---- the workbench: tap F for the next item, hold F to make it
+            // ---- the workbench: scroll or ↑/↓ to pick, hold F to make it
             if (prompt?.kind === 'bench' && meP && world) {
                 if (prompt.id !== lastBench) {
                     lastBench = prompt.id
                     benchAt = null
+                }
+                const step = input.wheel + (input.pressed('ArrowDown') ? 1 : 0) - (input.pressed('ArrowUp') ? 1 : 0)
+                if (step !== 0) {
+                    const n = DF_BENCH_PICKS.length
+                    pick = DF_BENCH_PICKS[(((DF_BENCH_PICKS.indexOf(pick) + step) % n) + n) % n]!
+                    ctx.audio.play(DF_SND.reviveTick, { volume: 0.8, rate: 1.3 })
+                    // a new pick starts its hold over
+                    if (benchAt !== null) benchAt = now
+                    holdProgress = 0
                 }
                 if (input.pressed('KeyF')) {
                     benchAt = now
@@ -208,10 +216,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                     }
                 }
                 if (input.released('KeyF')) {
-                    if (benchAt !== null && !benchSent && now - benchAt < TAP) {
-                        pick = DF_BENCH_PICKS[(DF_BENCH_PICKS.indexOf(pick) + 1) % DF_BENCH_PICKS.length]!
-                        ctx.audio.play(DF_SND.reviveTick, { volume: 0.8, rate: 1.3 })
-                    }
                     benchAt = null
                     holdProgress = 0
                 }

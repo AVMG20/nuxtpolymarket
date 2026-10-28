@@ -1448,8 +1448,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         const alive = life !== 'dead'
         const canAct = locked && alive && spawned
+        // at a workbench ↑/↓ pick from its list instead of walking
+        const arrows = currentPrompt?.kind !== 'bench'
         // movement intent
-        intent.fwd = canAct ? (input.has('KeyW') || input.has('ArrowUp') ? 1 : 0) - (input.has('KeyS') || input.has('ArrowDown') ? 1 : 0) : 0
+        intent.fwd = canAct ? (input.has('KeyW') || (arrows && input.has('ArrowUp')) ? 1 : 0) - (input.has('KeyS') || (arrows && input.has('ArrowDown')) ? 1 : 0) : 0
         intent.right = canAct ? (input.has('KeyD') || input.has('ArrowRight') ? 1 : 0) - (input.has('KeyA') || input.has('ArrowLeft') ? 1 : 0) : 0
         // ADS and sprint: whichever was pressed last wins while both are held (CoD style)
         if (input.pressed('Mouse2')) adsOverSprint = true
@@ -1508,7 +1510,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             if (input.pressed('Digit1')) swapTo(0, now)
             if (input.pressed('Digit2')) swapTo(1, now)
             if (input.pressed('Digit3')) swapTo(2, now)
-            if (input.wheel !== 0) swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now, true)
+            // at a workbench the wheel picks from its list instead
+            if (input.wheel !== 0 && currentPrompt?.kind !== 'bench') swapTo(localSlot + (input.wheel > 0 ? 1 : -1), now, true)
             // a knife press a moment early (still recovering) is kept and swings when ready
             if (input.pressed('KeyV')) meleeQueuedUntil = now + 0.2
             if (meleeQueuedUntil >= now && now >= meleeReadyAt) {

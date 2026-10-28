@@ -136,8 +136,8 @@ const RULES: HintRule[] = [
         id: 'bench',
         once: true,
         when: f => f.alive && f.benchNear === true && f.canCraft === true,
-        text: () => 'Press F at the workbench to craft',
-        sub: () => 'Tap F for the next item, hold F to make it'
+        text: () => 'Hold F at the workbench to craft',
+        sub: () => 'Scroll or use ↑/↓ to pick, hold F to make it'
     },
     {
         id: 'salvage',
