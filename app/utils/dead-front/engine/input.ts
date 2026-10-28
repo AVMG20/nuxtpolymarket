@@ -23,6 +23,11 @@ export class DfInput {
     /** The chat box has the keyboard: keys are not game input. */
     typing = false
     onLockChange: ((locked: boolean) => void) | null = null
+    /**
+     * The pointer was let go for a menu (the workbench shop) so Escape reaches
+     * the page instead of the browser eating it: the game still counts as locked.
+     */
+    private freed = false
     /** Development hook: a faked lock ignores real pointer-lock changes. */
     private devLocked = false
     /** Fired on every user gesture (audio unlock). */
@@ -56,7 +61,7 @@ export class DfInput {
             this.down.delete(e.code)
         })
         on(window, 'mousemove', (e: MouseEvent) => {
-            if (!this.locked) return
+            if (!this.locked || this.freed) return
             // ignore the occasional huge spike some browsers report on lock
             if (Math.abs(e.movementX) > 600 || Math.abs(e.movementY) > 600) return
             this.mouseX += e.movementX
@@ -95,17 +100,25 @@ export class DfInput {
         on(window, 'contextmenu', (e: Event) => {
             if (this.locked) e.preventDefault()
         })
-        on(window, 'blur', () => this.clear())
+        on(window, 'blur', () => {
+            if (this.freed) this.drop()
+            this.clear()
+        })
         on(document, 'pointerlockchange', () => {
             if (this.devLocked) return
             const locked = document.pointerLockElement === this.el
+            if (this.freed) {
+                if (locked) this.freed = false
+                return
+            }
             if (locked === this.locked) return
             this.locked = locked
             if (!locked) this.clear()
             this.onLockChange?.(locked)
         })
         on(document, 'pointerlockerror', () => {
-            this.onLockChange?.(false)
+            if (this.freed) this.drop()
+            else this.onLockChange?.(false)
         })
     }
 
@@ -176,7 +189,28 @@ export class DfInput {
     }
 
     unlock(): void {
+        if (this.freed) this.drop()
         if (document.pointerLockElement === this.el) document.exitPointerLock()
+    }
+
+    /** Lets the pointer go for a menu without counting as unlocked (no pause), so Escape arrives as a key. */
+    release(): void {
+        if (this.freed || document.pointerLockElement !== this.el) return
+        this.freed = true
+        document.exitPointerLock()
+    }
+
+    /** Takes the pointer back after `release()`; the browser allows it without a click, and a refusal unlocks as usual. */
+    retake(): void {
+        if (this.freed) this.lock()
+    }
+
+    /** A released pointer that won't come back: unlocked after all. */
+    private drop(): void {
+        this.freed = false
+        this.locked = false
+        this.clear()
+        this.onLockChange?.(false)
     }
 
     has(code: string): boolean {
