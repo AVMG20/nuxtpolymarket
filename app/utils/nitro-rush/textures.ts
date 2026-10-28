@@ -407,25 +407,53 @@ export function billboardTexture(i: number) {
     return finish(c)
 }
 
-/** A plate for the back of a car; a few carry vanity plates from around Polynux. */
-const VANITY = ['V01D', 'H3RO', 'XENO 1', 'GEMS', 'LIMBO', 'D1CE', 'BLKJAK', 'HACKR', 'C0LONY', 'SHAPEZ', 'PIRAT3', 'NITRO']
-
+/** The rear plate: a generic panel carrying a random billboard ad instead of a registration. */
 export function plateTexture() {
-    const [c, ctx] = canvas(256, 64)
-    ctx.fillStyle = '#f0e9c8'
-    ctx.fillRect(0, 0, 256, 64)
-    ctx.fillStyle = '#1a3aa8'
-    ctx.fillRect(0, 0, 26, 64)
-    ctx.fillStyle = '#111'
-    ctx.font = '700 42px "Arial Narrow", Arial, sans-serif'
-    ctx.textAlign = 'center'
+    const W = 520
+    const H = 120
+    const [c, ctx] = canvas(W, H)
+    const ad = BILLBOARD_ADS[Math.floor(Math.random() * BILLBOARD_ADS.length)]!
+    ctx.fillStyle = '#0b0b0e'
+    ctx.fillRect(0, 0, W, H)
+    const g = ctx.createLinearGradient(0, 0, W, H)
+    g.addColorStop(0, ad.bg[0])
+    g.addColorStop(1, ad.bg[1])
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.roundRect(8, 8, W - 16, H - 16, 12)
+    ctx.fill()
+    ctx.strokeStyle = ad.col + 'aa'
+    ctx.lineWidth = 3
+    ctx.stroke()
     ctx.textBaseline = 'middle'
-    const L = 'ABCDEFGHJKLMNPRSTVXZ'
-    const letter = () => L[Math.floor(Math.random() * L.length)]
-    const text = Math.random() < 0.4
-        ? VANITY[Math.floor(Math.random() * VANITY.length)]!
-        : `${letter()}${letter()}-${Math.floor(rand(100, 999))}-${letter()}`
-    ctx.fillText(text, 140, 34)
+    const icon = colorEmojiSupported()
+    if (icon) {
+        const halo = ctx.createRadialGradient(62, H / 2, 4, 62, H / 2, 60)
+        halo.addColorStop(0, ad.col + '66')
+        halo.addColorStop(1, ad.col + '00')
+        ctx.fillStyle = halo
+        ctx.fillRect(8, 8, 120, H - 16)
+        ctx.textAlign = 'center'
+        ctx.font = '62px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
+        ctx.fillText(ad.icon, 62, H / 2 + 4)
+    }
+    const left = icon ? 116 : 30
+    const maxW = W - left - 26
+    ctx.textAlign = 'left'
+    let size = 50
+    ctx.font = `900 ${size}px system-ui, sans-serif`
+    while (ctx.measureText(ad.title).width > maxW && size > 24) {
+        size -= 2
+        ctx.font = `900 ${size}px system-ui, sans-serif`
+    }
+    ctx.shadowColor = ad.col
+    ctx.shadowBlur = 14
+    ctx.fillStyle = ad.col
+    ctx.fillText(ad.title, left, 50)
+    ctx.shadowBlur = 0
+    ctx.font = '700 19px system-ui, sans-serif'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(ad.sub, left + 2, 88)
     return finish(c)
 }
 

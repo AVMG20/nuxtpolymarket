@@ -39,7 +39,6 @@ function createShared() {
             // Red lens glass over the tail lamps: dark when off, it lets the lamp glow through.
             lens: new THREE.MeshPhysicalMaterial({ color: 0x5a0008, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.55, clearcoat: 1 })
         } as Record<Exclude<Slot, 'paint' | 'plate'>, THREE.MeshStandardMaterial | THREE.MeshPhysicalMaterial>,
-        plates: Array.from({ length: 14 }, () => new THREE.MeshStandardMaterial({ map: plateTexture(), roughness: 0.45 })),
         wheels: new Map<string, Record<'tire' | 'rim' | 'disc' | 'caliper', THREE.BufferGeometry>>()
     }
 }
@@ -56,10 +55,6 @@ export function disposeModelShared() {
     s.shadowGeo.dispose()
     s.shadow.dispose()
     for (const m of Object.values(s.slots)) {
-        m.map?.dispose()
-        m.dispose()
-    }
-    for (const m of s.plates) {
         m.map?.dispose()
         m.dispose()
     }
@@ -466,13 +461,10 @@ function carKit(d: CarDesign, wheels = true) {
     return k
 }
 
-const pick = <T>(arr: readonly T[]) => arr[Math.floor(Math.random() * arr.length)]!
-
-function slotMaterial(slot: Slot, paint: THREE.Material): THREE.Material {
-    const s = modelShared()
+function slotMaterial(slot: Slot, paint: THREE.Material, plate: THREE.Material): THREE.Material {
     if (slot === 'paint') return paint
-    if (slot === 'plate') return pick(s.plates)
-    return s.slots[slot]
+    if (slot === 'plate') return plate
+    return modelShared().slots[slot]
 }
 
 export interface PlayerCar {
@@ -500,6 +492,9 @@ export function buildPlayerCar(color: number): PlayerCar {
         return x
     }
     const paint = own(new THREE.MeshPhysicalMaterial({ color, roughness: 0.28, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.03 }))
+    // Backlit like the billboards, so the ad still reads at night.
+    const plateMap = own(plateTexture())
+    const plate = own(new THREE.MeshStandardMaterial({ map: plateMap, emissiveMap: plateMap, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.45 }))
     const kit = carKit(d, false)
     const vz = valanceZ(d)
     // Swan-neck wing, diffuser fins, quad pipes, bonnet vents.
@@ -529,7 +524,7 @@ export function buildPlayerCar(color: number): PlayerCar {
     const baked = kit.bake()
     for (const [slot, geo] of baked) {
         own(geo)
-        body.add(new THREE.Mesh(geo, slotMaterial(slot, paint)))
+        body.add(new THREE.Mesh(geo, slotMaterial(slot, paint, plate)))
     }
 
     const wheelSet = wheelGeos(d.wheelR, d.wheelW)
