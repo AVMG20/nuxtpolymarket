@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botInput, createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
 import { buildTrack, POLYTOWN_OVAL } from '#shared/utils/nitro-rush/layout'
-import { LapTimer, Track, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { LapTimer, Track, TRACKS, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 const track = new Track(buildTrack(POLYTOWN_OVAL))
 const DT = 1 / PHYSICS_HZ
@@ -168,6 +168,29 @@ describe('demo bot', () => {
         expect(car.speed).toBeLessThan(1)
         expect(car.proj.s).toBeGreaterThan(sprint.finishS)
         expect(car.proj.s).toBeLessThan(sprint.length)
+    })
+})
+
+describe('registered tracks', () => {
+    it.each(TRACKS.map(def => [def.name, new Track(def)] as const))('the demo bot drives %s cleanly, splitting at every checkpoint', (_, t) => {
+        const car = createCar(t, t.startS - 14)
+        const timer = new LapTimer(t.lapLength, t.closed, -14, t.checkpointDistances)
+        const events: LapEvent[] = []
+        let hits = 0
+        for (let i = 0; i < PHYSICS_HZ * 90 && timer.lap < 2; i++) {
+            if (stepCar(car, botInput(car, t), t, DT).wallImpact > 0) hits++
+            events.push(...timer.update(t.closed ? car.proj.s : car.proj.s - t.startS, DT))
+        }
+        // Past an open course's finish the bot brakes; let it pull up before the end barrier.
+        for (let i = 0; !t.closed && i < PHYSICS_HZ * 10; i++) stepCar(car, botInput(car, t), t, DT)
+        expect(hits).toBe(0)
+        const laps = events.filter(e => e.type === 'lap')
+        expect(laps).toHaveLength(t.closed ? 2 : 1)
+        expect(events.filter(e => e.type === 'split')).toHaveLength(laps.length * t.checkpoints.length)
+        if (!t.closed) {
+            expect(car.speed).toBeLessThan(1)
+            expect(car.proj.s).toBeLessThan(t.length)
+        }
     })
 })
 

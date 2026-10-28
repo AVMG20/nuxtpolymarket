@@ -16,7 +16,7 @@
  * sampled line they compile to.
  */
 
-import { buildTrack, POLYTOWN_OVAL } from './layout'
+import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT } from './layout'
 
 export interface TrackDef {
     id: string
@@ -73,7 +73,7 @@ export function formatLapTime(seconds: number, signed = false) {
 }
 
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
-export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL)]
+export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(S_BEND_SPRINT)]
 
 export function findTrack(id: string) {
     return TRACKS.find(t => t.id === id) ?? null

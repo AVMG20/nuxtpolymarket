@@ -150,3 +150,25 @@ export const POLYTOWN_OVAL: TrackLayout = {
         straight(170)
     ]
 }
+
+/** A point-to-point sprint: two long straights joined by an S, a left then a right quarter. */
+export const S_BEND_SPRINT: TrackLayout = {
+    id: 's-bend-sprint',
+    name: 'S-Bend Sprint',
+    halfWidth: 9,
+    wallOffset: 10.6,
+    closed: false,
+    origin: { x: 50, z: 470, heading: 0 },
+    pieces: [
+        straight(30),
+        start,
+        straight(300),
+        corner('left', 50),
+        corner('right', 50),
+        checkpoint,
+        straight(300),
+        finish,
+        // Room to brake to a stop from nitro top speed before the end barrier.
+        straight(170)
+    ]
+}
