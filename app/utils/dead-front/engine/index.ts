@@ -1376,6 +1376,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** A reload in progress keeps a held sprint key from cancelling it; a fresh press does cancel. */
     let reloadHoldsSprint = false
     let wasSprinting = false
+    /** The right button that closed the workbench shop: it doesn't aim until it's let go. */
+    let shopRmb = false
 
     /** Turns the mouse movement gathered so far into yaw / pitch (no smoothing, no acceleration). */
     function applyLook(): void {
@@ -1450,7 +1452,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         const alive = life !== 'dead'
         const canAct = locked && alive && spawned
-        // the open workbench shop holds the player still (a step away closes it)
+        // the open workbench shop holds the player still (WASD browse it)
         const shop = arsenal.shopOpen
         const walk = canAct && !shop
         // movement intent
@@ -1462,7 +1464,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             adsOverSprint = false
             reloadHoldsSprint = false
         }
-        const adsHeld = input.has('Mouse2')
+        if (shop) shopRmb = true
+        else if (shopRmb && !input.has('Mouse2')) shopRmb = false
+        const adsHeld = input.has('Mouse2') && !shopRmb
         intent.sprint = walk && input.has('ShiftLeft') && now >= sprintLockUntil && life === 'alive'
             && !(adsHeld && adsOverSprint) && !(gun.reloading && reloadHoldsSprint)
         intent.crouch = false

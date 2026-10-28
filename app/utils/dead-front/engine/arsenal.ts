@@ -21,9 +21,9 @@ import type { DfPrompt } from './prompt'
 import { DF_SND } from './sounds'
 
 // The local player's side of salvage, the workbench, crafted gear, upgrade
-// kits, supply crates and support: the bench (F opens its shop: the wheel or the
-// arrows pick, hold F or the left button to make it; the right
-// button or a step away closes it), placing gear (hold Q to aim, release to place), calling in support
+// kits, supply crates and support: the bench (F opens its shop: the wheel, the
+// arrows or WASD pick, hold F or the left button to make it; Esc or the right
+// button closes it), placing gear (hold Q to aim, release to place), calling in support
 // (hold X or 4 to mark, release to call it in), taking upgrade kits off the
 // ground, the HUD state and the callouts. The server decides; nothing here
 // changes value on its own.
@@ -63,8 +63,8 @@ export interface DfArsenalClient {
 }
 
 const HOLD = 0.6
-/** Keys that close the shop (a step away, a jump). */
-const SHOP_LEAVE = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'KeyC', 'Mouse2']
+/** Keys that close the shop (Esc lets go of the pointer lock, which closes it too). */
+const SHOP_LEAVE = ['Escape', 'Mouse2']
 
 function ringMaterial(color: number): THREE.MeshBasicMaterial {
     return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
@@ -194,7 +194,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         },
 
         input(now, prompt, meP, world) {
-            // ---- the workbench: F opens its shop; pick with the wheel or the arrows, hold F or the left button to make it
+            // ---- the workbench: F opens its shop; pick with the wheel, the arrows or WASD, hold F or the left button to make it
             if (prompt?.kind === 'bench' && meP && world) {
                 if (prompt.id !== lastBench) {
                     lastBench = prompt.id
@@ -208,11 +208,12 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 } else if (SHOP_LEAVE.some(k => input.pressed(k))) {
                     closeShop()
                 } else {
+                    // the wheel, the arrows or WASD (the player stands still while it is open)
                     let step = input.scroll
-                    if (input.pressed('ArrowRight')) step++
-                    if (input.pressed('ArrowLeft')) step--
-                    if (input.pressed('ArrowDown')) step += DF_BENCH_COLS
-                    if (input.pressed('ArrowUp')) step -= DF_BENCH_COLS
+                    if (input.pressed('ArrowRight') || input.pressed('KeyD')) step++
+                    if (input.pressed('ArrowLeft') || input.pressed('KeyA')) step--
+                    if (input.pressed('ArrowDown') || input.pressed('KeyS')) step += DF_BENCH_COLS
+                    if (input.pressed('ArrowUp') || input.pressed('KeyW')) step -= DF_BENCH_COLS
                     // the ends stop the selection: a long scroll doesn't wrap round and spin through the cards
                     const at = DF_BENCH_PICKS.indexOf(pick)
                     const to = Math.max(0, Math.min(DF_BENCH_PICKS.length - 1, at + step))

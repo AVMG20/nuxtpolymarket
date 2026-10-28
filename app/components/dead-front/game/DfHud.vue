@@ -22,7 +22,7 @@
 
         <!-- round and event banners -->
         <div class="df-announce-wrap absolute inset-x-0 flex justify-center px-4">
-            <div v-if="hud.announce" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
+            <div v-if="hud.announce && !shopOpen" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
                 <div class="title">{{ hud.announce.title }}</div>
                 <div class="rule" aria-hidden="true"><i v-for="n in 9" :key="n" :style="{ animationDelay: `${120 + Math.abs(n - 5) * 40}ms` }" /></div>
                 <div v-if="hud.announce.sub" class="sub">{{ hud.announce.sub }}</div>
@@ -31,17 +31,17 @@
 
         <!-- crosshair, hitmarker, kill pip, damage direction -->
         <div class="df-center">
-            <div v-if="hud.life !== 'dead'" class="df-xhair" :class="{ ads: hud.ads }">
+            <div v-if="hud.life !== 'dead' && !shopOpen" class="df-xhair" :class="{ ads: hud.ads }">
                 <i class="t" /><i class="b" /><i class="l" /><i class="r" />
                 <b class="dot" />
             </div>
-            <div v-if="hud.hitmarker.key > 0" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
+            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
                 <i /><i /><i /><i />
             </div>
             <Transition name="df-fade">
-                <div v-if="hud.ammoHint && hud.life !== 'dead'" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
+                <div v-if="hud.ammoHint && hud.life !== 'dead' && !shopOpen" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
             </Transition>
-            <div v-if="hud.killKey > 0" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.hitmarker.kind === 'head' }">
+            <div v-if="hud.killKey > 0 && !shopOpen" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.hitmarker.kind === 'head' }">
                 <svg viewBox="0 0 7 7" width="21" height="21" shape-rendering="crispEdges" aria-hidden="true">
                     <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
                 </svg>
@@ -79,13 +79,13 @@
         </div>
         <!-- the workbench shop, centred while it is open -->
         <Transition name="df-fade">
-            <div v-if="hud.arsenal.bench && hud.life === 'alive'" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
+            <div v-if="shopOpen && hud.arsenal.bench" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
                 <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" />
             </div>
         </Transition>
         <!-- placing gear / calling in support, and short arsenal notices -->
         <Transition name="df-fade">
-            <div v-if="hud.arsenal.targeting && hud.life === 'alive'" :key="hud.arsenal.targeting" class="df-targeting absolute inset-x-0 text-center">{{ hud.arsenal.targeting }}</div>
+            <div v-if="hud.arsenal.targeting && hud.life === 'alive' && !shopOpen" :key="hud.arsenal.targeting" class="df-targeting absolute inset-x-0 text-center">{{ hud.arsenal.targeting }}</div>
         </Transition>
         <!-- points floating off the zombies we hit -->
         <DfHudHitPops v-if="hud.hitPops.length" :pops="hud.hitPops" />
@@ -106,7 +106,7 @@
         <!-- first-match coaching -->
         <div class="df-hint-wrap absolute inset-x-0 flex justify-center px-4">
             <Transition name="df-hint">
-                <div v-if="hud.hint && hud.life === 'alive'" :key="hud.hint.key" class="df-hint">
+                <div v-if="hud.hint && hud.life === 'alive' && !shopOpen" :key="hud.hint.key" class="df-hint">
                     <div class="line">
                         <span v-if="hintParts.verb" class="verb">{{ hintParts.verb }}</span>
                         <span v-if="hintParts.key" class="keycap"><b>{{ hintParts.key }}</b></span>
@@ -199,7 +199,7 @@
         </div>
 
         <!-- stamina -->
-        <div v-if="hud.stamina < 0.98 && hud.life === 'alive'" class="df-stamina df-seg" :class="{ low: hud.stamina < 0.25 }" :style="{ '--p': Math.max(0, hud.stamina), '--c': hud.stamina < 0.25 ? '#e2412f' : '#f1e8cf', '--seg': '6px' }" />
+        <div v-if="hud.stamina < 0.98 && hud.life === 'alive' && !shopOpen" class="df-stamina df-seg" :class="{ low: hud.stamina < 0.25 }" :style="{ '--p': Math.max(0, hud.stamina), '--c': hud.stamina < 0.25 ? '#e2412f' : '#f1e8cf', '--seg': '6px' }" />
 
         <!-- ledger -->
         <Transition name="df-ledger">
@@ -252,6 +252,8 @@ function keyParts(text: string): { verb: string, key: string, text: string } {
     return { verb: m[1]!, key: m[2]!, text: m[3]! }
 }
 const promptParts = computed(() => keyParts(props.hud.prompt?.text ?? ''))
+// the workbench shop is its own panel: the crosshair, hit pips, banners and hints step aside while it is open
+const shopOpen = computed(() => !!props.hud.arsenal.bench && props.hud.life === 'alive')
 const hintParts = computed(() => keyParts(props.hud.hint?.text ?? ''))
 
 const icons = new Map<DfPowerupKind, string>()

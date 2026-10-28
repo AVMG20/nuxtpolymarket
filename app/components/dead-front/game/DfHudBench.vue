@@ -53,9 +53,9 @@
         </section>
 
         <footer class="keys">
-            <span><i>Wheel</i><i>← ↑ ↓ →</i> pick</span>
+            <span><i>Wheel</i><i>WASD</i><i>← ↑ ↓ →</i> pick</span>
             <span><i>F</i><i>LMB</i> hold to craft</span>
-            <span><i>Esc</i><i>RMB</i><i>WASD</i> close</span>
+            <span><i>Esc</i><i>RMB</i> close</span>
         </footer>
     </div>
 </template>
@@ -283,8 +283,21 @@ function tagFor(it: DfHudBenchItem): string {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 88px;
+    height: 88px;
+    overflow: hidden;
     color: var(--df-chalk);
+}
+
+/* every line keeps its height, so switching cards never resizes the panel */
+.info {
+    min-width: 0;
+}
+
+.info h3,
+.info .state {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .info h3 {
@@ -295,9 +308,15 @@ function tagFor(it: DfHudBenchItem): string {
 }
 
 .info .desc {
+    display: -webkit-box;
+    height: 2.7em;
     margin-top: 4px;
+    overflow: hidden;
     font-size: 0.85rem;
+    line-height: 1.35;
     color: var(--df-chalk-2);
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 .info .state {
