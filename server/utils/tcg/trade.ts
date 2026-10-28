@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgTradeOffer, tcgTradeItem, tcgCopy, tcgCopyTransfer, tcgPrinting, tcgCard, tcgSet, tcgSheet, user } from '#server/database/schema'
 import { credit, debit } from '#server/utils/balance'
@@ -466,12 +466,26 @@ export async function offersFor(userId: string): Promise<TradeOfferView[]> {
 
 export type CounterpartCopy = TradeCardView
 
+/** Copies one collection request returns; past this the picker asks for a search. */
+export const TRADE_COLLECTION_LIMIT = 500
+
+export interface TradeableCopies {
+    copies: CounterpartCopy[]
+    /** More copies match than were returned: narrow the search to reach them. */
+    truncated: boolean
+}
+
 /**
  * A counterpart's tradeable copies in one set — printings, serials and
  * public grades only. Condition never leaves the server (§6.1); a raw
  * card here is exactly as unknowable as it is on the market.
+ *
+ * `search` matches the card name anywhere, or its collector number exactly,
+ * so a big collection is still reachable past the first page.
  */
-export async function tradeableCopiesOf(ownerId: string, setId: string): Promise<CounterpartCopy[]> {
+export async function tradeableCopiesOf(ownerId: string, setId: string, search = ''): Promise<TradeableCopies> {
+    const needle = search.trim()
+    const pattern = `%${needle.replace(/[\\%_]/g, char => `\\${char}`)}%`
     const rows = await db.select(tradeCardColumns)
         .from(tcgCopy)
         .innerJoin(tcgPrinting, eq(tcgCopy.printingId, tcgPrinting.id))
@@ -481,9 +495,13 @@ export async function tradeableCopiesOf(ownerId: string, setId: string): Promise
         .where(and(
             eq(tcgCopy.ownerId, ownerId),
             eq(tcgCopy.setId, setId),
-            inArray(tcgCopy.lifecycle, ['raw', 'slabbed'])
+            inArray(tcgCopy.lifecycle, ['raw', 'slabbed']),
+            needle ? or(ilike(tcgCard.name, pattern), eq(tcgCard.number, needle)) : undefined
         ))
-        .orderBy(tcgCard.name)
-        .limit(500)
-    return rows.map(toTradeCardView)
+        .orderBy(tcgCard.name, tcgCopy.id)
+        .limit(TRADE_COLLECTION_LIMIT + 1)
+    return {
+        copies: rows.slice(0, TRADE_COLLECTION_LIMIT).map(toTradeCardView),
+        truncated: rows.length > TRADE_COLLECTION_LIMIT
+    }
 }
