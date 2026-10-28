@@ -329,7 +329,7 @@ const DESIGNS: Record<string, CarDesign> = {
         head: [2.36, 0.92], tail: [-2.4, 1.12], belt: 1.17, roofTop: 1.75, tumble: 0.14, flare: 0.03, noseTaper: 0.1, tailTaper: 0.05
     },
     sports: {
-        top: [[2.3, 0.26], [2.38, 0.42], [2.2, 0.58], [1.5, 0.74], [0.85, 0.82], [-0.8, 0.88], [-1.75, 0.94], [-2.25, 0.9], [-2.35, 0.66], [-2.3, 0.28]],
+        top: [[2.3, 0.26], [2.38, 0.42], [2.2, 0.58], [1.5, 0.74], [0.85, 0.82], [-0.8, 0.88], [-1.75, 0.94], [-2.2, 0.95], [-2.3, 0.9], [-2.32, 0.7], [-2.26, 0.5], [-2.12, 0.38], [-1.95, 0.32]],
         cabin: [[0.95, 0.8], [0.15, 1.16], [-0.55, 1.19], [-1.75, 0.9]],
         roof: [[0.18, 1.14], [-0.2, 1.2], [-0.62, 1.19], [-1.0, 1.1]],
         width: 2.0, arches: [-1.42, 1.42], archR: 0.43, wheelR: 0.37, wheelW: 0.3, archY: 0.36, sill: 0.18,
@@ -372,10 +372,35 @@ function sculpt(g: THREE.BufferGeometry, d: CarDesign) {
 /** Half-width of the sculpted body surface at (forward, up). */
 const edgeX = (d: CarDesign, u: number, v: number) => d.width / 2 * widthAt(d, u, v)
 
+const BODY_BEVEL = 0.14
+
+/** Depth (+z) of the body's tail at height v; the bevel pushes the skin past the profile, so parts placed on the raw profile end up buried. */
+function rearZ(d: CarDesign, v: number) {
+    const pts = splinePoints(d.top, 60)
+    pts.push(new THREE.Vector2(d.top[d.top.length - 1]![0] + 0.02, d.sill))
+    const off = pts.map((p, i) => {
+        const a = pts[Math.max(0, i - 1)]!
+        const c = pts[Math.min(pts.length - 1, i + 1)]!
+        const len = Math.hypot(c.x - a.x, c.y - a.y) || 1
+        return new THREE.Vector2(p.x + (c.y - a.y) / len * BODY_BEVEL * 0.8, p.y - (c.x - a.x) / len * BODY_BEVEL * 0.8)
+    })
+    let u = 0
+    for (let i = 1; i < off.length; i++) {
+        const p = off[i - 1]!
+        const q = off[i]!
+        if ((p.y - v) * (q.y - v) > 0 || p.y === q.y) continue
+        u = Math.min(u, p.x + (q.x - p.x) * (v - p.y) / (q.y - p.y))
+    }
+    return -u
+}
+
+/** Rear face of the black valance, set in behind the tail lamps. */
+const valanceZ = (d: CarDesign) => rearZ(d, d.tail[1]) - 0.12
+
 /** Body, glasshouse, roof, cabin, lights, aero and details for a car-shaped design. */
 function carKit(d: CarDesign, wheels = true) {
     const k = new Kit()
-    const body = sculpt(extrudeAcross(bodyShape(d.top, d.arches.map(c => ({ c, r: d.archR })), d.archY, d.sill), d.width, 0.14, 5), d)
+    const body = sculpt(extrudeAcross(bodyShape(d.top, d.arches.map(c => ({ c, r: d.archR })), d.archY, d.sill), d.width, BODY_BEVEL, 5), d)
     k.add('paint', body)
     body.dispose()
     const cabin = sculpt(extrudeAcross(capShape(d.cabin), d.width - 0.2, 0.09, 4), d)
@@ -400,6 +425,7 @@ function carKit(d: CarDesign, wheels = true) {
 
     const [hu, hv] = d.head
     const [tu, tv] = d.tail
+    const tz = rearZ(d, tv)
     for (const side of [-1, 1]) {
         // Headlamp: a slim housing following the nose, with a white LED brow.
         const hx = side * (edgeX(d, hu - 0.12, hv) - 0.3)
@@ -408,8 +434,8 @@ function carKit(d: CarDesign, wheels = true) {
         k.box('chrome', 0.2, 0.07, 0.04, hx - side * 0.06, hv - 0.02, -hu - 0.03, 0.03)
         // Tail lamp: emissive core behind a red lens, wrapping toward the flank.
         const tx = side * (edgeX(d, tu + 0.1, tv) - 0.3)
-        k.box('tail', 0.42, 0.07, 0.04, tx, tv, -tu - 0.01, 0.02)
-        k.box('lens', 0.5, 0.15, 0.08, tx, tv, -tu + 0.01, 0.04)
+        k.box('tail', 0.42, 0.07, 0.04, tx, tv, tz + 0.02, 0.02)
+        k.box('lens', 0.5, 0.15, 0.08, tx, tv, tz + 0.01, 0.04)
         // Mirrors on stalks, ahead of the side glass.
         const mu = d.cabin[0]![0] - 0.25
         const mx = side * (edgeX(d, mu, d.belt) + 0.1)
@@ -424,12 +450,17 @@ function carKit(d: CarDesign, wheels = true) {
         k.box('trim', 0.06, 0.1, skirtLen, side * (edgeX(d, 0, d.sill + 0.05) + 0.01), d.sill + 0.04, -(d.arches[0]! + d.arches[1]!) / 2, 0.03)
     }
     // A thin light bar joins the tail lamps.
-    k.box('tail', d.width * 0.62, 0.02, 0.03, 0, tv + 0.06, -tu - 0.012, 0.01)
-    // Front splitter and rear diffuser.
+    k.box('tail', d.width * 0.62, 0.02, 0.03, 0, tv + 0.06, rearZ(d, tv + 0.06) + 0.01, 0.01)
+    // Front splitter, and a rear valance that peeks out under the tucked bumper.
     k.box('trim', d.width * 0.86, 0.05, 0.3, 0, d.sill - 0.02, -(d.top[0]![0] - 0.1), 0.02)
-    k.box('trim', d.width * 0.8, 0.14, 0.3, 0, d.sill + 0.04, -(d.top[d.top.length - 1]![0] + 0.12), 0.04)
+    k.box('trim', d.width * 0.78, 0.26, 0.5, 0, d.sill + 0.05, valanceZ(d) - 0.25, 0.06)
+    // Plate on the bumper, tilted to its slope.
+    const pv = tv - 0.2
+    const pz = rearZ(d, pv)
+    const tilt = Math.atan2(rearZ(d, pv + 0.04) - rearZ(d, pv - 0.04), 0.08)
+    k.box('trim', 0.58, 0.16, 0.04, 0, pv, pz - 0.01, 0.015, tilt)
     const plate = new THREE.PlaneGeometry(0.52, 0.12)
-    k.add('plate', plate, 0, (d.sill + tv) / 2 + 0.02, -tu + 0.02)
+    k.add('plate', plate, 0, pv, pz + 0.012, tilt)
     plate.dispose()
     if (wheels) k.wheels(d.wheelR, d.wheelW, edgeX(d, d.arches[0]!, d.archY) - d.wheelW / 2 + 0.02, d.arches.map(c => -c))
     return k
@@ -470,6 +501,7 @@ export function buildPlayerCar(color: number): PlayerCar {
     }
     const paint = own(new THREE.MeshPhysicalMaterial({ color, roughness: 0.28, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.03 }))
     const kit = carKit(d, false)
+    const vz = valanceZ(d)
     // Swan-neck wing, diffuser fins, quad pipes, bonnet vents.
     const wing = new THREE.Shape()
     wing.moveTo(0.18, 0)
@@ -485,11 +517,11 @@ export function buildPlayerCar(color: number): PlayerCar {
     for (const side of [-1, 1]) {
         kit.box('trim', 0.12, 0.03, 0.42, side * 0.94, 1.13, 1.95, 0.01)
         kit.box('trim', 0.04, 0.24, 0.12, side * 0.5, 1.0, 1.98, 0.015)
-        kit.box('trim', 0.03, 0.14, 0.34, side * 0.28, 0.24, 2.18, 0.01)
-        kit.box('trim', 0.03, 0.14, 0.34, side * 0.12, 0.24, 2.18, 0.01)
+        kit.box('trim', 0.03, 0.18, 0.34, side * 0.28, 0.2, vz - 0.14, 0.01)
+        kit.box('trim', 0.03, 0.18, 0.34, side * 0.12, 0.2, vz - 0.14, 0.01)
         for (const x of [0.5, 0.68]) {
             const pipe = new THREE.CylinderGeometry(0.055, 0.06, 0.22, 16, 1, true).rotateX(Math.PI / 2)
-            kit.add('chrome', pipe, side * x, 0.3, 2.3)
+            kit.add('chrome', pipe, side * x, 0.23, vz - 0.04)
             pipe.dispose()
         }
         kit.box('trim', 0.34, 0.015, 0.4, side * 0.38, 0.79, -1.55, 0.006)
@@ -530,7 +562,7 @@ export function buildPlayerCar(color: number): PlayerCar {
     const flames: THREE.Mesh[] = []
     for (const x of [-0.68, -0.5, 0.5, 0.68]) {
         const f = new THREE.Mesh(flameGeo, flameMat)
-        f.position.set(x, 0.3, 2.4)
+        f.position.set(x, 0.23, vz + 0.06)
         f.scale.setScalar(0.001)
         body.add(f)
         flames.push(f)
@@ -543,7 +575,7 @@ export function buildPlayerCar(color: number): PlayerCar {
         wheels,
         flames,
         flameMat,
-        tailPoints: [new THREE.Vector3(-0.65, d.tail[1], -d.tail[0] + 0.04), new THREE.Vector3(0.65, d.tail[1], -d.tail[0] + 0.04)],
+        tailPoints: [new THREE.Vector3(-0.65, d.tail[1], rearZ(d, d.tail[1]) + 0.05), new THREE.Vector3(0.65, d.tail[1], rearZ(d, d.tail[1]) + 0.05)],
         dispose: () => owned.forEach(o => o.dispose())
     }
 }
