@@ -2,8 +2,8 @@
 import { NitroAudio } from '~/utils/nitro-rush/audio'
 import { PAINTS, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine, type Control, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/engine'
-import { findTrack, formatLapTime, TRACKS } from '#shared/utils/nitro-rush/track'
-import type { NrBoard } from '#server/utils/nitro-rush'
+import { findTrack, formatLapTime, Track, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/track'
+import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
 
 const RECORDS_KEY = 'nitro-rush:records'
 const PAINT_KEY = 'nitro-rush:paint'
@@ -21,6 +21,7 @@ const records = ref<Record<string, TrackRecord>>({})
 const trackId = ref('')
 const trackName = ref('')
 const board = ref<NrBoard | null>(null)
+const summaries = ref<Record<string, NrTrackSummary>>({})
 const boardFailed = ref(false)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
@@ -69,6 +70,7 @@ async function submitLap(id: string, seconds: number) {
     try {
         const res = await apiPost('/api/nitro-rush/lap', { trackId: id, lapMs: Math.round(seconds * 1000) })
         if (id === trackId.value) board.value = res.board
+        noteBoard(res.board)
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Your lap could not be saved to the leaderboard'), color: 'warning' })
     }
@@ -81,6 +83,7 @@ async function loadBoard(id: string) {
         const b = await apiFetch<NrBoard>('/api/nitro-rush/leaderboard', { query: { track: id } })
         if (request !== boardRequest) return
         board.value = b
+        noteBoard(b)
         // A best set on another device: race against it, without this browser's splits from a slower lap.
         const server = b.me ? b.me.lapMs / 1000 : null
         const local = records.value[id]?.bestLap ?? null
@@ -90,6 +93,24 @@ async function loadBoard(id: string) {
         }
     } catch {
         if (request === boardRequest) boardFailed.value = true
+    }
+}
+
+async function loadSummaries() {
+    try {
+        const list = await apiFetch<NrTrackSummary[]>('/api/nitro-rush/tracks')
+        summaries.value = { ...Object.fromEntries(list.map(t => [t.trackId, t])), ...summaries.value }
+    } catch {
+        // The cards fall back to this browser's own times; the leaderboard card reports the outage.
+    }
+}
+
+/** A fresher board than the menu summary was built from. */
+function noteBoard(b: NrBoard) {
+    const top = b.top[0]
+    summaries.value = {
+        ...summaries.value,
+        [b.trackId]: { trackId: b.trackId, entries: b.entries, record: top ? { name: top.name, lapMs: top.lapMs } : null, myLapMs: b.me?.lapMs ?? null }
     }
 }
 
@@ -189,6 +210,8 @@ function onKeyDown(e: KeyboardEvent) {
         togglePause()
         return
     }
+    // A focused track card picks itself instead of starting the race.
+    if ((e.code === 'Enter' || e.code === 'Space') && e.target instanceof HTMLElement && e.target.closest('.nr-track')) return
     if ((e.code === 'Enter' || e.code === 'Space') && (phase.value === 'attract' || (phase.value === 'finished' && !paused.value))) {
         e.preventDefault()
         if (!e.repeat) play()
@@ -268,6 +291,7 @@ onMounted(() => {
     trackName.value = engine.trackName
     engine.setRecord(record.value)
     loadBoard(engine.trackId)
+    loadSummaries()
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -294,6 +318,17 @@ const inSession = computed(() => inRace.value || phase.value === 'finished')
 const isLoop = computed(() => findTrack(trackId.value)?.closed !== false)
 const nitroFull = computed(() => !!hud.value && !hud.value.nitroActive && hud.value.nitro >= 1)
 const time = (t: number | null) => t === null ? '-:--.---' : formatLapTime(t)
+const trackGroups = TRACK_GROUPS
+    .map(g => ({ ...g, tracks: TRACKS.filter(t => t.group === g.id).map(t => ({ ...t, km: new Track(t).lapLength / 1000 })) }))
+    .filter(g => g.tracks.length)
+const trackRecord = (id: string) => summaries.value[id]?.record ?? null
+/** Quickest of this browser's best and the server's, which may have been set on another device. */
+function myBest(id: string) {
+    const local = records.value[id]?.bestLap ?? null
+    const server = summaries.value[id]?.myLapMs ?? null
+    if (server === null) return local
+    return local === null ? server / 1000 : Math.min(local, server / 1000)
+}
 /** The viewer's row when it sits below the top list, shown under it. */
 const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r.you) ? board.value.me : null)
 </script>
@@ -395,26 +430,51 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 
     <!-- Menu -->
     <Transition name="nr-fade">
-      <div v-if="phase === 'attract'" class="absolute inset-0 flex flex-col items-center justify-center-safe gap-6 overflow-y-auto lg:items-center-safe bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center lg:flex-row lg:gap-14">
-        <div class="flex flex-col items-center gap-5">
-          <div>
-            <h1 class="nr-title">NITRO<br>RUSH</h1>
-            <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL · {{ trackName.toUpperCase() }}</p>
-          </div>
-          <div v-if="TRACKS.length > 1" class="flex flex-wrap justify-center gap-1.5">
-            <button
-              v-for="t in TRACKS"
-              :key="t.id"
-              class="nr-ghost !py-1.5"
-              :class="{ 'is-active': t.id === trackId }"
-              @click="selectTrack(t.id)"
-            >
-              {{ t.name }}
-            </button>
-          </div>
-          <div v-if="record.bestLap !== null" class="nr-label tabular-nums">
-            YOUR BEST LAP {{ time(record.bestLap) }}
-          </div>
+      <div v-if="phase === 'attract'" class="nr-menu absolute inset-0 overflow-y-auto bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center">
+        <div class="nr-menu-head">
+          <h1 class="nr-title">NITRO<br>RUSH</h1>
+          <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL · {{ trackName.toUpperCase() }}</p>
+        </div>
+
+        <!-- Tracks -->
+        <div class="nr-card nr-menu-tracks w-full max-w-sm text-left">
+          <div class="nr-label mb-1">TRACKS</div>
+          <section v-for="g in trackGroups" :key="g.id" class="mt-3">
+            <div class="mb-1.5 flex items-baseline justify-between gap-3">
+              <h2 class="nr-group">{{ g.name.toUpperCase() }}</h2>
+              <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ g.blurb }}</span>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <button
+                v-for="t in g.tracks"
+                :key="t.id"
+                class="nr-track"
+                :class="{ 'is-active': t.id === trackId }"
+                :aria-pressed="t.id === trackId"
+                @click="selectTrack(t.id)"
+              >
+                <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="nr-track-name">{{ t.name }}</span>
+                    <span class="shrink-0 text-[11px] text-white/50 tabular-nums">{{ t.km.toFixed(2) }} KM</span>
+                  </div>
+                  <dl class="nr-track-times tabular-nums">
+                    <dt>RECORD</dt>
+                    <dd>
+                      {{ time(trackRecord(t.id) ? trackRecord(t.id)!.lapMs / 1000 : null) }}
+                      <span v-if="trackRecord(t.id)" class="nr-track-holder">{{ trackRecord(t.id)!.name }}</span>
+                    </dd>
+                    <dt>YOUR BEST</dt>
+                    <dd class="is-you">{{ time(myBest(t.id)) }}</dd>
+                  </dl>
+                </div>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="nr-menu-controls flex flex-col items-center gap-5">
           <div class="flex items-center gap-2">
             <button
               v-for="p in PAINTS"
@@ -431,7 +491,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
             <UIcon name="i-lucide-play" class="size-6" />
             DRIVE
           </button>
-          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 sm:grid-cols-4">
+          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 sm:grid-cols-4 xl:grid-cols-2">
             <template v-if="isTouch">
               <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
             </template>
@@ -445,7 +505,7 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
         </div>
 
         <!-- Leaderboard -->
-        <div class="nr-card w-full max-w-xs shrink-0 text-left">
+        <div class="nr-card nr-menu-board w-full max-w-sm text-left">
           <div class="nr-label mb-2 flex items-center justify-between">
             <span>LEADERBOARD</span>
             <span v-if="board" class="text-white/50">{{ board.entries }} {{ board.entries === 1 ? 'DRIVER' : 'DRIVERS' }}</span>
@@ -775,7 +835,129 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 }
 
 .nr-ghost:hover { background: rgb(255 255 255 / 0.14); }
-.nr-ghost.is-active { border-color: #fff; background: rgb(255 43 214 / 0.3); }
+
+.nr-menu {
+    display: grid;
+    grid-template-columns: minmax(0, 40rem);
+    grid-template-areas: 'head' 'tracks' 'controls' 'board';
+    justify-content: center;
+    justify-items: center;
+    align-content: safe center;
+    gap: 24px;
+}
+
+.nr-menu-head { grid-area: head; }
+.nr-menu-tracks { grid-area: tracks; }
+.nr-menu-controls { grid-area: controls; }
+.nr-menu-board { grid-area: board; }
+
+@media (min-width: 1024px) {
+    .nr-menu {
+        grid-template-columns: auto 22rem;
+        grid-template-areas: 'head tracks' 'controls board';
+        column-gap: 56px;
+        align-items: start;
+    }
+
+    .nr-menu-head { align-self: end; }
+}
+
+/* Three across once there is room: the tracks to pick from, the car, and who to beat. */
+@media (min-width: 1280px) {
+    .nr-menu {
+        grid-template-columns: 22rem auto 22rem;
+        grid-template-areas: 'tracks head board' 'tracks controls board';
+        column-gap: 48px;
+    }
+
+    .nr-menu-tracks, .nr-menu-board { align-self: center; }
+}
+
+.nr-group {
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    color: var(--nr-cyan);
+}
+
+.nr-track {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px 8px 8px;
+    border-radius: 14px;
+    text-align: left;
+    background: rgb(255 255 255 / 0.05);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.nr-track:hover { background: rgb(255 255 255 / 0.1); }
+
+.nr-track.is-active {
+    background: rgb(255 43 214 / 0.16);
+    border-color: var(--nr-pink);
+    box-shadow: 0 0 18px rgb(255 43 214 / 0.35);
+}
+
+.nr-track-preview {
+    flex-shrink: 0;
+    width: 84px;
+    height: 60px;
+    border-radius: 10px;
+    background: radial-gradient(ellipse at 50% 60%, rgb(61 242 255 / 0.1), rgb(0 0 0 / 0.35) 75%);
+    filter: drop-shadow(0 0 3px rgb(61 242 255 / 0.5));
+}
+
+.nr-track.is-active .nr-track-preview {
+    background: radial-gradient(ellipse at 50% 60%, rgb(255 43 214 / 0.14), rgb(0 0 0 / 0.35) 75%);
+    filter: drop-shadow(0 0 3px rgb(255 43 214 / 0.6));
+}
+
+.nr-track-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 17px;
+}
+
+.nr-track-times {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    margin-top: 3px;
+    align-items: baseline;
+}
+
+.nr-track-times dt {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-track-times dd {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--nr-gold);
+}
+
+.nr-track-times dd.is-you { color: var(--nr-violet); }
+
+.nr-track-holder {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.55);
+}
 
 .nr-board-row {
     display: flex;
