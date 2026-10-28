@@ -315,7 +315,6 @@ const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[
 const inRace = computed(() => phase.value === 'racing' || phase.value === 'countdown')
 /** On the clock, or between runs of a sprint: everything but the menu. */
 const inSession = computed(() => inRace.value || phase.value === 'finished')
-const isLoop = computed(() => findTrack(trackId.value)?.closed !== false)
 const nitroFull = computed(() => !!hud.value && !hud.value.nitroActive && hud.value.nitro >= 1)
 const time = (t: number | null) => t === null ? '-:--.---' : formatLapTime(t)
 const trackGroups = TRACK_GROUPS
@@ -491,17 +490,14 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
             <UIcon name="i-lucide-play" class="size-6" />
             DRIVE
           </button>
-          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 sm:grid-cols-4 xl:grid-cols-2">
+          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 xl:grid-cols-2" :class="isTouch ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
             <template v-if="isTouch">
               <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
             </template>
             <template v-else>
-              <span>↑ / W gas · ↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span>
+              <span>↑ / W gas</span><span>↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span><span>R restart</span>
             </template>
           </div>
-          <p class="max-w-md text-xs text-white/60">
-            {{ isLoop ? 'Lap as long as you like' : 'Run it as often as you like' }}: your best single lap goes on the leaderboard. Drift through the bends to charge nitro, then fire it down the straights. R restarts.
-          </p>
         </div>
 
         <!-- Leaderboard -->
