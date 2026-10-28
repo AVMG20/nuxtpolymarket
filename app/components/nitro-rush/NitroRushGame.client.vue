@@ -10,10 +10,14 @@ const PAINT_KEY = 'nitro-rush:paint'
 const AUDIO_KEY = 'nitro-rush:audio'
 const TRACK_KEY = 'nitro-rush:track'
 const EMPTY_RECORD: TrackRecord = { bestLap: null, bestSplits: null }
+/** No input, or a hidden tab, for this long sends the player back to the title screen. */
+const AWAY_MS = 3 * 60 * 1000
 
 const root = ref<HTMLElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
 const phase = ref<Phase>('attract')
+/** Which menu the attract phase shows: the title, or track and car selection. */
+const screen = ref<'splash' | 'select'>('splash')
 const paused = ref(false)
 const hud = shallowRef<HudState | null>(null)
 const popups = ref<(Popup & { id: number })[]>([])
@@ -22,7 +26,6 @@ const trackId = ref('')
 const trackName = ref('')
 const board = ref<NrBoard | null>(null)
 const summaries = ref<Record<string, NrTrackSummary>>({})
-const boardFailed = ref(false)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
@@ -34,6 +37,8 @@ const audio = new NitroAudio()
 const toast = useToast()
 let popupId = 0
 let boardRequest = 0
+let lastActive = Date.now()
+let awayTimer: ReturnType<typeof setInterval> | undefined
 
 function readStorage<T>(key: string, fallback: T): T {
     try {
@@ -78,7 +83,6 @@ async function submitLap(id: string, seconds: number) {
 
 async function loadBoard(id: string) {
     const request = ++boardRequest
-    boardFailed.value = false
     try {
         const b = await apiFetch<NrBoard>('/api/nitro-rush/leaderboard', { query: { track: id } })
         if (request !== boardRequest) return
@@ -92,7 +96,7 @@ async function loadBoard(id: string) {
             if (engine?.trackId === id) engine.setRecord(records.value[id]!)
         }
     } catch {
-        if (request === boardRequest) boardFailed.value = true
+        // Only the HUD's rank line goes without it.
     }
 }
 
@@ -101,7 +105,7 @@ async function loadSummaries() {
         const list = await apiFetch<NrTrackSummary[]>('/api/nitro-rush/tracks')
         summaries.value = { ...Object.fromEntries(list.map(t => [t.trackId, t])), ...summaries.value }
     } catch {
-        // The cards fall back to this browser's own times; the leaderboard card reports the outage.
+        // The cards fall back to this browser's own times.
     }
 }
 
@@ -144,6 +148,36 @@ function toMenu() {
     engine?.setPaused(false)
     engine?.releaseControls()
     engine?.toMenu()
+}
+
+function openSelect() {
+    audio.unlock()
+    audio.ui()
+    screen.value = 'select'
+}
+
+/** Back to the title, ending any run in progress. */
+function showSplash() {
+    if (inSession.value) {
+        paused.value = false
+        engine?.setPaused(false)
+        engine?.releaseControls()
+        engine?.toMenu()
+    }
+    screen.value = 'splash'
+}
+
+function backToTitle() {
+    audio.ui()
+    showSplash()
+}
+
+function markActive() {
+    lastActive = Date.now()
+}
+
+function checkAway() {
+    if (Date.now() - lastActive >= AWAY_MS && (screen.value !== 'splash' || phase.value !== 'attract')) showSplash()
 }
 
 function togglePause(force?: boolean) {
@@ -205,16 +239,25 @@ function isTyping(e: KeyboardEvent) {
 }
 
 function onKeyDown(e: KeyboardEvent) {
+    markActive()
     if (isTyping(e)) return
+    const menu = phase.value === 'attract'
+    if (e.code === 'Escape' && menu && screen.value === 'select') {
+        backToTitle()
+        return
+    }
     if (e.code === 'Escape' || e.code === 'KeyP') {
         togglePause()
         return
     }
-    // A focused track card picks itself instead of starting the race.
-    if ((e.code === 'Enter' || e.code === 'Space') && e.target instanceof HTMLElement && e.target.closest('.nr-track')) return
-    if ((e.code === 'Enter' || e.code === 'Space') && (phase.value === 'attract' || (phase.value === 'finished' && !paused.value))) {
+    const confirm = e.code === 'Enter' || e.code === 'Space'
+    // On the menus a focused button (a track card, a swatch) handles the key itself.
+    if (confirm && menu && e.target instanceof HTMLElement && e.target.closest('button')) return
+    if (confirm && (menu || (phase.value === 'finished' && !paused.value))) {
         e.preventDefault()
-        if (!e.repeat) play()
+        if (e.repeat) return
+        if (menu && screen.value === 'splash') openSelect()
+        else play()
         return
     }
     if (e.code === 'KeyR' && !e.repeat && inSession.value) {
@@ -255,7 +298,10 @@ function touchControl(c: Control, down: boolean) {
 
 function onVisibility() {
     if (document.visibilityState === 'hidden') togglePause(true)
+    else checkAway()
 }
+
+const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'wheel'] as const
 
 function onFullscreen() {
     isFullscreen.value = !!document.fullscreenElement
@@ -298,6 +344,8 @@ onMounted(() => {
     window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibility)
     document.addEventListener('fullscreenchange', onFullscreen)
+    for (const type of ACTIVITY_EVENTS) window.addEventListener(type, markActive, { passive: true })
+    awayTimer = setInterval(checkAway, 10_000)
 })
 
 onBeforeUnmount(() => {
@@ -306,6 +354,8 @@ onBeforeUnmount(() => {
     window.removeEventListener('blur', onBlur)
     document.removeEventListener('visibilitychange', onVisibility)
     document.removeEventListener('fullscreenchange', onFullscreen)
+    for (const type of ACTIVITY_EVENTS) window.removeEventListener(type, markActive)
+    clearInterval(awayTimer)
     engine?.dispose()
     engine = null
     audio.dispose()
@@ -320,6 +370,7 @@ const time = (t: number | null) => t === null ? '-:--.---' : formatLapTime(t)
 const trackGroups = TRACK_GROUPS
     .map(g => ({ ...g, tracks: TRACKS.filter(t => t.group === g.id).map(t => ({ ...t, km: new Track(t).lapLength / 1000 })) }))
     .filter(g => g.tracks.length)
+const paintLabel = computed(() => PAINTS.find(p => p.id === paint.value)?.label ?? '')
 const trackRecord = (id: string) => summaries.value[id]?.record ?? null
 /** Quickest of this browser's best and the server's, which may have been set on another device. */
 function myBest(id: string) {
@@ -328,8 +379,6 @@ function myBest(id: string) {
     if (server === null) return local
     return local === null ? server / 1000 : Math.min(local, server / 1000)
 }
-/** The viewer's row when it sits below the top list, shown under it. */
-const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r.you) ? board.value.me : null)
 </script>
 
 <template>
@@ -427,99 +476,101 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
       </div>
     </div>
 
-    <!-- Menu -->
+    <!-- Title screen -->
     <Transition name="nr-fade">
-      <div v-if="phase === 'attract'" class="nr-menu absolute inset-0 overflow-y-auto bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center">
-        <div class="nr-menu-head">
+      <div v-if="phase === 'attract' && screen === 'splash'" class="absolute inset-0 flex flex-col items-center justify-center-safe gap-7 overflow-y-auto bg-gradient-to-t from-black/70 via-black/10 to-transparent p-5 text-center">
+        <div>
           <h1 class="nr-title">NITRO<br>RUSH</h1>
-          <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL · {{ trackName.toUpperCase() }}</p>
+          <p class="mt-2 text-sm font-semibold tracking-[0.3em] text-white/80">TIME TRIAL</p>
         </div>
-
-        <!-- Tracks -->
-        <div class="nr-card nr-menu-tracks w-full max-w-sm text-left">
-          <div class="nr-label mb-1">TRACKS</div>
-          <section v-for="g in trackGroups" :key="g.id" class="mt-3">
-            <div class="mb-1.5 flex items-baseline justify-between gap-3">
-              <h2 class="nr-group">{{ g.name.toUpperCase() }}</h2>
-              <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ g.blurb }}</span>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <button
-                v-for="t in g.tracks"
-                :key="t.id"
-                class="nr-track"
-                :class="{ 'is-active': t.id === trackId }"
-                :aria-pressed="t.id === trackId"
-                @click="selectTrack(t.id)"
-              >
-                <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-baseline justify-between gap-2">
-                    <span class="nr-track-name">{{ t.name }}</span>
-                    <span class="shrink-0 text-[11px] text-white/50 tabular-nums">{{ t.km.toFixed(2) }} KM</span>
-                  </div>
-                  <dl class="nr-track-times tabular-nums">
-                    <dt>RECORD</dt>
-                    <dd>
-                      {{ time(trackRecord(t.id) ? trackRecord(t.id)!.lapMs / 1000 : null) }}
-                      <span v-if="trackRecord(t.id)" class="nr-track-holder">{{ trackRecord(t.id)!.name }}</span>
-                    </dd>
-                    <dt>YOUR BEST</dt>
-                    <dd class="is-you">{{ time(myBest(t.id)) }}</dd>
-                  </dl>
-                </div>
-              </button>
-            </div>
-          </section>
+        <button class="nr-play" @click="openSelect">
+          <UIcon name="i-lucide-play" class="size-6" />
+          DRIVE
+        </button>
+        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75" :class="isTouch ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
+          <template v-if="isTouch">
+            <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
+          </template>
+          <template v-else>
+            <span>↑ / W gas</span><span>↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span><span>R restart</span>
+          </template>
         </div>
+      </div>
+    </Transition>
 
-        <div class="nr-menu-controls flex flex-col items-center gap-5">
-          <div class="flex items-center gap-2">
-            <button
-              v-for="p in PAINTS"
-              :key="p.id"
-              class="nr-swatch"
-              :class="{ 'is-active': paint === p.id }"
-              :style="{ '--swatch': `#${p.color.toString(16).padStart(6, '0')}` }"
-              :aria-label="p.label"
-              :title="p.label"
-              @click="setPaint(p.id)"
-            />
-          </div>
-          <button class="nr-play" @click="play">
-            <UIcon name="i-lucide-play" class="size-6" />
-            DRIVE
+    <!-- Track and car selection -->
+    <Transition name="nr-fade">
+      <div v-if="phase === 'attract' && screen === 'select'" class="nr-select absolute inset-0 flex flex-col gap-4 overflow-y-auto p-4 sm:p-6 lg:overflow-hidden">
+        <div class="flex items-center gap-3 pr-32">
+          <button class="nr-icon-btn shrink-0" aria-label="Back to the title screen" @click="backToTitle">
+            <UIcon name="i-lucide-chevron-left" class="size-5" />
           </button>
-          <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75 xl:grid-cols-2" :class="isTouch ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
-            <template v-if="isTouch">
-              <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
-            </template>
-            <template v-else>
-              <span>↑ / W gas</span><span>↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span><span>R restart</span>
-            </template>
-          </div>
+          <h2 class="nr-heading">CHOOSE A TRACK</h2>
         </div>
 
-        <!-- Leaderboard -->
-        <div class="nr-card nr-menu-board w-full max-w-sm text-left">
-          <div class="nr-label mb-2 flex items-center justify-between">
-            <span>LEADERBOARD</span>
-            <span v-if="board" class="text-white/50">{{ board.entries }} {{ board.entries === 1 ? 'DRIVER' : 'DRIVERS' }}</span>
+        <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row lg:items-start lg:justify-between">
+          <div class="nr-card w-full text-left lg:max-h-full lg:max-w-2xl lg:overflow-y-auto">
+            <section v-for="g in trackGroups" :key="g.id" class="mt-5 first:mt-0">
+              <div class="mb-1.5 flex items-baseline justify-between gap-3">
+                <h3 class="nr-group">{{ g.name.toUpperCase() }}</h3>
+                <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ g.blurb }}</span>
+              </div>
+              <div class="nr-track-grid">
+                <button
+                  v-for="t in g.tracks"
+                  :key="t.id"
+                  class="nr-track"
+                  :class="{ 'is-active': t.id === trackId }"
+                  :aria-pressed="t.id === trackId"
+                  @click="selectTrack(t.id)"
+                >
+                  <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-baseline justify-between gap-2">
+                      <span class="nr-track-name">{{ t.name }}</span>
+                      <span class="shrink-0 text-[11px] text-white/50 tabular-nums">{{ t.km.toFixed(2) }} KM</span>
+                    </div>
+                    <dl class="nr-track-times tabular-nums">
+                      <dt>RECORD</dt>
+                      <dd>
+                        {{ time(trackRecord(t.id) ? trackRecord(t.id)!.lapMs / 1000 : null) }}
+                        <span v-if="trackRecord(t.id)" class="nr-track-holder">{{ trackRecord(t.id)!.name }}</span>
+                      </dd>
+                      <dt>YOUR BEST</dt>
+                      <dd class="is-you">{{ time(myBest(t.id)) }}</dd>
+                    </dl>
+                  </div>
+                </button>
+              </div>
+            </section>
           </div>
-          <div v-if="boardFailed" class="py-3 text-center text-xs text-white/60">Leaderboard unavailable</div>
-          <div v-else-if="!board" class="py-3 text-center text-xs text-white/60">Loading…</div>
-          <div v-else-if="!board.top.length" class="py-3 text-center text-xs text-white/60">No laps yet. Set the first one.</div>
-          <ol v-else class="nr-board flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
-            <li v-for="r in board.top" :key="r.rank" class="nr-board-row" :class="{ 'is-you': r.you }">
-              <span class="nr-board-rank tabular-nums">{{ r.rank }}</span>
-              <span class="nr-board-name">{{ r.name }}</span>
-              <b class="tabular-nums">{{ time(r.lapMs / 1000) }}</b>
-            </li>
-          </ol>
-          <div v-if="boardTail" class="nr-board-row is-you mt-1">
-            <span class="nr-board-rank tabular-nums">{{ boardTail.rank }}</span>
-            <span class="nr-board-name">{{ boardTail.name }}</span>
-            <b class="tabular-nums">{{ time(boardTail.lapMs / 1000) }}</b>
+
+          <div class="nr-card flex w-full flex-col gap-4 text-left lg:w-72 lg:shrink-0">
+            <div>
+              <div class="nr-label mb-2">CAR</div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  v-for="p in PAINTS"
+                  :key="p.id"
+                  class="nr-swatch"
+                  :class="{ 'is-active': paint === p.id }"
+                  :style="{ '--swatch': `#${p.color.toString(16).padStart(6, '0')}` }"
+                  :aria-label="p.label"
+                  :title="p.label"
+                  @click="setPaint(p.id)"
+                />
+              </div>
+              <div class="mt-2 text-sm text-white/70">{{ paintLabel }}</div>
+            </div>
+            <div>
+              <div class="nr-label mb-1">TRACK</div>
+              <div class="nr-track-name">{{ trackName }}</div>
+            </div>
+            <button class="nr-play self-center" @click="play">
+              <UIcon name="i-lucide-flag" class="size-6" />
+              START
+            </button>
+            <p v-if="!isTouch" class="text-center text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">Enter to start · Esc for the title</p>
           </div>
         </div>
       </div>
@@ -836,41 +887,23 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
 
 .nr-ghost:hover { background: rgb(255 255 255 / 0.14); }
 
-.nr-menu {
+.nr-select {
+    background: linear-gradient(90deg, rgb(0 0 0 / 0.6), rgb(0 0 0 / 0.15) 55%, rgb(0 0 0 / 0.5));
+}
+
+.nr-heading {
+    padding-right: 0.15em;
+    font-size: clamp(24px, 4vw, 36px);
+    font-style: italic;
+    line-height: 1;
+    text-shadow: 0 0 14px var(--nr-pink);
+}
+
+/* Cards wrap into as many columns as fit, so the list grows with the track count. */
+.nr-track-grid {
     display: grid;
-    grid-template-columns: minmax(0, 40rem);
-    grid-template-areas: 'head' 'tracks' 'controls' 'board';
-    justify-content: center;
-    justify-items: center;
-    align-content: safe center;
-    gap: 24px;
-}
-
-.nr-menu-head { grid-area: head; }
-.nr-menu-tracks { grid-area: tracks; }
-.nr-menu-controls { grid-area: controls; }
-.nr-menu-board { grid-area: board; }
-
-@media (min-width: 1024px) {
-    .nr-menu {
-        grid-template-columns: auto 22rem;
-        grid-template-areas: 'head tracks' 'controls board';
-        column-gap: 56px;
-        align-items: start;
-    }
-
-    .nr-menu-head { align-self: end; }
-}
-
-/* Three across once there is room: the tracks to pick from, the car, and who to beat. */
-@media (min-width: 1280px) {
-    .nr-menu {
-        grid-template-columns: 22rem auto 22rem;
-        grid-template-areas: 'tracks head board' 'tracks controls board';
-        column-gap: 48px;
-    }
-
-    .nr-menu-tracks, .nr-menu-board { align-self: center; }
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: 8px;
 }
 
 .nr-group {
@@ -959,46 +992,6 @@ const boardTail = computed(() => board.value?.me && !board.value.top.some(r => r
     font-size: 11px;
     font-weight: 700;
     color: rgb(255 255 255 / 0.55);
-}
-
-.nr-board-row {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 6px 10px;
-    border-radius: 10px;
-    background: rgb(255 255 255 / 0.06);
-}
-
-.nr-board-row b {
-    margin-left: auto;
-    font-size: 16px;
-    font-weight: 400;
-}
-
-.nr-board-row.is-you {
-    background: rgb(180 107 255 / 0.18);
-    box-shadow: inset 0 0 0 1px rgb(180 107 255 / 0.6);
-}
-
-.nr-board-row.is-you b { color: var(--nr-violet); }
-
-.nr-board-rank {
-    width: 1.6em;
-    font-size: 14px;
-    color: rgb(255 255 255 / 0.6);
-}
-
-.nr-board-row:nth-child(1) .nr-board-rank { color: var(--nr-gold); }
-
-.nr-board-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 700;
 }
 
 .nr-swatch {
