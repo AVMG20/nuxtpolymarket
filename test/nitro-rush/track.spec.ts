@@ -1,11 +1,48 @@
 import { describe, expect, it } from 'vitest'
-import { findTrack, formatLapTime, LapTimer, ovalTrack, Track, TRACKS } from '#shared/utils/nitro-rush/track'
+import { buildTrack, checkpoint, corner, finish, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { findTrack, formatLapTime, LapTimer, Track, TRACKS } from '#shared/utils/nitro-rush/track'
 
-const oval = new Track(ovalTrack())
+const oval = new Track(buildTrack(POLYTOWN_OVAL))
+
+/** The oval as it was drawn before blocks: leaderboard times were set on exactly this line. */
+function legacyOval() {
+    const pts: [number, number][] = []
+    const line = (x: number, z0: number, z1: number) => {
+        const n = Math.round(Math.abs(z1 - z0) / 2)
+        for (let i = 0; i < n; i++) pts.push([x, z0 + (z1 - z0) * i / n])
+    }
+    const arc = (cz: number, a0: number) => {
+        const n = Math.round(Math.PI * 75 / 2)
+        for (let i = 0; i < n; i++) pts.push([Math.cos(a0 + Math.PI * i / n) * 75, cz - Math.sin(a0 + Math.PI * i / n) * 75])
+    }
+    line(75, 0, -180)
+    arc(-180, 0)
+    line(-75, -180, 180)
+    arc(180, Math.PI)
+    line(75, 180, 0)
+    return pts
+}
 
 describe('oval track', () => {
     it('measures two straights and two half circles', () => {
         expect(oval.length).toBeCloseTo(2 * 360 + 2 * Math.PI * 75, -1)
+    })
+
+    it('lies on exactly the line the leaderboard times were set on', () => {
+        const legacy = legacyOval()
+        expect(oval.def.points).toHaveLength(legacy.length)
+        oval.def.points.forEach(([x, z], i) => {
+            expect(x).toBeCloseTo(legacy[i]![0], 6)
+            expect(z).toBeCloseTo(legacy[i]![1], 6)
+        })
+    })
+
+    it('has one checkpoint, halfway down the back straight', () => {
+        expect(oval.checkpoints).toHaveLength(1)
+        const p = oval.pointAt(oval.checkpoints[0]!)
+        expect(p.x).toBeCloseTo(-75)
+        expect(p.z).toBeCloseTo(0)
+        expect(oval.checkpointDistances[0]).toBeCloseTo(oval.length / 2)
     })
 
     it('starts on the main straight heading up the screen', () => {
@@ -63,6 +100,54 @@ describe('open course', () => {
     })
 })
 
+describe('track blocks', () => {
+    const base = { halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
+    const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
+    const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
+    /** A rounded square, short of the first side's straight so line blocks can fill it. */
+    const square = [corner('right', 50), straight(100), corner('right', 50), straight(100), corner('right', 50), straight(100), corner('right', 50)]
+
+    it('turns right on a right-hand corner, starting the lap on the start line', () => {
+        const t = new Track(buildTrack(loop([start, straight(80), ...square])))
+        const p = t.pointAt(0)
+        expect(p.x).toBeCloseTo(0)
+        expect(p.z).toBeCloseTo(-LINE_BLOCK_LENGTH / 2)
+        expect(t.length).toBeCloseTo(400 + 2 * Math.PI * 50, 0)
+        // Clockwise seen from above: the first bend swings the car toward +x.
+        expect(t.pointAt(LINE_BLOCK_LENGTH / 2 + 80 + Math.PI * 25).tx).toBeCloseTo(1, 1)
+    })
+
+    it('puts checkpoints in driving order, measured from the start line', () => {
+        const t = new Track(buildTrack(loop([checkpoint, start, straight(40), checkpoint, ...square])))
+        expect(t.checkpointDistances).toHaveLength(2)
+        expect(t.checkpointDistances[0]).toBeCloseTo(LINE_BLOCK_LENGTH / 2 + 40 + LINE_BLOCK_LENGTH / 2)
+        expect(t.checkpointDistances[1]).toBeCloseTo(t.length - LINE_BLOCK_LENGTH)
+    })
+
+    it('builds an open course with its run-up and run-off from the blocks around the lines', () => {
+        const def = buildTrack(sprint([straight(30), start, straight(200), checkpoint, corner('left', 60), straight(200), finish, straight(100)]))
+        const t = new Track(def)
+        expect(t.closed).toBe(false)
+        expect(t.startS).toBeCloseTo(30 + LINE_BLOCK_LENGTH / 2)
+        expect(t.length - t.finishS).toBeCloseTo(100 + LINE_BLOCK_LENGTH / 2)
+        expect(t.checkpoints[0]).toBeGreaterThan(t.startS)
+        expect(t.checkpoints[0]).toBeLessThan(t.finishS)
+        expect(t.pointAt(t.length).tx).toBeCloseTo(-1)
+    })
+
+    it('rejects layouts a track cannot be built from', () => {
+        expect(() => buildTrack(loop([straight(100), ...square]))).toThrow(/one start/)
+        expect(() => buildTrack(loop([start, ...square]))).toThrow(/closing the loop/)
+        expect(() => buildTrack(loop([start, finish, straight(60), ...square]))).toThrow(/no finish/)
+        expect(() => buildTrack(sprint([straight(30), start, straight(200)]))).toThrow(/one finish/)
+        expect(() => buildTrack(sprint([start, straight(200), finish, straight(100)]))).toThrow(/before the start line/)
+        expect(() => buildTrack(sprint([straight(30), start, straight(200), finish]))).toThrow(/after the finish line/)
+        expect(() => buildTrack(sprint([straight(30), finish, straight(200), start, straight(100)]))).toThrow(/finish comes before/)
+        expect(() => buildTrack(sprint([checkpoint, straight(30), start, straight(200), finish, straight(100)]))).toThrow(/between the start and the finish/)
+        expect(() => buildTrack(loop([start, corner('left', 8)]))).toThrow(/wider than the track/)
+    })
+})
+
 describe('track registry', () => {
     it('has unique ids, and finds courses by them', () => {
         expect(new Set(TRACKS.map(t => t.id)).size).toBe(TRACKS.length)
@@ -94,7 +179,7 @@ describe('LapTimer', () => {
     }
 
     it('reports splits and laps with interpolated times, and never stops on a loop', () => {
-        const timer = new LapTimer(L, true, -14)
+        const timer = new LapTimer(L, true, -14, [L / 3, L * 2 / 3])
         // 100 m/s: 10 s a lap, and lap 1 also covers the 14 m from the grid (a standing start).
         const events = drive(timer, -14, 10, 0.1, 1010)
         const laps = events.filter(e => e.type === 'lap').map(e => e.time)
@@ -114,6 +199,14 @@ describe('LapTimer', () => {
         expect(laps[0]).toBeCloseTo(6.34, 6)
         expect(timer.finished).toBe(true)
         expect(timer.clock).toBeCloseTo(6.34, 6)
+    })
+
+    it('closes a sector at each checkpoint, and has none without them', () => {
+        const timer = new LapTimer(L, true, 0, [250])
+        const events = drive(timer, 0, 10, 0.1, 100)
+        expect(events.map(e => e.type)).toEqual(['split', 'lap'])
+        expect(events[0]!.time).toBeCloseTo(2.5, 6)
+        expect(drive(new LapTimer(L, true, 0), 0, 10, 0.1, 100).map(e => e.type)).toEqual(['lap'])
     })
 
     it('does not close a lap when the car first crosses the line from the grid', () => {

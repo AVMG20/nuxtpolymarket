@@ -483,6 +483,7 @@ export class World {
         }
         const gantry = buildGantry(track.startS, track.closed ? 'START / FINISH' : 'START', true)
         if (!track.closed) buildGantry(track.finishS, 'FINISH', false)
+        for (const at of track.checkpoints) buildGantry(at, 'CHECKPOINT', false)
 
         // ── Grandstand down the outside of the main straight, with a crowd ──
         const stand = new THREE.Group()

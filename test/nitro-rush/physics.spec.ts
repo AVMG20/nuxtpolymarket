@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botInput, createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
-import { LapTimer, ovalTrack, Track, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { buildTrack, POLYTOWN_OVAL } from '#shared/utils/nitro-rush/layout'
+import { LapTimer, Track, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
 
-const track = new Track(ovalTrack())
+const track = new Track(buildTrack(POLYTOWN_OVAL))
 const DT = 1 / PHYSICS_HZ
 const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, ...o })
 
@@ -52,7 +53,7 @@ describe('car physics', () => {
 
     it('drifts on brake plus steer at speed, and banks nitro when it straightens out', () => {
         // Walls far out of reach, so this tests the drift and not a driving line.
-        const track = new Track({ ...ovalTrack(), wallOffset: 400 })
+        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
         const car = createCar(track, 0)
         car.speed = 40
         const started = stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
@@ -78,7 +79,7 @@ describe('car physics', () => {
     })
 
     it('straightens out of a drift soon after the wheel is let go', () => {
-        const track = new Track({ ...ovalTrack(), wallOffset: 400 })
+        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
         const car = createCar(track, 0)
         car.speed = 45
         for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
@@ -96,7 +97,7 @@ describe('car physics', () => {
     })
 
     it('holds a drift while the wheel is kept or tapped into it', () => {
-        const track = new Track({ ...ovalTrack(), wallOffset: 400 })
+        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
         for (const tapped of [false, true]) {
             const car = createCar(track, 0)
             car.speed = 45
@@ -131,7 +132,7 @@ describe('car physics', () => {
 describe('demo bot', () => {
     it('laps the oval cleanly, lap after lap, with laps in a sane window', () => {
         const car = createCar(track, -14)
-        const timer = new LapTimer(track.lapLength, true, -14)
+        const timer = new LapTimer(track.lapLength, true, -14, track.checkpointDistances)
         const events: LapEvent[] = []
         let hits = 0
         for (let i = 0; i < PHYSICS_HZ * 180 && timer.lap < 4; i++) {

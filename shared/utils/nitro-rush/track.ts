@@ -11,7 +11,12 @@
  * course (a sprint) runs from its first point to its last: barriers close
  * both ends, the start line sits `runUp` in and the finish `runOff` short of
  * the far end, so the car has room to stop.
+ *
+ * Courses are laid out from blocks in `layout.ts`; this file only sees the
+ * sampled line they compile to.
  */
+
+import { buildTrack, POLYTOWN_OVAL } from './layout'
 
 export interface TrackDef {
     id: string
@@ -26,6 +31,8 @@ export interface TrackDef {
     runUp?: number
     /** Open courses only: from the finish line to the end barrier. */
     runOff?: number
+    /** Distance along the line of each checkpoint, in driving order; each one closes a sector. */
+    checkpoints?: number[]
 }
 
 export interface Projection {
@@ -65,32 +72,8 @@ export function formatLapTime(seconds: number, signed = false) {
     return m > 0 ? body : `0:${String(s).padStart(2, '0')}.${frac}`
 }
 
-/** Two straights joined by two half circles, run anticlockwise seen from above (left turns). */
-export function ovalTrack(straight = 360, radius = 75, step = 2): TrackDef {
-    const pts: [number, number][] = []
-    const half = straight / 2
-    const line = (x: number, z0: number, z1: number) => {
-        const n = Math.max(1, Math.round(Math.abs(z1 - z0) / step))
-        for (let i = 0; i < n; i++) pts.push([x, z0 + (z1 - z0) * i / n])
-    }
-    const arc = (cz: number, a0: number) => {
-        const n = Math.max(8, Math.round(Math.PI * radius / step))
-        for (let i = 0; i < n; i++) {
-            const a = a0 + Math.PI * i / n
-            pts.push([Math.cos(a) * radius, cz - Math.sin(a) * radius])
-        }
-    }
-    // Start mid main straight on the right, heading up the screen (-z).
-    line(radius, 0, -half)
-    arc(-half, 0)
-    line(-radius, -half, half)
-    arc(half, Math.PI)
-    line(radius, half, 0)
-    return { id: 'polytown-oval', name: 'Polytown Oval', points: pts, halfWidth: 9, wallOffset: 10.6 }
-}
-
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
-export const TRACKS: readonly TrackDef[] = [ovalTrack()]
+export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL)]
 
 export function findTrack(id: string) {
     return TRACKS.find(t => t.id === id) ?? null
@@ -112,6 +95,8 @@ export class Track {
     readonly tzs: Float64Array
     /** Per point: how sharply the line turns there, in radians per metre. */
     readonly curvature: Float64Array
+    /** Where each checkpoint line sits along the line, in driving order. */
+    readonly checkpoints: readonly number[]
 
     constructor(def: TrackDef) {
         this.def = def
@@ -132,6 +117,7 @@ export class Track {
             this.cum[i + 1] = this.cum[i]! + seg
         }
         this.length = this.cum[n]!
+        this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
         this.txs = new Float64Array(n)
         this.tzs = new Float64Array(n)
         this.curvature = new Float64Array(n)
@@ -175,6 +161,11 @@ export class Track {
 
     get lapLength() {
         return this.finishS - this.startS
+    }
+
+    /** Each checkpoint's distance from the start line, as the lap timer measures it. */
+    get checkpointDistances() {
+        return this.checkpoints.map(s => s - this.startS)
     }
 
     /** No legitimate lap is quicker than this. */
@@ -272,12 +263,14 @@ export type LapEvent =
  * so times don't snap to the frame.
  *
  * On a loop the laps never stop. On an open course `s` is the distance from
- * the start line and the run is over once the finish is crossed.
+ * the start line and the run is over once the finish is crossed. Each
+ * checkpoint, given as a distance from the start line, closes a sector.
  */
 export class LapTimer {
     readonly lapLength: number
     readonly closed: boolean
-    readonly sectors: number
+    /** The checkpoints, then the line that ends the lap. */
+    private readonly marks: number[]
     clock = 0
     distance: number
     lap = 0
@@ -286,10 +279,10 @@ export class LapTimer {
     finished = false
     private lastS: number
 
-    constructor(lapLength: number, closed: boolean, startDistance: number, sectors = 3) {
+    constructor(lapLength: number, closed: boolean, startDistance: number, checkpoints: readonly number[] = []) {
         this.lapLength = lapLength
         this.closed = closed
-        this.sectors = sectors
+        this.marks = [...checkpoints, lapLength]
         this.distance = startDistance
         this.lastS = closed ? ((startDistance % lapLength) + lapLength) % lapLength : startDistance
     }
@@ -314,10 +307,10 @@ export class LapTimer {
         if (ds <= 0) return events
         const crossedAt = (mark: number) => this.clock - dt + dt * (mark - from) / ds
         for (;;) {
-            const nextSplit = this.lap * L + (this.splits.length + 1) * L / this.sectors
+            const nextSplit = this.lap * L + this.marks[this.splits.length]!
             if (this.distance < nextSplit) break
             const at = crossedAt(nextSplit)
-            if (this.splits.length < this.sectors - 1) {
+            if (this.splits.length < this.marks.length - 1) {
                 this.splits.push(at - this.lapStart)
                 events.push({ type: 'split', lap: this.lap, sector: this.splits.length - 1, time: at - this.lapStart })
                 continue

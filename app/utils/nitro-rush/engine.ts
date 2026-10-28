@@ -388,7 +388,7 @@ export class NitroRushEngine {
     private resetRace() {
         this.state = createCar(this.track, this.gridS)
         this.accumulator = 0
-        this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET)
+        this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET, this.track.checkpointDistances)
         this.nitroReadyAnnounced = false
         this.wrongWayTime = 0
         this.skids.clear()
@@ -555,7 +555,8 @@ export class NitroRushEngine {
     private onLapEvent(e: LapEvent) {
         const rec = this.record
         if (e.type === 'split') {
-            const best = rec.bestSplits?.[e.sector]
+            // Splits saved before the course had these checkpoints mark other points on the lap.
+            const best = rec.bestSplits?.length === this.track.checkpoints.length + 1 ? rec.bestSplits[e.sector] : undefined
             if (best === undefined) return
             const delta = e.time - best
             this.audio.split(delta < 0)
