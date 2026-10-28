@@ -3,6 +3,8 @@
 
 /** Wheel events closer together than this belong to one scroll (one weapon step). */
 const WHEEL_GESTURE_GAP_MS = 140
+/** Scroll distance (px) per shop step: a wheel notch, or a stretch of trackpad scroll. */
+const SCROLL_STEP_PX = 100
 
 export class DfInput {
     readonly down = new Set<string>()
@@ -14,6 +16,9 @@ export class DfInput {
     wheel = 0
     /** When the last wheel event arrived (ms): a gap of `WHEEL_GESTURE_GAP_MS` starts a new gesture. */
     private wheelAt = -Infinity
+    /** Menu steps from the scroll wheel this frame: one per notch, signed (the workbench shop). */
+    scroll = 0
+    private scrollAcc = 0
     locked = false
     /** The chat box has the keyboard: keys are not game input. */
     typing = false
@@ -78,6 +83,14 @@ export class DfInput {
             const fresh = e.timeStamp - this.wheelAt > WHEEL_GESTURE_GAP_MS
             this.wheelAt = e.timeStamp
             if (fresh) this.wheel += Math.sign(e.deltaY)
+            // menus step per notch instead: line and page deltas to pixels, a turn back starts over
+            const px = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? SCROLL_STEP_PX : 1)
+            if (Math.sign(px) !== Math.sign(this.scrollAcc)) this.scrollAcc = 0
+            this.scrollAcc += px
+            if (Math.abs(this.scrollAcc) >= SCROLL_STEP_PX) {
+                this.scroll += Math.sign(this.scrollAcc)
+                this.scrollAcc = 0
+            }
         }, { passive: true })
         on(window, 'contextmenu', (e: Event) => {
             if (this.locked) e.preventDefault()
@@ -194,6 +207,7 @@ export class DfInput {
         this.mouseX = 0
         this.mouseY = 0
         this.wheel = 0
+        this.scroll = 0
     }
 
     clear(): void {

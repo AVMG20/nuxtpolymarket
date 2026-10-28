@@ -57,7 +57,7 @@
         <footer class="keys">
             <span><i>Wheel</i><i>← ↑ ↓ →</i> pick</span>
             <span><i>F</i><i>LMB</i> hold to craft</span>
-            <span><i>RMB</i><i>WASD</i> close</span>
+            <span><i>Esc</i><i>RMB</i><i>WASD</i> close</span>
         </footer>
     </div>
 </template>

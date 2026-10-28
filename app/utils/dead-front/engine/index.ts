@@ -1381,11 +1381,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function applyLook(): void {
         input.takeLook(lookIn)
         if (!input.locked || (lookIn.x === 0 && lookIn.y === 0)) return
-        // the open workbench shop takes the mouse: it moves the selection, not the view
-        if (arsenal.shopOpen) {
-            arsenal.nudge(lookIn.x, lookIn.y)
-            return
-        }
+        // the view holds still while the workbench shop is open
+        if (arsenal.shopOpen) return
         frameLook.x += lookIn.x
         frameLook.y += lookIn.y
         const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * viewmodel.adsBlend

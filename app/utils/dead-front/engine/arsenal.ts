@@ -21,8 +21,8 @@ import type { DfPrompt } from './prompt'
 import { DF_SND } from './sounds'
 
 // The local player's side of salvage, the workbench, crafted gear, upgrade
-// kits, supply crates and support: the bench (F opens its shop: the wheel, the
-// arrows or the mouse pick, hold F or the left button to make it; the right
+// kits, supply crates and support: the bench (F opens its shop: the wheel or the
+// arrows pick, hold F or the left button to make it; the right
 // button or a step away closes it), placing gear (hold Q to aim, release to place), calling in support
 // (hold X or 4 to mark, release to call it in), taking upgrade kits off the
 // ground, the HUD state and the callouts. The server decides; nothing here
@@ -47,10 +47,8 @@ export interface DfArsenalClient {
     readonly pick: DfBenchPick
     /** 0..1 the bench hold bar. */
     readonly holdProgress: number
-    /** The workbench shop is open: the player stands still, the mouse and keys browse it. */
+    /** The workbench shop is open: the player stands still, the wheel and keys browse it. */
     readonly shopOpen: boolean
-    /** Mouse movement while the shop is open (pixels): it moves the selection instead of the view. */
-    nudge(dx: number, dy: number): void
     /** An upgrade kit on the ground in reach and in front, as a prompt (null: none). */
     prompt(me: DfPlayerSnap, world: DfWorldSnap): DfPrompt | null
     /** Keys for this frame (call while alive and acting). */
@@ -65,8 +63,6 @@ export interface DfArsenalClient {
 }
 
 const HOLD = 0.6
-/** Mouse travel (pixels) that moves the shop's selection one card. */
-const NUDGE = 70
 /** Keys that close the shop (a step away, a jump). */
 const SHOP_LEAVE = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'ShiftLeft', 'KeyC', 'Mouse2']
 
@@ -88,7 +84,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
     let lastBench = ''
     let benchKey = ''
     let shop = false
-    const nudged = { x: 0, y: 0 }
     const target = new THREE.Vector3()
     const aimV = { x: 0, y: 0, z: -1 }
 
@@ -190,11 +185,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
             return shop
         },
 
-        nudge(dx, dy) {
-            nudged.x += dx
-            nudged.y += dy
-        },
-
         prompt(meP, world) {
             const k = nearestKit(meP, world)
             if (k) return dfKitPrompt(k, meP)
@@ -204,7 +194,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         },
 
         input(now, prompt, meP, world) {
-            // ---- the workbench: F opens its shop; pick with the wheel, the arrows or the mouse, hold F or the left button to make it
+            // ---- the workbench: F opens its shop; pick with the wheel or the arrows, hold F or the left button to make it
             if (prompt?.kind === 'bench' && meP && world) {
                 if (prompt.id !== lastBench) {
                     lastBench = prompt.id
@@ -213,29 +203,21 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 if (!shop) {
                     if (input.pressed('KeyF')) {
                         shop = true
-                        nudged.x = nudged.y = 0
                         ctx.audio.play(DF_SND.reviveTick, { volume: 0.8, rate: 0.9 })
                     }
                 } else if (SHOP_LEAVE.some(k => input.pressed(k))) {
                     closeShop()
                 } else {
-                    let step = input.wheel
+                    let step = input.scroll
                     if (input.pressed('ArrowRight')) step++
                     if (input.pressed('ArrowLeft')) step--
                     if (input.pressed('ArrowDown')) step += DF_BENCH_COLS
                     if (input.pressed('ArrowUp')) step -= DF_BENCH_COLS
-                    // the mouse slides the selection a card per NUDGE pixels
-                    while (Math.abs(nudged.x) >= NUDGE) {
-                        step += Math.sign(nudged.x)
-                        nudged.x -= Math.sign(nudged.x) * NUDGE
-                    }
-                    while (Math.abs(nudged.y) >= NUDGE) {
-                        step += Math.sign(nudged.y) * DF_BENCH_COLS
-                        nudged.y -= Math.sign(nudged.y) * NUDGE
-                    }
-                    if (step !== 0) {
-                        const n = DF_BENCH_PICKS.length
-                        pick = DF_BENCH_PICKS[(((DF_BENCH_PICKS.indexOf(pick) + step) % n) + n) % n]!
+                    // the ends stop the selection: a long scroll doesn't wrap round and spin through the cards
+                    const at = DF_BENCH_PICKS.indexOf(pick)
+                    const to = Math.max(0, Math.min(DF_BENCH_PICKS.length - 1, at + step))
+                    if (to !== at) {
+                        pick = DF_BENCH_PICKS[to]!
                         ctx.audio.play(DF_SND.reviveTick, { volume: 0.7, rate: 1.3 })
                         // a new pick starts its hold over
                         if (benchAt !== null) benchAt = now
@@ -360,8 +342,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 const sk = mine.support.join(',')
                 if (a.support.map(r => r.id).join(',') !== sk) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
             }
-            // the shop while it is open
-            if (!meP && shop) closeShop()
+            // the shop while it is open (Esc drops the pointer lock, and that closes it too)
+            if (shop && (!meP || !input.locked)) closeShop()
             if (shop && meP && world && lastBench) {
                 const items = dfBenchList({ world: world!, me: meP! }, pick)
                 const key = items.map(i => `${i.key}${i.ok ? 1 : 0}${i.selected ? 1 : 0}${i.name}${i.why}`).join('|')
