@@ -40,7 +40,7 @@ function world(arsenal: Partial<DfArsenalSnap>): DfWorldSnap {
     return {
         doors: [], planks: {}, power: true, box: { spot: 0, state: 'idle', timer: 0 }, pap: { state: 'idle', timer: 0 },
         egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 12, rodsOn: [], rodTimer: 0 }, double: 0, insta: 0,
-        arsenal: { players: [], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal }
+        arsenal: { players: [], sentries: [], decoys: [], scrap: 0, ...arsenal }
     }
 }
 
@@ -53,7 +53,7 @@ describe('dead front arsenal (client world parts)', () => {
         const { kit, sounds, root } = setup()
         const part = createDfWorkbenches(kit)
         expect(root.children.length).toBe(DF_MAP.benches!.length)
-        drive(part, world({ scrap: 20, parts: 1 }), 0.5)
+        drive(part, world({ scrap: 50 }), 0.5)
         part.onEvent!({ k: 'craft', p: 0, item: 'sentry', bench: DF_MAP.benches![0]!.id })
         drive(part, world({ scrap: 13 }), 1.5)
         expect(sounds).toContain(DF_ARSENAL_SND.craft)
@@ -64,15 +64,15 @@ describe('dead front arsenal (client world parts)', () => {
     it('salvage pops out, is taken when walked over (heard at once), and is gone once settled', () => {
         const { kit, sounds, root, camera } = setup()
         const part = createDfSalvageDrops(kit)
-        const drop = { id: 7, kind: 'part' as const, pos: { x: 2, y: 0, z: 30 }, n: 1, ttl: 30 }
+        const drop = { id: 7, pos: { x: 2, y: 0, z: 30 }, n: 1, ttl: 30 }
         drive(part, world({ drops: [drop] }), 0.5)
         expect(root.children.length).toBe(1)
         camera.position.set(2.2, 1.6, 30.1)
         drive(part, world({ drops: [drop] }), 0.4)
-        expect(sounds).toContain(DF_ARSENAL_SND.part)
+        expect(sounds).toContain(DF_ARSENAL_SND.scrap)
         // the server's event doesn't play it twice
-        part.onEvent!({ k: 'salvage', p: 0, kind: 'part', n: 1, id: 7, pos: drop.pos })
-        expect(sounds.filter(s => s === DF_ARSENAL_SND.part)).toHaveLength(1)
+        part.onEvent!({ k: 'salvage', p: 0, n: 1, id: 7, pos: drop.pos })
+        expect(sounds.filter(s => s === DF_ARSENAL_SND.scrap)).toHaveLength(1)
         drive(part, world({ drops: [] }), 0.4)
         expect(root.children.length).toBe(0)
         part.dispose()

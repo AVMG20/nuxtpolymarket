@@ -5,16 +5,14 @@ import type { DfSupportId, DfStrikeId } from './support'
 import type { DfHeldWeapon } from './protocol'
 
 // Salvage and the workbench, shared by the server (which runs them) and the
-// client (HUD, prompts, the craft list): zombies drop scrap and the odd rare
-// part for their killer alone, and a workbench turns it into gear and
+// client (HUD, prompts, the craft list): zombies drop scrap for their killer
+// alone, and a workbench turns it into gear and
 // support: a Lewis gun sentry, a gramophone decoy, a field kit, a bomber run
 // and a grenade launcher (plus rarity upgrades, rarity.ts). Also the round
 // challenges that pay out salvage. Pure and
 // unit tested; the server's state lives in server/utils/dead-front/salvage.ts.
 
 // ---------------------------------------------------------------- salvage drops
-
-export type DfSalvageKind = 'scrap' | 'part'
 
 export const DF_SALVAGE = {
     /**
@@ -24,18 +22,22 @@ export const DF_SALVAGE = {
      * (`dfSalvageFade`): the horde grows faster than the income, and the
      * bench stays a treat deep into the night.
      */
-    chance: 0.15,
-    fadeFrom: 5,
+    chance: 0.22,
+    fadeFrom: 10,
     /** Scrap in one regular drop. */
     amount: [1, 3] as const,
-    /** Chance a regular kill drops a rare part. */
-    partChance: 0.004,
     /** Ghouls carry a little more. */
     ghoulMult: 1.25,
-    /** Brutes always drop a pile, and often a part. */
-    brute: { scrap: [6, 10] as const, part: 0.3 },
+    /** Brutes always drop a pile. */
+    brute: { scrap: [6, 10] as const },
     /** Bloaters usually do. */
-    bloater: { chance: 0.5, scrap: [3, 5] as const, part: 0.1 },
+    bloater: { chance: 0.5, scrap: [3, 5] as const },
+    /**
+     * A squad splits the horde, so each player's drops are richer: the
+     * chances (and a brute's pile) grow this much per player past the first,
+     * which keeps a player's income near a solo player's.
+     */
+    perPlayer: 0.33,
     /** Seconds a drop lies on the ground. */
     life: 40,
     /** Drops on the ground at once (the oldest rusts away first). */
@@ -43,14 +45,8 @@ export const DF_SALVAGE = {
     /** Walking this close (horizontally) picks it up. */
     pickupRadius: 1.35,
     /** A player's pool tops out here. */
-    maxScrap: 999,
-    maxParts: 20
+    maxScrap: 9999
 } as const
-
-export interface DfSalvageRoll {
-    scrap: number
-    parts: number
-}
 
 /** The drop chances' share on a round: 1 until `fadeFrom`, then sqrt(fadeFrom / round). */
 export function dfSalvageFade(round: number): number {
@@ -60,6 +56,12 @@ export function dfSalvageFade(round: number): number {
 
 function span(range: readonly [number, number], roll: number): number {
     return range[0] + Math.min(range[1] - range[0], Math.floor(roll * (range[1] - range[0] + 1)))
+}
+
+/** How much richer each player's drops are in a squad of `players` (1 solo). */
+export function dfSalvageSquad(players: number): number {
+    const n = Math.max(1, Math.min(4, Math.floor(Number.isFinite(players) ? players : 1)))
+    return 1 + DF_SALVAGE.perPlayer * (n - 1)
 }
 
 /** A Maxim silencer on the killing weapon: quiet kills turn up this much more salvage (chance, relative). */
@@ -77,20 +79,18 @@ export function dfSalvageBonus(id: DfWeaponId, attachments: DfAttachmentChoice |
     return k
 }
 
-/** What a kill on `round` drops; `roll` is uniform in [0, 1). `bonus` scales the drop chances (the silencer's 1.1). */
-export function dfSalvageRoll(type: DfEnemyType, round: number, roll: () => number, bonus = 1): DfSalvageRoll {
-    const k = (Number.isFinite(bonus) && bonus > 0 ? bonus : 1) * dfSalvageFade(round)
-    if (type === 'brute') {
-        return { scrap: span(DF_SALVAGE.brute.scrap, roll()), parts: roll() < DF_SALVAGE.brute.part ? 1 : 0 }
-    }
-    if (type === 'bloater') {
-        if (roll() >= Math.min(1, DF_SALVAGE.bloater.chance * k)) return { scrap: 0, parts: 0 }
-        return { scrap: span(DF_SALVAGE.bloater.scrap, roll()), parts: roll() < DF_SALVAGE.bloater.part ? 1 : 0 }
-    }
+/**
+ * The scrap a kill on `round` drops (0 for none); `roll` is uniform in [0, 1).
+ * `bonus` scales the drop chances (the silencer's 1.1), `players` is the
+ * squad's size (`dfSalvageSquad`).
+ */
+export function dfSalvageRoll(type: DfEnemyType, round: number, roll: () => number, bonus = 1, players = 1): number {
+    const squad = dfSalvageSquad(players)
+    const k = (Number.isFinite(bonus) && bonus > 0 ? bonus : 1) * dfSalvageFade(round) * squad
+    if (type === 'brute') return Math.round(span(DF_SALVAGE.brute.scrap, roll()) * squad)
+    if (type === 'bloater') return roll() < Math.min(1, DF_SALVAGE.bloater.chance * k) ? span(DF_SALVAGE.bloater.scrap, roll()) : 0
     const mult = (type === 'ghoul' ? DF_SALVAGE.ghoulMult : 1) * k
-    const scrap = roll() < Math.min(1, DF_SALVAGE.chance * mult) ? span(DF_SALVAGE.amount, roll()) : 0
-    const parts = roll() < Math.min(1, DF_SALVAGE.partChance * mult) ? 1 : 0
-    return { scrap, parts }
+    return roll() < Math.min(1, DF_SALVAGE.chance * mult) ? span(DF_SALVAGE.amount, roll()) : 0
 }
 
 // ---------------------------------------------------------------- the workbench
@@ -103,7 +103,6 @@ export interface DfRecipe {
     /** One line for the craft list. */
     desc: string
     scrap: number
-    parts: number
     /**
      * `deploy` goes into the equipment slot (Q to place it); `instant` applies
      * at once; `support` is held (up to three) and called in with X (support.ts).
@@ -115,19 +114,20 @@ export interface DfRecipe {
 
 /**
  * The bench, the only place support comes from, and a treat rather than a
- * routine. Priced against the solo income: the first craft around round 7,
- * a saved-up bomber around round 17, and the field kit (a cheat death)
- * priced like a Legendary upgrade, around round 22. Even deep into the night
- * a round pays for a sentry or so, not a handful.
+ * routine. Priced against a player's income (about the same solo or in a
+ * squad): a gramophone or sentry around round 5, a saved-up bomber around
+ * round 15, and the field kit (a cheat death) priced like the Legendary
+ * upgrade, around round 20. Even deep into the night a round pays for a
+ * sentry or two, not a handful.
  */
 export const DF_RECIPES: Record<DfCraftId, DfRecipe> = {
-    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 60, parts: 0, use: 'deploy', color: '#c9a25a' },
-    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 50, parts: 0, use: 'deploy', color: '#e2b24f' },
-    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 700, parts: 6, use: 'instant', color: '#e2412f' },
-    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark (X)', scrap: 100, parts: 0, use: 'support', color: '#ff7a3a' },
-    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight (X)', scrap: 200, parts: 2, use: 'support', color: '#9fb4c8' },
-    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 140, parts: 0, use: 'support', color: '#8ab052' },
-    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 350, parts: 3, use: 'support', color: '#b46cff' }
+    sentry: { id: 'sentry', name: 'Lewis Sentry', desc: 'A Lewis gun on a tripod that guns down the nearest zombie', scrap: 40, use: 'deploy', color: '#c9a25a' },
+    decoy: { id: 'decoy', name: 'Gramophone', desc: 'Plays a waltz the dead can\'t resist, then blows up', scrap: 30, use: 'deploy', color: '#e2b24f' },
+    kit: { id: 'kit', name: 'Field Kit', desc: 'Morphine and bandages: pick yourself up once', scrap: 650, use: 'instant', color: '#e2412f' },
+    barrage: { id: 'barrage', name: 'Artillery Barrage', desc: 'Eight shells on the spot you mark (X)', scrap: 75, use: 'support', color: '#ff7a3a' },
+    zeppelin: { id: 'zeppelin', name: 'Zeppelin Raid', desc: 'A bomb run along your line of sight (X)', scrap: 200, use: 'support', color: '#9fb4c8' },
+    launcher: { id: 'launcher', name: 'Granatwerfer', desc: 'A grenade launcher in your hands for 45 s (X)', scrap: 100, use: 'support', color: '#8ab052' },
+    bomber: { id: 'bomber', name: 'Bomber Run', desc: 'A Gotha carpets the spot you mark: nothing in it survives (X)', scrap: 350, use: 'support', color: '#b46cff' }
 }
 
 /** The craft list, in the order the bench shows it (the weapon upgrade comes last). */
@@ -155,13 +155,12 @@ export const DF_CRATE = {
 
 /** Can this player take a crate's item now? Why not, or null (a full support list, gear in hand, a kit already held). */
 export function dfCrateBlocked(item: DfCraftId, k: DfKitState): DfCraftBlock | null {
-    return dfCraftBlocked(DF_RECIPES[item], { scrap: Infinity, parts: Infinity }, k)
+    return dfCraftBlocked(DF_RECIPES[item], { scrap: Infinity }, k)
 }
 
 /** A player's salvage pool. */
 export interface DfSalvagePool {
     scrap: number
-    parts: number
 }
 
 /** What one player carries from the bench. */
@@ -175,7 +174,7 @@ export interface DfKitState {
     supportMax: number
 }
 
-export type DfCraftBlock = 'scrap' | 'parts' | 'hands' | 'full' | 'have'
+export type DfCraftBlock = 'scrap' | 'hands' | 'full' | 'have'
 
 /** Why this recipe can't be crafted now, or null. */
 export function dfCraftBlocked(r: DfRecipe, pool: DfSalvagePool, k: DfKitState): DfCraftBlock | null {
@@ -183,7 +182,6 @@ export function dfCraftBlocked(r: DfRecipe, pool: DfSalvagePool, k: DfKitState):
     if (r.use === 'support' && k.support >= k.supportMax) return 'full'
     if (r.id === 'kit' && k.kit) return 'have'
     if (pool.scrap < r.scrap) return 'scrap'
-    if (pool.parts < r.parts) return 'parts'
     return null
 }
 
@@ -191,7 +189,6 @@ export function dfCraftBlocked(r: DfRecipe, pool: DfSalvagePool, k: DfKitState):
 export function dfCraftBlockText(b: DfCraftBlock, r: DfRecipe, pool: DfSalvagePool): string {
     switch (b) {
         case 'scrap': return `Need ${r.scrap - pool.scrap} more scrap`
-        case 'parts': return r.parts - pool.parts === 1 ? 'Need a rare part' : `Need ${r.parts - pool.parts} more rare parts`
         case 'hands': return 'Place your gear first (Q)'
         case 'full': return 'Call in your support first (X)'
         case 'have': return 'Already carrying one'
@@ -200,15 +197,14 @@ export function dfCraftBlockText(b: DfCraftBlock, r: DfRecipe, pool: DfSalvagePo
 
 /** Takes the cost off the pool; false (and nothing taken) when it can't pay. */
 export function dfCraftSpend(pool: DfSalvagePool, r: DfRecipe): boolean {
-    if (pool.scrap < r.scrap || pool.parts < r.parts) return false
+    if (pool.scrap < r.scrap) return false
     pool.scrap -= r.scrap
-    pool.parts -= r.parts
     return true
 }
 
-/** "12 scrap · 1 part" */
+/** "120 scrap" */
 export function dfRecipeCost(r: DfRecipe): string {
-    return r.parts > 0 ? `${r.scrap} scrap · ${r.parts} part${r.parts > 1 ? 's' : ''}` : `${r.scrap} scrap`
+    return `${r.scrap} scrap`
 }
 
 // ---------------------------------------------------------------- the Lewis sentry
@@ -338,12 +334,12 @@ export const DF_CHALLENGES: Record<DfChallengeId, DfChallengeDef> = {
     gear: { id: 'gear', text: 'Kills by crafted gear and air support', goal: r => Math.min(16, 4 + Math.floor(r / 2)), from: 4 }
 }
 
-export const DF_CHALLENGE_REWARD = { scrap: 4, scrapPerRound: 1, maxScrap: 20, parts: 1, points: 250 } as const
+export const DF_CHALLENGE_REWARD = { scrap: 4, scrapPerRound: 1, maxScrap: 20, points: 250 } as const
 
 /** A challenge's reward on a round: the scrap grows with the round (7 on round 3, 20 from round 16). */
-export function dfChallengeReward(round: number): { scrap: number, parts: number, points: number } {
+export function dfChallengeReward(round: number): { scrap: number, points: number } {
     const scrap = Math.min(DF_CHALLENGE_REWARD.maxScrap, DF_CHALLENGE_REWARD.scrap + DF_CHALLENGE_REWARD.scrapPerRound * Math.max(1, Math.floor(round)))
-    return { scrap, parts: DF_CHALLENGE_REWARD.parts, points: DF_CHALLENGE_REWARD.points }
+    return { scrap, points: DF_CHALLENGE_REWARD.points }
 }
 
 /** Goal for the squad (a bigger squad has more to do). */
@@ -390,7 +386,6 @@ export interface DfArsenalPlayerSnap {
 
 export interface DfSalvageDropSnap {
     id: number
-    kind: DfSalvageKind
     pos: Vec3
     n: number
     /** Seconds left before it rusts away. */
@@ -447,13 +442,12 @@ export interface DfChallengeSnap {
 
 /**
  * The salvage / workbench / sentry / support part of the world snapshot.
- * Salvage is per player: `scrap`, `parts` and `drops` are the receiving
+ * Salvage is per player: `scrap` and `drops` are the receiving
  * player's own, sent to them alone (`DfSnapshot.mine`, merged in on arrival
  * by `dfMergeArsenalMine`).
  */
 export interface DfArsenalSnap {
     scrap?: number
-    parts?: number
     players: DfArsenalPlayerSnap[]
     drops?: DfSalvageDropSnap[]
     sentries: DfSentrySnap[]
@@ -478,7 +472,6 @@ export interface DfKitDropSnap {
 /** One player's private slice of a snapshot: their own salvage and pickups. */
 export interface DfArsenalMine {
     scrap: number
-    parts: number
     drops: DfSalvageDropSnap[]
     /** Their own supply crates still private to them. */
     crates: DfCrateSnap[]
@@ -495,7 +488,6 @@ export function dfMergeArsenalMine<S extends { world: { arsenal?: DfArsenalSnap 
     if (!m) return s
     const a = s.world.arsenal ?? (s.world.arsenal = { players: [], sentries: [], decoys: [] })
     a.scrap = m.scrap
-    a.parts = m.parts
     a.drops = m.drops
     if (m.crates?.length) a.crates = [...(a.crates ?? []), ...m.crates]
     if (m.events.length) s.events.push(...m.events)
@@ -516,7 +508,7 @@ export interface DfStrikeHit {
 
 export type DfArsenalEvent =
     /** Salvage picked up (into the player's own pool). */
-    | { k: 'salvage', p: number, kind: DfSalvageKind, n: number, id: number, pos: Vec3 }
+    | { k: 'salvage', p: number, n: number, id: number, pos: Vec3 }
     /** A supply crate taken: by its killer (`owner`) or, once open, by anyone. */
     | { k: 'crate', p: number, owner: number, item: DfCraftId, id: number, pos: Vec3 }
     | { k: 'craft', p: number, item: DfCraftId | 'upgrade', bench: string }

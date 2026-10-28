@@ -7,7 +7,6 @@
             </div>
             <div class="purse">
                 <span class="coin" title="Scrap"><DfBenchIcon name="scrap" :size="18" /><b>{{ scrap }}</b> scrap</span>
-                <span class="coin part" title="Rare parts"><DfBenchIcon name="part" :size="18" /><b>{{ parts }}</b> {{ parts === 1 ? 'part' : 'parts' }}</span>
             </div>
         </header>
 
@@ -25,12 +24,11 @@
                     <DfBenchIcon v-if="it.weapon" name="upgrade" :size="26" class="badge" :style="{ color: it.color }" />
                 </div>
                 <div class="name" :style="it.tint ? { color: it.tint } : undefined">{{ it.key === 'upgrade' ? upgradeLabel(it) : it.name }}</div>
-                <div v-if="it.scrap || it.parts" class="price">
+                <div v-if="it.scrap" class="price">
                     <span :class="{ short: it.shortScrap }"><DfBenchIcon name="scrap" :size="13" />{{ it.scrap }}</span>
-                    <span v-if="it.parts" :class="{ short: it.shortParts }"><DfBenchIcon name="part" :size="13" />{{ it.parts }}</span>
                 </div>
                 <div v-else class="price muted">—</div>
-                <div v-if="!it.ok && !it.shortScrap && !it.shortParts" class="tag">{{ tagFor(it) }}</div>
+                <div v-if="!it.ok && !it.shortScrap" class="tag">{{ tagFor(it) }}</div>
             </li>
         </ul>
 
@@ -71,7 +69,7 @@ import type { DfHudArsenal, DfHudBenchItem } from '~/utils/dead-front/engine/ars
 import DfBenchIcon from '../ui/DfBenchIcon.vue'
 import DfWeaponSilhouette from '../ui/DfWeaponSilhouette.vue'
 
-const props = defineProps<{ bench: NonNullable<DfHudArsenal['bench']>, scrap: number, parts: number, denyKey: number }>()
+const props = defineProps<{ bench: NonNullable<DfHudArsenal['bench']>, scrap: number, denyKey: number }>()
 
 const sel = computed(() => props.bench.items.find(i => i.selected) ?? null)
 
@@ -148,10 +146,6 @@ function tagFor(it: DfHudBenchItem): string {
     color: #c08a4a;
 }
 
-.coin.part :deep(svg) {
-    color: #7fc8ff;
-}
-
 .coin b {
     font-family: var(--df-font-stencil);
     font-size: 1.25rem;
@@ -219,10 +213,6 @@ function tagFor(it: DfHudBenchItem): string {
 
 .price span :deep(svg) {
     color: #c08a4a;
-}
-
-.price span:nth-child(2) :deep(svg) {
-    color: #7fc8ff;
 }
 
 .price .short {

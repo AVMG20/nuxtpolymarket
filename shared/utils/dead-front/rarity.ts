@@ -118,14 +118,18 @@ export function dfKitName(tier: unknown): string {
 
 // ---------------------------------------------------------------- the workbench
 
-/** Salvage to raise a weapon from tier `from` to `from + 1` (null at the top). */
-export const DF_RARITY_UPGRADE: readonly { scrap: number, parts: number }[] = [
-    { scrap: 50, parts: 0 },
-    { scrap: 250, parts: 3 },
-    { scrap: 700, parts: 6 }
+/**
+ * Scrap to raise a weapon from tier `from` to `from + 1` (null at the top).
+ * Putting every scrap into one weapon makes it Rare around round 9, Epic
+ * around 17 and Legendary around 25, solo or in a squad.
+ */
+export const DF_RARITY_UPGRADE: readonly { scrap: number }[] = [
+    { scrap: 120 },
+    { scrap: 330 },
+    { scrap: 650 }
 ]
 
-export function dfRarityUpgradeCost(from: unknown): { scrap: number, parts: number } | null {
+export function dfRarityUpgradeCost(from: unknown): { scrap: number } | null {
     const r = dfClampRarity(from)
     return r >= DF_RARITY_MAX ? null : DF_RARITY_UPGRADE[r]!
 }

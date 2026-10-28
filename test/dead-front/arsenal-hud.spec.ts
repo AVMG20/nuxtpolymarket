@@ -27,7 +27,7 @@ function world(arsenal: Partial<DfArsenalSnap> = {}, over: Partial<DfWorldSnap> 
         pap: { state: 'idle', timer: 0 },
         egg: { step: 'power', fusesFound: [], charge: 0, chargeNeeded: 15, rodsOn: [], rodTimer: 0 },
         double: 0, insta: 0,
-        arsenal: { players: [{ pid: 0, equip: null, kit: false, support: [] }], sentries: [], decoys: [], scrap: 0, parts: 0, ...arsenal },
+        arsenal: { players: [{ pid: 0, equip: null, kit: false, support: [] }], sentries: [], decoys: [], scrap: 0, ...arsenal },
         ...over
     }
 }
@@ -37,11 +37,11 @@ const bench = dfInteractables(DF_MAP).find(i => i.kind === 'bench')!
 describe('arsenal HUD: the workbench', () => {
     it('lists every recipe and the upgrade, says why one can\'t be made', () => {
         const have = Math.max(DF_RECIPES.sentry.scrap, DF_RARITY_UPGRADE[0]!.scrap)
-        const items = dfBenchList({ world: world({ scrap: have, parts: 0 }), me: player() }, 'sentry')
+        const items = dfBenchList({ world: world({ scrap: have }), me: player() }, 'sentry')
         expect(items.map(i => i.key)).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber', 'upgrade'])
         expect(items.map(i => i.key)).toEqual([...DF_BENCH_PICKS])
         expect(items.find(i => i.key === 'sentry')).toMatchObject({ ok: true, selected: true })
-        expect(items.find(i => i.key === 'launcher')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.launcher.scrap - have} more scrap` })
+        expect(items.find(i => i.key === 'bomber')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.bomber.scrap - have} more scrap` })
         expect(items.find(i => i.key === 'kit')).toMatchObject({ ok: false, why: `Need ${DF_RECIPES.kit.scrap - have} more scrap` })
         const up = items.find(i => i.key === 'upgrade')!
         expect(up.ok).toBe(true)
@@ -60,7 +60,7 @@ describe('arsenal HUD: the workbench', () => {
         const decoy = dfBenchItem('decoy', { world: world({ scrap: 0 }), me: player() }, true)
         expect(decoy).toMatchObject({ ok: false, shortScrap: true, scrap: DF_RECIPES.decoy.scrap, color: DF_RECIPES.decoy.color })
         expect(decoy.why).toContain('more scrap')
-        const legendary = dfBenchItem('upgrade', { world: world({ scrap: 99, parts: 9 }), me: player({ weapons: [{ id: 'thompson', pap: 0, mag: 30, reserve: 120, attachments: {}, rarity: 3 }] }) }, true)
+        const legendary = dfBenchItem('upgrade', { world: world({ scrap: 9999 }), me: player({ weapons: [{ id: 'thompson', pap: 0, mag: 30, reserve: 120, attachments: {}, rarity: 3 }] }) }, true)
         expect(legendary.ok).toBe(false)
         expect(legendary.why).toContain('Already Legendary')
         expect(legendary.weapon).toEqual({ id: 'thompson', rarity: 3 })
@@ -95,14 +95,14 @@ describe('arsenal HUD: feed, snapshot slice and hints', () => {
         expect(pulled.textColor).toBe(DF_RARITIES[3]!.color)
         expect(dfHudFeedLine({ k: 'rarity', p: 0, weapon: 'mp18', rarity: 1, how: 'bench' }, c)!.text).toBe('upgraded the MP18 to Rare')
         expect(dfHudFeedLine({ k: 'strike', p: 1, reward: 'barrage', id: 1, at: { x: 0, y: 0, z: 0 }, dir: { x: 0, y: 0, z: -1 }, hits: [] }, c)!.text).toBe('called in an Artillery Barrage')
-        expect(dfArsenalFeedLine({ k: 'salvage', p: 0, kind: 'scrap', n: 1, id: 1, pos: { x: 0, y: 0, z: 0 } }, { me: 0, line: () => ({ tone: 'pale', who: null, whoColor: null, text: '', target: null, targetColor: null }), weaponName: id => id })).toBeNull()
+        expect(dfArsenalFeedLine({ k: 'salvage', p: 0, n: 1, id: 1, pos: { x: 0, y: 0, z: 0 } }, { me: 0, line: () => ({ tone: 'pale', who: null, whoColor: null, text: '', target: null, targetColor: null }), weaponName: id => id })).toBeNull()
     })
 
     it('the private slice folds into the world and the events', () => {
         const s = {
-            world: world({ scrap: undefined, parts: undefined }),
+            world: world({ scrap: undefined }),
             events: [],
-            mine: { scrap: 5, parts: 1, drops: [{ id: 3, kind: 'scrap' as const, pos: { x: 0, y: 0, z: 0 }, n: 2, ttl: 30 }], events: [{ k: 'salvage' as const, p: 0, kind: 'scrap' as const, n: 2, id: 9, pos: { x: 0, y: 0, z: 0 } }] }
+            mine: { scrap: 5, drops: [{ id: 3, pos: { x: 0, y: 0, z: 0 }, n: 2, ttl: 30 }], events: [{ k: 'salvage' as const, p: 0, n: 2, id: 9, pos: { x: 0, y: 0, z: 0 } }] }
         } as unknown as DfSnapshot
         dfMergeArsenalMine(s)
         expect(s.world.arsenal!.scrap).toBe(5)

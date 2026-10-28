@@ -80,7 +80,7 @@
         <!-- the workbench shop, centred while it is open -->
         <Transition name="df-fade">
             <div v-if="hud.arsenal.bench && hud.life === 'alive'" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
-                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :parts="hud.arsenal.parts" :deny-key="hud.arsenal.denyKey" />
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" />
             </div>
         </Transition>
         <!-- placing gear / calling in support, and short arsenal notices -->

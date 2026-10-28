@@ -327,7 +327,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
             const mine = mineOf(world)
             if (ars) {
                 if ((ars.scrap ?? 0) !== a.scrap) a.scrap = ars.scrap ?? 0
-                if ((ars.parts ?? 0) !== a.parts) a.parts = ars.parts ?? 0
                 const ch = ars.challenge
                 if (!ch) a.challenge = null
                 else if (!a.challenge || a.challenge.text !== ch.text || a.challenge.n !== ch.n || a.challenge.done !== ch.done || a.challenge.goal !== ch.goal) {
@@ -453,7 +452,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                     return Math.hypot(u.x - feet.x, u.z - feet.z) < 7 && Math.abs(u.y - feet.y) < 2
                 })
             }
-            return { salvage: (world?.arsenal?.scrap ?? 0) + (world?.arsenal?.parts ?? 0), equip: mine?.equip ?? null, reward, benchNear, canCraft }
+            return { salvage: world?.arsenal?.scrap ?? 0, equip: mine?.equip ?? null, reward, benchNear, canCraft }
         },
 
         dispose() {

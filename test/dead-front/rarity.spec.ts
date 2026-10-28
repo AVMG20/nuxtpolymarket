@@ -70,10 +70,10 @@ describe('rarity rules', () => {
         expect(dfKitFits(3, 'wunder', 0)).toBe('none')
     })
 
-    it('bench costs rise per tier, parts for the top', () => {
+    it('bench costs rise per tier', () => {
         expect(dfRarityUpgradeCost(0)).toEqual(DF_RARITY_UPGRADE[0])
-        expect(dfRarityUpgradeCost(2)!.parts).toBeGreaterThan(0)
         expect(dfRarityUpgradeCost(1)!.scrap).toBeGreaterThan(dfRarityUpgradeCost(0)!.scrap)
+        expect(dfRarityUpgradeCost(2)!.scrap).toBeGreaterThan(dfRarityUpgradeCost(1)!.scrap)
         expect(dfRarityUpgradeCost(3)).toBeNull()
     })
 })
@@ -179,7 +179,6 @@ describe('rarity in the match', () => {
         p.pos = { ...bench.pos }
         const pool = sim.arsenal.gearOf(p).pool
         pool.scrap = DF_RARITY_UPGRADE[0]!.scrap + DF_RARITY_UPGRADE[1]!.scrap - 1
-        pool.parts = DF_RARITY_UPGRADE[1]!.parts
         let ok = 0
         for (let i = 0; i < 8; i++) if (sim.arsenal.handle(p, { k: 'upgrade', bench: bench.id, slot: 0, from: 0 })) ok++
         expect(ok).toBe(1)
@@ -190,7 +189,7 @@ describe('rarity in the match', () => {
         pool.scrap++
         expect(sim.arsenal.handle(p, { k: 'upgrade', bench: bench.id, slot: 0, from: 1 })).toBe(true)
         expect(p.weapons[0]!.rarity).toBe(2)
-        expect(pool).toEqual({ scrap: 0, parts: 0 })
+        expect(pool).toEqual({ scrap: 0 })
         const events = sim.snapshot().events.filter(e => e.k === 'rarity')
         expect(events.map(e => e.k === 'rarity' && e.rarity)).toEqual([1, 2])
         // the wunderweapon takes none

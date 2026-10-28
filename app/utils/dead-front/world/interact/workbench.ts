@@ -179,7 +179,7 @@ export function createDfWorkbenches(kit: DfWorldKit): DfWorldPart {
     return {
         update(dt, world, time) {
             const ars = world.arsenal
-            const pool = { scrap: ars?.scrap ?? 0, parts: ars?.parts ?? 0 }
+            const pool = { scrap: ars?.scrap ?? 0 }
             // you can make something: anything your salvage pays for (full hands aside)
             const affordable = DF_CRAFT_ORDER.some((id) => {
                 const b = dfCraftBlocked(DF_RECIPES[id], pool, { equip: null, kit: false, support: 0, supportMax: 1 })

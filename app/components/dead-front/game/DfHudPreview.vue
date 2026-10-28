@@ -30,7 +30,7 @@ const hud = reactive(dfCreateHudState())
 /** The bench shop as a player with some salvage, a sentry in hand and a Rare Thompson would see it. */
 function previewBench() {
     const me = { pid: 0, life: 'alive', slot: 0, weapons: [{ id: 'thompson', pap: 0, mag: 22, reserve: 210, attachments: {}, rarity: 1 }] } as unknown as DfPlayerSnap
-    const world = { arsenal: { scrap: 140, parts: 2, players: [{ pid: 0, equip: 'sentry', kit: false, support: [] }], sentries: [], decoys: [] } } as unknown as DfWorldSnap
+    const world = { arsenal: { scrap: 140, players: [{ pid: 0, equip: 'sentry', kit: false, support: [] }], sentries: [], decoys: [] } } as unknown as DfWorldSnap
     return dfBenchList({ world, me }, 'launcher')
 }
 const COLORS = ['#e2b24f', '#6fa8dc', '#8ab052', '#d0605e']
@@ -61,7 +61,7 @@ function setup() {
     hud.ammo.rarity = 2
     // salvage, gear, the bench list, held support and the round challenge
     hud.arsenal = {
-        scrap: 140, parts: 2, launcher: 31, equip: 'sentry', kit: true,
+        scrap: 140, launcher: 31, equip: 'sentry', kit: true,
         support: [{ id: 'barrage', name: 'Artillery Barrage' }, { id: 'bomber', name: 'Bomber Run' }],
         bench: mode.value === 'shop' ? { hold: 0.45, items: previewBench() } : null,
         denyKey: 0,

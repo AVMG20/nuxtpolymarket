@@ -11,7 +11,6 @@ import { clickTrain, crack, crackle, fmBell, metal, noiseBurst, noiseSwell, scat
 
 export const DF_ARSENAL_SND = {
     scrap: 'df:ars-scrap',
-    part: 'df:ars-part',
     craft: 'df:ars-craft',
     deploy: 'df:ars-deploy',
     sentryShot: 'df:ars-sentry-shot',
@@ -78,12 +77,6 @@ export function registerDfArsenalSounds(audio: DfAudio): void {
         clickTrain(p, scatter(5, 0.18, 1.3), { freq: 3400, q: 2.5, gain: 0.35, len: 0.012, jitter: 0.4 })
         metal(at(p, 0.02), { base: rnd(1500, 1900), ratios: [1, 2.4, 3.9], decay: 0.25, gain: 0.16, strike: 0.6, spread: 0.03 })
         noiseBurst(at(p, 0.05), { kind: 'pink', type: 'bandpass', freq: 900, q: 0.8, gain: 0.12, dur: 0.15 })
-    })
-    // A rare part: a bright brass valve ringing as it's pocketed.
-    r(DF_ARSENAL_SND.part, (p) => {
-        const h = hall(p, 0.35)
-        metal(p, { base: 980, ratios: [1, 2.76, 5.4], decay: 0.9, gain: 0.22, strike: 0.7 })
-        for (const [k, n] of [79, 86, 91].entries()) fmBell(at(h, 0.05 + k * 0.07), { freq: mtof(n), dur: 0.7, gain: 0.12, ratio: 3, index: 0.7 })
     })
     // Crafting: hammer blows, a ratchet, a finishing ding.
     r(DF_ARSENAL_SND.craft, (p) => {

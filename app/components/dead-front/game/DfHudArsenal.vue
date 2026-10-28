@@ -37,19 +37,13 @@
             </div>
         </div>
 
-        <!-- salvage: your own scrap and rare parts -->
+        <!-- salvage: your own scrap -->
         <div :key="a.salvageKey" class="salvage" :class="{ pop: a.salvageKey > 0 }">
             <span class="item" title="Scrap">
                 <svg viewBox="0 0 7 7" width="16" height="16" shape-rendering="crispEdges" aria-hidden="true">
                     <rect v-for="(px, k) in COG" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
                 </svg>
                 <b>{{ a.scrap }}</b>
-            </span>
-            <span class="item part" title="Rare parts">
-                <svg viewBox="0 0 7 7" width="16" height="16" shape-rendering="crispEdges" aria-hidden="true">
-                    <rect v-for="(px, k) in VALVE" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
-                </svg>
-                <b>{{ a.parts }}</b>
             </span>
         </div>
     </div>
@@ -65,7 +59,6 @@ defineProps<{ a: DfHudArsenal }>()
 
 type Runs = [number, number, number][]
 const COG: Runs = [[2, 0, 3], [0, 1, 7], [1, 2, 2], [4, 2, 2], [0, 3, 2], [5, 3, 2], [1, 4, 2], [4, 4, 2], [0, 5, 7], [2, 6, 3]]
-const VALVE: Runs = [[2, 0, 3], [3, 1, 1], [1, 2, 5], [1, 3, 5], [0, 4, 7], [1, 5, 5], [2, 6, 3]]
 const CROSS: Runs = [[2, 0, 3], [2, 1, 3], [0, 2, 7], [0, 3, 7], [0, 4, 7], [2, 5, 3], [2, 6, 3]]
 const ICONS: Record<string, Runs> = {
     // a shell, a grenade launcher, a Zeppelin, a big biplane bomber
@@ -191,10 +184,6 @@ const ICONS: Record<string, Runs> = {
     fill: #c08a4a;
     color: var(--df-chalk);
     font-size: 0.9rem;
-}
-
-.salvage .part {
-    fill: #7fc8ff;
 }
 
 .keycap {

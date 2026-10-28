@@ -4,6 +4,7 @@ import { DF_COSTS, DF_MACHINE_TIMES } from '#shared/utils/dead-front/constants'
 import { dfBulletDamage } from '#shared/utils/dead-front/combat'
 import { DF_LAUNCHER, DF_STRIKE } from '#shared/utils/dead-front/support'
 import { dfInteractables } from '#shared/utils/dead-front/map'
+import { DF_RARITY_UPGRADE } from '#shared/utils/dead-front/rarity'
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import { DF_WEAPON_IDS, DF_WEAPONS, dfBoxPool, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
@@ -164,8 +165,7 @@ describe('the grenade launcher', () => {
         const { sim, p } = withLauncher()
         const bench = dfInteractables(sim.map).find(i => i.kind === 'bench')!
         p.pos = { ...bench.pos }
-        sim.arsenal.gearOf(p).pool.scrap = 99
-        sim.arsenal.gearOf(p).pool.parts = 9
+        sim.arsenal.gearOf(p).pool.scrap = 9999
         expect(sim.arsenal.handle(p, { k: 'upgrade', bench: bench.id, slot: 1, from: 0 })).toBe(false)
         expect(p.weapons[1]!.rarity).toBeUndefined()
         const kit = sim.arsenal.debugKit(3, { ...p.pos })
@@ -291,7 +291,7 @@ describe('rarity end to end', () => {
         const p = sim.player(0)!
         const bench = dfInteractables(sim.map).find(i => i.kind === 'bench')!
         p.pos = { ...bench.pos }
-        sim.arsenal.gearOf(p).pool.scrap = 99
+        sim.arsenal.gearOf(p).pool.scrap = DF_RARITY_UPGRADE[0]!.scrap
         expect(sim.arsenal.handle(p, { k: 'upgrade', bench: bench.id, slot: 0, from: 0, weapon: 'm1911' })).toBe(true)
         // the snapshot carries the tier; the client derives stats from it like this
         const held = sim.snapshot().players[0]!.weapons[0]!

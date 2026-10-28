@@ -11,7 +11,7 @@ import {
     dfSalvageBonus, dfSalvageFade, dfSalvageRoll, dfSentryDamage, dfSentryPick, dfTurnToward, dfYawGap
 } from '#shared/utils/dead-front/salvage'
 import type {
-    DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalPlayerSnap, DfArsenalSnap, DfChallengeId, DfCraftId, DfCrateSnap, DfKitState, DfSalvageKind, DfSalvagePool, DfStrikeHit
+    DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalPlayerSnap, DfArsenalSnap, DfChallengeId, DfCraftId, DfCrateSnap, DfKitState, DfSalvagePool, DfStrikeHit
 } from '#shared/utils/dead-front/salvage'
 import type { DfHitZone, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
 import { randomChance, randomFloat, randomPick } from '#shared/utils/random'
@@ -79,7 +79,6 @@ interface SimDrop {
     id: number
     /** Whose it is: only they see it and can take it. */
     owner: number
-    kind: DfSalvageKind
     n: number
     pos: Vec3
     expiresAt: number
@@ -172,7 +171,7 @@ export class DfArsenal {
     /** One player's gear (created on first use). */
     gearOf(p: SimPlayer): Gear {
         let g = this.gear.get(p.pid)
-        if (!g) this.gear.set(p.pid, g = { pool: { scrap: 0, parts: 0 }, equip: null, kit: false, support: [], launcher: null })
+        if (!g) this.gear.set(p.pid, g = { pool: { scrap: 0 }, equip: null, kit: false, support: [], launcher: null })
         return g
     }
 
@@ -230,9 +229,8 @@ export class DfArsenal {
         const cost = dfRarityUpgradeCost(now)
         if (!cost) return false
         const pool = this.gearOf(p).pool
-        if (pool.scrap < cost.scrap || pool.parts < cost.parts) return false
+        if (pool.scrap < cost.scrap) return false
         pool.scrap -= cost.scrap
-        pool.parts -= cost.parts
         this.setRarity(w, (now + 1) as DfRarity)
         this.host.emit({ k: 'craft', p: p.pid, item: 'upgrade', bench: benchId })
         this.host.emit({ k: 'rarity', p: p.pid, weapon: w.id, rarity: now + 1, how: 'bench' })
@@ -434,8 +432,7 @@ export class DfArsenal {
         // everyone gets the reward in their own pack
         const reward = dfChallengeReward(this.host.round)
         for (const q of this.host.players) {
-            this.grant(q, 'scrap', reward.scrap)
-            this.grant(q, 'part', reward.parts)
+            this.grant(q, reward.scrap)
             if (q.life !== 'dead') this.hooks.points(q, reward.points)
         }
         this.host.emit({ k: 'challenge', what: 'done', id: c.id, text: DF_CHALLENGES[c.id].text, goal: c.goal })
@@ -448,19 +445,17 @@ export class DfArsenal {
     }
 
     /** Adds to a player's own pool (capped). */
-    private grant(p: SimPlayer, kind: DfSalvageKind, n: number): void {
+    private grant(p: SimPlayer, n: number): void {
         const pool = this.gearOf(p).pool
-        if (kind === 'scrap') pool.scrap = Math.min(DF_SALVAGE.maxScrap, pool.scrap + n)
-        else pool.parts = Math.min(DF_SALVAGE.maxParts, pool.parts + n)
+        pool.scrap = Math.min(DF_SALVAGE.maxScrap, pool.scrap + n)
     }
 
     /** A kill's salvage drops for `owner` (the killer; for a trap or a wipe, the nearest soldier standing). */
     private dropSalvage(z: SimZombie, owner: SimPlayer | null, bonus: number): void {
         const to = owner ?? this.nearestStanding(z.pos)
         if (!to) return
-        const roll = dfSalvageRoll(z.type, this.host.round, randomFloat, bonus)
-        if (roll.scrap > 0) this.addDrop(to.pid, 'scrap', roll.scrap, z.pos, 0)
-        if (roll.parts > 0) this.addDrop(to.pid, 'part', roll.parts, z.pos, roll.scrap > 0 ? 0.5 : 0)
+        const scrap = dfSalvageRoll(z.type, this.host.round, randomFloat, bonus, this.host.players.length)
+        if (scrap > 0) this.addDrop(to.pid, scrap, z.pos)
         // the rare find: a supply crate with a bench item in it
         if (this.rng.chance(DF_CRATE.chance * dfSalvageFade(this.host.round))) this.addCrate(to.pid, this.rng.pick(DF_CRATE.items), z.pos)
     }
@@ -535,21 +530,19 @@ export class DfArsenal {
         return best
     }
 
-    private addDrop(owner: number, kind: DfSalvageKind, n: number, at: Vec3, offset: number): void {
-        const a = randomFloat() * Math.PI * 2
-        const x = at.x + Math.cos(a) * offset
-        const z = at.z + Math.sin(a) * offset
+    private addDrop(owner: number, n: number, at: Vec3): void {
+        const { x, z } = at
         const g = dfGroundHeight(this.host.world, x, z, at.y + 0.5)
         const y = Math.abs(g - at.y) < 1 ? g : at.y
         // each player's oldest drop rusts away first once they have too many lying about
         const theirs = this.drops.filter(d => d.owner === owner)
         if (theirs.length >= DF_SALVAGE.maxOnGround) this.drops.splice(this.drops.indexOf(theirs[0]!), 1)
-        this.drops.push({ id: this.nextId++, owner, kind, n, pos: { x, y, z }, expiresAt: this.host.time + DF_SALVAGE.life })
+        this.drops.push({ id: this.nextId++, owner, n, pos: { x, y, z }, expiresAt: this.host.time + DF_SALVAGE.life })
     }
 
     /** Puts a drop on the ground (tests, dev). */
-    debugDrop(owner: number, kind: DfSalvageKind, n: number, pos: Vec3): number {
-        this.drops.push({ id: this.nextId, owner, kind, n, pos: { ...pos }, expiresAt: this.host.time + DF_SALVAGE.life })
+    debugDrop(owner: number, n: number, pos: Vec3): number {
+        this.drops.push({ id: this.nextId, owner, n, pos: { ...pos }, expiresAt: this.host.time + DF_SALVAGE.life })
         return this.nextId++
     }
 
@@ -723,8 +716,8 @@ export class DfArsenal {
         if (i < 0) return false
         const [d] = this.drops.splice(i, 1)
         if (!d) return false
-        this.grant(p, d.kind, d.n)
-        this.emitTo(p.pid, { k: 'salvage', p: p.pid, kind: d.kind, n: d.n, id: d.id, pos: rv(d.pos) })
+        this.grant(p, d.n)
+        this.emitTo(p.pid, { k: 'salvage', p: p.pid, n: d.n, id: d.id, pos: rv(d.pos) })
         return true
     }
 
@@ -742,14 +735,13 @@ export class DfArsenal {
      */
     mine(pid: number): DfArsenalMine {
         const p = this.host.players.find(q => q.pid === pid)
-        const pool = p ? this.gearOf(p).pool : { scrap: 0, parts: 0 }
+        const pool = p ? this.gearOf(p).pool : { scrap: 0 }
         const t = this.host.time
         const events = this.privateEvents.get(pid) ?? []
         this.privateEvents.delete(pid)
         return {
             scrap: pool.scrap,
-            parts: pool.parts,
-            drops: this.drops.filter(d => d.owner === pid).map(d => ({ id: d.id, kind: d.kind, pos: rv(d.pos), n: d.n, ttl: r2(d.expiresAt - t) })),
+            drops: this.drops.filter(d => d.owner === pid).map(d => ({ id: d.id, pos: rv(d.pos), n: d.n, ttl: r2(d.expiresAt - t) })),
             crates: this.crates.filter(c => c.owner === pid && !this.crateOpen(c)).map(c => this.crateSnap(c, t)),
             events
         }
@@ -940,8 +932,7 @@ export class DfArsenal {
         switch (op.what) {
             case 'salvage': {
                 const pool = this.gearOf(p).pool
-                pool.scrap = DF_SALVAGE.maxScrap
-                pool.parts = DF_SALVAGE.maxParts
+                pool.scrap = 2000
                 return
             }
             case 'support':

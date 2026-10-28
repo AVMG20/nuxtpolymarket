@@ -1,6 +1,6 @@
 <template>
     <svg
-        v-if="name === 'scrap' || name === 'part'"
+        v-if="name === 'scrap'"
         class="df-bench-icon"
         viewBox="0 0 7 7"
         :width="size"
@@ -8,7 +8,7 @@
         shape-rendering="crispEdges"
         aria-hidden="true"
     >
-        <rect v-for="(px, k) in name === 'scrap' ? COG : VALVE" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
+        <rect v-for="(px, k) in COG" :key="k" :x="px[0]" :y="px[1]" :width="px[2]" height="1" />
     </svg>
     <svg v-else class="df-bench-icon" viewBox="0 0 64 64" :width="size" :height="size" aria-hidden="true">
         <!-- Lewis gun on a tripod: the fat cooling shroud, the pan drum on top -->
@@ -94,14 +94,13 @@
 <script setup lang="ts">
 // Hand-drawn icons for the workbench shop: one per recipe and the weapon
 // upgrade, filled with the current colour and accented with `--df-icon-a`
-// (the item's own colour); scrap and rare parts as the HUD's pixel runs.
+// (the item's own colour); scrap as the HUD's pixel cog.
 import type { DfBenchPick } from '~/utils/dead-front/engine/arsenal-prompt'
 
-withDefaults(defineProps<{ name: DfBenchPick | 'scrap' | 'part', size?: number }>(), { size: 48 })
+withDefaults(defineProps<{ name: DfBenchPick | 'scrap', size?: number }>(), { size: 48 })
 
 type Runs = [number, number, number][]
 const COG: Runs = [[2, 0, 3], [0, 1, 7], [1, 2, 2], [4, 2, 2], [0, 3, 2], [5, 3, 2], [1, 4, 2], [4, 4, 2], [0, 5, 7], [2, 6, 3]]
-const VALVE: Runs = [[2, 0, 3], [3, 1, 1], [1, 2, 5], [1, 3, 5], [0, 4, 7], [1, 5, 5], [2, 6, 3]]
 </script>
 
 <style scoped>

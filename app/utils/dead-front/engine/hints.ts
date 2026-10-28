@@ -144,7 +144,7 @@ const RULES: HintRule[] = [
         once: true,
         when: f => f.alive && (f.salvage ?? 0) > 0,
         text: () => 'Salvage builds gear at a workbench',
-        sub: () => 'Your kills drop scrap and rare parts only you can pick up'
+        sub: () => 'Your kills drop scrap only you can pick up'
     }
 ]
 
