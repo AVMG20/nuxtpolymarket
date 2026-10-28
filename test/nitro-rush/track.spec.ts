@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildTrack, checkpoint, corner, finish, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
-import { findTrack, formatLapTime, LapTimer, Track, TRACKS } from '#shared/utils/nitro-rush/track'
+import { findTrack, formatLapTime, LapTimer, Track, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/track'
 
 const oval = new Track(buildTrack(POLYTOWN_OVAL))
 
@@ -74,7 +74,7 @@ describe('oval track', () => {
 
 describe('open course', () => {
     const points: [number, number][] = Array.from({ length: 401 }, (_, i) => [0, -i * 2])
-    const sprint = new Track({ id: 'straight', name: 'Straight', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 })
+    const sprint = new Track({ id: 'straight', name: 'Straight', group: 'sprints', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 })
 
     it('measures end to end without closing back to the start', () => {
         expect(sprint.closed).toBe(false)
@@ -101,7 +101,7 @@ describe('open course', () => {
 })
 
 describe('track blocks', () => {
-    const base = { halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
+    const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
     const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
     const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
     /** A rounded square, short of the first side's straight so line blocks can fill it. */
@@ -151,6 +151,7 @@ describe('track blocks', () => {
 describe('track registry', () => {
     it('has unique ids, and finds courses by them', () => {
         expect(new Set(TRACKS.map(t => t.id)).size).toBe(TRACKS.length)
+        expect(TRACKS.every(t => TRACK_GROUPS.some(g => g.id === t.group))).toBe(true)
         expect(findTrack('polytown-oval')?.name).toBe('Polytown Oval')
         expect(findTrack('nowhere')).toBeNull()
     })

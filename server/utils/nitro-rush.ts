@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushLaps } from '#server/database/schema'
-import { findTrack, Track } from '#shared/utils/nitro-rush/track'
+import { findTrack, Track, TRACKS } from '#shared/utils/nitro-rush/track'
 
 export const NR_LEADERBOARD_TOP = 20
 /** Longer than any honest lap, so a stray clock can't land on the board. */
@@ -21,6 +21,14 @@ export interface NrBoard {
     top: NrBoardRow[]
     /** The viewer's own row, also when it sits below the top list; null before their first lap. */
     me: NrBoardRow | null
+}
+
+/** One course on the track menu: its record and the viewer's own best. */
+export interface NrTrackSummary {
+    trackId: string
+    entries: number
+    record: { name: string, lapMs: number } | null
+    myLapMs: number | null
 }
 
 /** A lap the server will accept: a known course and a time the car could physically set. */
@@ -79,4 +87,33 @@ export async function nrLeaderboard(trackId: string, userId: string): Promise<Nr
         top: rows.filter(r => Number(r.rank) <= NR_LEADERBOARD_TOP).map(toRow),
         me: mine ? toRow(mine) : null
     }
+}
+
+/** Every course in `trackIds` (all of them by default), in that order; a course nobody has driven gets an empty row. */
+export async function nrTrackSummaries(userId: string, trackIds: string[] = TRACKS.map(t => t.id)): Promise<NrTrackSummary[]> {
+    if (!trackIds.length) return []
+    const result = await db.execute(sql`
+        with ranked as (
+            select l.track_id, l.user_id, u.name, l.lap_ms,
+                   row_number() over (partition by l.track_id order by l.lap_ms asc, l.set_at asc, l.user_id collate "C")::int as rank,
+                   count(*) over (partition by l.track_id)::int as entries
+            from nitro_rush_laps l
+            join "user" u on u.id = l.user_id
+            where l.track_id in (${sql.join(trackIds.map(id => sql`${id}`), sql`, `)})
+        )
+        select track_id, user_id, name, lap_ms, rank, entries
+        from ranked
+        where rank = 1 or user_id = ${userId}
+    `)
+    const rows = result.rows as { track_id: string, user_id: string, name: string, lap_ms: number, rank: number, entries: number }[]
+    return trackIds.map((trackId) => {
+        const top = rows.find(r => r.track_id === trackId && Number(r.rank) === 1)
+        const mine = rows.find(r => r.track_id === trackId && r.user_id === userId)
+        return {
+            trackId,
+            entries: top ? Number(top.entries) : 0,
+            record: top ? { name: top.name, lapMs: Number(top.lap_ms) } : null,
+            myLapMs: mine ? Number(mine.lap_ms) : null
+        }
+    })
 }

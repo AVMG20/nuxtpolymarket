@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
-import { nrLeaderboard, submitNrLap, validLap } from '#server/utils/nitro-rush'
+import { nrLeaderboard, nrTrackSummaries, submitNrLap, validLap } from '#server/utils/nitro-rush'
 
 const tag = Date.now().toString(36)
 const A = `nr-a-${tag}`
@@ -52,5 +52,13 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
         expect(board.me?.rank).toBe(2)
         await submitNrLap(B, TRACK, 25_000)
         expect((await nrLeaderboard(TRACK, B)).me?.rank).toBe(1)
+    })
+
+    it('sums up each course with its record and the viewer\'s own best', async () => {
+        const EMPTY = `${TRACK}-empty`
+        const [track, empty] = await nrTrackSummaries(A, [TRACK, EMPTY])
+        expect(track).toEqual({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000 }, myLapMs: 26_900 })
+        expect(empty).toEqual({ trackId: EMPTY, entries: 0, record: null, myLapMs: null })
+        expect((await nrTrackSummaries(B, [TRACK]))[0]!.myLapMs).toBe(25_000)
     })
 })

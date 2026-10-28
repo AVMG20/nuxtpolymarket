@@ -18,9 +18,18 @@
 
 import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT } from './layout'
 
+export type TrackGroup = 'circuits' | 'sprints'
+
+/** Menu categories, in menu order. */
+export const TRACK_GROUPS: readonly { id: TrackGroup, name: string, blurb: string }[] = [
+    { id: 'circuits', name: 'Circuits', blurb: 'Loops: lap as long as you like' },
+    { id: 'sprints', name: 'Sprints', blurb: 'Point to point, start to finish' }
+]
+
 export interface TrackDef {
     id: string
     name: string
+    group: TrackGroup
     points: [number, number][]
     halfWidth: number
     /** Centreline to the face of the wall. */

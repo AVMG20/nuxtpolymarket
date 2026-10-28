@@ -12,7 +12,7 @@ const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0,
 function sprintDef(): TrackDef {
     const points: [number, number][] = []
     for (let z = 0; z >= -800; z -= 2) points.push([Math.sin(-z / 800 * Math.PI * 2) * 30, z])
-    return { id: 'test-sprint', name: 'Test Sprint', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 }
+    return { id: 'test-sprint', name: 'Test Sprint', group: 'sprints', points, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150 }
 }
 const sprint = new Track(sprintDef())
 

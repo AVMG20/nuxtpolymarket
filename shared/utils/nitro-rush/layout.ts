@@ -1,5 +1,5 @@
 // Type-only: track.ts builds its registry from this file, so a runtime import would be circular.
-import type { TrackDef } from './track'
+import type { TrackDef, TrackGroup } from './track'
 
 /**
  * Courses built from blocks, the way a track builder lays them: each piece
@@ -21,6 +21,7 @@ export type TrackPiece =
 export interface TrackLayout {
     id: string
     name: string
+    group: TrackGroup
     halfWidth: number
     /** Centreline to the face of the wall. */
     wallOffset: number
@@ -112,7 +113,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     }
     const sAt = (at: number) => cum[(at - shift + points.length) % points.length]!
     const startS = sAt(startAt)
-    const def: TrackDef = { id: layout.id, name: layout.name, points, halfWidth: layout.halfWidth, wallOffset: layout.wallOffset }
+    const def: TrackDef = { id: layout.id, name: layout.name, group: layout.group, points, halfWidth: layout.halfWidth, wallOffset: layout.wallOffset }
     let finishS = Infinity
     if (!closed) {
         finishS = sAt(lines.find(l => l.type === 'finish')!.at)
@@ -134,6 +135,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
 export const POLYTOWN_OVAL: TrackLayout = {
     id: 'polytown-oval',
     name: 'Polytown Oval',
+    group: 'circuits',
     halfWidth: 9,
     wallOffset: 10.6,
     origin: { x: 75, z: LINE_BLOCK_LENGTH / 2, heading: 0 },
@@ -155,6 +157,7 @@ export const POLYTOWN_OVAL: TrackLayout = {
 export const S_BEND_SPRINT: TrackLayout = {
     id: 's-bend-sprint',
     name: 'S-Bend Sprint',
+    group: 'sprints',
     halfWidth: 9,
     wallOffset: 10.6,
     closed: false,
