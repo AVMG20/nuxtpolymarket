@@ -410,6 +410,8 @@ describe('salvage: the match', () => {
     it('a barrage bought at the bench lands where it\'s called, friendly-safe, once', () => {
         const { sim } = makeSim(2)
         const [p, mate] = sim.players
+        // no power-up drops: a Nuke from the horde would add its own explosion
+        ;(sim as unknown as { powerupsThisRound: number }).powerupsThisRound = Infinity
         const bench = dfInteractables(sim.map).find(i => i.kind === 'bench')!
         const home = { ...p!.pos }
         p!.pos = { ...bench.pos }

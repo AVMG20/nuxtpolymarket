@@ -34,6 +34,8 @@ describe('the bomber run', () => {
         const { sim } = makeSim(2)
         const [p, mate] = sim.players
         sim.dev(0, { k: 'hold', on: true })
+        // no power-up drops: a Nuke from a carpeted brute would take the zombie outside too
+        ;(sim as unknown as { powerupsThisRound: number }).powerupsThisRound = Infinity
         sim.arsenal.debugSupport(p!, 'bomber')
         const at = { x: p!.pos.x, y: 0, z: p!.pos.z - 14 }
         mate!.pos = { ...at }
