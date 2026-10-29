@@ -1,3 +1,4 @@
+import { dfUnpackSnapshot } from '#shared/utils/dead-front/protocol'
 import type { DfClientMsg, DfServerMsg } from '#shared/utils/dead-front/protocol'
 
 // The one socket a Dead Front tab holds (lobby + match). The public API
@@ -138,6 +139,8 @@ export class DfNet {
             return
         }
         if (msg.t === 'pong') this.onPong(msg.at)
+        // zombies arrive packed: every listener gets them as objects
+        else if (msg.t === 'snap') dfUnpackSnapshot(msg.s)
         const set = this.handlers.get(msg.t)
         if (!set) return
         for (const h of set) {

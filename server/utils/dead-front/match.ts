@@ -1,5 +1,6 @@
 import { DF_RECONNECT_GRACE, DF_TICK_HZ } from '#shared/utils/dead-front/constants'
 import { DF_MAP } from '#shared/utils/dead-front/map'
+import { dfPackZombie } from '#shared/utils/dead-front/protocol'
 import type { DfClientMsg, DfMatchEnd, DfMatchStart, DfServerMsg } from '#shared/utils/dead-front/protocol'
 import type { DfProfileView, DfProgressReport } from '#shared/utils/dead-front/types'
 import { DF_WEAPON_IDS, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
@@ -42,6 +43,9 @@ let matchSeq = 0
 const MAX_CATCH_UP = 0.6
 /** Steps per callback while catching up: one snapshot carries them all, so clients see a single longer tick. */
 const MAX_STEPS_PER_TICK = 4
+const TICK_MS = 1000 / DF_TICK_HZ
+/** A timer may fire this many ms before its deadline (timer clocks are coarser than Date.now). */
+const EARLY_MS = 2
 
 /**
  * Resolves a profile into the simulation's player setup (sanitised attachments,
@@ -63,10 +67,13 @@ export class DfMatch {
     readonly sim: DfMatchSim
     private readonly players: MatchPlayer[]
     private readonly hooks: DfMatchHooks
-    private timer: ReturnType<typeof setInterval> | null = null
-    private lastTickAt = 0
-    /** Seconds of wall time not yet simulated. */
-    private tickDebt = 0
+    private timer: ReturnType<typeof setTimeout> | null = null
+    /** Wall time (ms) the next step is due; 0 while the world is held (the next step runs at once). */
+    private nextDue = 0
+    /** Wall time (ms) of stream-clock zero, set by the first step. */
+    private streamAt = 0
+    /** Stream clock (seconds) of the last step: sim time plus the wall time the world was held or dropped. */
+    private clk = 0
     private finished = false
     private lastRound = 0
 
@@ -90,7 +97,7 @@ export class DfMatch {
         const sim = new DfMatchSim(setups)
         const players = members.map((m, i): MatchPlayer => ({ userId: m.userId, name: m.name, pid: i, applied: false, progress: null, gone: false, graceTimer: null }))
         const match = new DfMatch(`m${Date.now().toString(36)}${(++matchSeq).toString(36)}`, sim, players, hooks)
-        match.timer = setInterval(() => match.tickOnce(), 1000 / DF_TICK_HZ)
+        match.schedule(TICK_MS)
         return match
     }
 
@@ -220,36 +227,58 @@ export class DfMatch {
         return p.progress
     }
 
-    private tickOnce(): void {
+    private schedule(ms: number): void {
         if (this.finished) return
+        this.timer = setTimeout(() => {
+            this.timer = null
+            this.schedule(this.tickOnce())
+        }, Math.max(0, Math.min(TICK_MS, ms)))
+    }
+
+    /**
+     * Runs the steps that are due and returns the ms until the next one. The
+     * loop wakes for each step's deadline instead of on a fixed interval:
+     * setInterval drifts a little late every callback, so steps bunched into a
+     * double step every few seconds and the snapshots wobbled half a tick
+     * around wall time, which clients measure as jitter and widen their
+     * render delay for.
+     */
+    private tickOnce(): number {
+        if (this.finished) return TICK_MS
         const sim = this.sim
         // Nobody connected, the solo player paused, or their line stalled: hold the world still.
         if (sim.connectedCount === 0 || sim.paused || sim.soloStalled) {
-            this.lastTickAt = 0
-            return
+            this.nextDue = 0
+            return TICK_MS
         }
-        // Fixed steps driven by the wall clock: on a busy host setInterval fires late, and
-        // stepping once per callback would let the sim (and the snapshot clock clients
-        // interpolate on) fall behind real time, which reads as stuttering zombies.
-        // A host stall of up to MAX_CATCH_UP is made up for (a few steps per callback, so it never
-        // spirals); time beyond it is dropped. Losing time would shift the snapshot clock clients
-        // sync to, and every spike on a weak server would cost them a re-sync.
+        // Fixed steps on wall-clock deadlines: a late callback runs every step that is due,
+        // so the sim (and the snapshot clock clients interpolate on) never falls behind real
+        // time. A host stall of up to MAX_CATCH_UP is made up for (a few steps per callback, so
+        // it never spirals); time beyond it is dropped, like time the world is held.
         const dt = 1 / DF_TICK_HZ
         const now = Date.now()
-        this.tickDebt = Math.min(MAX_CATCH_UP, this.tickDebt + (this.lastTickAt ? Math.max(0, now - this.lastTickAt) / 1000 : dt))
-        this.lastTickAt = now
+        if (!this.nextDue) this.nextDue = now
+        if (now - this.nextDue > MAX_CATCH_UP * 1000) this.nextDue = now - MAX_CATCH_UP * 1000
+        if (this.nextDue - now > TICK_MS * 2) {
+            // the system clock was set back: carry on from now, the stream clock with it
+            this.streamAt -= this.nextDue - now
+            this.nextDue = now
+        }
+        if (!this.streamAt) this.streamAt = this.nextDue - sim.time * 1000
         let steps = 0
-        // Half a tick of tolerance keeps a callback that fires a hair early from skipping a step.
-        while (this.tickDebt >= dt * 0.5 && steps < MAX_STEPS_PER_TICK) {
+        while (now >= this.nextDue - EARLY_MS && steps < MAX_STEPS_PER_TICK) {
             try {
                 sim.step(dt)
             } catch (e) {
                 console.error('[dead-front] tick failed', e)
             }
-            this.tickDebt -= dt
+            // the stream clock runs on the step's deadline: held or dropped time moves it on,
+            // so clients map it onto the sim clock instead of re-syncing to a shifted one
+            this.clk = (this.nextDue - this.streamAt) / 1000 + dt
+            this.nextDue += TICK_MS
             steps++
         }
-        if (steps === 0) return
+        if (steps === 0) return this.nextDue - now
         try {
             this.broadcastSnapshot()
         } catch (e) {
@@ -260,12 +289,17 @@ export class DfMatch {
             this.hooks.onRound?.(sim.round)
         }
         if (sim.over) void this.finish()
+        // still behind after a full batch: catch up over the next callbacks, a tick apart
+        return steps === MAX_STEPS_PER_TICK ? TICK_MS : this.nextDue - now
     }
 
     private broadcastSnapshot(): void {
-        const shared = JSON.stringify(this.sim.snapshot())
+        const snap = this.sim.snapshot()
+        // zombies go packed (`DfWireZombie`): they are most of the frame; DfNet unpacks them
+        const wire = { ...snap, zombies: snap.zombies.map(dfPackZombie) }
+        const shared = JSON.stringify(wire)
         // Every player gets the same body; only `ack` differs, appended without re-serialising.
-        const head = `{"t":"snap","s":${shared.slice(0, -1)},"ack":`
+        const head = `{"t":"snap","s":${shared.slice(0, -1)},"clk":${Math.round(this.clk * 1000) / 1000},"ack":`
         for (const p of this.players) {
             if (p.gone) continue
             // the player's own salvage rides along after `ack`: nobody else sees it
@@ -277,7 +311,7 @@ export class DfMatch {
     async finish(): Promise<void> {
         if (this.finished) return
         this.finished = true
-        if (this.timer) clearInterval(this.timer)
+        if (this.timer) clearTimeout(this.timer)
         this.timer = null
         for (const p of this.players) {
             if (p.graceTimer) clearTimeout(p.graceTimer)

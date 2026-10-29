@@ -15,6 +15,8 @@ import type { Vec3 } from '#shared/utils/dead-front/types'
 // dead-reckon through them.
 
 const MAX_SNAPS = 40
+/** Seconds of snapshots kept behind the render clock (see `trim`). */
+const TRIM_MARGIN = 0.15
 /** Longest extrapolation past the newest snapshot, in seconds (remote players, projectiles). */
 export const DF_MAX_EXTRAPOLATE = 0.25
 /** Zombies dead-reckon along their velocity and are smoothed: they can bridge a whole 300 ms spike plus a tick. */
@@ -139,7 +141,8 @@ export class DfSnapBuffer {
         for (const e of s.players) p.set(e.pid, e)
         this.snaps.push({ s, zombies: z, players: p })
         if (this.snaps.length > MAX_SNAPS) this.snaps.shift()
-        const sample = nowMs - s.time * 1000
+        // the stream clock runs with wall time even across a server hold, so the offset stays put
+        const sample = nowMs - (s.clk ?? s.time) * 1000
         if (this.offset === null) {
             // first snapshot, or a re-sync was asked for
             this.arrivals.length = 0
@@ -201,7 +204,7 @@ export class DfSnapBuffer {
     }
 
     /**
-     * Server time (seconds) to render remote entities at. The clock slews
+     * Server sim time (seconds) to render remote entities at. The clock slews
      * toward the measured offset (5% of real time, 20% when far off) so a
      * re-estimate never steps entities back or forward.
      */
@@ -221,7 +224,29 @@ export class DfSnapBuffer {
                 this.clock += Math.max(-max, Math.min(max, diff))
             }
         }
-        return (nowMs - this.clock - delayMs) / 1000
+        return this.simTime((nowMs - this.clock - delayMs) / 1000)
+    }
+
+    /**
+     * Maps a stream-clock time (seconds, see `DfSnapshot.clk`) onto the sim
+     * clock. The wall time the server held the world sits between two
+     * snapshots as stream time the sim didn't move in: it renders as the world
+     * standing still, exactly as the server ran it. Without `clk` it's the identity.
+     */
+    simTime(r: number): number {
+        for (let i = this.snaps.length - 1; i >= 0; i--) {
+            const s = this.snaps[i]!.s
+            const c = s.clk ?? s.time
+            if (r < c) {
+                if (i > 0) continue
+                return s.time - (c - r)
+            }
+            const next = this.snaps[i + 1]?.s
+            if (!next) return s.time + (r - c)
+            const held = Math.max(0, (next.clk ?? next.time) - c - (next.time - s.time))
+            return Math.min(next.time, s.time + Math.max(0, r - c - held))
+        }
+        return r
     }
 
     /**
@@ -260,9 +285,16 @@ export class DfSnapBuffer {
         return null
     }
 
-    /** Drops snapshots older than `t` minus a margin (keeps at least two). */
+    /**
+     * Drops snapshots older than `t` minus a margin (keeps at least two). The
+     * render clock only moves forward (delay changes and re-syncs slew; the one
+     * jump, after a pause, holds the oldest pair for a moment), so a short
+     * margin is enough. Every snapshot kept longer is garbage that lives long
+     * enough to be promoted to the old generation, whose collections are the
+     * big periodic GC pauses.
+     */
     trim(t: number): void {
-        while (this.snaps.length > 2 && this.snaps[1]!.s.time < t - 1) this.snaps.shift()
+        while (this.snaps.length > 2 && this.snaps[1]!.s.time < t - TRIM_MARGIN) this.snaps.shift()
     }
 }
 

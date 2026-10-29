@@ -133,6 +133,49 @@ export interface DfZombieSnap {
     masked?: boolean
 }
 
+/**
+ * A zombie on the wire: `[id, type, x, y, z, yaw, hp, anim, vx, vy, vz, rest]`.
+ * Half the bytes of the object form, and zombies are most of a snapshot.
+ * The velocity is left off (with `rest`) for a zombie standing still, `rest`
+ * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`)
+ * and is left off when there are none. The match loop packs, `DfNet` unpacks.
+ */
+export type DfWireZombie = [number, DfEnemyType, number, number, number, number, number, DfZombieAnim, number?, number?, number?, Partial<DfZombieSnap>?]
+
+export function dfPackZombie(z: DfZombieSnap): DfWireZombie {
+    let rest: Partial<DfZombieSnap> | null = null
+    for (const k in z) {
+        if (k === 'id' || k === 'type' || k === 'pos' || k === 'yaw' || k === 'hp' || k === 'anim' || k === 'vel') continue
+        const v = z[k as keyof DfZombieSnap]
+        if (v !== undefined) (rest ??= {})[k as 'armored'] = v as boolean
+    }
+    const w: DfWireZombie = [z.id, z.type, z.pos.x, z.pos.y, z.pos.z, z.yaw, z.hp, z.anim]
+    if (z.vel || rest) w.push(z.vel?.x ?? 0, z.vel?.y ?? 0, z.vel?.z ?? 0)
+    if (rest) w.push(rest)
+    return w
+}
+
+export function dfUnpackZombie(w: DfWireZombie): DfZombieSnap {
+    const z: DfZombieSnap = { id: w[0], type: w[1], pos: { x: w[2], y: w[3], z: w[4] }, yaw: w[5], hp: w[6], anim: w[7] }
+    const vx = w[8] ?? 0
+    const vy = w[9] ?? 0
+    const vz = w[10] ?? 0
+    if (vx !== 0 || vy !== 0 || vz !== 0) z.vel = { x: vx, y: vy, z: vz }
+    const rest = w[11]
+    if (rest) Object.assign(z, rest)
+    return z
+}
+
+/** Turns a snapshot's packed zombies (`DfWireZombie`) back into objects, in place. Objects pass through. */
+export function dfUnpackSnapshot(s: DfSnapshot): DfSnapshot {
+    const list = s.zombies as unknown[]
+    for (let i = 0; i < list.length; i++) {
+        const z = list[i]
+        if (Array.isArray(z)) list[i] = dfUnpackZombie(z as DfWireZombie)
+    }
+    return s
+}
+
 /** `mortar`: the lent Granatwerfer's heavy shell. */
 export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit' | 'mortar'
 
@@ -269,6 +312,14 @@ export interface DfSnapshot {
     events: DfEvent[]
     /** Solo only: the player paused (the simulation is frozen). */
     paused?: boolean
+    /**
+     * Stream clock (seconds): `time` plus the wall time the server held the world
+     * (solo stall or pause, nobody connected) or dropped (a long host stall). It
+     * runs with wall time, so clients sync their render clock to it and map it
+     * back onto `time` (a hold renders as the world standing still, not as a
+     * re-sync). Absent outside the match loop: read it as `time`.
+     */
+    clk?: number
     /** Last input seq the server applied for the receiving player. */
     ack: number
     /** The receiving player's own salvage, drops and pickups (nobody else's); see `dfMergeArsenalMine`. */

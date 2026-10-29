@@ -5,6 +5,9 @@ import type { DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
 import { dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { DfMatch } from '#server/utils/dead-front/match'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
+import { dfPackZombie, dfUnpackSnapshot } from '#shared/utils/dead-front/protocol'
+import type { DfSnapshot, DfZombieSnap } from '#shared/utils/dead-front/protocol'
+import { DfSnapBuffer } from '../../app/utils/dead-front/engine/interp'
 
 // The production link: 40-90 ms round trip with jitter and regular 300 ms
 // spikes (TCP: everything sent during a stall lands at once when it ends).
@@ -205,5 +208,91 @@ describe('server tick loop', () => {
         } finally {
             vi.useRealTimers()
         }
+    })
+
+    it('runs the stream clock on through a hold while the sim clock stands still', async () => {
+        vi.useFakeTimers()
+        try {
+            const snaps: DfSnapshot[] = []
+            const profile = {
+                unlockedWeapons: ['m1911'], weaponXp: {}, loadout: { startWeapon: 'm1911', attachments: {} }, researchPerk: null,
+                perkXp: {}, perkMods: {}, gamesPlayed: 0, bestRound: 0, totalKills: 0, eggsCompleted: 0
+            } as const
+            const match = await DfMatch.create([{ userId: 'a', name: 'A' }], {
+                send: (_u, f) => {
+                    if (f.startsWith('{"t":"snap"')) snaps.push(JSON.parse(f).s)
+                },
+                onPlayerGone: () => {},
+                onFinished: () => {},
+                loadProfile: async () => structuredClone(profile) as never,
+                applyResult: async () => ({ perk: null, perkXpGained: 0, perkLevelBefore: 0, perkLevelAfter: 0, weaponXpGained: {}, weaponLevelsUp: {}, newWeapons: [] })
+            })
+            vi.advanceTimersByTime(1000)
+            const before = snaps.length
+            // one snapshot per tick, each one tick on, on both clocks
+            for (let i = 1; i < before; i++) {
+                expect(snaps[i]!.time - snaps[i - 1]!.time).toBeCloseTo(0.05, 3)
+                expect(snaps[i]!.clk).toBeCloseTo(snaps[i]!.time, 3)
+            }
+            match.handle('a', { t: 'pause', paused: true })
+            vi.advanceTimersByTime(700)
+            expect(snaps.length - before).toBeLessThanOrEqual(1)
+            match.handle('a', { t: 'pause', paused: false })
+            vi.advanceTimersByTime(300)
+            const last = snaps[snaps.length - 1]!
+            expect(last.clk! - last.time).toBeCloseTo(0.7, 1)
+            await match.finish()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
+describe('client snapshot clock', () => {
+    const snap = (time: number, clk: number) => ({ time, clk, zombies: [], players: [] }) as unknown as DfSnapshot
+
+    it('renders a server hold as the world standing still, without moving the clock offset', () => {
+        const buf = new DfSnapBuffer()
+        let now = 10_000
+        let t = 0
+        let clk = 0
+        for (let i = 0; i < 40; i++) {
+            buf.push(snap(t += 0.05, clk += 0.05), now += 50)
+            buf.renderTime(now, 100)
+        }
+        const offset = buf.offset
+        // the server holds the world 300 ms (a solo stall), then carries on
+        clk += 0.3
+        now += 300
+        for (let i = 0; i < 10; i++) buf.push(snap(t += 0.05, clk += 0.05), now += 50)
+        expect(buf.offset).toBeCloseTo(offset!, 6)
+        // rendering through the hold: the sim clock stands at the last step before it, then runs on
+        const held = t - 0.5
+        const r = (ms: number) => buf.simTime(clk - ms / 1000)
+        expect(r(500)).toBeCloseTo(held, 6)
+        expect(r(600)).toBeCloseTo(held, 6)
+        expect(r(450)).toBeCloseTo(held + 0.05, 6)
+        expect(r(0)).toBeCloseTo(t, 6)
+        // without a stream clock (a bare sim snapshot) the mapping is the identity
+        const plain = new DfSnapBuffer()
+        plain.push({ time: 1, zombies: [], players: [] } as unknown as DfSnapshot, 0)
+        plain.push({ time: 1.05, zombies: [], players: [] } as unknown as DfSnapshot, 50)
+        expect(plain.simTime(1.02)).toBeCloseTo(1.02, 9)
+    })
+})
+
+describe('snapshot wire format', () => {
+    it('packs zombies and unpacks them to the exact same objects', () => {
+        const zombies: DfZombieSnap[] = [
+            { id: 1, type: 'shambler', pos: { x: 1.25, y: 0, z: -3.5 }, yaw: 0.5, hp: 1, anim: 'walk' },
+            { id: 2, type: 'brute', pos: { x: 0, y: 2.5, z: 0 }, yaw: -3.1, hp: 0.25, anim: 'run', vel: { x: 1.5, y: 0, z: -2 }, armored: false },
+            { id: 3, type: 'ghoul', pos: { x: 4, y: 0, z: 4 }, yaw: 0, hp: 0.5, anim: 'attack', armored: true, shocked: true, tell: 'lunge', crawl: true, masked: true },
+            { id: 4, type: 'bloater', pos: { x: 0, y: 1, z: 0 }, yaw: 1, hp: 0.1, anim: 'climb', vel: { x: 0, y: 1.2, z: 0 } }
+        ]
+        const s = { zombies: JSON.parse(JSON.stringify(zombies.map(dfPackZombie))) } as unknown as DfSnapshot
+        expect(dfUnpackSnapshot(s).zombies).toEqual(zombies)
+        // a bare sim snapshot (objects) passes through untouched
+        const plain = { zombies: structuredClone(zombies) } as unknown as DfSnapshot
+        expect(dfUnpackSnapshot(plain).zombies).toEqual(zombies)
     })
 })
