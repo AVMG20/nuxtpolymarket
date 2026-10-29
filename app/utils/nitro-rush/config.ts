@@ -112,3 +112,6 @@ export const PAINTS = [
 ] as const
 
 export type PaintId = typeof PAINTS[number]['id']
+
+/** An unknown id (a stale stored choice) falls back to the first paint. */
+export const findPaint = (id: string) => PAINTS.find(p => p.id === id) ?? PAINTS[0]
