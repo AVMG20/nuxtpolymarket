@@ -546,6 +546,30 @@ export const firewallRuns = pgTable('firewall_runs', {
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
+// ─── RIFTBORN ────────────────────────────────────────────────────────────
+
+// Rift XP (the account level), achievements, the skill tree and the lock of
+// the run in progress. The run itself is simulated on the client: `runId` is
+// the claim a finish clears, `runStartedAt` caps what it can count, and
+// `runSkills` freezes the tree the run deployed with.
+export const riftbornState = pgTable('riftborn_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  xp: integer('xp').notNull().default(0),
+  achievements: jsonb('achievements').$type<string[]>().notNull().default([]),
+  skills: jsonb('skills').$type<Record<string, number>>().notNull().default({}),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  bestTime: integer('best_time').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestLevel: integer('best_level').notNull().default(0),
+  totalKills: integer('total_kills').notNull().default(0),
+  runId: text('run_id'),
+  runClass: text('run_class'),
+  runStartedAt: timestamp('run_started_at'),
+  runSkills: jsonb('run_skills').$type<Record<string, number>>()
+})
+
 // ─── HACKERZ ─────────────────────────────────────────────────────────────
 
 // Firewall's 3D successor, run as a game of its own: same shape of account
