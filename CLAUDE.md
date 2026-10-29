@@ -16,7 +16,7 @@ A play-money gaming site. Players earn and spend **coins** (`user.balance`) and 
 - `server/api/`: Nitro file routes (`*.get.ts`, `*.post.ts`); shared logic lives in `server/utils/`
 - `shared/`: code used by both client and server (game rules, payouts, random)
 - `content/changelog/`: the player-facing changelog
-- `scripts/`: economy balance simulations (`bun run balance:*`)
+- `scripts/`: balance simulations and one-off tools, run directly with `bun scripts/<name>.ts` (no `package.json` entries)
 
 ## Client
 

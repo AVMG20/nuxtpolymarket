@@ -35,7 +35,7 @@
 //
 // ── Fairness ────────────────────────────────────────────────────────────────
 //   Total win is capped at EP_MAX_WIN_MULT × bet; the feature stops early at
-//   the cap. Tuned with `bun run balance:emberportals`.
+//   the cap. Tuned with `bun scripts/slot-rtp.ts emberportals`.
 
 import { randomFloat } from '../random'
 

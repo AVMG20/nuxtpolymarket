@@ -1,9 +1,9 @@
 // Hero Quest art exporter.
 //
-//   bun run art:hero-quest                         export every asset to public/hero-quest/sprites/
-//   bun run art:hero-quest --out <dir>             …somewhere else
-//   bun run art:hero-quest sheet <out.png> <group> [id-prefix…] [--scale N] [--max N]
-//                                                  one review contact sheet: a row per asset
+//   bun scripts/hero-quest-art.ts                         export every asset to public/hero-quest/sprites/
+//   bun scripts/hero-quest-art.ts --out <dir>             …somewhere else
+//   bun scripts/hero-quest-art.ts sheet <out.png> <group> [id-prefix…] [--scale N] [--max N]
+//                                                         one review contact sheet: a row per asset
 //
 // Each asset exports as one horizontal strip, `<id>.png` (frames left to right at the frame
 // size), written as an indexed PNG on the game palette. `manifest.json` lists every strip

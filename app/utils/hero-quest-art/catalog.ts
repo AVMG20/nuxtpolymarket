@@ -1,7 +1,7 @@
 // Every Hero Quest art asset, in one registry.
 //
 // An entry is a frame size, a frame count and a render function. The in-app gallery, the PNG
-// exporter (`bun run art:hero-quest`) and the coverage spec all read this list, so an asset
+// exporter (`bun scripts/hero-quest-art.ts`) and the coverage spec all read this list, so an asset
 // that exists here exists everywhere and one that is missing fails the spec.
 //
 // IDs are paths — `hero/class_warrior/attack` — and become the exported file names.

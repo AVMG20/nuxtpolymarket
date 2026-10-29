@@ -28,7 +28,7 @@
 //
 // ── Fairness ─────────────────────────────────────────────────────────────────
 //   Both modes are tuned to PM_TARGET_RTP and must stay inside
-//   PM_RTP_BAND. `bun run balance:polymasters` measures both modes with the
+//   PM_RTP_BAND. `bun scripts/polymasters-rtp.ts` measures both modes with the
 //   production play function and fails when either leaves the band;
 //   `--tune` re-solves the rocket (normal) and multiplier (safe) weights.
 
@@ -114,7 +114,7 @@ export interface PmModeConfig {
     startLevel: number
 }
 
-// `rocket` (normal) and `mul` (safe) are solved by `bun run balance:polymasters
+// `rocket` (normal) and `mul` (safe) are solved by `bun scripts/polymasters-rtp.ts
 // --tune` for PM_TARGET_RTP; landChance is set for a ~40% hit rate. Everything
 // else is design.
 export const PM_NORMAL: PmModeConfig = {
