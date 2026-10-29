@@ -101,7 +101,7 @@
                     </span>
                     <span v-else-if="!m.away" class="df-awaiting">awaiting</span>
                 </li>
-                <li v-for="n in 4 - lobby.members.length" :key="`empty-${n}`" class="df-line vacant">
+                <li v-for="n in Math.max(0, DF_MAX_PLAYERS - lobby.members.length)" :key="`empty-${n}`" class="df-line vacant">
                     <span class="df-line-no">{{ lobby.members.length + n }}.</span>
                     <span class="flex-1">— vacant —</span>
                 </li>
