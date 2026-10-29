@@ -103,7 +103,9 @@ function loadout(): HackerzLoadout {
   }
 }
 
-const n = (value: number) => String(value)
+// Fixed precision: the platforms' Math.sin/cos/atan2 differ in the last bit,
+// and this hash is after reordering, not float drift.
+const n = (value: number) => value.toFixed(3)
 
 /**
  * Plays `seconds` of `wave` (as the bonus round `event`, if given) on a fresh
@@ -168,19 +170,19 @@ afterAll(() => {
 
 describe('the hackerz engine, replayed', () => {
   it('plays a wave exactly as it did', async () => {
-    expect(await play(3, 40)).toEqual({ hash: '73f7d361569c1bf4', kills: 55, wallHp: 6000 })
+    expect(await play(3, 40)).toEqual({ hash: '019db90981f70051', kills: 55, wallHp: 6000 })
   })
 
   it('plays a ROOTKIT wave exactly as it did', async () => {
-    expect(await play(5, 40)).toEqual({ hash: 'afdbf189b44e1047', kills: 71, wallHp: 5861 })
+    expect(await play(5, 40)).toEqual({ hash: '76442b542c2fd22f', kills: 71, wallHp: 5861 })
   })
 
   it('plays a BLACK ICE wave exactly as it did', async () => {
-    expect(await play(10, 40)).toEqual({ hash: '7983382f38eb30bc', kills: 51, wallHp: 5371 })
+    expect(await play(10, 40)).toEqual({ hash: 'a1e4e5257154b5e9', kills: 51, wallHp: 5371 })
   })
 
   it('plays a PACKET LOSS round exactly as it did', async () => {
-    expect(await play(8, 30, 'packetloss')).toEqual({ hash: 'b62e517cc0b94308', kills: 12, wallHp: 5581 })
+    expect(await play(8, 30, 'packetloss')).toEqual({ hash: '507c76972eeb46c4', kills: 12, wallHp: 5581 })
   })
 
   it('plays a PACKET LOSS round the same whatever the cosmetic rolls', async () => {
