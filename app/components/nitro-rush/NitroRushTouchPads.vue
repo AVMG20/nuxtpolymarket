@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Control } from '~/utils/nitro-rush/types'
 
-/** Steering pads and a brake pedal; the gas is held for the player. */
+/** Steering pads and a pedal that brakes, or drifts with the wheel turned; the gas is held for the player. */
 defineEmits<{ control: [control: Control, down: boolean] }>()
 </script>
 
@@ -24,12 +24,12 @@ defineEmits<{ control: [control: Control, down: boolean] }>()
     <button
       class="nr-pad nr-pad-brake"
       aria-label="Brake and drift"
-      @pointerdown.prevent="$emit('control', 'brake', true)"
-      @pointerup="$emit('control', 'brake', false)"
-      @pointercancel="$emit('control', 'brake', false)"
-      @pointerleave="$emit('control', 'brake', false)"
+      @pointerdown.prevent="$emit('control', 'drift', true)"
+      @pointerup="$emit('control', 'drift', false)"
+      @pointercancel="$emit('control', 'drift', false)"
+      @pointerleave="$emit('control', 'drift', false)"
     >
-      <span>BRAKE<br><small>+ STEER: DRIFT</small></span>
+      <span>BRAKE<br><small>HOLD + STEER: DRIFT</small></span>
     </button>
   </div>
 </template>

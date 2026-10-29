@@ -8,7 +8,7 @@ import { POLYTOWN_OVAL, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 const track = new Track(buildTrack(POLYTOWN_OVAL))
 const DT = 1 / PHYSICS_HZ
-const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, ...o })
+const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0, steer: 0, drift: false, ...o })
 
 /** An 800 m point-to-point sprint with a gentle S in it. */
 function sprintDef(): TrackDef {
@@ -53,80 +53,102 @@ describe('car physics', () => {
         expect(car.speed).toBeGreaterThan(0)
     })
 
-    it('drifts on brake plus steer at speed, and banks nitro when it straightens out', () => {
-        // Walls far out of reach, so this tests the drift and not a driving line.
-        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
-        const car = createCar(track, 0)
-        car.speed = 40
-        const started = stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
-        // The wheel eases in, so the drift waits until it is turned far enough.
-        expect(started.driftStarted).toBe(false)
-        let began = false
-        for (let i = 0; i < PHYSICS_HZ && !began; i++) began = stepCar(car, input({ brake: 1, steer: -1 }), track, DT).driftStarted
-        expect(began).toBe(true)
-        expect(car.drifting).toBe(true)
-        expect(car.driftDir).toBe(1)
-        for (let i = 0; i < PHYSICS_HZ * 1.2; i++) stepCar(car, input({ throttle: 1, steer: -0.6 }), track, DT)
-        let ended = 0
-        let earned = 0
-        for (let i = 0; i < PHYSICS_HZ * 3 && car.drifting; i++) {
-            const ev = stepCar(car, input({ throttle: 1, steer: 1 }), track, DT)
-            ended = ev.driftEnded
-            earned = ev.nitroEarned
-        }
-        expect(car.drifting).toBe(false)
-        expect(ended).toBeGreaterThan(1)
-        expect(earned).toBeGreaterThan(0)
-        expect(car.nitro).toBeCloseTo(earned)
-    })
-
-    it('lets a drift fade over a couple of seconds with the wheel let go, and ends it quickly on countersteer', () => {
-        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
+    describe('drifting', () => {
+        // Walls far out of reach, so these test the drift and not a driving line.
+        const open = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
+        /** A car thrown into a left drift with the button held. */
         const drifting = () => {
-            const car = createCar(track, 0)
+            const car = createCar(open, 0)
             car.speed = 45
-            for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
-            for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ throttle: 1, steer: -1 }), track, DT)
+            for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT)
             expect(car.drifting).toBe(true)
             return car
         }
-        const timeToEnd = (steer: number) => {
-            const car = drifting()
-            let t = 0
-            let earned = 0
-            while (car.drifting && t < 5) {
-                earned = stepCar(car, input({ throttle: 1, steer }), track, DT).nitroEarned
-                t += DT
-            }
-            expect(car.drifting).toBe(false)
-            expect(earned).toBeGreaterThan(0)
-            return t
-        }
-        const letGo = timeToEnd(0)
-        expect(letGo).toBeGreaterThan(1.5)
-        expect(letGo).toBeLessThan(3)
-        expect(timeToEnd(1)).toBeLessThan(0.6)
-    })
 
-    it('holds a drift while the wheel is kept or tapped into it', () => {
-        const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
-        for (const tapped of [false, true]) {
+        it('starts on the drift button with the wheel turned, lasts while it is held and banks nitro on release', () => {
+            const car = createCar(open, 0)
+            car.speed = 40
+            // The wheel eases in, so the drift waits until it is turned far enough.
+            expect(stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted).toBe(false)
+            let began = false
+            for (let i = 0; i < PHYSICS_HZ && !began; i++) began = stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted
+            expect(began).toBe(true)
+            expect(car.driftDir).toBe(1)
+            for (let i = 0; i < PHYSICS_HZ * 2; i++) stepCar(car, input({ throttle: 1, drift: true }), open, DT)
+            expect(car.drifting).toBe(true)
+            const ev = stepCar(car, input({ throttle: 1 }), open, DT)
+            expect(car.drifting).toBe(false)
+            expect(ev.driftEnded).toBeGreaterThan(2)
+            expect(ev.nitroEarned).toBeGreaterThan(0)
+            expect(car.nitro).toBeCloseTo(ev.nitroEarned)
+        })
+
+        it('never starts on the brake alone', () => {
+            const car = createCar(open, 0)
+            car.speed = 40
+            for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ brake: 1, steer: -1 }), open, DT)
+            expect(car.drifting).toBe(false)
+        })
+
+        it('lets the wheel tighten or widen the line without ending the drift', () => {
+            const slipAfter = (steer: number) => {
+                const car = drifting()
+                for (let i = 0; i < PHYSICS_HZ * 1.5; i++) stepCar(car, input({ throttle: 1, drift: true, steer }), open, DT)
+                expect(car.drifting).toBe(true)
+                return Math.abs(slipAngle(car))
+            }
+            const tight = slipAfter(-1)
+            const middle = slipAfter(0)
+            const wide = slipAfter(1)
+            expect(tight).toBeGreaterThan(middle + 0.15)
+            expect(middle).toBeGreaterThan(wide + 0.15)
+            expect(wide).toBeGreaterThan(0.15)
+        })
+
+        it('keeps the brakes off mid-drift, so the touch pedal can hold one', () => {
+            const speedAfter = (brake: number) => {
+                const car = drifting()
+                for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ throttle: 1, brake, drift: true }), open, DT)
+                return car.speed
+            }
+            expect(speedAfter(1)).toBeCloseTo(speedAfter(0))
+        })
+
+        it('needs the button let go before the next drift once one breaks', () => {
+            const car = drifting()
+            car.speed = DRIFT_MIN_SPEED * 0.5
+            expect(stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftEnded).toBeGreaterThan(0)
+            car.speed = 40
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ drift: true, steer: -1 }), open, DT)
+            expect(car.drifting).toBe(false)
+            stepCar(car, input({ steer: -1 }), open, DT)
+            expect(stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted).toBe(true)
+        })
+
+        it('drifts again after a release of a single step', () => {
+            const car = drifting()
+            expect(stepCar(car, input({ throttle: 1, steer: -1 }), open, DT).driftEnded).toBeGreaterThan(0)
+            expect(stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT).driftStarted).toBe(true)
+        })
+
+        it('needs the button let go after a hard wall hit breaks the drift', () => {
             const car = createCar(track, 0)
             car.speed = 45
-            for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
-            for (let i = 0; i < PHYSICS_HZ * 2; i++) {
-                const on = !tapped || i % 48 < 30
-                stepCar(car, input({ throttle: 1, steer: on ? -1 : 0 }), track, DT)
+            let broke = false
+            for (let i = 0; i < PHYSICS_HZ * 3 && !broke; i++) {
+                const ev = stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), track, DT)
+                broke = ev.driftEnded > 0 && ev.nitroEarned === 0
             }
-            expect(car.drifting).toBe(true)
-        }
-    })
+            expect(broke).toBe(true)
+            expect(car.driftSpent).toBe(true)
+        })
 
-    it('never drifts below the minimum speed', () => {
-        const car = createCar(track, 0)
-        car.speed = DRIFT_MIN_SPEED - 2
-        for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ handbrake: true, steer: -1 }), track, DT)
-        expect(car.drifting).toBe(false)
+        it('never starts below the minimum speed', () => {
+            const car = createCar(track, 0)
+            car.speed = DRIFT_MIN_SPEED - 2
+            for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ drift: true, steer: -1 }), track, DT)
+            expect(car.drifting).toBe(false)
+        })
     })
 
     it('fires nitro only from a full meter, once at a time', () => {
@@ -218,7 +240,7 @@ describe('a keyboard drift round a spiral', () => {
     const from = helix.cum[helix.curvature.findIndex(k => Math.abs(k - 1 / 36) < 0.004)]!
     const length = Math.PI / 2 * 36 * 5
 
-    it('holds one drift all the way round by tapping in and letting go, a few times a second at most', () => {
+    it('holds one drift all the way round with the button held, tapping the line tighter or wider a few times a second at most', () => {
         const car = createCar(helix, from - 60)
         car.speed = 30
         let key = 0
@@ -233,10 +255,10 @@ describe('a keyboard drift round a spiral', () => {
                 steer = Math.max(-1, Math.min(1, -(wrapAngle(tan - car.travel) - car.proj.lateral * 0.04) * 3))
                 throttle = car.speed < 30 ? 1 : 0
             } else if (!started) {
-                started = stepCar(car, input({ throttle: 1, brake: 1, steer: 1 }), helix, DT).driftStarted
+                started = stepCar(car, input({ throttle: 1, drift: true, steer: 1 }), helix, DT).driftStarted
                 continue
             } else {
-                // Tap in while the slide is too shallow for the line, tap out when far too deep, otherwise let go; keys change at most every 0.3 s.
+                // Tap in while the slide is too shallow for the line, away when too deep, otherwise centre the wheel; keys change at most every 0.3 s.
                 const want = Math.max(0, car.speed / 36 + 2 * wrapAngle(car.travel - tan) - 0.025 * car.proj.lateral) / 1.5
                 const slip = Math.abs(slipAngle(car))
                 const next = slip < want - 0.02 ? 1 : slip > want + 0.15 ? -1 : 0
@@ -248,7 +270,7 @@ describe('a keyboard drift round a spiral', () => {
                 steer = key
                 expect(car.drifting).toBe(true)
             }
-            if (stepCar(car, input({ throttle, steer }), helix, DT).wallImpact > 0) hits++
+            if (stepCar(car, input({ throttle, steer, drift: started }), helix, DT).wallImpact > 0) hits++
         }
         expect(started).toBe(true)
         expect(car.proj.s).toBeGreaterThan(from + length)

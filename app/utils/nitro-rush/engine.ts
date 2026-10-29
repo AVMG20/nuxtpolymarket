@@ -6,6 +6,7 @@ import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
+import { carInput } from './input'
 import { RushPost } from './post'
 import { AdaptiveResolution } from './resolution'
 import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
@@ -63,7 +64,8 @@ export class NitroRushEngine {
     private sessionBest: number | null = null
     /** Runs started this session, for the sprint HUD. */
     private runs = 0
-    private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, handbrake: false }
+    private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false }
+    private touch = false
     private nitroReadyAnnounced = false
     private wrongWayTime = 0
     private lastLap: number | null = null
@@ -164,6 +166,11 @@ export class NitroRushEngine {
 
     setControl(c: Control, down: boolean) {
         this.controls[c] = down
+    }
+
+    /** Touch play holds the gas for the player. */
+    setTouch(touch: boolean) {
+        this.touch = touch
     }
 
     releaseControls() {
@@ -317,11 +324,6 @@ export class NitroRushEngine {
         this.render(dt)
     }
 
-    private input(): CarInput {
-        const c = this.controls
-        return { throttle: c.throttle ? 1 : 0, brake: c.brake ? 1 : 0, steer: (c.right ? 1 : 0) - (c.left ? 1 : 0), handbrake: c.handbrake }
-    }
-
     private update(dt: number) {
         if (this.phase === 'countdown') {
             this.countdown -= dt
@@ -379,7 +381,7 @@ export class NitroRushEngine {
             }
         }
         const racing = this.phase === 'racing'
-        const slide = tyreSlide(s, this.controls, racing)
+        const slide = tyreSlide(s, this.playerInput(), racing)
         this.audio.skid(racing || this.phase === 'finished' ? slide * Math.min(1, Math.abs(s.speed) / 12) : 0)
         this.fx.tyres(dt, s, slide)
 
@@ -392,10 +394,14 @@ export class NitroRushEngine {
         this.fx.update(dt, this.car.group.position, s.nitroTime > 0)
     }
 
+    private playerInput() {
+        return carInput(this.controls, this.touch, this.state.drifting)
+    }
+
     private stepInput(): CarInput {
-        if (this.phase === 'racing') return this.input()
+        if (this.phase === 'racing') return this.playerInput()
         // Past the finish the car pulls itself up; the brake held at a standstill would reverse it.
-        if (this.phase === 'finished') return { throttle: 0, brake: this.state.speed > 1 ? 1 : 0, steer: 0, handbrake: false }
+        if (this.phase === 'finished') return { throttle: 0, brake: this.state.speed > 1 ? 1 : 0, steer: 0, drift: false }
         return botInput(this.state, this.track, DEMO_PACE)
     }
 

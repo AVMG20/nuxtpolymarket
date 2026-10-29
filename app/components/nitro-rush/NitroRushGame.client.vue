@@ -26,6 +26,7 @@ const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
 const isTouch = ref(false)
+watch(isTouch, t => engine?.setTouch(t))
 const isFullscreen = ref(false)
 
 let engine: NitroRushEngine | null = null
@@ -125,7 +126,6 @@ function togglePause(force?: boolean) {
     paused.value = force ?? !paused.value
     engine?.setPaused(paused.value)
     engine?.releaseControls()
-    if (!paused.value && isTouch.value && phase.value === 'racing') engine?.setControl('throttle', true)
 }
 
 function setPaint(id: PaintId) {
@@ -218,8 +218,6 @@ function touchControl(c: Control, down: boolean) {
     audio.unlock()
     isTouch.value = true
     engine?.setControl(c, down)
-    // The pedal lifts the auto-gas, so it slows the car as well as starting a drift.
-    if (c === 'brake') engine?.setControl('throttle', !down && phase.value === 'racing')
 }
 
 function onVisibility() {
@@ -250,7 +248,6 @@ onMounted(() => {
         phase: (p) => {
             phase.value = p
             if (p === 'attract') paused.value = false
-            if (p === 'racing' && isTouch.value) engine?.setControl('throttle', true)
             if (p === 'finished') engine?.releaseControls()
         },
         record: onRecord
@@ -258,6 +255,7 @@ onMounted(() => {
     trackId.value = engine.trackId
     trackName.value = engine.trackName
     engine.setRecord(record.value)
+    engine.setTouch(isTouch.value)
     loadBoard(engine.trackId)
     loadSummaries()
 

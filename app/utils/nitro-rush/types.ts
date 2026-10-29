@@ -3,7 +3,7 @@
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'
 
-export type Control = 'throttle' | 'brake' | 'left' | 'right' | 'handbrake'
+export type Control = 'throttle' | 'brake' | 'left' | 'right' | 'drift'
 
 export interface HudState {
     /** 1-based lap of this session, or run on an open course. */

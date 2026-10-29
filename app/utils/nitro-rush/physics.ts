@@ -1,8 +1,8 @@
 import {
-    AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_EXIT_SLIP, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_MIN_TIME, DRIFT_SCRUB,
-    DRIFT_SLIP_COUNTER, DRIFT_SLIP_FADE, DRIFT_SLIP_IN, DRIFT_SLIP_RECOVER, DRIFT_SLIP_RESPONSE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL,
-    HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
-    ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
+    AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
+    DRIFT_SLIP_RESPONSE, DRIFT_SLIP_WIDE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION,
+    NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
+    WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
 import { headingOf, newProjection, wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
 
@@ -28,6 +28,8 @@ export interface CarState {
     /** 1 for a drift to the left (nose left of travel), -1 to the right. */
     driftDir: number
     driftTime: number
+    /** Set when a drift ends with the button still held: it must be let go before the next one. */
+    driftSpent: boolean
     nitro: number
     nitroTime: number
     /** Last projection onto the track; `seg` is the search hint for the next. */
@@ -39,7 +41,8 @@ export interface CarInput {
     brake: number
     /** -1 full left to 1 full right. */
     steer: number
-    handbrake: boolean
+    /** The drift button: held with the wheel turned it starts a drift, and the drift lasts until it is let go. */
+    drift: boolean
 }
 
 export interface StepEvents {
@@ -54,10 +57,8 @@ export interface StepEvents {
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
 const CAR_HALF_LENGTH = 2.25
-/** Wheel the brake needs to be paired with to throw the car into a drift. */
+/** Wheel the drift button needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
-/** Wheel into the drift below which the player counts as letting go of it. */
-const DRIFT_LET_GO = 0.1
 const GRAVITY = 9.81
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
@@ -70,7 +71,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const z = p.z + p.tx * lateral
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
-        drifting: false, driftDir: 1, driftTime: 0, nitro: 0, nitroTime: 0,
+        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0,
         proj: newProjection()
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
@@ -119,17 +120,18 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     let drive = 0
     if (input.throttle > 0 && v >= -0.5) drive += ENGINE_ACCEL * input.throttle * pull
     if (nitro) drive += NITRO_ACCEL * pull
-    if (input.brake > 0 && v <= 0.5 && v > -REVERSE_MAX) drive -= REVERSE_ACCEL * input.brake
+    // The brakes are off mid-drift, because the touch pedal is the drift button too.
+    const brake = car.drifting ? 0 : input.brake
+    if (brake > 0 && v <= 0.5 && v > -REVERSE_MAX) drive -= REVERSE_ACCEL * brake
     let resist = ROLLING_DRAG + AERO_DRAG * v * v
-    if (input.brake > 0 && v > 0.5) resist += BRAKE_DECEL * input.brake
+    if (brake > 0 && v > 0.5) resist += BRAKE_DECEL * brake
     if (input.throttle > 0 && v < -0.5) resist += BRAKE_DECEL * input.throttle
-    if (input.handbrake) resist += HANDBRAKE_DECEL
     if (car.drifting) resist += DRIFT_SCRUB * Math.abs(Math.sin(slipAngle(car)))
     drive -= GRAVITY * slopeAlong(car)
     car.speed = moveTowards(v + drive * dt, 0, resist * dt)
 
-    // ── Drift entry: a stab of brake or handbrake with the wheel turned, at speed ──
-    if (!car.drifting && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD && (input.handbrake || input.brake > 0)) {
+    // ── Drift entry: the drift button held with the wheel turned, at speed ──
+    if (!car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD) {
         car.drifting = true
         car.driftDir = Math.sign(left)
         car.driftTime = 0
@@ -139,20 +141,16 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     if (car.drifting) {
         const d = car.driftDir
         const into = left * d
-        let target = into >= 0 ? DRIFT_SLIP_IN * into : DRIFT_SLIP_COUNTER * -into
-        if (input.handbrake) target += 0.12
+        // The wheel sets the line: into the drift tightens it, away widens it, and neither ends it.
+        const target = DRIFT_SLIP_MID + into * (into >= 0 ? DRIFT_SLIP_IN - DRIFT_SLIP_MID : DRIFT_SLIP_MID - DRIFT_SLIP_WIDE)
         let slip = slipAngle(car)
         // The path bends toward the nose, as hard as the sliding tyres allow.
         const turn = Math.sign(slip) * Math.min(Math.abs(slip) * DRIFT_ALIGN, DRIFT_LATERAL / Math.max(car.speed, 1))
         car.travel = wrapAngle(car.travel + turn * dt)
-        // Steering in swings the car out, countersteer straightens it up; anything else, a let-go wheel included, only lets the slip fade.
-        const letGo = into < DRIFT_LET_GO
-        const rate = into <= -DRIFT_LET_GO ? DRIFT_SLIP_RECOVER : !letGo && target > Math.abs(slip) ? DRIFT_SLIP_RESPONSE : DRIFT_SLIP_FADE
-        slip += (target * d - slip) * (1 - Math.exp(-rate * dt))
+        slip += (target * d - slip) * (1 - Math.exp(-DRIFT_SLIP_RESPONSE * dt))
         car.heading = wrapAngle(car.travel + slip)
         car.driftTime += dt
-        const settled = car.driftTime > DRIFT_MIN_TIME && letGo && (Math.abs(slip) < DRIFT_EXIT_SLIP || Math.sign(slip) !== d)
-        if (settled || car.speed < DRIFT_MIN_SPEED * 0.6) endDrift(car, ev, true)
+        if (!input.drift || car.speed < DRIFT_MIN_SPEED * 0.6) endDrift(car, ev, true)
     } else {
         const angle = MAX_STEER_ANGLE / (1 + Math.abs(car.speed) / STEER_FALLOFF_SPEED) * left
         const cap = GRIP_LATERAL / Math.max(Math.abs(car.speed), 1)
@@ -186,6 +184,8 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
             p.s = track.length - reach
         }
     }
+    // Cleared last, after any drift this step ended, so a one-step release is enough to drift again.
+    if (!input.drift) car.driftSpent = false
     return ev
 }
 
@@ -232,6 +232,7 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
 
 function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
     car.drifting = false
+    car.driftSpent = true
     ev.driftEnded = car.driftTime
     if (clean) {
         const earned = Math.min(1 - car.nitro, car.driftTime * NITRO_PER_DRIFT_SECOND)
@@ -263,12 +264,10 @@ export function botInput(car: CarState, track: Track, pace = 1): CarInput {
     // On an open course it pulls up before the end barrier.
     if (!track.closed) allowed = Math.min(allowed, Math.sqrt(2 * BRAKE_DECEL * 0.7 * Math.max(0, track.length - 12 - car.proj.s)))
     allowed = Math.min(allowed, ENGINE_TOP_SPEED * pace)
-    // It only lifts mid-bend: braking with the wheel turned would throw it into a drift.
-    const braking = v > allowed + 2 && Math.abs(steer) < DRIFT_STEER_THRESHOLD
     return {
         throttle: v < allowed ? 1 : 0,
-        brake: braking ? 1 : 0,
+        brake: v > allowed + 2 ? 1 : 0,
         steer,
-        handbrake: false
+        drift: false
     }
 }

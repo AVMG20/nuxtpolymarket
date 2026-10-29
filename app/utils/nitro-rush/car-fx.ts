@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
-import { slipAngle, type CarState } from './physics'
-import type { Control } from './types'
+import { slipAngle, type CarInput, type CarState } from './physics'
 
 /** Rear wheels in the car's local space (nose toward -z). */
 const REAR_WHEELS = [new THREE.Vector2(-0.82, 1.42), new THREE.Vector2(0.82, 1.42)]
@@ -16,10 +15,11 @@ const WALL_SHOCK = new THREE.Color(0xffc070)
 const TYRE_SMOKE = new THREE.Color(0x8a8c96)
 
 /** How hard the rear tyres slide, 0 to 1: sideways, locked up or spinning off the line. */
-export function tyreSlide(s: CarState, c: Readonly<Record<Control, boolean>>, racing: boolean) {
+export function tyreSlide(s: CarState, input: CarInput, racing: boolean) {
     const slip = Math.abs(slipAngle(s))
-    const locked = racing && (c.handbrake || (c.brake && s.speed > 18))
-    const spin = racing && c.throttle && s.speed > 0 && s.speed < 14
+    // Mid-drift the brakes are off, so a held pedal locks nothing.
+    const locked = racing && !s.drifting && input.brake > 0 && s.speed > 18
+    const spin = racing && input.throttle > 0 && s.speed > 0 && s.speed < 14
     return Math.abs(s.speed) < 4 ? 0 : Math.max(Math.min(1, (slip - 0.06) * 3), locked ? 0.55 : 0, spin ? 0.7 : 0)
 }
 

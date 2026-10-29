@@ -15,10 +15,10 @@ defineEmits<{ drive: [] }>()
     </button>
     <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75" :class="isTouch ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
       <template v-if="isTouch">
-        <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Brake + steer: drift</span><span>Tap bar: nitro</span>
+        <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Hold brake + steer: drift</span><span>Tap bar: nitro</span>
       </template>
       <template v-else>
-        <span>↑ / W gas</span><span>↓ / S brake</span><span>← → / A D steer</span><span>Brake or Space + steer: drift</span><span>Shift / E nitro</span><span>R restart</span>
+        <span>↑ / W gas</span><span>↓ / S brake</span><span>← → / A D steer</span><span>Hold Space + steer: drift</span><span>Shift / E nitro</span><span>R restart</span>
       </template>
     </div>
   </div>
