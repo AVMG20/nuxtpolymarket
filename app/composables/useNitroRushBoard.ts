@@ -1,10 +1,12 @@
 import type { Ref } from 'vue'
 import type { TrackRecord } from '~/utils/nitro-rush/types'
 import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
+import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 
 /**
  * The Nitro Rush leaderboard: the open track's board, a summary per track for the menu, and
  * lap submission. A faster best from another device replaces this browser's record.
+ * A player's own courses have no board: their times stay in this browser.
  */
 export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onServerBest: (trackId: string) => void) {
     const toast = useToast()
@@ -26,16 +28,18 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
         const request = ++boardRequest
         boardTrack = trackId
         board.value = null
+        if (isCustomTrackId(trackId)) return
         try {
             const b = await apiFetch<NrBoard>('/api/nitro-rush/leaderboard', { query: { track: trackId } })
             if (request !== boardRequest) return
             board.value = b
             noteBoard(b)
             // A best set on another device: race against it, without this browser's splits from a slower lap.
+            // Its ghost stays: still a real lap to chase, and it never leaves this browser.
             const server = b.me ? b.me.lapMs / 1000 : null
             const local = records.value[trackId]?.bestLap ?? null
             if (server !== null && (local === null || server < local - 0.0005)) {
-                records.value = { ...records.value, [trackId]: { bestLap: server, bestSplits: null } }
+                records.value = { ...records.value, [trackId]: { bestLap: server, bestSplits: null, ghost: records.value[trackId]?.ghost } }
                 onServerBest(trackId)
             }
         } catch {
@@ -53,6 +57,7 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
     }
 
     async function submitLap(trackId: string, seconds: number) {
+        if (isCustomTrackId(trackId)) return
         try {
             const res = await apiPost('/api/nitro-rush/lap', { trackId, lapMs: Math.round(seconds * 1000) })
             if (trackId === boardTrack) board.value = res.board

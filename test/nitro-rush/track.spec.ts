@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrack, checkpoint, climbAt, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, ramp, spiral, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { buildTrack, checkpoint, climbAt, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, ramp, spiral, start, straight, TrackLayoutError, type TrackLayout } from '#shared/utils/nitro-rush/layout'
 import { formatLapTime, LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { findTrack, POLYTOWN_OVAL, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
@@ -149,6 +149,20 @@ describe('track blocks', () => {
         expect(() => buildTrack(sprint([straight(30), finish, straight(200), start, straight(100)]))).toThrow(/finish comes before/)
         expect(() => buildTrack(sprint([checkpoint, straight(30), start, straight(200), finish, straight(100)]))).toThrow(/between the start and the finish/)
         expect(() => buildTrack(loop([start, corner('left', 8)]))).toThrow(/wider than the track/)
+    })
+
+    it('throws a TrackLayoutError carrying the bare reason, for a track builder to show', () => {
+        let error: unknown
+        try {
+            buildTrack(sprint([straight(30), start, straight(200)]))
+        } catch (e) {
+            error = e
+        }
+        expect(error).toBeInstanceOf(TrackLayoutError)
+        const { trackId, reason, message } = error as TrackLayoutError
+        expect(trackId).toBe('sprint')
+        expect(reason).toBe('an open course needs exactly one finish block')
+        expect(message).toBe(`Track sprint: ${reason}`)
     })
 
     it('turns an eighth onto the diagonal, and two eighths make a quarter', () => {

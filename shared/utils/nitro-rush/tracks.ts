@@ -7,8 +7,8 @@ export const TRACK_GROUPS: readonly { id: TrackGroup, name: string, blurb: strin
     { id: 'sprints', name: 'Sprints', blurb: 'Point to point, start to finish' }
 ]
 
-/** Every course runs on the same road. */
-const ROAD = { halfWidth: 9, wallOffset: 10.6 }
+/** Every course runs on the same road, custom ones included. */
+export const ROAD = { halfWidth: 9, wallOffset: 10.6 }
 
 /** Two 360 m straights joined by 75 m bends, run anticlockwise seen from above, with the start mid main straight. */
 export const POLYTOWN_OVAL: TrackLayout = {

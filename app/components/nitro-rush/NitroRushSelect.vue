@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { findPaint, PAINTS, type PaintId } from '~/utils/nitro-rush/config'
-import type { TrackRecord } from '~/utils/nitro-rush/types'
-import { lapTimeOrBlank } from '#shared/utils/nitro-rush/timing'
-import { Track } from '#shared/utils/nitro-rush/track'
+import type { CustomTrackEntry, TrackRecord } from '~/utils/nitro-rush/types'
 import { TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
 
@@ -15,14 +13,15 @@ const props = defineProps<{
     records: Record<string, TrackRecord>
     /** The leaderboard's record and the player's own best, by track. */
     summaries: Record<string, NrTrackSummary>
+    /** The player's own courses, finished or not. */
+    customTracks: CustomTrackEntry[]
 }>()
-defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [] }>()
+defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string] }>()
 
 const trackGroups = TRACK_GROUPS
-    .map(g => ({ ...g, tracks: TRACKS.filter(t => t.group === g.id).map(t => ({ ...t, km: new Track(t).lapLength / 1000 })) }))
+    .map(g => ({ ...g, tracks: TRACKS.filter(t => t.group === g.id) }))
     .filter(g => g.tracks.length)
 const paintLabel = computed(() => findPaint(props.paint).label)
-const trackRecord = (id: string) => props.summaries[id]?.record ?? null
 
 /** Quickest of this browser's best and the server's, which may have been set on another device. */
 function myBest(id: string) {
@@ -50,31 +49,50 @@ function myBest(id: string) {
             <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ g.blurb }}</span>
           </div>
           <div class="nr-track-grid">
-            <button
+            <NitroRushTrackCard
               v-for="t in g.tracks"
               :key="t.id"
-              class="nr-track"
-              :class="{ 'is-active': t.id === trackId }"
-              :aria-pressed="t.id === trackId"
-              @click="$emit('select', t.id)"
-            >
-              <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :heights="t.heights" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="nr-track-name">{{ t.name }}</span>
-                  <span class="shrink-0 text-[11px] text-white/50 tabular-nums">{{ t.km.toFixed(2) }} KM</span>
-                </div>
-                <dl class="nr-track-times tabular-nums">
-                  <dt>RECORD</dt>
-                  <dd>
-                    {{ lapTimeOrBlank(trackRecord(t.id) ? trackRecord(t.id)!.lapMs / 1000 : null) }}
-                    <span v-if="trackRecord(t.id)" class="nr-track-holder">{{ trackRecord(t.id)!.name }}</span>
-                  </dd>
-                  <dt>YOUR BEST</dt>
-                  <dd class="is-you">{{ lapTimeOrBlank(myBest(t.id)) }}</dd>
-                </dl>
-              </div>
+              :track="t"
+              :active="t.id === trackId"
+              has-board
+              :record="summaries[t.id]?.record ?? null"
+              :best="myBest(t.id)"
+              @select="$emit('select', t.id)"
+            />
+          </div>
+        </section>
+
+        <section class="mt-5">
+          <div class="mb-1.5 flex items-baseline justify-between gap-3">
+            <h3 class="nr-group">MY TRACKS</h3>
+            <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">Build your own from track sections</span>
+          </div>
+          <div class="nr-track-grid">
+            <button class="nr-track nr-track-new" @click="$emit('build')">
+              <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-plus" class="size-7" /></span>
+              <span class="nr-track-name">TRACK BUILDER</span>
             </button>
+            <div v-for="c in customTracks" :key="c.track.id" class="relative">
+              <NitroRushTrackCard
+                v-if="c.def"
+                :track="c.def"
+                :active="c.track.id === trackId"
+                :has-board="false"
+                :record="null"
+                :best="records[c.track.id]?.bestLap ?? null"
+                @select="$emit('select', c.track.id)"
+              />
+              <button v-else class="nr-track" @click="$emit('build', c.track.id)">
+                <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-construction" class="size-7" /></span>
+                <span class="min-w-0 flex-1">
+                  <span class="nr-track-name block">{{ c.track.name }}</span>
+                  <span class="nr-track-holder block">UNFINISHED</span>
+                </span>
+              </button>
+              <button v-if="c.def" class="nr-icon-btn nr-track-edit" :aria-label="`Edit ${c.track.name}`" title="Edit in the track builder" @click="$emit('build', c.track.id)">
+                <UIcon name="i-lucide-pencil" class="size-4" />
+              </button>
+            </div>
           </div>
         </section>
       </div>

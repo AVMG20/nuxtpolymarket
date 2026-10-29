@@ -4,7 +4,9 @@ import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { EMPTY_RECORD, type Control, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
+import { EMPTY_RECORD, type Control, type CustomTrackEntry, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
+import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 /** No input, or a hidden tab, for this long sends the player back to the title screen. */
@@ -14,8 +16,10 @@ const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'wheel'] as const
 const root = ref<HTMLElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
 const phase = ref<Phase>('attract')
-/** Which menu the attract phase shows: the title, or track and car selection. */
-const screen = ref<'splash' | 'select'>('splash')
+/** Which menu the attract phase shows: the title, track and car selection, or the track builder. */
+const screen = ref<'splash' | 'select' | 'builder'>('splash')
+/** The course open in the builder. */
+const building = ref<CustomTrack | null>(null)
 const paused = ref(false)
 const hud = shallowRef<HudState | null>(null)
 const popups = ref<(Popup & { id: number })[]>([])
@@ -25,6 +29,8 @@ const trackName = ref('')
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
+/** Whether the best lap's ghost races along. */
+const ghostOn = ref(true)
 const isTouch = ref(false)
 watch(isTouch, t => engine?.setTouch(t))
 const isFullscreen = ref(false)
@@ -35,9 +41,15 @@ let popupId = 0
 let lastActive = Date.now()
 let awayTimer: ReturnType<typeof setInterval> | undefined
 
+const custom = useNitroRushCustomTracks()
+const customEntries = computed<CustomTrackEntry[]>(() => custom.tracks.value.map(t => ({ track: t, def: custom.compile(t).def })))
+
 const { board, summaries, loadBoard, loadSummaries, submitLap } = useNitroRushBoard(records, (id) => {
     if (engine?.trackId === id) engine.setRecord(records.value[id]!)
 })
+
+/** Other players on this course, as live ghost cars. */
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
 const inRace = computed(() => phase.value === 'racing' || phase.value === 'countdown')
@@ -59,15 +71,73 @@ function onRecord(id: string, r: TrackRecord) {
     if (r.bestLap !== null) submitLap(id, r.bestLap)
 }
 
-function selectTrack(id: string) {
-    if (!engine || id === trackId.value || !findTrack(id)) return
-    audio.ui()
-    engine.setTrack(id)
+function forgetRecord(id: string) {
+    const { [id]: _, ...rest } = records.value
+    records.value = rest
+    writeStorage(STORAGE_KEYS.records, rest)
+}
+
+/** A built-in course, or one of the player's finished ones. */
+function resolveTrack(id: string): TrackDef | null {
+    return findTrack(id) ?? custom.trackDef(id)
+}
+
+/** Puts a course on the engine, also a rebuilt version of the one already on it. */
+function loadTrack(def: TrackDef) {
+    if (!engine) return
+    engine.setTrack(def)
     trackId.value = engine.trackId
     trackName.value = engine.trackName
     engine.setRecord(record.value)
-    writeStorage(STORAGE_KEYS.track, { id })
-    loadBoard(id)
+    writeStorage(STORAGE_KEYS.track, { id: def.id })
+    loadBoard(def.id)
+}
+
+function selectTrack(id: string) {
+    const def = resolveTrack(id)
+    if (!engine || id === trackId.value || !def) return
+    audio.ui()
+    loadTrack(def)
+}
+
+function openBuilder(id?: string) {
+    audio.ui()
+    building.value = (id ? custom.find(id) : null) ?? newCustomTrack()
+    screen.value = 'builder'
+}
+
+/** Stores a course from the builder; a changed road wipes the bests set on the old one. */
+function commitCustom(t: CustomTrack) {
+    const old = custom.find(t.id)
+    custom.save(t)
+    if (old && !sameRoad(old, t)) forgetRecord(t.id)
+    if (t.id !== trackId.value) return
+    // The course on the engine changed under it: rebuild it, or fall back while it's unfinished.
+    loadTrack(resolveTrack(t.id) ?? TRACKS[0]!)
+}
+
+function onBuilderDone(t: CustomTrack | null) {
+    audio.ui()
+    if (t) commitCustom(t)
+    building.value = null
+    screen.value = 'select'
+}
+
+function onBuilderDrive(t: CustomTrack) {
+    if (t !== building.value) commitCustom(t)
+    building.value = null
+    screen.value = 'select'
+    selectTrack(t.id)
+    play()
+}
+
+function onBuilderDelete(id: string) {
+    audio.ui()
+    custom.remove(id)
+    forgetRecord(id)
+    if (id === trackId.value) loadTrack(TRACKS[0]!)
+    building.value = null
+    screen.value = 'select'
 }
 
 /** Clears a pause and any held controls before the run restarts or ends. */
@@ -118,6 +188,8 @@ function markActive() {
 }
 
 function checkAway() {
+    // A course half built would be lost; the builder waits for the player.
+    if (screen.value === 'builder') return
     if (Date.now() - lastActive >= AWAY_MS && (screen.value !== 'splash' || phase.value !== 'attract')) showSplash()
 }
 
@@ -152,6 +224,12 @@ function saveAudio() {
     writeStorage(STORAGE_KEYS.audio, { music: musicOn.value, sfx: sfxOn.value })
 }
 
+function toggleGhost() {
+    ghostOn.value = !ghostOn.value
+    engine?.setBestGhost(ghostOn.value)
+    writeStorage(STORAGE_KEYS.ghost, { on: ghostOn.value })
+}
+
 async function toggleFullscreen() {
     try {
         if (document.fullscreenElement) await document.exitFullscreen()
@@ -170,6 +248,8 @@ function onKeyDown(e: KeyboardEvent) {
     markActive()
     if (isTyping(e)) return
     const menu = phase.value === 'attract'
+    // The builder handles its own keys.
+    if (menu && screen.value === 'builder') return
     if (e.code === 'Escape' && menu && screen.value === 'select') {
         backToTitle()
         return
@@ -238,7 +318,8 @@ onMounted(() => {
     audio.setMusic(a.music)
     audio.setSfx(a.sfx)
     isTouch.value = window.matchMedia('(pointer: coarse)').matches
-    const storedTrack = readStorage<{ id: string }>(STORAGE_KEYS.track, { id: TRACKS[0]!.id }).id
+    custom.load()
+    const storedTrack = resolveTrack(readStorage<{ id: string }>(STORAGE_KEYS.track, { id: '' }).id) ?? TRACKS[0]!
 
     engine = new NitroRushEngine(stage.value!, {
         hud: (h) => {
@@ -256,6 +337,8 @@ onMounted(() => {
     trackName.value = engine.trackName
     engine.setRecord(record.value)
     engine.setTouch(isTouch.value)
+    ghostOn.value = readStorage(STORAGE_KEYS.ghost, { on: true }).on !== false
+    engine.setBestGhost(ghostOn.value)
     loadBoard(engine.trackId)
     loadSummaries()
 
@@ -291,7 +374,7 @@ onBeforeUnmount(() => {
   >
     <div ref="stage" class="absolute inset-0" />
 
-    <NitroRushHud v-if="hud && inSession" :hud="hud" :rank="rank" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
+    <NitroRushHud v-if="hud && inSession" :hud="hud" :rank="rank" :racers="racers" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
     <NitroRushTouchPads v-if="isTouch && inSession && !paused" @control="touchControl" />
     <NitroRushPopups :popups="popups" />
 
@@ -307,10 +390,22 @@ onBeforeUnmount(() => {
         :is-touch="isTouch"
         :records="records"
         :summaries="summaries"
+        :custom-tracks="customEntries"
         @back="backToTitle"
         @select="selectTrack"
         @paint="setPaint"
         @start="play"
+        @build="openBuilder"
+      />
+    </Transition>
+    <Transition name="nr-fade">
+      <NitroRushBuilder
+        v-if="phase === 'attract' && screen === 'builder' && building"
+        :track="building"
+        :saved="!!custom.find(building.id)"
+        @done="onBuilderDone"
+        @drive="onBuilderDrive"
+        @delete="onBuilderDelete"
       />
     </Transition>
 
@@ -319,9 +414,11 @@ onBeforeUnmount(() => {
       v-if="!inSession || paused"
       :music-on="musicOn"
       :sfx-on="sfxOn"
+      :ghost-on="ghostOn"
       :is-fullscreen="isFullscreen"
       @music="toggleMusic"
       @sfx="toggleSfx"
+      @ghost="toggleGhost"
       @fullscreen="toggleFullscreen"
     />
   </div>

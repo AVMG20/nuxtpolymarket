@@ -4,7 +4,9 @@ export const STORAGE_KEYS = {
     records: 'nitro-rush:records',
     paint: 'nitro-rush:paint',
     audio: 'nitro-rush:audio',
-    track: 'nitro-rush:track'
+    ghost: 'nitro-rush:ghost',
+    track: 'nitro-rush:track',
+    customTracks: 'nitro-rush:custom-tracks'
 } as const
 
 export function readStorage<T>(key: string, fallback: T): T {
