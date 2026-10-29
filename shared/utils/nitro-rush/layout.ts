@@ -11,7 +11,9 @@ import type { TrackDef, TrackGroup } from './track'
  * with a start and a finish block along it.
  *
  * Corners and spirals turn in eighths (45°), so a straight after an odd number
- * of eighths runs on the diagonal.
+ * of eighths runs on the diagonal. A bend that leaves a diagonal is padded with
+ * short straights so the road comes back onto the grid, which lets a loop with
+ * diagonals close on round lengths.
  *
  * Ramps and spirals change the road's height; every other piece holds it.
  * A loop has to come back down to where it started, and wherever the road
@@ -54,6 +56,8 @@ const EASE_LENGTH = 30
 export const MIN_CLEARANCE = 6.5
 /** Open sky a line block needs above it for its gantry. */
 const GANTRY_CLEARANCE = 11
+/** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
+export const GRID = 10
 
 export const straight = (length: number): TrackPiece => ({ type: 'straight', length })
 /** A bend of `angle` degrees, in steps of 45. */
@@ -102,6 +106,38 @@ export function buildTrack(layout: TrackLayout): TrackDef {
         z += dz * length
         y += rise
     }
+    const onAxis = (a: number) => Math.abs(Math.sin(2 * a)) < 1e-9
+    // Metres from `v` on to the next grid line, going up.
+    const toGrid = (v: number) => {
+        const r = ((-v % GRID) + GRID) % GRID
+        return r < 1e-6 || r > GRID - 1e-6 ? 0 : r
+    }
+    const bend = (side: number, radius: number, eighths: number, rise = 0) => {
+        const out = h + side * Math.PI / 4 * eighths
+        if (onAxis(h) || !onAxis(out)) return turn(side, radius, eighths, rise)
+        // Off a diagonal onto an axis: a diagonal straight first sets the cross-track coordinate, an axis straight after sets the other.
+        const [dx, dz] = [Math.sin(h), -Math.cos(h)]
+        const [ox, oz] = [Math.sin(out), -Math.cos(out)]
+        const cx = x + Math.cos(h) * radius * side
+        const cz = z + Math.sin(h) * radius * side
+        const ex = cx - Math.cos(out) * radius * side - layout.origin.x
+        const ez = cz - Math.sin(out) * radius * side - layout.origin.z
+        const alongX = Math.abs(ox) > 0.5
+        const cross = alongX ? ez : ex
+        const crossRate = alongX ? dz : dx
+        const before = toGrid(crossRate > 0 ? cross : -cross) / Math.abs(crossRate)
+        const along = (alongX ? ex + dx * before : ez + dz * before) * (alongX ? ox : oz)
+        const after = toGrid(along)
+        pad(before)
+        turn(side, radius, eighths, rise)
+        pad(after)
+    }
+    // A sliver of a straight only stretches the segment it continues, so it leaves no near-zero segment behind.
+    const pad = (length: number) => {
+        if (length >= STEP / 2) return run(length)
+        x += Math.sin(h) * length
+        z -= Math.cos(h) * length
+    }
     const turn = (side: number, radius: number, eighths: number, rise = 0) => {
         // Right of the heading is (cos h, sin h); the centre lies `radius` toward the turn.
         const cx = x + Math.cos(h) * radius * side
@@ -132,13 +168,13 @@ export function buildTrack(layout: TrackLayout): TrackDef {
             run(piece.length)
         } else if (piece.type === 'corner') {
             if (!(piece.radius > layout.wallOffset)) fail('a corner must be wider than the track')
-            turn(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle))
+            bend(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle))
         } else if (piece.type === 'ramp') {
             if (!(piece.length > EASE_LENGTH * 2)) fail(`a ramp needs to be longer than ${EASE_LENGTH * 2} m`)
             run(piece.length, piece.rise)
         } else if (piece.type === 'spiral') {
             if (!(piece.radius > layout.wallOffset)) fail('a spiral must be wider than the track')
-            turn(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), piece.rise)
+            bend(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), piece.rise)
         } else {
             run(LINE_BLOCK_LENGTH / 2)
             lines.push({ type: piece.type, at: pts.length })

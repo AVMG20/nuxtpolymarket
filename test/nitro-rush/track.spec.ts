@@ -158,6 +158,19 @@ describe('track blocks', () => {
         expect(eighths.length).toBeCloseTo(quarter.length, 1)
         expect(() => buildTrack(loop([start, corner('right', 50, 60)]))).toThrow(/steps of 45/)
     })
+
+    it('pads a bend off a diagonal back onto the grid, so a loop with a diagonal closes on round lengths', () => {
+        // The jog ends 105.9 m across and 279.7 m up; padding takes it to 110 and 280.
+        const jog = [corner('right', 60, 45), straight(100), corner('left', 60, 45)]
+        const pieces = [start, straight(100), ...jog, straight(100), corner('right', 50), straight(100), corner('right', 50), straight(380), corner('right', 50), straight(210), corner('right', 50)]
+        const t = new Track(buildTrack(loop(pieces)))
+        // Mirrored or facing another way, the padding runs the other way and the loop still closes.
+        expect(() => buildTrack(loop(pieces.map(p => 'turn' in p ? { ...p, turn: p.turn === 'right' ? 'left' as const : 'right' as const } : p)))).not.toThrow()
+        for (const heading of [Math.PI / 2, Math.PI, -Math.PI / 2]) expect(() => buildTrack({ ...loop(pieces), origin: { x: 5, z: -3, heading } })).not.toThrow()
+        const laid = LINE_BLOCK_LENGTH + 100 * 4 + 380 + 210 + Math.PI / 4 * 60 * 2 + Math.PI / 2 * 50 * 4
+        // 4.1 m across takes 5.9 m on the diagonal, then 0.3 m up the straight.
+        expect(t.length - laid).toBeCloseTo(4.142 * Math.SQRT2 + 0.295, 1)
+    })
 })
 
 describe('ramps and spirals', () => {
