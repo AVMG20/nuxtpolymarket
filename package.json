@@ -13,7 +13,7 @@
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck",
-    "test": "vitest run"
+    "test": "bun --bun vitest run"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
