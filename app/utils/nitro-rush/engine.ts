@@ -4,7 +4,9 @@ import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
 import { buildPlayerCar, disposeModelShared, type PlayerCar } from './models'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
 import { RushPost } from './post'
-import { findTrack, formatLapTime, LapTimer, Track, TRACKS, wrapAngle, type LapEvent, type TrackPoint } from '#shared/utils/nitro-rush/track'
+import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
+import { newTrackPoint, Track, wrapAngle } from '#shared/utils/nitro-rush/track'
+import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
 import { buildCityEnvironment, World } from './world'
 import type { NitroAudio } from './audio'
 
@@ -96,7 +98,7 @@ export class NitroRushEngine {
     private readonly lampPos = new THREE.Vector3()
     private readonly resizeObserver: ResizeObserver
     private readonly tmpV = new THREE.Vector3()
-    private readonly tmpP: TrackPoint = { x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 }
+    private readonly tmpP = newTrackPoint()
     private readonly chasePos = new THREE.Vector3()
     private readonly chaseLook = new THREE.Vector3()
     private readonly orbitPos = new THREE.Vector3()

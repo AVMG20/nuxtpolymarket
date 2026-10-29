@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrack, checkpoint, climbAt, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, POLYTOWN_OVAL, ramp, spiral, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
-import { findTrack, formatLapTime, LapTimer, Track, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/track'
+import { buildTrack, checkpoint, climbAt, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, ramp, spiral, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { formatLapTime, LapTimer } from '#shared/utils/nitro-rush/timing'
+import { Track } from '#shared/utils/nitro-rush/track'
+import { findTrack, POLYTOWN_OVAL, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 const oval = new Track(buildTrack(POLYTOWN_OVAL))
+
+/** Bare layouts for the block tests: a loop, or an open course. */
+const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
+const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
+const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
 
 /** The oval as it was drawn before blocks: leaderboard times were set on exactly this line. */
 function legacyOval() {
@@ -101,9 +108,6 @@ describe('open course', () => {
 })
 
 describe('track blocks', () => {
-    const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
-    const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
-    const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
     /** A rounded square, short of the first side's straight so line blocks can fill it. */
     const square = [corner('right', 50), straight(100), corner('right', 50), straight(100), corner('right', 50), straight(100), corner('right', 50)]
 
@@ -174,9 +178,6 @@ describe('track blocks', () => {
 })
 
 describe('ramps and spirals', () => {
-    const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
-    const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
-    const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
     /** A rounded square that climbs one side and comes back down the next. */
     const hill = [start, straight(80), corner('right', 50), ramp(100, 8), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]
     const helix = (rise: number) => sprint([straight(30), start, straight(100), spiral('right', 40, 450, rise), straight(100), finish, straight(100)])

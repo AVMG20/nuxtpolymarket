@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushLaps } from '#server/database/schema'
-import { findTrack, Track, TRACKS } from '#shared/utils/nitro-rush/track'
+import { Track } from '#shared/utils/nitro-rush/track'
+import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 export const NR_LEADERBOARD_TOP = 20
 /** Longer than any honest lap, so a stray clock can't land on the board. */

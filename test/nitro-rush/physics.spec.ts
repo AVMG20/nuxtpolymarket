@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
-import { buildTrack, corner, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, ramp, start, straight } from '#shared/utils/nitro-rush/layout'
-import { LapTimer, Track, TRACKS, wrapAngle, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { buildTrack, corner, LINE_BLOCK_LENGTH, ramp, start, straight } from '#shared/utils/nitro-rush/layout'
+import { LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
+import { Track, wrapAngle, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { POLYTOWN_OVAL, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 const track = new Track(buildTrack(POLYTOWN_OVAL))
 const DT = 1 / PHYSICS_HZ

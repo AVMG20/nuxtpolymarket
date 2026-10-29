@@ -4,7 +4,7 @@ import {
     HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
     ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
-import { wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
+import { newProjection, wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -71,7 +71,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, nitro: 0, nitroTime: 0,
-        proj: { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 }
+        proj: newProjection()
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.project(x, z, track.segmentAt(s), car.proj)

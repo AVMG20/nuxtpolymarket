@@ -7,7 +7,7 @@ import {
     BILLBOARD_ADS, bannerTexture, billboardTexture, checkerTexture, concreteTexture, FACADE_TILE, facadeTextures, kerbTexture,
     PUDDLE_TILE_LENGTH, radialTexture, roadTextures, ROAD_TILE_LENGTH, skylineTexture, type FacadeKind
 } from './textures'
-import type { Track } from '#shared/utils/nitro-rush/track'
+import { newProjection, type Track } from '#shared/utils/nitro-rush/track'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 
 /**
@@ -706,7 +706,7 @@ export class World {
         const beaconSpots: THREE.Vector3[] = []
         const toStand = new THREE.Matrix4().makeRotationY(stand.rotation.y).setPosition(stand.position).invert()
         const local = new THREE.Vector3()
-        const proj = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 }
+        const proj = newProjection()
         const CELL = 36
         for (let gx = -12; gx <= 12; gx++) {
             for (let gz = -16; gz <= 16; gz++) {

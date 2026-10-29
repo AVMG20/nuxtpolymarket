@@ -1,6 +1,6 @@
 import { requireUserId } from '#server/utils/auth'
 import { nrLeaderboard } from '#server/utils/nitro-rush'
-import { findTrack } from '#shared/utils/nitro-rush/track'
+import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)

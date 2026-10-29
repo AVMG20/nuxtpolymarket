@@ -2,7 +2,9 @@
 import { NitroAudio } from '~/utils/nitro-rush/audio'
 import { PAINTS, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine, type Control, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/engine'
-import { findTrack, formatLapTime, Track, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/track'
+import { formatLapTime } from '#shared/utils/nitro-rush/timing'
+import { Track } from '#shared/utils/nitro-rush/track'
+import { findTrack, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
 import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
 
 const RECORDS_KEY = 'nitro-rush:records'
