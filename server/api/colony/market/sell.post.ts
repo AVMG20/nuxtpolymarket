@@ -3,6 +3,7 @@ import { db } from '#server/database'
 import { colonyItems } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
+import { getUserGems } from '#server/utils/colony'
 import { getItem } from '#shared/utils/colony'
 
 export default defineEventHandler(async (event) => {
@@ -32,8 +33,8 @@ export default defineEventHandler(async (event) => {
     if (!claimed) throw createError({ statusCode: 400, statusMessage: `No ${type.name} to sell` })
 
     const coins = quantity * type.sellValue
-    await credit(userId, coins.toFixed(4), 'colony', tx)
+    const balance = await credit(userId, coins.toFixed(4), 'colony', tx)
 
-    return { ok: true, coins, quantity, itemTypeId: type.id }
+    return { ok: true, coins, quantity, itemTypeId: type.id, balance, gems: await getUserGems(userId, tx) }
   })
 })

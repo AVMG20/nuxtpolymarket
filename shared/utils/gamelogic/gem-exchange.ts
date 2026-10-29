@@ -59,6 +59,16 @@ export function gemOrderTotal(price: number, quantity: number): number {
     return gemPriceCents(price) * quantity / 100
 }
 
+/**
+ * The price a new offer starts at: buying at the cheapest sell offer, selling
+ * at the highest buy offer (the price that trades right now), or the guide
+ * price when that side of the book is empty.
+ */
+export function gemDefaultPrice(side: 'buy' | 'sell', book: { bestBid: number | null, bestAsk: number | null, guidePrice: number }): number {
+    const smart = side === 'buy' ? book.bestAsk : book.bestBid
+    return Math.round((smart ?? book.guidePrice) * 100) / 100
+}
+
 export interface GemBookLevel {
     price: number
     quantity: number

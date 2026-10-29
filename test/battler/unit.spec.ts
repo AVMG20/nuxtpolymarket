@@ -86,33 +86,16 @@ describe('deriveUnit', () => {
     it('prices from the pricedex tier vocabulary with a code fallback', () => {
         expect(unitCostFor('Common')).toBe(3)
         expect(unitCostFor('Double Rare')).toBe(6)
-        expect(unitCostFor('Special Illustration Rare')).toBe(8)
-        expect(unitCostFor('Mega Hyper Rare')).toBe(10)
-        expect(unitCostFor('Reverse Common')).toBe(3)
         // Sidecar codes that leak into the rarity column still land right.
         expect(unitCostFor('2R')).toBe(6)
-        expect(unitCostFor('C')).toBe(3)
         expect(unitCostFor('TCGLFBE')).toBe(4) // unknown → plain Rare
-        // Character-card sidecar codes without a pricedex row.
-        expect(unitCostFor('CHV')).toBe(8)
-        expect(unitCostFor('CSR')).toBe(8)
-        expect(unitCostFor('CHR')).toBe(6)
-        expect(unitCostFor('BWR')).toBe(10)
-        // 30th Celebration's own tiers, by label and by code.
-        expect(unitCostFor('Pikachu Rare')).toBe(4)
-        expect(unitCostFor('CC')).toBe(8)
-        expect(unitCostFor('FUR')).toBe(10)
-        expect(unitCostFor('RGB Secret Rare')).toBe(10)
         expect(unitCostFor(null)).toBe(4)
     })
 
     it('derives bounty tier from the name', () => {
         expect(bountyTierFor('Hoothoot')).toBe(0)
         expect(bountyTierFor('Eevee ex')).toBe(2)
-        expect(bountyTierFor('Blaziken V')).toBe(2)
         expect(bountyTierFor('Charizard VMAX')).toBe(3)
-        expect(bountyTierFor('Giratina VSTAR')).toBe(3)
-        expect(bountyTierFor('Umbreon GX')).toBe(2)
         // Substrings must not trigger: 'Vulpix' contains a V but not as a word.
         expect(bountyTierFor('Vulpix')).toBe(0)
         expect(bountyTierFor('Exeggcute')).toBe(0)

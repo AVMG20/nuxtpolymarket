@@ -295,15 +295,16 @@ const CLASS_NODE_SPECS: readonly Omit<ClassNode, 'defaultRow'>[] = [
         tier: 'master',
         skill: skill('skill_raise_dead', 'Raise Dead', {
             // Grouped with Totem Storm as party-or-battlefield (§7) while the name implies a
-            // summon. Both readings need machinery no doc provides, so it lands as the party
-            // reading with a revival flavour: the fallen fight on as sustained healing.
-            target: 'ally_all',
-            heal: SKILL_HEAL_MULTIPLIER,
-            status: {
+            // summon. The fallen rise to strike every enemy while the party is mended: a heal
+            // alone added nothing the Shaman's kit lacked, so the master was no step up (the
+            // user's call, 2026-10-20, issue #46).
+            target: 'enemy_all',
+            partyHeal: SKILL_HEAL_MULTIPLIER,
+            partyStatus: {
                 kind: 'hot', duration: SKILL_STATUS_DURATION_SECONDS,
                 magnitude: SKILL_HOT_MULTIPLIER, scalesWithPwr: true
             }
-        }, NO_DAMAGE),
+        }, SKILL_AOE_MULTIPLIER),
         spread: { pwr: 'high', spd: 'high', lck: 'mid', imp: 'mid', vit: 'low', def: 'low' },
         // inherits Shaman's spread, utility-weighted via Raise Dead
         delta: {},

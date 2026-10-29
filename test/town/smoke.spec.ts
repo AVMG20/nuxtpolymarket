@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#server/database'
 import {
     deleteTownForUser,
@@ -26,9 +26,10 @@ describe.skipIf(SKIP)('a new mayor can play (database)', () => {
     // One shared realm: hold it for this file so a sibling spec cannot plant
     // or delete plots midway through a test here (db-helpers, lockTownRealm).
     let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
-
-    beforeEach(cleanup)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
     afterEach(cleanup)
     afterAll(async () => {
         await releaseRealm()
@@ -56,8 +57,8 @@ describe.skipIf(SKIP)('a new mayor can play (database)', () => {
         expect(settled.bonus.output).toBe(0)
     })
 
-    it('stops the mayor at the crew cap, and lets them buy their way past it', async () => {
-        await seedUser(OWNER, { balance: '100000000000', gems: 5000 })
+    it('stops the mayor at the crew cap, lets them buy their way past it, and never sells more crews than the cap', async () => {
+        await seedUser(OWNER, { balance: '100000000000', gems: 100_000 })
         const { plotId } = await foundTown(OWNER)
         await moveTownToFlatGround(plotId)
         for (let x = 0; x < 6; x++) await placeBuilding(OWNER, plotId, x, 0, 'road')
@@ -74,12 +75,8 @@ describe.skipIf(SKIP)('a new mayor can play (database)', () => {
         expect(hired.gems).toBeGreaterThan(0)
         // With the extra crew, the job that was refused now starts.
         await placeBuilding(OWNER, plotId, TOWN_FREE_BUILDERS, 1, 'house', 2)
-    })
 
-    it('will not sell more crews than the cap allows', async () => {
-        await seedUser(OWNER, { balance: '100000000000', gems: 100_000 })
-        await foundTown(OWNER)
-        for (let i = TOWN_FREE_BUILDERS; i < TOWN_MAX_BUILDERS; i++) await hireTownBuilder(OWNER)
+        for (let i = TOWN_FREE_BUILDERS + 1; i < TOWN_MAX_BUILDERS; i++) await hireTownBuilder(OWNER)
         await expect(hireTownBuilder(OWNER)).rejects.toThrow(/already have/)
     })
 })

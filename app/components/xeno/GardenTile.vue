@@ -1,228 +1,236 @@
 <script setup lang="ts">
-import { getArtifact, getEffectValueFor } from '#shared/utils/xeno'
+import { getArtifact, getEffectValueFor, getPlant, getPlantDisplay, plantStageForProgress } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone } from '~/lib/xeno-format'
+import { artifactFamily, levelClass, roman } from '~/lib/xeno-ui'
 
 const props = defineProps<{
   cell: any
   now: number
   selectedPlant: any | null
   selectedArtifact: any | null
-  busy: boolean
   unlocking: boolean
   canAffordUnlock: boolean
+  /** The held seed is a void plant and this plot has no tier II+ artifact. */
+  voidBlocked?: boolean
+  busy?: boolean
 }>()
 
 const emit = defineEmits<{
   click: [e: MouseEvent]
+  paint: [e: PointerEvent]
   remove: [e: MouseEvent]
 }>()
 
 const slot = computed(() => props.cell.slot)
 const plant = computed(() => slot.value?.plant ?? null)
+const artifact = computed(() => slot.value?.artifact ?? null)
+const artDef = computed(() => artifact.value ? getArtifact(artifact.value.typeId) : undefined)
 
 const done = computed(() => {
   void props.now
   return !!plant.value && isDone(plant.value.completesAt)
 })
 const pct = computed(() => plant.value ? progressPct(plant.value.startedAt, plant.value.completesAt, props.now) : 0)
-/** Sprite scale: seedling (0.45) → fully grown (1). */
-const growth = computed(() => done.value ? 1 : 0.45 + 0.55 * (pct.value / 100))
-const stageLabel = computed(() => {
-  if (done.value) return 'Ready'
-  if (pct.value < 25) return 'Seedling'
-  if (pct.value < 60) return 'Growing'
-  if (pct.value < 90) return 'Budding'
-  return 'Ripening'
-})
+/** Overall growth 0..1 for the plant art. */
+const growth = computed(() => done.value ? 1 : Math.min(0.99, pct.value / 100))
+const isVoidPlant = computed(() => !!plant.value && !!getPlant(plant.value.typeId)?.voidPlant)
 
 const yieldBonus = computed(() => {
-  const a = slot.value?.artifact
-  if (!a) return 0
-  const art = getArtifact(a.typeId)
-  return art ? getEffectValueFor(art, 'grid_yield_bonus', a.gemCrafted) : 0
+  const a = artifact.value
+  return a && artDef.value ? getEffectValueFor(artDef.value, 'grid_yield_bonus', a.gemCrafted) : 0
 })
 const speedBoost = computed(() => {
-  const a = slot.value?.artifact
-  if (!a) return 0
-  const art = getArtifact(a.typeId)
-  return art ? getEffectValueFor(art, 'grid_speed_boost', a.gemCrafted) : 0
+  const a = artifact.value
+  return a && artDef.value ? getEffectValueFor(artDef.value, 'grid_speed_boost', a.gemCrafted) : 0
 })
 
 const artifactTargetable = computed(() => !!props.selectedArtifact && props.cell.unlocked && !!slot.value)
-const artifactReplacing = computed(() => artifactTargetable.value && !!slot.value?.artifact)
-const plantTargetable = computed(() => !!props.selectedPlant && props.cell.unlocked && !!slot.value && !plant.value)
+const artifactReplacing = computed(() => artifactTargetable.value && !!artifact.value)
+const plantTargetable = computed(() => !!props.selectedPlant && props.cell.unlocked && !!slot.value && !plant.value && !props.voidBlocked)
+const dimmed = computed(() => !!props.selectedPlant && props.cell.unlocked && !plant.value && !!props.voidBlocked)
 
-const interactive = computed(() => {
-  if (!props.cell.unlocked) return props.cell.isNextUnlock && props.canAffordUnlock
-  if (!slot.value) return false
-  return done.value || artifactTargetable.value || plantTargetable.value
+const harvestRange = computed(() => {
+  if (!plant.value) return ''
+  return `×1–${1 + (plant.value.isHybrid ? 0 : plant.value.yield) + yieldBonus.value}`
 })
 
-const title = computed(() => {
+const incoming = computed(() => props.selectedArtifact ? getArtifact(props.selectedArtifact.typeId)?.name ?? 'artifact' : '')
+
+const label = computed(() => {
+  const n = props.cell.index + 1
+  if (!props.cell.unlocked) {
+    if (!props.cell.isNextUnlock) return `Planter ${n}, locked`
+    return props.canAffordUnlock ? `Add planter ${n} for ${formatNumber(props.cell.cost, false)} coins` : `Planter ${n} costs ${formatNumber(props.cell.cost, false)} coins`
+  }
   if (artifactTargetable.value) {
-    const incoming = getArtifact(props.selectedArtifact!.typeId)?.name ?? 'artifact'
-    if (slot.value?.artifact) {
-      const current = getArtifact(slot.value.artifact.typeId)?.name ?? 'artifact'
-      return `Replace ${current} with ${incoming} — ${current} returns to your inventory`
-    }
-    return `Attach ${incoming} to this plot`
+    return artifactReplacing.value
+      ? `Swap ${artDef.value?.name ?? 'artifact'} for ${incoming.value} on planter ${n}`
+      : `Fit ${incoming.value} to planter ${n}`
   }
-  if (done.value) return 'Click to harvest'
-  if (plantTargetable.value) return `Plant ${props.selectedPlant!.name} here`
-  if (plant.value) return `${plant.value.name} · ${stageLabel.value}`
-  return undefined
+  if (plant.value) {
+    if (done.value) return `${plant.value.name}, ready to harvest`
+    return `${plant.value.name}, ${formatCountdown(plant.value.completesAt, props.now)} left`
+  }
+  if (plantTargetable.value) return `Plant ${props.selectedPlant.name} in planter ${n}`
+  if (dimmed.value) return `Planter ${n}: void seeds need a tier II+ artifact here`
+  return `Empty planter ${n}`
 })
 
-// Per-tile sway timing so a full grid doesn't move in lockstep. Derived from
-// the plot index (not Math.random) so the server and client render the same
-// style attribute and hydration stays clean.
-const swayStyle = computed(() => {
-  const i = props.cell.index as number
-  return {
-    '--sway-dur': `${3.6 + ((i * 7) % 11) / 5}s`,
-    '--sway-delay': `${-((i * 13) % 17) / 4}s`,
+const classes = computed(() => {
+  const c: string[] = []
+  if (!props.cell.unlocked) {
+    c.push('locked')
+    if (props.cell.isNextUnlock) c.push('next', props.canAffordUnlock ? 'affordable' : '')
+    return c
   }
+  if (plant.value) {
+    // A planted stack always shows its corner tags; the art moves down to clear them.
+    c.push('has-tags')
+    if (done.value) c.push('ready')
+    if (isVoidPlant.value) c.push('void')
+  } else {
+    c.push('empty')
+  }
+  if (artifactReplacing.value) c.push('replace')
+  else if (artifactTargetable.value || plantTargetable.value) c.push('target')
+  if (plantTargetable.value) c.push('paintable')
+  if (dimmed.value) c.push('dim')
+  return c
 })
 
-const SPARKLES = [
-  { style: { top: '22%', left: '20%', '--delay': '0s' } },
-  { style: { top: '34%', right: '18%', '--delay': '0.9s', '--dur': '2.3s' } },
-]
+const tierVar = computed(() => plant.value ? `var(--xg-t${Math.min(9, plant.value.tier)})` : undefined)
+
+// Drag-planting is for mouse and pen. On touch a press may be the start of a
+// scroll, so a tap plants through the regular click instead.
+function onPointerDown(e: PointerEvent) {
+  if (plantTargetable.value && e.button === 0 && e.pointerType !== 'touch') emit('paint', e)
+}
+
+/** Shelf-style details for the planted stack, shown on hover. */
+const display = computed(() => plant.value ? getPlantDisplay(plant.value.typeId) : null)
+const tooltipOff = computed(() => !plant.value || !display.value || !!props.selectedPlant || !!props.selectedArtifact)
+const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
 </script>
 
 <template>
-  <!-- ── Unlocked, planted ── -->
-  <div
-    v-if="cell.unlocked && plant"
-    :data-plot="slot.id"
-    class="xeno-plot group aspect-square select-none flex flex-col"
-    :class="[
-      done ? 'xeno-plot-ready' : '',
-      interactive ? 'xeno-plot-interactive' : '',
-      artifactReplacing ? 'xeno-plot-replace' : artifactTargetable ? 'xeno-plot-target' : '',
-      busy ? 'xeno-plot-busy' : '',
-    ]"
-    :title="title"
-    @click="emit('click', $event)"
-  >
-    <!-- Remove -->
+  <div class="xg-plot-wrap relative" :class="done ? 'is-ready' : ''">
+    <UTooltip :disabled="tooltipOff" :delay-duration="450" :content="{ side: 'top', sideOffset: 6 }" :ui="tooltipUi">
+      <template #content>
+        <XenoPlantTooltipContent
+          v-if="plant && display"
+          :id="plant.typeId"
+          :name="plant.name"
+          :tier="plant.tier"
+          :speed="plant.speed"
+          :yield="plant.yield"
+          :base-time="display.baseTime"
+          :value="plant.value"
+          :description="display.description"
+          :is-hybrid="plant.isHybrid"
+          :resources="plant.resources"
+        />
+      </template>
     <button
-      class="absolute top-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded-md bg-black/40 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-error hover:text-white transition-all"
-      title="Remove plant (returned to inventory)"
+      type="button"
+      class="xg-plot"
+      :class="classes"
+      :data-plot="slot?.id"
+      :data-cell="cell.index"
+      :style="plant ? { '--p': done ? 100 : pct, '--tc': isVoidPlant ? 'var(--xg-uv)' : tierVar } : undefined"
+      :aria-label="label"
+      :title="tooltipOff ? label : undefined"
+      :disabled="!cell.unlocked && (!cell.isNextUnlock || !canAffordUnlock)"
+      @pointerdown="onPointerDown"
+      @click="emit('click', $event)"
+    >
+      <!-- Planted -->
+      <template v-if="cell.unlocked && plant">
+        <span class="xg-plot-art">
+          <XenoPlantIcon :id="plant.typeId" size="100%" :stage="plantStageForProgress(growth)" :progress="growth" />
+        </span>
+        <span class="xg-plot-foot">
+          <span class="xg-plot-meta">
+            <!-- Small tiles keep one value per state: the harvest range, or the time left. -->
+            <template v-if="done">
+              <span class="truncate max-sm:hidden">Ready</span>
+              <span class="max-sm:mx-auto">{{ harvestRange }}</span>
+            </template>
+            <template v-else>
+              <span class="truncate max-sm:mx-auto">{{ formatCountdown(plant.completesAt, now) }}</span>
+              <span v-if="speedBoost > 0" class="text-(--xg-faint) max-sm:hidden">−{{ Math.round(speedBoost * 100) }}%</span>
+              <span v-else class="max-sm:hidden">{{ Math.floor(pct) }}%</span>
+            </template>
+          </span>
+          <span class="xg-root"><span /></span>
+        </span>
+      </template>
+
+      <!-- Empty -->
+      <template v-else-if="cell.unlocked">
+        <span v-if="plantTargetable" class="xg-plot-center text-(--xg-accent-text)">
+          <UIcon name="i-lucide-plus" class="size-5" />
+          <span>Plant</span>
+        </span>
+        <span v-else-if="artifactTargetable" class="xg-plot-center" :class="artifactReplacing ? 'text-(--xg-sun)' : 'text-(--xg-accent-text)'">
+          <UIcon :name="artifactReplacing ? 'i-lucide-repeat' : 'i-lucide-plus'" class="size-5" />
+          <span>{{ artifactReplacing ? 'Swap' : 'Fit' }}</span>
+        </span>
+        <span v-else-if="dimmed" class="xg-plot-center text-(--xg-faint)">
+          <UIcon name="i-lucide-ban" class="size-4.5" />
+        </span>
+      </template>
+
+      <!-- Next unlock -->
+      <span v-else-if="cell.isNextUnlock" class="xg-plot-center" :class="canAffordUnlock ? 'text-(--xg-sun)' : 'text-(--xg-faint)'">
+        <UIcon :name="unlocking ? 'i-lucide-loader-circle' : canAffordUnlock ? 'i-lucide-plus' : 'i-lucide-lock'" class="size-5" :class="unlocking ? 'animate-spin' : ''" />
+        <span>{{ canAffordUnlock ? 'Add planter' : 'Planter' }}</span>
+        <span class="flex items-center gap-1 xg-num text-[11px]"><span class="xg-coin" />{{ formatNumber(cell.cost) }}</span>
+      </span>
+
+      <!-- Locked -->
+      <span v-else class="xg-plot-center text-(--xg-faint)">
+        <UIcon name="i-lucide-lock" class="size-4" />
+      </span>
+
+      <span v-if="cell.unlocked && (artifact || plant)" class="xg-plot-tl">
+        <!-- Fitted artifact -->
+        <span
+          v-if="artifact"
+          class="xg-tag"
+          :class="[artifactFamily(artifact.typeId).cls, artifact.gemCrafted ? 'gem' : '']"
+          :title="`${artDef?.name ?? 'Artifact'}${artifact.gemCrafted ? ' (gem-crafted)' : ''} · ${artifact.chargesRemaining} charges left`"
+        >
+          <UIcon :name="artifactFamily(artifact.typeId).icon" class="size-3 text-(--gc)" />
+          <span>{{ roman(artDef?.level ?? 1) }}</span>
+          <span class="text-(--xg-faint)">·</span>
+          <span>{{ artifact.chargesRemaining }}</span>
+        </span>
+        <!-- Planted stack: hybrid genes, or speed and yield levels -->
+        <span v-if="plant?.isHybrid" class="xg-tag lv" :title="`Hybrid of ${plant.resources?.map((r: any) => r.name).join(', ')}`">
+          <UIcon name="i-lucide-dna" class="ic size-3" />
+          <span class="sm:hidden">{{ plant.resources?.length ?? 0 }}</span>
+          <XenoPlantIcon v-for="(r, i) in plant.resources" :key="i" :id="r.id" :size="12" class="max-sm:hidden" />
+        </span>
+        <span v-else-if="plant" class="xg-tag lv" :title="`Speed ${plant.speed} · Yield ${plant.yield}`">
+          <span class="inline-flex items-center gap-0.5" :class="levelClass(plant.speed)"><UIcon name="i-lucide-zap" class="size-3" />{{ plant.speed }}</span>
+          <span class="sep" />
+          <span class="inline-flex items-center gap-0.5" :class="levelClass(plant.yield)"><UIcon name="i-lucide-droplet" class="size-3" />{{ plant.yield }}</span>
+        </span>
+      </span>
+
+      <span v-if="busy" class="xg-busy" />
+    </button>
+    </UTooltip>
+
+    <button
+      v-if="cell.unlocked && plant && !selectedArtifact"
+      type="button"
+      class="xg-plot-x"
+      :aria-label="`Remove ${plant.name} (back to the shelf)`"
+      title="Remove plant (back to the shelf)"
       @click.stop="emit('remove', $event)"
     >
-      <UIcon name="i-lucide-x" class="size-3" />
+      <UIcon name="i-lucide-x" class="size-3.5" />
     </button>
-
-    <!-- Replace-artifact indicator -->
-    <div v-if="artifactReplacing" class="absolute bottom-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow">
-      <UIcon name="i-lucide-repeat" class="size-3" />
-    </div>
-
-    <XenoGridArtifactBadge :slot="slot" />
-
-    <!-- S / Y badges -->
-    <div class="absolute top-1.5 right-1.5 group-hover:right-7 flex flex-col gap-0.5 z-10 transition-all">
-      <template v-if="!plant.isHybrid">
-        <XenoLevelBadge prefix="S" :level="plant.speed" />
-        <XenoLevelBadge prefix="Y" :level="plant.yield" />
-      </template>
-      <span v-else class="text-[9px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-primary/20 text-primary leading-none">🧬</span>
-    </div>
-
-    <!-- Sparkles when ready -->
-    <template v-if="done">
-      <span v-for="(s, i) in SPARKLES" :key="i" class="xeno-sparkle" :style="s.style" />
-    </template>
-
-    <!-- Plant -->
-    <div class="relative flex-1 flex items-center justify-center min-h-0 pt-5">
-      <div class="xeno-plant-stage" :style="{ '--growth': growth }">
-        <div :class="done ? 'xeno-ready-bounce' : 'xeno-sway'" :style="done ? undefined : swayStyle">
-          <XenoPlantIcon :id="plant.typeId" :size="52" />
-        </div>
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div class="relative z-10 shrink-0 px-2 pb-1.5 text-center leading-tight">
-      <p class="text-[11px] font-semibold truncate opacity-80">{{ plant.name }}</p>
-      <div v-if="plant.isHybrid" class="flex items-center justify-center gap-0.5 leading-none mt-0.5">
-        <XenoPlantIcon v-for="(r, i) in plant.resources" :key="i" :id="r.id" :size="12" />
-      </div>
-      <p v-if="done" class="text-xs font-black text-primary mt-0.5">
-        Harvest <span class="opacity-80">×1–{{ 1 + (plant.isHybrid ? 0 : plant.yield) + yieldBonus }}</span>
-      </p>
-      <template v-else>
-        <div class="h-1 rounded-full bg-white/10 overflow-hidden mt-1">
-          <div class="h-full rounded-full bg-primary transition-[width] duration-500 ease-linear" :style="{ width: `${pct}%` }" />
-        </div>
-        <p class="text-[11px] font-semibold text-muted tabular-nums mt-0.5">
-          {{ formatCountdown(plant.completesAt, now) }}
-          <span v-if="speedBoost > 0" class="text-[9px] font-bold text-primary">⚡−{{ Math.round(speedBoost * 100) }}%</span>
-        </p>
-      </template>
-    </div>
-  </div>
-
-  <!-- ── Unlocked, empty ── -->
-  <div
-    v-else-if="cell.unlocked"
-    :data-plot="slot?.id"
-    class="xeno-plot xeno-plot-empty aspect-square select-none flex flex-col items-center justify-center gap-1"
-    :class="[
-      artifactReplacing ? 'xeno-plot-replace' : (plantTargetable || artifactTargetable) ? 'xeno-plot-target xeno-plot-interactive' : '',
-      busy ? 'xeno-plot-busy' : '',
-    ]"
-    :title="title"
-    @click="emit('click', $event)"
-  >
-    <XenoGridArtifactBadge v-if="slot?.artifact" :slot="slot" />
-    <div v-if="artifactReplacing" class="absolute bottom-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded-full bg-warning text-inverted shadow">
-      <UIcon name="i-lucide-repeat" class="size-3" />
-    </div>
-
-    <!-- Ghost preview of the selected seed -->
-    <template v-if="plantTargetable">
-      <div class="relative flex items-center justify-center">
-        <XenoPlantIcon :id="selectedPlant.typeId" :size="44" class="opacity-40 grayscale-[30%]" />
-        <UIcon name="i-lucide-plus" class="absolute -bottom-1 -right-1 size-4 text-primary bg-background rounded-full" />
-      </div>
-      <p class="text-[11px] text-primary font-semibold">Plant here</p>
-    </template>
-    <template v-else-if="artifactTargetable">
-      <span class="text-2xl opacity-60">{{ getArtifact(selectedArtifact.typeId)?.emoji }}</span>
-      <p class="text-[11px] font-semibold text-center px-1" :class="artifactReplacing ? 'text-warning' : 'text-primary'">
-        {{ artifactReplacing ? 'Replace artifact' : 'Attach here' }}
-      </p>
-    </template>
-    <template v-else>
-      <svg width="34" height="22" viewBox="0 0 34 22" class="opacity-30" aria-hidden="true">
-        <path d="M17 21V9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-        <path d="M17 13C13 13 9 10 9 5C13 5 17 8 17 13Z" fill="currentColor" />
-        <path d="M17 11C21 11 25 8 25 3C21 3 17 6 17 11Z" fill="currentColor" />
-      </svg>
-      <p class="text-[10px] text-muted/50 font-medium">Empty plot</p>
-    </template>
-  </div>
-
-  <!-- ── Locked, next ── -->
-  <div
-    v-else-if="cell.isNextUnlock"
-    class="xeno-plot xeno-plot-locked aspect-square select-none flex flex-col items-center justify-center gap-1.5 transition-all"
-    :class="canAffordUnlock ? 'xeno-plot-locked-affordable xeno-plot-interactive' : 'opacity-50 cursor-not-allowed'"
-    :title="canAffordUnlock ? 'Unlock this plot' : 'Not enough coins'"
-    @click="emit('click', $event)"
-  >
-    <div class="size-9 rounded-full border flex items-center justify-center" :class="canAffordUnlock ? 'border-primary/40 bg-primary/10 text-primary' : 'border-default text-muted'">
-      <UIcon :name="unlocking ? 'i-lucide-loader-circle' : canAffordUnlock ? 'i-lucide-lock-open' : 'i-lucide-lock'" class="size-4" :class="unlocking ? 'animate-spin' : ''" />
-    </div>
-    <CoinBalance :value="cell.cost" :compact="cell.cost >= 100000" class="text-xs font-semibold" :class="canAffordUnlock ? 'text-default' : 'text-muted'" />
-    <p class="text-[10px] uppercase tracking-wider font-bold" :class="canAffordUnlock ? 'text-primary' : 'text-muted/60'">{{ canAffordUnlock ? 'Unlock' : 'Locked' }}</p>
-  </div>
-
-  <!-- ── Locked, future ── -->
-  <div v-else class="xeno-plot xeno-plot-locked aspect-square flex items-center justify-center opacity-25">
-    <UIcon name="i-lucide-lock" class="size-3.5 text-muted" />
   </div>
 </template>

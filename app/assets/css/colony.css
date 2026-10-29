@@ -1,0 +1,741 @@
+/* Colony: "The Burrow" theme.
+
+   An underground colony in warm soil tones with lantern-amber accents. A
+   quieter sibling of xeno.css: the same T1-T6 tier colours, used as accents
+   (thin borders, small chips), and a glow only where something is waiting on
+   the player (ready loot, finished builders, a starving colony).
+
+   Imported only by app/pages/colony.vue. Every rule sits under
+   `.colony-shell` (or `.cl-theme` for content Nuxt UI portals out of it, like
+   tooltips and menus) and in the components layer, so Tailwind utilities
+   still win. The burrow is always dark: `.cl-theme` repoints Nuxt UI's
+   semantic tokens so `text-muted`, UInput, USelect and friends match it. */
+
+@layer components {
+  .colony-shell,
+  .cl-theme {
+    --soil-0: #110d0a;
+    --soil-1: #16110d;
+    --soil-2: #1c1612;
+    --soil-3: #241c16;
+    --soil-4: #33281f;
+    --soil-5: #4a3b2e;
+    --cl-line: rgba(255, 236, 210, 0.08);
+    --cl-line-strong: rgba(255, 236, 210, 0.14);
+    --cl-text: #f3ebe2;
+    --cl-muted: #b9aa99;
+    --cl-dim: #9a8b7b;
+    --cl-green: #4ade80;
+    --cl-gold: #f5b94a;
+    --cl-gem: #38bdf8;
+    --cl-danger: #f87171;
+    --cl-warn: #fb923c;
+    --cl-radius: 14px;
+    --t1: #4ade80;
+    --t2: #60a5fa;
+    --t3: #facc15;
+    --t4: #c084fc;
+    --t5: #fb923c;
+    --t6: #f87171;
+    --tc: var(--t1);
+
+    --ui-bg: var(--soil-1);
+    --ui-bg-muted: var(--soil-2);
+    --ui-bg-elevated: var(--soil-3);
+    --ui-bg-accented: var(--soil-4);
+    --ui-bg-inverted: var(--cl-text);
+    --ui-text: var(--cl-text);
+    --ui-text-dimmed: var(--cl-dim);
+    --ui-text-muted: var(--cl-muted);
+    --ui-text-toned: #dccfc1;
+    --ui-text-highlighted: #fffaf3;
+    --ui-text-inverted: var(--soil-1);
+    --ui-border: var(--soil-4);
+    --ui-border-muted: var(--soil-3);
+    --ui-border-accented: var(--soil-5);
+    --ui-border-inverted: var(--cl-text);
+    color-scheme: dark;
+    color: var(--cl-text);
+  }
+
+  .colony-shell {
+    position: relative;
+    isolation: isolate;
+    font-size: 14px;
+    background:
+      radial-gradient(ellipse 60% 320px at 50% -140px, rgba(245, 185, 74, 0.07), transparent 70%),
+      var(--soil-1);
+  }
+  .colony-shell .no-scrollbar { scrollbar-width: none; }
+  .colony-shell .no-scrollbar::-webkit-scrollbar { display: none; }
+  .colony-shell button:not(:disabled):not([aria-disabled='true']),
+  .colony-shell [role='button']:not([aria-disabled='true']),
+  .colony-shell a[href] { cursor: pointer; }
+
+  /* Fredoka only for headings and big numbers, at a calm weight. */
+  .colony-shell .cl-display,
+  .cl-theme .cl-display { font-family: 'Fredoka', 'Public Sans', sans-serif; letter-spacing: 0; }
+  .colony-shell .cl-num,
+  .cl-theme .cl-num { font-variant-numeric: tabular-nums; }
+  .colony-shell .cl-eyebrow,
+  .cl-theme .cl-eyebrow { font-size: 12px; font-weight: 500; color: var(--cl-dim); }
+
+  /* ── Header / nav ─────────────────────────────────────────────────────── */
+  .colony-shell .cl-header {
+    background: rgba(22, 17, 13, 0.92);
+    border-bottom: 1px solid var(--cl-line);
+    backdrop-filter: blur(8px);
+  }
+  .colony-shell .cl-logo-badge {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--cl-gold);
+  }
+  .colony-shell .cl-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    color: var(--cl-muted);
+    font-weight: 500;
+    font-size: 13.5px;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+  .colony-shell .cl-tab:hover { color: var(--cl-text); background: rgba(255, 236, 210, 0.04); }
+  .colony-shell .cl-tab-active,
+  .colony-shell .cl-tab-active:hover { color: var(--cl-text); background: rgba(255, 236, 210, 0.07); }
+  .colony-shell .cl-tab-active .cl-tab-icon { color: var(--cl-gold); }
+  .colony-shell .cl-tab-badge {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    color: #2a1a05;
+    background: var(--cl-gold);
+  }
+  .colony-shell .cl-tab-badge-green { color: #052e16; background: var(--cl-green); }
+
+  .colony-shell .cl-bottom-nav {
+    background: rgba(22, 17, 13, 0.96);
+    border-top: 1px solid var(--cl-line);
+    backdrop-filter: blur(8px);
+  }
+  .colony-shell .cl-bottom-tab {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 2px;
+    min-height: 52px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cl-muted);
+  }
+  .colony-shell .cl-bottom-tab-active { color: var(--cl-gold); }
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  .colony-shell .cl-panel,
+  .cl-theme .cl-panel {
+    position: relative;
+    border-radius: var(--cl-radius);
+    background: var(--soil-2);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-inset,
+  .cl-theme .cl-inset {
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-selected { border-color: rgba(245, 185, 74, 0.45); background: rgba(245, 185, 74, 0.05); }
+  .colony-shell .cl-chip,
+  .cl-theme .cl-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    background: rgba(255, 236, 210, 0.05);
+    border: 1px solid var(--cl-line);
+    color: var(--cl-muted);
+  }
+  .colony-shell button.cl-chip { min-height: 30px; padding: 0 11px; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+  .colony-shell button.cl-chip:hover { color: var(--cl-text); border-color: var(--cl-line-strong); }
+  .colony-shell .cl-chip-green { color: var(--cl-green); border-color: rgba(74, 222, 128, 0.25); background: rgba(74, 222, 128, 0.07); }
+  .colony-shell .cl-chip-gold,
+  .cl-theme .cl-chip-gold { color: var(--cl-gold); border-color: rgba(245, 185, 74, 0.3); background: rgba(245, 185, 74, 0.08); }
+  .colony-shell .cl-chip-gem { color: var(--cl-gem); border-color: rgba(56, 189, 248, 0.28); background: rgba(56, 189, 248, 0.07); }
+  .colony-shell .cl-chip-red { color: var(--cl-danger); border-color: rgba(248, 113, 113, 0.3); background: rgba(248, 113, 113, 0.08); }
+  .colony-shell .cl-chip-warn { color: var(--cl-warn); border-color: rgba(251, 146, 60, 0.3); background: rgba(251, 146, 60, 0.08); }
+
+  /* ── Buttons: flat, Nuxt UI-like, warm accents ────────────────────────── */
+  .colony-shell .cl-btn,
+  .cl-theme .cl-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    color: var(--cl-text);
+    transition: background 0.15s, border-color 0.15s, filter 0.15s, transform 0.1s;
+  }
+  .colony-shell .cl-btn:hover:not(:disabled),
+  .cl-theme .cl-btn:hover:not(:disabled) { filter: brightness(1.08); }
+  .colony-shell .cl-btn:active:not(:disabled),
+  .cl-theme .cl-btn:active:not(:disabled) { transform: scale(0.98); }
+  .colony-shell .cl-btn:focus-visible,
+  .cl-theme .cl-btn:focus-visible { outline: 2px solid var(--cl-gold); outline-offset: 2px; }
+  .colony-shell .cl-btn-green,
+  .cl-theme .cl-btn-green { color: #052e16; background: #4cc47a; }
+  .colony-shell .cl-btn-gold,
+  .cl-theme .cl-btn-gold { color: #2a1a05; background: var(--cl-gold); }
+  .colony-shell .cl-btn-gem,
+  .cl-theme .cl-btn-gem { color: #04213a; background: #4bb8e8; }
+  .colony-shell .cl-btn-red,
+  .cl-theme .cl-btn-red { color: #3b0707; background: #ef7676; }
+  .colony-shell .cl-btn-ghost,
+  .cl-theme .cl-btn-ghost { background: rgba(255, 236, 210, 0.05); border-color: var(--cl-line-strong); }
+  .colony-shell .cl-btn-ghost:hover:not(:disabled),
+  .cl-theme .cl-btn-ghost:hover:not(:disabled) { filter: none; background: rgba(255, 236, 210, 0.09); }
+  .colony-shell .cl-btn-sm,
+  .cl-theme .cl-btn-sm { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 9px; }
+  .colony-shell .cl-btn-xs { min-height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+  /* Disabled reads as switched off: no colour, a flat well and dimmed text,
+     so it never passes for a muted variant of an enabled button. */
+  .colony-shell .cl-btn:disabled,
+  .cl-theme .cl-btn:disabled {
+    cursor: not-allowed;
+    color: var(--cl-dim);
+    background: rgba(255, 236, 210, 0.03);
+    border-color: var(--cl-line);
+    border-style: dashed;
+    filter: grayscale(1);
+  }
+
+  /* ── Segmented tabs ───────────────────────────────────────────────────── */
+  .colony-shell .cl-seg { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--cl-line); }
+  .colony-shell .cl-seg-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 8px;
+    color: var(--cl-muted);
+    font-weight: 500;
+    font-size: 13px;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+  .colony-shell .cl-seg-btn:hover { color: var(--cl-text); }
+  .colony-shell .cl-seg-on { color: var(--cl-text); background: var(--soil-4); }
+
+  /* ── Nutrition trough ─────────────────────────────────────────────────── */
+  .colony-shell .cl-tank {
+    position: relative;
+    height: 12px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-tank-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    background: #84cc16;
+    transition: width 0.8s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .colony-shell .cl-tank-low { background: var(--cl-warn); }
+  .colony-shell .cl-tank-gem {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--cl-gem);
+    transition: left 0.8s cubic-bezier(0.2, 0.9, 0.3, 1), width 0.8s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .colony-shell .cl-tank-empty { border-color: rgba(248, 113, 113, 0.55); }
+  .colony-shell .cl-food-orb {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    font-size: 20px;
+    background: rgba(132, 204, 22, 0.12);
+  }
+  .colony-shell .cl-food-orb-low { background: rgba(251, 146, 60, 0.14); }
+  .colony-shell .cl-food-orb-starving { background: rgba(248, 113, 113, 0.16); }
+  .colony-shell .cl-food-orb-gem { background: rgba(56, 189, 248, 0.14); }
+
+  /* ── Terrarium frame ──────────────────────────────────────────────────── */
+  .colony-shell .cl-jar {
+    position: relative;
+    border-radius: 18px;
+    padding: 6px;
+    background: var(--soil-3);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-scene {
+    position: relative;
+    overflow: hidden;
+    border-radius: 13px;
+  }
+  .colony-shell .cl-scene::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), inset 0 0 40px rgba(0, 0, 0, 0.35);
+  }
+  .colony-shell .cl-scene-starving canvas { filter: grayscale(0.7) brightness(0.75); transition: filter 0.6s; }
+  .colony-shell .cl-scene-buffed::after { box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.45), inset 0 0 40px rgba(0, 0, 0, 0.35); }
+  .colony-shell .cl-scene-vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    box-shadow: inset 0 0 70px rgba(220, 38, 38, 0.32);
+  }
+  .colony-shell .cl-plaque {
+    position: absolute;
+    z-index: 10;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(17, 13, 10, 0.72);
+    border: 1px solid var(--cl-line);
+    backdrop-filter: blur(6px);
+    font-size: 12px;
+    font-weight: 500;
+    pointer-events: none;
+  }
+
+  /* ── Hexagonal level badge ────────────────────────────────────────────── */
+  .colony-shell .cl-lvl,
+  .cl-theme .cl-lvl {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 48px;
+    height: 54px;
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+    background: rgba(245, 185, 74, 0.18);
+    color: #fcd58a;
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 600;
+    font-size: 20px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .colony-shell .cl-lvl-dark { background: rgba(255, 236, 210, 0.07); color: var(--cl-muted); }
+
+  /* ── Loot chest ───────────────────────────────────────────────────────── */
+  .colony-shell .cl-chest { position: relative; display: grid; place-items: center; transition: filter 0.3s, opacity 0.3s; }
+  .colony-shell .cl-count-bubble {
+    position: absolute;
+    top: -4px;
+    right: -8px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+    color: #2a1a05;
+    background: var(--cl-gold);
+    box-shadow: 0 0 0 2px var(--soil-1);
+  }
+
+  /* ── Cards with a tier accent ─────────────────────────────────────────── */
+  .colony-shell .cl-t1, .cl-theme .cl-t1 { --tc: var(--t1); }
+  .colony-shell .cl-t2, .cl-theme .cl-t2 { --tc: var(--t2); }
+  .colony-shell .cl-t3, .cl-theme .cl-t3 { --tc: var(--t3); }
+  .colony-shell .cl-t4, .cl-theme .cl-t4 { --tc: var(--t4); }
+  .colony-shell .cl-t5, .cl-theme .cl-t5 { --tc: var(--t5); }
+  .colony-shell .cl-t6, .cl-theme .cl-t6 { --tc: var(--t6); }
+  .colony-shell .cl-tgem { --tc: var(--cl-gem); }
+  .colony-shell .cl-tc,
+  .cl-theme .cl-tc { color: var(--tc); }
+
+  .colony-shell .cl-bug {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-radius: 12px;
+    background: var(--soil-2);
+    border: 1px solid color-mix(in srgb, var(--tc) 22%, var(--cl-line));
+    transition: border-color 0.15s, background 0.15s, filter 0.3s;
+    overflow: hidden;
+  }
+  .colony-shell .cl-bug-hover:hover:not([aria-disabled='true']) {
+    border-color: color-mix(in srgb, var(--tc) 50%, transparent);
+    background: var(--soil-3);
+  }
+  .colony-shell .cl-bug-hit { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; text-align: center; }
+  .colony-shell .cl-bug-hit:focus-visible { outline: 2px solid var(--cl-gold); outline-offset: -3px; border-radius: 11px; }
+  .colony-shell .cl-bug-tier {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 2;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--tc);
+    background: color-mix(in srgb, var(--tc) 14%, transparent);
+  }
+  .colony-shell .cl-bug-qty {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ui-text-toned);
+    background: rgba(255, 236, 210, 0.07);
+  }
+  .colony-shell .cl-bug-art { position: relative; display: grid; place-items: center; height: 64px; margin-top: 14px; }
+  .colony-shell .cl-bug-emoji {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    font-size: 34px;
+    line-height: 1;
+    transition: transform 0.2s;
+  }
+  .colony-shell .cl-bug-name {
+    display: block;
+    padding: 0 6px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .colony-shell .cl-bug-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 6px;
+    border-top: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-bug-stat {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    padding: 5px 0;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .colony-shell .cl-bug-stat + .cl-bug-stat { border-left: 1px solid var(--cl-line); }
+  .colony-shell .cl-pips { display: flex; gap: 2px; justify-content: center; margin-top: 5px; }
+  .colony-shell .cl-pip,
+  .cl-theme .cl-pip { width: 7px; height: 4px; border-radius: 2px; background: rgba(255, 236, 210, 0.1); }
+  .colony-shell .cl-pip-on,
+  .cl-theme .cl-pip-on { background: var(--cl-gem); }
+  .colony-shell .cl-bug-dim { filter: grayscale(0.6) brightness(0.8); }
+  .colony-shell .cl-bug-pending { opacity: 0.55; pointer-events: none; }
+  .colony-shell .cl-silhouette { filter: brightness(0) opacity(0.45); }
+
+  /* Release mode */
+  .colony-shell .cl-bug.cl-bug-pick { border-color: rgba(245, 185, 74, 0.7); background: color-mix(in srgb, var(--cl-gold) 7%, var(--soil-2)); }
+  .colony-shell .cl-check {
+    position: absolute;
+    top: 30px;
+    right: 7px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--cl-gold);
+    color: #2a1a05;
+  }
+  .colony-shell .cl-stepper {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    padding: 4px;
+    border-top: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-step {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--cl-line-strong);
+    background: rgba(255, 236, 210, 0.04);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .colony-shell .cl-step:hover:not(:disabled) { background: rgba(255, 236, 210, 0.09); }
+  .colony-shell .cl-step:disabled { opacity: 0.35; cursor: not-allowed; }
+  .colony-shell .cl-lock {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 4px;
+    padding: 6px;
+    background: rgba(17, 13, 10, 0.86);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cl-muted);
+    text-align: center;
+  }
+  .colony-shell .cl-release-bar {
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(245, 185, 74, 0.05);
+    border: 1px solid rgba(245, 185, 74, 0.22);
+  }
+  /* The Spare toolbar keeps one frame in both modes, so switching to
+     release mode recolours it instead of moving the cards below. */
+  .colony-shell .cl-toolbar { border-radius: 12px; padding: 10px; border: 1px solid var(--cl-line); background: rgba(0, 0, 0, 0.12); }
+  .colony-shell .cl-toolbar-release { background: rgba(245, 185, 74, 0.05); border-color: rgba(245, 185, 74, 0.3); }
+
+  /* Typed amount: [−] [input] [+] with an optional Max. */
+  .colony-shell .cl-qty {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid var(--cl-line-strong);
+    background: rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+  }
+  .colony-shell .cl-qty:focus-within { border-color: rgba(245, 185, 74, 0.6); }
+  .colony-shell .cl-qty-btn {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 100%;
+    color: var(--cl-muted);
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .colony-shell .cl-qty-btn:hover:not(:disabled) { color: var(--cl-text); background: rgba(255, 236, 210, 0.06); }
+  .colony-shell .cl-qty-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .colony-shell .cl-qty-max { width: auto; padding: 0 9px; font-size: 12px; border-left: 1px solid var(--cl-line); }
+  .colony-shell .cl-qty-input {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0 4px;
+    background: transparent;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--cl-text);
+    outline: none;
+  }
+  .colony-shell .cl-qty-input:disabled { color: var(--cl-dim); cursor: not-allowed; }
+  .colony-shell .cl-qty-hint { flex: 0 0 auto; padding-right: 6px; font-size: 11.5px; font-weight: 500; color: var(--cl-muted); font-variant-numeric: tabular-nums; }
+
+  /* Placed bug: production ring */
+  .colony-shell .cl-ring { position: absolute; transform: rotate(-90deg); pointer-events: none; }
+  .colony-shell .cl-ring-track { fill: none; stroke: rgba(255, 236, 210, 0.08); }
+  .colony-shell .cl-ring-fill { fill: none; stroke: var(--cl-green); stroke-linecap: round; opacity: 0.85; }
+  .colony-shell .cl-ring-starve { stroke: var(--cl-danger); }
+  .colony-shell .cl-ring-gem { stroke: var(--cl-gem); }
+
+  /* Resource crate */
+  .colony-shell .cl-crate {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 9px 6px 8px;
+    border-radius: 12px;
+    background: var(--soil-2);
+    border: 1px solid var(--cl-line);
+    border-top: 2px solid color-mix(in srgb, var(--tc) 55%, transparent);
+    transition: opacity 0.3s;
+  }
+  .colony-shell .cl-crate-empty { opacity: 0.45; }
+
+  /* ── Progress, pips, costs ────────────────────────────────────────────── */
+  .colony-shell .cl-bar { position: relative; height: 8px; border-radius: 999px; overflow: hidden; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--cl-line); }
+  .colony-shell .cl-bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: #4cc47a; transition: width 0.5s linear; }
+  .colony-shell .cl-bar-fill-gold { background: var(--cl-gold); }
+  .colony-shell .cl-bar-fill-gem { background: var(--cl-gem); }
+  /* A dig in progress: faint static stripes over the fill. */
+  .colony-shell .cl-bar-stripes .cl-bar-fill { background-image: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.14) 0 6px, transparent 6px 12px); }
+  .colony-shell .cl-bar-next { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: rgba(245, 185, 74, 0.2); box-shadow: inset 0 0 0 1px rgba(245, 185, 74, 0.7); }
+  .colony-shell .cl-seg-pips { display: flex; gap: 3px; }
+  .colony-shell .cl-seg-pip { flex: 1 1 0; min-width: 0; height: 6px; border-radius: 3px; background: rgba(255, 236, 210, 0.08); }
+  .colony-shell .cl-seg-pip-on { background: #4cc47a; }
+  .colony-shell .cl-seg-pip-req { box-shadow: inset 0 0 0 1px var(--cl-gold); }
+  .colony-shell .cl-cost {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-cost-ok { color: var(--cl-text); }
+  .colony-shell .cl-cost-met { color: #86efac; border-color: rgba(74, 222, 128, 0.25); }
+  .colony-shell .cl-cost-short { color: var(--cl-danger); border-color: rgba(248, 113, 113, 0.3); }
+  /* Ready to collect: a steady green border. */
+  .colony-shell .cl-ready { border-color: rgba(74, 222, 128, 0.5); background: color-mix(in srgb, var(--cl-green) 5%, var(--soil-2)); }
+  .colony-shell .cl-you { border-color: rgba(245, 185, 74, 0.4); }
+
+  /* Research skill path */
+  .colony-shell .cl-node {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-weight: 600;
+    font-size: 13px;
+    border: 1px solid var(--cl-line-strong);
+    background: var(--soil-2);
+    color: var(--cl-dim);
+  }
+  .colony-shell .cl-node-on { border-color: transparent; background: #4cc47a; color: #052e16; }
+  .colony-shell .cl-node-next { border-color: var(--cl-gold); color: var(--cl-gold); }
+  .colony-shell .cl-node-line { flex: 1 1 auto; height: 2px; min-width: 6px; border-radius: 1px; background: var(--cl-line-strong); }
+  .colony-shell .cl-node-line-on { background: #4cc47a; }
+
+  /* Leaderboard anthill */
+  .colony-shell .cl-mound {
+    position: relative;
+    border-radius: 50% 50% 12px 12px / 28px 28px 12px 12px;
+    background: var(--soil-3);
+    border: 1px solid var(--cl-line);
+  }
+  .colony-shell .cl-mound::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 14px;
+    width: 22px;
+    height: 10px;
+    margin-left: -11px;
+    border-radius: 50%;
+    background: var(--soil-0);
+  }
+
+  /* ── Floats and dialogs ───────────────────────────────────────────────── */
+  .colony-shell .cl-float {
+    position: absolute;
+    z-index: 40;
+    pointer-events: none;
+    font-weight: 600;
+    font-size: 15px;
+    white-space: nowrap;
+    color: #fff7e6;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    animation: cl-coinup 1.7s ease-out forwards;
+  }
+  .colony-shell .cl-float-gold { font-size: 17px; color: var(--cl-gold); }
+  @keyframes cl-coinup {
+    0% { opacity: 0; transform: translate(-50%, 6px); }
+    15% { opacity: 1; transform: translate(-50%, 0); }
+    100% { opacity: 0; transform: translate(-50%, -40px); }
+  }
+  .colony-shell .cl-pop-in,
+  .cl-theme .cl-pop-in { animation: cl-popin 0.25s ease-out both; }
+  @keyframes cl-popin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .colony-shell .cl-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: rgba(8, 5, 3, 0.6);
+    backdrop-filter: blur(2px);
+    animation: cl-fade 0.15s ease-out both;
+  }
+  @keyframes cl-fade { from { opacity: 0; } to { opacity: 1; } }
+  .colony-shell .cl-dialog {
+    background: var(--soil-2);
+    border: 1px solid var(--cl-line-strong);
+    box-shadow: 0 24px 60px -20px #000;
+  }
+  @media (max-width: 639px) {
+    .colony-shell .cl-dialog { animation: cl-sheet 0.25s cubic-bezier(0.2, 1, 0.3, 1) both; }
+  }
+  @media (min-width: 640px) {
+    .colony-shell .cl-dialog { animation: cl-popin 0.2s ease-out both; }
+  }
+  @keyframes cl-sheet { from { transform: translateY(100%); } to { transform: none; } }
+
+  /* Tooltip content portalled out of the shell */
+  .cl-theme.cl-tooltip {
+    background: var(--soil-2);
+    border: 1px solid var(--cl-line-strong);
+    box-shadow: 0 12px 30px -14px #000;
+  }
+
+  /* ── Reduced motion: no loops or movement, the state colours stay ─────── */
+  @media (prefers-reduced-motion: reduce) {
+    .colony-shell .cl-dialog,
+    .colony-shell .cl-scrim,
+    .colony-shell .cl-pop-in,
+    .cl-theme .cl-pop-in { animation: none; }
+    .colony-shell .cl-btn,
+    .cl-theme .cl-btn,
+    .colony-shell .cl-bug,
+    .colony-shell .cl-bug-emoji { transition: none; }
+    .colony-shell .cl-btn:active:not(:disabled),
+    .cl-theme .cl-btn:active:not(:disabled) { transform: none; }
+    /* Floating "+N" pops stay put and just fade, instead of rising. */
+    .colony-shell .cl-float { transform: translate(-50%, -16px); animation: cl-fadeout 1.7s ease-out forwards; }
+  }
+  @keyframes cl-fadeout { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+}

@@ -227,8 +227,9 @@ Surfaced while doing the work above; each deliberately left alone to keep refact
   dice/limbo/wheel only).
   *Fixed: the block was character-identical apart from its disabled expression; now
   `<BetControls v-model="bet" :disabled="isPlaying && !showResults" />`.*
-- [ ] **ai.ts `XenoState`/`HackState`/`ColonyState`/`MinerState`** still mirror state-endpoint
+- [x] **ai.ts `XenoState`/`HackState`/`ColonyState`/`MinerState`** still mirror state-endpoint
   responses by hand and can silently drift (B1 deferred this deliberately).
+  *Obsolete: the AI assistant was removed; only the generic client survives in server/utils/openrouter.ts.*
 - [ ] **`slot-rtp.ts --fast`** (Math.random swap) measured 2.7x faster under tsx but **0% under
   bun** — bun's `getRandomValues` isn't the bottleneck. The project is bun-exclusive, so the flag is
   effectively dead weight; drop it unless tsx use returns.

@@ -1,386 +1,198 @@
 <script setup lang="ts">
+import type { NavSection } from '#shared/utils/nav-catalog'
+import { sectionFolderId } from '#shared/utils/nav-layout'
+
+useSeoMeta({ title: 'Games · Polynux' })
+
+const nav = useNavLayout()
+const { recent, read: readRecent } = useRecentGames()
+onMounted(readRecent)
+
+const ALL_GAMES = [...NAV_LINKS.values()]
 const search = ref('')
+const filter = ref<string>('all')
+const searchInput = useTemplateRef<{ inputRef?: HTMLInputElement }>('searchInput')
 
-const slotGames: {
-  name: string
-  description: string
-  icon: string
-  to: string
-  gradient: string
-  iconColor: string
-}[] = [
-  {
-    name: 'Xeno Slot',
-    description: '5×3 line-pay reels with a Hold & Win collector bonus',
-    icon: 'i-lucide-cherry',
-    to: '/games/xenoslot',
-    gradient: 'from-fuchsia-950 to-slate-900',
-    iconColor: 'text-fuchsia-400'
-  },
-  {
-    name: 'Candy Madness',
-    description: '7×7 cluster-pays cascade with stacking multipliers & free spins',
-    icon: 'i-lucide-candy',
-    to: '/games/candymadness',
-    gradient: 'from-pink-950 to-slate-900',
-    iconColor: 'text-pink-400'
-  },
-  {
-    name: 'Aether Gates',
-    description: 'Volatile tumble slot with relic multipliers and persistent free-spin meter',
-    icon: 'i-lucide-sparkles',
-    to: '/games/aethergates',
-    gradient: 'from-cyan-950 to-slate-900',
-    iconColor: 'text-cyan-300'
-  },
-  {
-    name: 'Book of Shadows',
-    description: '5×6 zigzag-connection grid with a column-locking fill-the-book bonus',
-    icon: 'i-lucide-book-open',
-    to: '/games/bookofshadows',
-    gradient: 'from-violet-950 to-slate-900',
-    iconColor: 'text-violet-400'
-  },
-  {
-    name: 'Spiñata Slots',
-    description: '5×3 reel slot, 50 paylines, left-to-right wins & Festival of Spins free spins',
-    icon: 'i-lucide-party-popper',
-    to: '/games/spinata',
-    gradient: 'from-orange-950 to-slate-900',
-    iconColor: 'text-orange-400',
-  },
-  {
-    name: 'Trash Panda Heist',
-    description: '5×4 reels, 1,024 ways, sticky multiplier-wild free spins & a Dumpster Dive pick game',
-    icon: 'i-lucide-trash-2',
-    to: '/games/trashpanda',
-    gradient: 'from-indigo-950 to-slate-900',
-    iconColor: 'text-yellow-400'
-  },
-  {
-    name: 'Ember Portals',
-    description: '7×7 cluster tumbles with wandering portal wilds that grow, merge and stay open through free spins',
-    icon: 'i-lucide-orbit',
-    to: '/games/emberportals',
-    gradient: 'from-orange-950 to-slate-900',
-    iconColor: 'text-orange-400'
-  },
-  {
-    name: 'PolyMasters',
-    description: 'Crash game: fly through multipliers, dodge rockets and land on the island to cash out',
-    icon: 'i-lucide-plane',
-    to: '/games/polymasters',
-    gradient: 'from-sky-950 to-slate-900',
-    iconColor: 'text-sky-400'
-  },
-]
+defineShortcuts({
+  '/': () => searchInput.value?.inputRef?.focus()
+})
 
-const casinoGames = [
-  {
-    name: 'Dice',
-    description: 'Roll the dice and bet on the outcome',
-    icon: 'i-lucide-dice-5',
-    to: '/games/dice',
-    gradient: 'from-emerald-950 to-slate-900',
-    iconColor: 'text-emerald-400'
-  },
-  {
-    name: 'Limbo',
-    description: 'Bet on a multiplier and watch the rocket fly',
-    icon: 'i-lucide-trending-up',
-    to: '/games/limbo',
-    gradient: 'from-sky-950 to-slate-900',
-    iconColor: 'text-sky-400'
-  },
-  {
-    name: 'Wheel',
-    description: 'Spin the wheel and win big prizes',
-    icon: 'i-lucide-loader-pinwheel',
-    to: '/games/wheel',
-    gradient: 'from-amber-950 to-slate-900',
-    iconColor: 'text-amber-400'
-  },
-  {
-    name: 'Magic Hands',
-    description: 'Place your hands and chase gold multipliers on the grid',
-    icon: 'i-lucide-hand',
-    to: '/games/magichands',
-    gradient: 'from-yellow-950 to-slate-900',
-    iconColor: 'text-yellow-400'
-  },
-  {
-    name: 'Blackjack',
-    description: 'A real table — five seats, one shoe, everyone sees every card',
-    icon: 'i-lucide-spade',
-    to: '/games/live-blackjack',
-    gradient: 'from-emerald-950 to-slate-900',
-    iconColor: 'text-emerald-400'
-  },
-  {
-    name: 'Roulette',
-    description: 'Single-zero European wheel — no seats, everyone bets the same layout',
-    icon: 'i-lucide-circle-dot',
-    to: '/games/roulette',
-    gradient: 'from-red-950 to-slate-900',
-    iconColor: 'text-red-400'
-  },
-  {
-    name: 'Baccarat',
-    description: 'Punto banco off a shared six-deck shoe — five seats, fixed drawing rules, zero decisions',
-    icon: 'i-lucide-diamond',
-    to: '/games/baccarat',
-    gradient: 'from-rose-950 to-slate-900',
-    iconColor: 'text-rose-400'
-  },
-  {
-    name: 'Three Card Poker',
-    description: 'Ante up, play or fold — one decision against the dealer, and a straight beats a flush',
-    icon: 'i-lucide-diamond',
-    to: '/games/three-card-poker',
-    gradient: 'from-rose-950 to-slate-900',
-    iconColor: 'text-rose-400'
-  },
-  {
-    name: 'Casino Hold\'em',
-    description: 'Five seats, one board — call or fold your two cards against the dealer',
-    icon: 'i-lucide-club',
-    to: '/games/casino-holdem',
-    gradient: 'from-teal-950 to-slate-900',
-    iconColor: 'text-teal-400'
-  }
-]
+const starredCount = computed(() => ALL_GAMES.filter(game => nav.isPinned(game.to)).length)
 
-const arcadeGames = [
-  {
-    name: 'Pathwarden',
-    description: 'Shape an expanding road and build a roguelike tower defense',
-    icon: 'i-lucide-castle',
-    to: '/pathwarden',
-    gradient: 'from-teal-950 via-slate-950 to-indigo-950',
-    iconColor: 'text-teal-300'
-  },
-  {
-    name: 'SHAPEZZ',
-    description: 'Endless platform-shooter mayhem with stackable mutations and 45-second cash-outs',
-    icon: 'i-lucide-shapes',
-    to: '/shapezz',
-    gradient: 'from-cyan-950 via-violet-950 to-slate-950',
-    iconColor: 'text-cyan-300'
-  },
-  {
-    name: 'Pirate Raid',
-    description: 'Build a warship, choose a difficulty and survive a six-minute ocean raid',
-    icon: 'i-lucide-anchor',
-    to: '/pirates',
-    gradient: 'from-sky-950 to-slate-900',
-    iconColor: 'text-sky-300'
-  },
-  {
-    name: 'Void Runner',
-    description: 'Third-person space shooter — crack ore, fight wardens and build up to a twelve-turret dreadnought',
-    icon: 'i-lucide-rocket',
-    to: '/void',
-    gradient: 'from-indigo-950 via-purple-950 to-slate-950',
-    iconColor: 'text-indigo-300'
-  },
-  {
-    name: 'Firewall',
-    description: 'Lane defence over 30 waves — five difficulties, a save between every wave, and a coin-bought Mainframe',
-    icon: 'i-lucide-shield-half',
-    to: '/firewall',
-    gradient: 'from-cyan-950 via-slate-900 to-slate-950',
-    iconColor: 'text-cyan-300'
-},
-  {
-    name: 'Hackerz',
-    description: 'Hold the fence against hackers on a neon 3D grid — 30 waves, five difficulties, and a Mainframe of its own',
-    icon: 'i-lucide-skull',
-    to: '/hackerz',
-    gradient: 'from-red-950 via-slate-900 to-slate-950',
-    iconColor: 'text-red-300'
-  },
-  {
-    name: 'Meadowbrawl',
-    description: 'Top-down melee roguelite — chain combos, dodge telegraphs and stack absurd boons across 20 waves',
-    icon: 'i-lucide-swords',
-    to: '/meadowbrawl',
-    gradient: 'from-green-950 via-emerald-900 to-amber-950',
-    iconColor: 'text-amber-300'
-  },
-  {
-    name: 'Voxel Arena',
-    description: 'Third-person voxel wave survival — shoot, slash, dash and draft up to three rogue-like upgrades per wave',
-    icon: 'i-lucide-boxes',
-    to: '/voxel-arena',
-    gradient: 'from-indigo-950 via-slate-950 to-cyan-950',
-    iconColor: 'text-cyan-300'
-  },
-  {
-    name: 'Dead Front',
-    description: 'Co-op round-based zombies in a ruined 1917 chapel — party up, Pack-a-Punch your rifle and chase the wonder weapon',
-    icon: 'i-lucide-crosshair',
-    to: '/dead-front',
-    gradient: 'from-stone-950 via-red-950 to-zinc-950',
-    iconColor: 'text-red-300'
-  }
-]
+const filters = computed(() => [
+  { id: 'all', label: 'All games', icon: 'i-lucide-layout-grid', count: ALL_GAMES.length },
+  { id: 'starred', label: 'Starred', icon: 'i-lucide-star', count: starredCount.value },
+  ...NAV_GAME_SECTIONS.map(section => ({ id: section.id, label: section.label, icon: section.icon ?? 'i-lucide-gamepad-2', count: section.items.length }))
+])
 
-const filteredSlots = computed(() =>
-  search.value
-    ? slotGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
-    : slotGames
-)
+const query = computed(() => search.value.trim().toLowerCase())
 
-const filteredCasino = computed(() =>
-  search.value
-    ? casinoGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
-    : casinoGames
-)
+const shown = computed(() => NAV_GAME_SECTIONS
+  .filter(section => filter.value === 'all' || filter.value === 'starred' || filter.value === section.id)
+  .map(section => ({
+    section,
+    games: section.items
+      .map(item => NAV_LINKS.get(item.to)!)
+      .filter(game => filter.value !== 'starred' || nav.isPinned(game.to))
+      .filter(game => !query.value
+        || game.label.toLowerCase().includes(query.value)
+        || game.description?.toLowerCase().includes(query.value)
+        || section.label.toLowerCase().includes(query.value))
+  }))
+  .filter(group => group.games.length))
 
-const filteredArcade = computed(() =>
-  search.value
-    ? arcadeGames.filter(g => g.name.toLowerCase().includes(search.value.toLowerCase()))
-    : arcadeGames
-)
+const recentGames = computed(() => recent.value.map(to => NAV_LINKS.get(to)).filter(game => !!game).slice(0, 6))
+const showRecent = computed(() => filter.value === 'all' && !query.value && recentGames.value.length > 0)
+
+type FolderState = 'none' | 'partial' | 'full'
+
+function folderState(section: NavSection): FolderState {
+  const folder = nav.layout.value.folders[sectionFolderId(section.id)]
+  if (!folder) return 'none'
+  return section.items.every(item => folder.items.includes(item.to)) ? 'full' : 'partial'
+}
+
+function toggleSectionFolder(section: NavSection) {
+  if (folderState(section) === 'full') nav.unpinSection(section)
+  else nav.pinSection(section)
+}
+
+function clearFilters() {
+  search.value = ''
+  filter.value = 'all'
+}
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
-    <!-- Page header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-      <div>
-        <h1 class="text-2xl font-bold">
-          Games
-        </h1>
-        <p class="text-sm text-muted mt-0.5">
-          Choose from our collection of exciting games
-        </p>
-      </div>
-      <UInput
-        v-model="search"
-        placeholder="Search games..."
-        icon="i-lucide-search"
-        class="w-full sm:w-64"
-        variant="outline"
-      />
+  <div class="mx-auto max-w-7xl px-4 pb-16 sm:px-6">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 pt-5">
+      <h1 class="text-xl font-bold text-highlighted">
+        Games
+      </h1>
+      <p class="text-xs text-muted">
+        <span class="inline-flex items-center gap-1"><HomeStarGlyph filled class="size-3 text-amber-300" />Star a game to pin it to your sidebar.</span>
+        <span class="hidden sm:inline"> Right-click for folders, or drag a card onto the sidebar.</span>
+        <span class="sm:hidden"> Long-press or tap ••• for folders.</span>
+      </p>
     </div>
 
-    <!-- Slot games section -->
+    <!-- Search and categories -->
+    <div class="sticky top-0 z-20 -mx-4 mt-2 flex flex-col gap-3 bg-default/85 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6 lg:flex-row lg:items-center">
+      <UInput
+        ref="searchInput"
+        v-model="search"
+        placeholder="Search games…"
+        icon="i-lucide-search"
+        class="w-full lg:w-72"
+        :ui="{ trailing: 'pe-1.5' }"
+      >
+        <template #trailing>
+          <UButton
+            v-if="search"
+            icon="i-lucide-x"
+            size="xs"
+            color="neutral"
+            variant="link"
+            aria-label="Clear search"
+            @click="search = ''"
+          />
+          <UKbd v-else value="/" />
+        </template>
+      </UInput>
+      <div class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]">
+        <button
+          v-for="f in filters"
+          :key="f.id"
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring ring-inset transition-colors"
+          :class="filter === f.id
+            ? 'bg-primary/15 text-highlighted ring-primary/40'
+            : 'bg-elevated/40 text-muted ring-default hover:bg-elevated hover:text-default'"
+          :aria-pressed="filter === f.id"
+          @click="filter = f.id"
+        >
+          <HomeStarGlyph v-if="f.id === 'starred'" :filled="filter === f.id" class="size-3.5 text-amber-300" />
+          <UIcon v-else :name="f.icon" class="size-3.5" :class="filter === f.id ? 'text-primary' : ''" />
+          {{ f.label }}
+          <span class="tabular-nums text-dimmed">{{ f.count }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Jump back in -->
+    <ClientOnly>
+      <section v-if="showRecent" class="mt-4">
+        <div class="mb-3 flex items-center gap-2">
+          <UIcon name="i-lucide-history" class="size-4 text-primary" />
+          <h2 class="text-sm font-bold uppercase tracking-wider text-highlighted">
+            Jump back in
+          </h2>
+        </div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <HomeGameCard
+            v-for="game in recentGames"
+            :key="game.to"
+            :link="game"
+            compact
+          />
+        </div>
+      </section>
+    </ClientOnly>
+
+    <!-- Catalog -->
     <section
-      v-if="filteredSlots.length"
-      class="mb-10"
+      v-for="{ section, games } in shown"
+      :key="section.id"
+      class="mt-6 first-of-type:mt-4"
     >
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-1 h-5 rounded-full bg-primary" />
-        <h2 class="text-base font-bold">
-          Slots
-        </h2>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        <NuxtLink
-          v-for="game in filteredSlots"
-          :key="game.name"
-          :to="game.to"
-          class="group rounded-xl overflow-hidden border border-default bg-elevated hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200"
+      <div class="mb-3 flex flex-wrap items-center gap-3">
+        <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 ring ring-inset ring-primary/20">
+          <UIcon :name="section.icon ?? 'i-lucide-gamepad-2'" class="size-4.5 text-primary" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <h2 class="flex items-center gap-2 text-base font-bold text-highlighted">
+            {{ section.label }}
+            <span class="rounded-md bg-elevated px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-muted">{{ games.length }}</span>
+          </h2>
+          <p v-if="section.blurb" class="truncate text-xs text-muted">
+            {{ section.blurb }}
+          </p>
+        </div>
+        <UTooltip
+          :text="folderState(section) === 'full'
+            ? `Remove the ${section.label} games from your sidebar`
+            : folderState(section) === 'partial'
+              ? `Put every ${section.label} game back in its folder`
+              : `Add all ${section.label} as a folder in your sidebar`"
         >
-          <div :class="`relative aspect-video bg-gradient-to-br ${game.gradient} flex items-center justify-center overflow-hidden`">
-            <UIcon
-              :name="game.icon"
-              :class="`size-10 ${game.iconColor} opacity-30 group-hover:opacity-50 group-hover:scale-110 transition-all duration-300`"
-            />
-          </div>
-          <div class="p-3 flex items-start gap-2.5">
-            <div class="size-7 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
-              <UIcon
-                :name="game.icon"
-                class="size-3.5 text-muted"
-              />
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-bold leading-tight">{{ game.name }}</p>
-              <p class="text-xs text-muted mt-0.5 line-clamp-2 leading-relaxed">{{ game.description }}</p>
-            </div>
-          </div>
-        </NuxtLink>
+          <UButton
+            size="sm"
+            :color="folderState(section) === 'full' ? 'primary' : 'neutral'"
+            :variant="folderState(section) === 'full' ? 'soft' : 'outline'"
+            :icon="folderState(section) === 'full' ? 'i-lucide-folder-check' : 'i-lucide-folder-plus'"
+            :label="folderState(section) === 'full' ? 'In your sidebar' : folderState(section) === 'partial' ? 'Fill folder' : 'Add as folder'"
+            @click="toggleSectionFolder(section)"
+          />
+        </UTooltip>
+      </div>
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+        <HomeGameCard
+          v-for="game in games"
+          :key="game.to"
+          :link="game"
+        />
       </div>
     </section>
 
-    <!-- Arcade games section -->
-    <section
-      v-if="filteredArcade.length"
-      class="mb-10"
-    >
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-1 h-5 rounded-full bg-primary" />
-        <h2 class="text-base font-bold">
-          Arcade
-        </h2>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        <NuxtLink
-          v-for="game in filteredArcade"
-          :key="game.name"
-          :to="game.to"
-          class="group rounded-xl overflow-hidden border border-default bg-elevated hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200"
-        >
-          <div :class="`relative aspect-video bg-gradient-to-br ${game.gradient} flex items-center justify-center overflow-hidden`">
-            <UIcon :name="game.icon" :class="`size-10 ${game.iconColor} opacity-30 group-hover:opacity-60 group-hover:scale-110 transition-all duration-300`" />
-          </div>
-          <div class="p-3 flex items-start gap-2.5">
-            <div class="size-7 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
-              <UIcon :name="game.icon" class="size-3.5 text-muted" />
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-bold leading-tight">{{ game.name }}</p>
-              <p class="text-xs text-muted mt-0.5 line-clamp-2 leading-relaxed">{{ game.description }}</p>
-            </div>
-          </div>
-        </NuxtLink>
-      </div>
-    </section>
-
-    <!-- Casino games section -->
-    <section v-if="filteredCasino.length">
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-1 h-5 rounded-full bg-primary" />
-        <h2 class="text-base font-bold">
-          Casino
-        </h2>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        <NuxtLink
-          v-for="game in filteredCasino"
-          :key="game.name"
-          :to="game.to"
-          class="group rounded-xl overflow-hidden border border-default bg-elevated hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-200"
-        >
-          <div :class="`relative aspect-video bg-gradient-to-br ${game.gradient} flex items-center justify-center overflow-hidden`">
-            <UIcon
-              :name="game.icon"
-              :class="`size-10 ${game.iconColor} opacity-30 group-hover:opacity-50 group-hover:scale-110 transition-all duration-300`"
-            />
-          </div>
-          <div class="p-3 flex items-start gap-2.5">
-            <div class="size-7 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
-              <UIcon
-                :name="game.icon"
-                class="size-3.5 text-muted"
-              />
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-bold leading-tight">{{ game.name }}</p>
-              <p class="text-xs text-muted mt-0.5 line-clamp-2 leading-relaxed">{{ game.description }}</p>
-            </div>
-          </div>
-        </NuxtLink>
-      </div>
-    </section>
-
-    <!-- Empty state -->
     <UEmpty
-      v-if="search && !filteredSlots.length && !filteredArcade.length && !filteredCasino.length"
-      :description="`No games found for '${search}'`"
-      icon="i-lucide-search"
+      v-if="!shown.length"
+      class="mt-12"
+      :icon="filter === 'starred' && !query ? 'i-lucide-star' : 'i-lucide-search'"
+      :title="filter === 'starred' && !query ? 'No starred games yet' : 'No games found'"
+      :description="filter === 'starred' && !query
+        ? 'Tap the star on any game to add it to your sidebar.'
+        : `Nothing matches “${search}”.`"
+      :actions="[{ label: 'Show all games', icon: 'i-lucide-layout-grid', color: 'neutral', variant: 'subtle', onClick: clearFilters }]"
     />
   </div>
 </template>

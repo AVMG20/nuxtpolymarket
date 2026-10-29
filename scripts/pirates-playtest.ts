@@ -1,10 +1,10 @@
 /**
  * Pirate Raid playtest: the real PirateSim, headless, at 60 fps, driven by a heuristic bot.
  *
- *   bun run balance:pirates-playtest                              ability matrix (tiers x abilities x difficulties)
- *   bun run balance:pirates-playtest --tiers mid --abilities bomb,tidal --seeds 12
- *   bun run balance:pirates-playtest --upgrades --tiers mid       forced salvage study (each upgrade at full stacks from the start)
- *   bun run balance:pirates-playtest --curve                      difficulty curve per tier (keg only)
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts                              ability matrix (tiers x abilities x difficulties)
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts --tiers mid --abilities bomb,tidal --seeds 12
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts --upgrades --tiers mid       forced salvage study (each upgrade at full stacks from the start)
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts --curve                      difficulty curve per tier (keg only)
  *
  * Flags
  *   --tiers fresh,mid,max        investment tiers (each has its own ability level and difficulty band)

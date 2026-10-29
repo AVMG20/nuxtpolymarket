@@ -43,6 +43,9 @@ export interface LightboxCard {
      * a serial-chip picker; the first copy is inspected by default. */
     printingId?: string | null
     owned?: number
+    /** The printing's set. With it, an owned copy can be put in a new trade
+     * offer straight from here. */
+    setId?: string | null
     /** Viewport rect of the clicked tile — plain object, not a DOMRect, so it
      * survives being put in reactive state. Absent → fade+scale from center. */
     origin?: { x: number, y: number, width: number, height: number }
@@ -230,6 +233,18 @@ const activeCopy = computed(() =>
     copies.value?.find(c => c.id === activeCopyId.value) ?? null)
 const activeGrade = computed(() =>
     activeCopy.value?.grade ?? props.card?.listing?.grade ?? props.card?.grade ?? null)
+
+/* ---- trading (§7.1) ---------------------------------------------------- */
+
+// A listed copy or one at the grader can't go in an offer, so only a free one gets the button.
+const canTrade = computed(() => !!props.card?.setId && !!activeCopy.value
+    && !activeCopy.value.listingId && activeCopy.value.lifecycle !== 'grading')
+
+/** Open the trades page's offer builder with this copy already on the give side. */
+function tradeCopy() {
+    if (!canTrade.value) return
+    navigateTo({ path: '/tcg/trades', query: { set: props.card!.setId!, give: activeCopy.value!.id, name: props.card!.name } })
+}
 
 const slabInfo = computed(() => {
     const grade = activeGrade.value
@@ -950,6 +965,15 @@ onBeforeUnmount(() => {
                             :label="crackArmed ? 'Really crack it? This can damage the card' : 'Crack slab'"
                             @click="crack"
                         />
+                        <UButton
+                            v-if="canTrade"
+                            color="neutral"
+                            variant="subtle"
+                            size="xs"
+                            icon="i-lucide-handshake"
+                            label="Trade"
+                            @click="tradeCopy"
+                        />
                         <TcgBookPanel
                             v-if="card.printingId"
                             :printing-id="card.printingId"
@@ -983,7 +1007,7 @@ onBeforeUnmount(() => {
                     <template v-else>
                         <div
                             v-if="!gradePanel && !sellPanel && !vendorPanel && !auctionPanel"
-                            class="flex gap-1.5"
+                            class="flex flex-wrap justify-end gap-1.5"
                         >
                             <UButton
                                 color="neutral"
@@ -1016,6 +1040,15 @@ onBeforeUnmount(() => {
                                 icon="i-lucide-gavel"
                                 label="Auction"
                                 @click="auctionPanel = true"
+                            />
+                            <UButton
+                                v-if="canTrade"
+                                color="neutral"
+                                variant="subtle"
+                                size="xs"
+                                icon="i-lucide-handshake"
+                                label="Trade"
+                                @click="tradeCopy"
                             />
                         </div>
                         <div

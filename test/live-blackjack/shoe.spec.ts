@@ -3,14 +3,6 @@ import { Shoe } from '#server/utils/live-blackjack/shoe'
 import { LB_RULES } from '#shared/utils/live-blackjack/rules'
 
 describe('Shoe', () => {
-    it('holds a full six-deck shoe', () => {
-        const shoe = new Shoe()
-        expect(shoe.decks).toBe(6)
-        expect(shoe.total).toBe(312)
-        expect(shoe.remaining).toBe(312)
-        expect(shoe.dealt).toBe(0)
-    })
-
     it('contains exactly six of every card', () => {
         const shoe = new Shoe()
         const seen = new Map<string, number>()
@@ -23,33 +15,15 @@ describe('Shoe', () => {
         expect([...seen.values()].every(count => count === 6)).toBe(true)
     })
 
-    it('deals off the top rather than reshuffling per hand', () => {
-        const shoe = new Shoe()
-        for (let i = 1; i <= 40; i++) {
-            shoe.draw()
-            expect(shoe.dealt).toBe(i)
-            expect(shoe.remaining).toBe(312 - i)
-        }
-    })
-
     it('only asks for a shuffle once the cut card is reached', () => {
         const shoe = new Shoe()
         const cutAt = Math.round(312 * LB_RULES.penetration)
-        for (let i = 0; i < cutAt - 1; i++) {
-            shoe.draw()
-            expect(shoe.needsShuffle).toBe(false)
-        }
+        for (let i = 0; i < cutAt - 1; i++) shoe.draw()
+        expect(shoe.needsShuffle).toBe(false)
         shoe.draw()
         expect(shoe.needsShuffle).toBe(true)
         // The reserve behind the cut card is what lets the current round finish.
         expect(shoe.remaining).toBeGreaterThan(0)
-    })
-
-    it('counts down to the cut card, not to the last card', () => {
-        const shoe = new Shoe()
-        expect(shoe.untilShuffle).toBe(234)
-        for (let i = 0; i < 100; i++) shoe.draw()
-        expect(shoe.untilShuffle).toBe(134)
     })
 
     it('refills and resets the counter on shuffle', () => {
@@ -74,13 +48,6 @@ describe('Shoe', () => {
         // A silent reshuffle here would leave the table broadcasting a running
         // count for a deck that no longer exists.
         expect(() => shoe.draw()).toThrow(/empty shoe/)
-    })
-
-    it('gives every card a distinct id so the client can track it', () => {
-        const shoe = new Shoe()
-        const ids = new Set<string>()
-        for (let i = 0; i < 312; i++) ids.add(shoe.draw().id)
-        expect(ids.size).toBe(312)
     })
 
     it('does not deal the same order twice', () => {

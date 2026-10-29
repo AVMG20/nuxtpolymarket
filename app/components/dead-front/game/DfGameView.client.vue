@@ -2,7 +2,8 @@
     <div
         ref="rootEl"
         class="df-game df-theme fixed inset-0 overflow-hidden bg-black select-none"
-        :class="{ 'cursor-none': hud.locked }"
+        :class="{ 'cursor-none': hud.locked || hud.benchEscaped }"
+        @click="hud.benchEscaped && play()"
     >
         <div ref="canvasEl" class="absolute inset-0" />
 
@@ -26,7 +27,7 @@
         <!-- click to take your post -->
         <Transition name="df-fade">
             <div
-                v-if="!hud.locked && !paused"
+                v-if="!hud.locked && !paused && !hud.benchEscaped"
                 class="df-overlay absolute inset-0 flex cursor-pointer flex-col items-center justify-center px-4"
                 @click="play"
             >
@@ -43,6 +44,9 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Escape closed the workbench: no pause; the pointer lock comes back by itself, or with a click -->
+        <div v-if="hud.benchEscaped && !hud.locked" class="df-bench-resume pointer-events-none absolute inset-x-0 text-center">Click to return to the fight</div>
 
         <DfPauseMenu
             v-if="paused"
@@ -69,6 +73,7 @@ import type { DfHudFeedContext } from '~/utils/dead-front/engine/hud'
 import { dfPlayerColor } from '~/utils/dead-front/engine/avatars'
 import { DF_POWERUP_NAMES } from '~/utils/dead-front/engine/powerups'
 import { DF_MAP } from '#shared/utils/dead-front/map'
+import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_WEAPONS } from '#shared/utils/dead-front/weapons'
 import { dfLoadSettings, dfSaveSettings } from '~/utils/dead-front/engine/settings'
 import type { DfSettings } from '~/utils/dead-front/engine/settings'
@@ -79,7 +84,7 @@ import DfTitleLockup from '~/components/dead-front/ui/DfTitleLockup.vue'
 const keys = [
     { keys: ['W', 'A', 'S', 'D'], what: 'move' },
     { keys: ['Shift'], what: 'sprint' },
-    { keys: ['C'], what: 'crouch' },
+    { keys: ['C'], what: 'crouch · slide' },
     { keys: ['Space'], what: 'jump' },
     { keys: ['LMB'], what: 'fire' },
     { keys: ['RMB'], what: 'aim' },
@@ -87,6 +92,7 @@ const keys = [
     { keys: ['F'], what: 'use' },
     { keys: ['V'], what: 'knife' },
     { keys: ['G'], what: 'grenade' },
+    { keys: ['I'], what: 'inspect' },
     { keys: ['1', '2', 'Wheel'], what: 'swap' },
     { keys: ['Tab'], what: 'ledger' },
     { keys: ['T'], what: 'chat' }
@@ -117,9 +123,13 @@ watch(() => hud.locked, (locked) => {
     if (locked) {
         everLocked = true
         paused.value = false
-    } else if (everLocked) {
+    } else if (everLocked && !hud.benchEscaped) {
         paused.value = true
     }
+})
+// a second Escape after the workbench closed is the pause
+watch(() => hud.benchEscaped, (escaped) => {
+    if (!escaped && !hud.locked && everLocked) paused.value = true
 })
 
 function play(): void {
@@ -156,8 +166,18 @@ function sendChat(): void {
     closeChat()
 }
 
+/** Leaving the window after Escape closed the workbench pauses, as leaving it always does. */
+function onBlur(): void {
+    if (hud.benchEscaped && !hud.locked) engine?.pause()
+}
+
 function onKeyDown(e: KeyboardEvent): void {
-    if (chatOpen.value || !hud.locked || e.repeat) return
+    // (an Escape that closed the chat box is spent)
+    if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && hud.benchEscaped && !hud.locked) {
+        engine?.pause()
+        return
+    }
+    if (chatOpen.value || (!hud.locked && !hud.benchEscaped) || e.repeat) return
     if (e.code !== 'KeyT' && e.code !== 'Enter') return
     // keep the key itself out of the box
     e.preventDefault()
@@ -186,6 +206,8 @@ const feedCtx: DfHudFeedContext = {
     powerupName: kind => DF_POWERUP_NAMES[kind] ?? 'a power-up'
 }
 const offSnap = props.net.on('snap', (m) => {
+    // the player's own slice (their supply crate finds) joins the events, whichever listener runs first
+    dfMergeArsenalMine(m.s)
     feedPlayers = m.s.players
     solo.value = m.s.players.length <= 1
     for (const ev of m.s.events) {
@@ -197,6 +219,7 @@ const feedTimer = setInterval(() => dfHudPruneFeed(hud.feed, performance.now()),
 
 onMounted(() => {
     window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('blur', onBlur)
     if (!canvasEl.value) return
     try {
         engine = createDfEngine({
@@ -216,6 +239,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('blur', onBlur)
     offSnap()
     clearInterval(feedTimer)
     engine?.dispose()
@@ -277,6 +301,24 @@ onBeforeUnmount(() => {
     font-size: 0.95rem;
     letter-spacing: 0.06em;
     color: var(--df-chalk-2);
+}
+
+.df-bench-resume {
+    top: 62%;
+    /* only if the lock hasn't come back by itself by then */
+    animation: df-bench-resume-in 0.3s 2.5s both;
+    font-family: var(--df-font-stencil);
+    font-size: 0.95rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #fff2dc;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 0.9);
+}
+
+@keyframes df-bench-resume-in {
+    from {
+        opacity: 0;
+    }
 }
 
 .df-click {

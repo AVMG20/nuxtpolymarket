@@ -13,10 +13,10 @@ import { hqFights, hqRaidState, hqState } from '#server/database/schema'
 import { positionOf, sealGrant, type HqStateRow } from '#server/utils/hero-quest'
 import { engageLoadout } from '#server/utils/hero-quest-loadout'
 import { getRaid, RAIDS, RAIDS_OPEN, type RaidId } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEY_CAP, grantKeys, nextKeyGrantAt, nextRaidLevel, raidReward, rampageLevelReached, runDigSiteFight, runDummyRound, runForgeFight, runKnightFight, runRampageFight } from '#shared/utils/hero-quest/raids'
+import { RAID_KEY_CAP, grantKeys, isRaidQuickClearCount, nextKeyGrantAt, nextRaidLevel, raidReward, rampageLevelReached, runDigSiteFight, runDummyRound, runForgeFight, runKnightFight, runRampageFight } from '#shared/utils/hero-quest/raids'
 import type { FightResult } from '#shared/utils/hero-quest/fight'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { RAID_KEYS_PER_DAY, RAID_QUICK_CLEAR_COUNTS, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
 import type { HqRaidPayload } from '#server/utils/hero-quest-api'
@@ -154,17 +154,19 @@ export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId,
     }
 }
 
-/** Spend a Key to take the personal best's reward again, without a round (§4). */
-export async function quickClearRaid(tx: DbExecutor, userId: string, raidId: RaidId) {
+/** Spend a Key per clear to take the personal best's reward again, without a round (§4); all `count` clears or none. */
+export async function quickClearRaid(tx: DbExecutor, userId: string, raidId: RaidId, count: RaidQuickClearCount = 1) {
+    if (!isRaidQuickClearCount(count)) throw createError({ statusCode: 400, statusMessage: `Quick-clear ${RAID_QUICK_CLEAR_COUNTS.join(' / ')} at a time` })
     assertOpen(raidId)
     const { row, keys, lastKeyGrantAt } = await lockRaid(tx, userId, raidId, Date.now())
     if (row.highestLevel < 1) throw createError({ statusCode: 400, statusMessage: 'Play a round first' })
     if (keys < 1) throw createError({ statusCode: 400, statusMessage: `No ${getRaid(raidId).key} left` })
+    if (keys < count) throw createError({ statusCode: 400, statusMessage: `Not enough ${getRaid(raidId).key} for ${count} clears` })
 
-    const reward = raidReward(raidId, row.highestLevel)
-    await tx.update(hqRaidState).set({ keyBalance: keys - 1, lastKeyGrantAt }).where(eq(hqRaidState.id, row.id))
+    const reward = raidReward(raidId, row.highestLevel) * count
+    await tx.update(hqRaidState).set({ keyBalance: keys - count, lastKeyGrantAt }).where(eq(hqRaidState.id, row.id))
     await payReward(tx, userId, raidId, reward)
-    return { raidId, level: row.highestLevel, reward, keys: keys - 1 }
+    return { raidId, level: row.highestLevel, count, reward, keys: keys - count }
 }
 
 /**

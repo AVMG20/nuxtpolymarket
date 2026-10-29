@@ -54,8 +54,11 @@ import {
     BASE_TRAIT_SAVE_SLOTS,
     MAX_TRAIT_SAVE_SLOTS,
     TRAIT_SAVE_SLOT_BASE_COST_GEMS,
-    TRAIT_SAVE_SLOT_COST_STEP_GEMS
+    TRAIT_SAVE_SLOT_COST_STEP_GEMS,
+    VOID_SHARD_BASE,
+    VOID_SHARD_GROWTH
 } from '../constants'
+import { D, decPow } from '../numbers'
 import type { HqModifier } from '../modifiers'
 import type { HqStatKey } from '../types'
 
@@ -251,4 +254,13 @@ export function shopStatLevels(shopLevels: Readonly<Record<string, number>>): Pa
     const out: Partial<Record<HqStatKey, number>> = {}
     for (const track of SHOP_TRACKS) if (track.stat) out[track.stat] = shopLevels[track.id] ?? 0
     return out
+}
+
+/**
+ * Payout for completing a prestige, `VOID_SHARD_BASE × VOID_SHARD_GROWTH^prestigeCompleted`, in
+ * whole shards. Rounded because Decimal's `pow` is inexact (2^3 comes back 7.999…), which left a
+ * balance a hair under a price it should exactly meet.
+ */
+export function voidShardsFor(prestigeCompleted: number) {
+    return D(VOID_SHARD_BASE).mul(decPow(VOID_SHARD_GROWTH, Math.max(0, prestigeCompleted))).round()
 }

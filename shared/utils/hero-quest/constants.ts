@@ -15,13 +15,13 @@
  * ── TUNED ✓ ────────────────────────────────────────────────────────────────────────────
  * Derived from measurement and confirmed in playtest. Moving one is a design decision: its
  * comment says what it trades against and what it is coupled to. Re-measure before and after
- * with `bun run sim:hero-quest --report=campaign` (`--sweep=NAME=a,b,c` to compare values).
+ * with `bun scripts/hero-quest-sim.ts --report=campaign` (`--sweep=NAME=a,b,c` to compare values).
  *
  * A **derived** constant carries no marker; it inherits the status of its inputs and is never
  * set directly.
  */
 
-import type { HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
+import type { ClassTier, HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
 import type { HolidayId } from './content/holidays'
 
 // ── Run structure ──────────────────────────────────  core-progression-and-prestige.md §2
@@ -547,6 +547,30 @@ export const DELTA_NORMAL = 4 // TUNED ✓
 export const DELTA_EXTREME = 8 // TUNED ✓
 
 /**
+ * The Hero's PWR by the tier of the class played (the user's call, 2026-10-20, issues #45 and #47):
+ * every class token is an upgrade, and a master out-damages an elite at any kit.
+ *
+ * Without it the Beginner (two strikes, `high` SPD, Haste) out-damaged every base class and
+ * several elites and masters, so a first token made the Hero weaker; and with strong kit the
+ * Shaman's party buff carried an elite past the Beast Master. A tier is a multiplier on the
+ * Hero's PWR, after the level curve, so the first run (played as the Beginner) is untouched.
+ *
+ * Measured with `--report=classes` on the baseline (party of 3, Traits, tree, Rare 0★ Lv2, prestige
+ * 1, level 446) and on strong kit (party of 4, Legendary 3★ Lv5, prestige 3, level 1,296): every
+ * class out-damages its parent at both, and the Beast Master every elite at the second. The
+ * smallest ladder that does is 2.4 / 2.8 / 3.2 / 3.6; the Warrior line binds it (Warrior over the
+ * Beginner, Knight over the Warrior). Off the baseline, without the Passive Skill Tree, the
+ * Warrior still trails the Beginner by 6–12%. Moving it re-paces every run after the first.
+ */
+export const CLASS_TIER_PWR_MULTIPLIER: Readonly<Record<ClassTier, number>> = { // UNTUNED ╧
+    beginner: 1,
+    base: 2.5,
+    elite: 3,
+    master: 3.5,
+    capstone: 4
+}
+
+/**
  * What every class's and archetype's **accumulated** LCK base is multiplied by.
  *
  * Applied after the tier value and the class path's deltas, so it lowers starting crit chance
@@ -697,8 +721,14 @@ export const XP_BASE_PER_KILL = 2 // TUNED ✓
  * on that baseline with Traits and the tree opening on their schedule (`--unlocks`), measured 4.04
  * days, and **World 1 in about 20 minutes** for a new party of three on Common 0★ Lv1 kit, measured
  * 20 min. The old pair measured 6.4 days and 45 minutes on the same walks.
+ *
+ * 38 → 86 on 2026-10-20 (the user's call): **a 4-day first prestige** again, measured 4.0 days on the
+ * baseline walk (`--unlocks`), with World 1 unchanged since its first gates need no grinding.
+ *
+ * 86 → 115 on 2026-10-22 (the user's call: players level too quickly): XP ×0.75 stretches every
+ * prestige alike, measured on days 5.4, 12.1, 20.2, 29.6, 40.2, 81, 160 and 321 on the kit ladder.
  */
-export const XP_TO_LEVEL_BASE = 38 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 115 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**
@@ -710,7 +740,7 @@ export const XP_TO_LEVEL_BASE = 38 // TUNED ✓
  *
  * The magnitude comes from compounding across the `LEVELS_PER_STAGE` levels each stage hands out.
  * At 1.05 a level-300 Hero needs ~22M XP for its next level and the first prestige ends around
- * 2.8e11, inside `formatHq`'s named-suffix ladder. Steeper values push that into scientific
+ * 2.8e11, inside the standard notation's named-suffix ladder. Steeper values push that into scientific
  * notation within a few prestiges.
  */
 export const XP_TO_LEVEL_GROWTH = 1.05 // TUNED ✓
@@ -821,17 +851,32 @@ export const FIGHT_LENGTH_DRIFT = 0.35 // TUNED ✓
 /** The exponent enemy HP rides on the shared curve index. Derived — move `FIGHT_LENGTH_DRIFT`. */
 export const ENEMY_HP_STEP_EXPONENT = DPS_COVERAGE_PER_STAGE + FIGHT_LENGTH_DRIFT
 
+/**
+ * Enemy HP shed by each prestige, cumulative, in steps of `ENEMY_STEP_BASE` (the user's call, 2026-10-20, issue #44).
+ * Fitted on the baseline walk's kit ladder (`--kit-ladder`, 2026-10-22) at `XP_TO_LEVEL_BASE` 86 to days 4, 9, 15, 22, 30, 60, 120 and 240, which its cut to 115 stretches ×1.35.
+ * Past the table each prestige repeats the last step.
+ */
+export const PRESTIGE_HP_SHED_STEPS: Readonly<Record<number, number>> = { // locked 2026-10-20, the user's call
+    1: 23.82,
+    2: 37.87,
+    3: 66.39,
+    4: 92.96,
+    5: 114.35,
+    6: 140.74,
+    7: 168.57
+}
+
 // ── Gold ───────────────────────────────────────────  gold-economy.md §3–4
 
 /**
  * Gold per kill at the very first stage, before the progression factor. **The level of the
  * progression-bound regime and nothing else**: `GOLD_TENURE_CEILING` is generated by dividing by
  * it, so `BASE_GOLD × ceiling` — what a ceiling-bound account earns — does not move with it.
- * Regenerate the ceiling whenever it moves (`bun run balance:compare --emit-hq-ceiling`).
+ * Regenerate the ceiling whenever it moves (`bun scripts/economy-compare.ts --emit-hq-ceiling`).
  *
  * Set with `GOLD_STEP_BASE` as a pair, 2026-10-12 (the user's call via issue #10, `open-items.md`
  * #23.3): **a first-week account earns about a quarter of what the platform's idle games pay at
- * the same age.** Measured on the campaign walk's party of three (`bun run sim:hero-quest
+ * the same age.** Measured on the campaign walk's party of three (`bun scripts/hero-quest-sim.ts
  * --report=gold --party=3`): ~24% of platform income across the first week, ~20% at day 3, ~22%
  * at day 7, peaking near 70% around hour 12 while the platform's own day-one income is still tiny.
  * It was 0.4, which left the walk at 0.07% of platform.
@@ -878,11 +923,14 @@ export const BASE_GOLD = 1 // TUNED ✓
  * before day 90 and earns the walk's month what the 4-day pace did (1.29B against 1.38B): 50–77% of
  * platform on day one, 25–33% from day 3. Swept: 1.045 → 13–20% from day 3, 1.04 → 6–11%.
  *
+ * 1.05 → 1.065 on 2026-10-20, back on a 4-day first run (`XP_TO_LEVEL_BASE` 86): the first run's Worlds
+ * pay 26–75% of platform again (1.05 had fallen to 9–67%); past it the ceiling binds, so nothing later moves.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.05 // TUNED ✓
+export const GOLD_STEP_BASE = 1.065 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 
@@ -914,7 +962,7 @@ export const GOLD_STEP_BASE = 1.05 // TUNED ✓
  * 11.7× too low: an account pinned to it earned a twelfth of platform income forever
  * (`open-items.md` #23, measured 2026-09-16).
  *
- * **Measured on the campaign walk**, `bun run sim:hero-quest --report=gold --grind-hours=200`:
+ * **Measured on the campaign walk**, `bun scripts/hero-quest-sim.ts --report=gold --grind-hours=200`:
  * **405 kills/hour solo, 430 for a party of three, 423 for a party of six** (re-measured
  * 2026-10-12, issue #10; 25–31-day walks, 12½ for the party of six). It was 523 / 617 / 620 on
  * 2026-09-16 and 600 here; the cooldown ladder (#36), wipe recovery (#37) and boss specials (#45)
@@ -934,7 +982,7 @@ export const GOLD_STEP_BASE = 1.05 // TUNED ✓
  * to `maxGoldPerHour` over its real time (`settle`, 2026-10-11).
  *
  * Coupled to `GOLD_TENURE_CEILING`, which must be regenerated whenever this moves
- * (`bun run balance:compare --emit-hq-ceiling`), and to nothing else — combat never reads it.
+ * (`bun scripts/economy-compare.ts --emit-hq-ceiling`), and to nothing else — combat never reads it.
  * Re-measure it whenever run pacing moves (`open-items.md` #36).
  */
 export const GOLD_REFERENCE_KILLS_PER_HOUR = 420 // TUNED ✓
@@ -948,7 +996,7 @@ export const GOLD_TENURE_DAYS: readonly number[] = [
  *
  * Derived, not chosen: each entry is the geometric mean of Colony and Xeno income (uninvested and
  * invested, both games) at that day, divided by `BASE_GOLD × GOLD_REFERENCE_KILLS_PER_HOUR`.
- * **Emit it, do not hand-edit it:** `bun run balance:compare --emit-hq-ceiling` prints the table.
+ * **Emit it, do not hand-edit it:** `bun scripts/economy-compare.ts --emit-hq-ceiling` prints the table.
  * Regenerate whenever those economies, `BASE_GOLD` or the reference kill rate move.
  *
  * The rung days sit on **every Colony habitat and Xeno tier boundary**, where the platform curve
@@ -1033,6 +1081,9 @@ export const BATTLE_SPEED_PRICE_ROUNDING = 5
 /** Keys granted per raid per day, banking up to `RAID_KEY_BANK_DAYS` of them (21). Locked, §3. */
 export const RAID_KEYS_PER_DAY = 3
 export const RAID_KEY_BANK_DAYS = 7
+/** How many quick-clears one press takes, each its own Key (§4). */
+export const RAID_QUICK_CLEAR_COUNTS = [1, 5, 10] as const // locked 2026-10-23, the user's call
+export type RaidQuickClearCount = typeof RAID_QUICK_CLEAR_COUNTS[number]
 
 /**
  * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`, each raid
@@ -1685,6 +1736,9 @@ export const RARITY_EPITHETS: readonly string[] = [
 export const SINGLE_PULL_COST = 1
 export const TEN_PULL_SIZE = 10
 export const TEN_PULL_COST = 9
+/** A 100-pull is ten 10-pulls in one press, offered once a banner holds its Seals (the user's call, 2026-10-22). */
+export const HUNDRED_PULL_SIZE = 100
+export const HUNDRED_PULL_COST = HUNDRED_PULL_SIZE / TEN_PULL_SIZE * TEN_PULL_COST
 
 /**
  * dupesToLevelUp(star, level) = round(min((star × 10 + level) × DUPE_LEVEL_FACTOR, DUPE_LEVEL_CAP))
@@ -1891,8 +1945,34 @@ export const GOLD_BURST_MINUTES: readonly number[] = [ // UNTUNED ╧
  * cadence is the price of trading combat for economy.
  *
  * A decision, not a transcription — no doc assigns skill cooldowns.
+ *
+ * 120 → 900 on 2026-10-20 (the user's call): every Gold burst scaled by 2/15 so a maxed 5+5 Gold build lands at §5's ~×5, not ×21.
  */
-export const GOLD_BURST_COOLDOWN_SECONDS = 120 // UNTUNED ╧
+export const GOLD_BURST_COOLDOWN_SECONDS = 900 // UNTUNED ╧
+
+/**
+ * Treasure Hunter's Gambit's Gold burst, in minutes of current income: 4.8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Epic 3 minutes.
+ *
+ * Unlike Coin Toss it is a damage Active on the shared ladder cadence, so the Epic ladder
+ * stretches it to ~8.3 seconds of income every ~11 seconds, +75% Gold while equipped (4.8 over
+ * `SKILL_BASE_COOLDOWN_SECONDS`, since the ladder stretches both alike). The Epic ladder value on
+ * that cadence was ~5.2 minutes every ~11 seconds, close to +2,800%.
+ */
+export const TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES = 0.08 * 2 / 15 // locked 2026-10-20, the user's call: ×2/15 with every Gold burst (see GOLD_BURST_COOLDOWN_SECONDS)
+
+/**
+ * King's Ransom's Gold and XP bursts, each in minutes of current income: 8 **seconds**, where
+ * `GOLD_BURST_MINUTES` gives Mythic 8 minutes.
+ *
+ * The same fix as Treasure Hunter's Gambit, for the same reason: a damage Active on the shared
+ * ladder cadence. The Mythic ladder stretches it to ~20 seconds of income every ~16 seconds,
+ * about +125% Gold and +125% XP while equipped, down from close to +7,500% of each.
+ */
+export const KINGS_RANSOM_BURST_MINUTES = 8 / 60 // locked 2026-10-20, the user's call
+
+/** King's Ransom's Gold burst alone, ×2/15 with every Gold burst (see `GOLD_BURST_COOLDOWN_SECONDS`); its XP burst keeps the line above. */
+export const KINGS_RANSOM_GOLD_BURST_MINUTES = KINGS_RANSOM_BURST_MINUTES * 2 / 15 // locked 2026-10-20, the user's call
 
 /**
  * How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as.
@@ -2059,6 +2139,13 @@ export const TRAIT_SAVE_LOAD_COST = 100
  * how many requests a long run makes. Not a price: every Roll still costs what a Roll costs.
  */
 export const TRAIT_AUTO_ROLL_BATCH = 10 // locked 2026-10-11, the user's call
+
+/**
+ * Trait Gems an Auto Roll never spends (the user's call, 2026-10-19, issue #50): the price of
+ * loading a saved board, so a run that rolls the board worse can always be undone. A single Roll
+ * can still spend down to zero.
+ */
+export const TRAIT_AUTO_ROLL_RESERVE = TRAIT_SAVE_LOAD_COST
 
 // ── Prestige shop stat tracks ──────────────────────  open-items.md #41
 

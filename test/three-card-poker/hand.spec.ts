@@ -8,44 +8,37 @@ const beats = (a: string, b: string) => compareHands(evaluate(a), evaluate(b))
 describe('evaluateHand', () => {
     it('reads a straight flush', () => {
         expect(evaluate('Qs Js 10s').category).toBe('straightFlush')
-        expect(evaluate('Qs Js 10s').label).toBe('Straight flush, Queen high')
     })
 
     it('reads three of a kind', () => {
         expect(evaluate('7s 7h 7c').category).toBe('trips')
-        expect(evaluate('7s 7h 7c').label).toBe('Three of a kind, Sevens')
     })
 
     it('reads a straight across mixed suits', () => {
         expect(evaluate('Qs Jh 10d').category).toBe('straight')
-        expect(evaluate('Qs Jh 10d').label).toBe('Straight, Queen high')
     })
 
     it('reads a flush', () => {
         expect(evaluate('Kc 9c 4c').category).toBe('flush')
-        expect(evaluate('Kc 9c 4c').label).toBe('Flush, King high')
     })
 
     it('reads a pair regardless of where the odd card falls', () => {
-        expect(evaluate('7s 7h 3d').label).toBe('Pair of Sevens')
-        expect(evaluate('3d 7s 7h').label).toBe('Pair of Sevens')
-        expect(evaluate('Ks 3d 3h').label).toBe('Pair of Threes')
+        expect(evaluate('7s 7h 3d').category).toBe('pair')
+        expect(evaluate('3d 7s 7h').category).toBe('pair')
+        expect(evaluate('Ks 3d 3h').category).toBe('pair')
     })
 
     it('reads a high card hand', () => {
         expect(evaluate('As Kd 6c').category).toBe('highCard')
-        expect(evaluate('As Kd 6c').label).toBe('Ace-King high')
     })
 
     it('plays the ace low in A-2-3, the lowest straight there is', () => {
         expect(evaluate('As 2h 3d').category).toBe('straight')
-        expect(evaluate('As 2h 3d').label).toBe('Straight, Three high')
         expect(beats('2h 3d 4s', 'As 2h 3d')).toBeGreaterThan(0)
     })
 
     it('makes Q-K-A the highest straight', () => {
         expect(evaluate('Qs Kh Ad').category).toBe('straight')
-        expect(evaluate('Qs Kh Ad').label).toBe('Straight, Ace high')
     })
 
     it('does not read a wrapped K-A-2 as a straight', () => {

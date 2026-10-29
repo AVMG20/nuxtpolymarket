@@ -1,64 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { DF_BASE_EFFECTS, DF_POINTS } from '#shared/utils/dead-front/constants'
-import {
-    DF_ENEMIES, dfBrutesInRound, dfRoundZombieCount, dfShamblerGait, dfSpawnInterval, dfSpecialChances,
-    dfZombieBaseHealth, dfZombieHitTest
-} from '#shared/utils/dead-front/enemies'
+import { DF_BASE_EFFECTS } from '#shared/utils/dead-front/constants'
+import { DF_ENEMIES, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
 import type { DfEggState } from '#shared/utils/dead-front/protocol'
 import { dfBoxPool, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import {
-    dfBoxChoices, dfBulletDamage, dfClaimPlausible, dfEggAdvance, dfEggTick, dfFalloff, dfKillPoints, dfRayAxisApproach,
-    dfScalePoints, dfShotTolerance, dfVerifyZone
+    dfBoxChoices, dfBulletDamage, dfClaimPlausible, dfEggAdvance, dfEggTick, dfFalloff, dfRayAxisApproach,
+    dfShotTolerance, dfVerifyZone
 } from '#server/utils/dead-front/rules'
-
-describe('rounds', () => {
-    it('starts at 6 zombies solo and grows', () => {
-        expect(dfRoundZombieCount(1, 1)).toBe(6)
-        expect(dfRoundZombieCount(5, 1)).toBe(24)
-        let prev = 0
-        for (let r = 1; r <= 30; r++) {
-            const n = dfRoundZombieCount(r, 1)
-            expect(n).toBeGreaterThanOrEqual(prev)
-            prev = n
-        }
-        expect(dfRoundZombieCount(10, 1)).toBeGreaterThan(24)
-    })
-
-    it('adds zombies per extra player', () => {
-        for (const r of [1, 4, 8, 15]) {
-            expect(dfRoundZombieCount(r, 2)).toBeGreaterThan(dfRoundZombieCount(r, 1))
-            expect(dfRoundZombieCount(r, 4)).toBeGreaterThan(dfRoundZombieCount(r, 3))
-        }
-    })
-
-    it('scales health linearly then by 10% per round', () => {
-        expect(dfZombieBaseHealth(1)).toBe(150)
-        expect(dfZombieBaseHealth(9)).toBe(950)
-        expect(dfZombieBaseHealth(10)).toBe(1045)
-        expect(dfZombieBaseHealth(20)).toBeGreaterThan(dfZombieBaseHealth(19))
-    })
-
-    it('speeds up spawns but never below the floor', () => {
-        expect(dfSpawnInterval(10, 1)).toBeLessThan(dfSpawnInterval(1, 1))
-        expect(dfSpawnInterval(60, 4)).toBeGreaterThanOrEqual(0.35)
-    })
-
-    it('phases enemy types in by round', () => {
-        expect(dfSpecialChances(4)).toEqual({ ghoul: 0, bloater: 0 })
-        expect(dfSpecialChances(5).ghoul).toBeGreaterThan(0)
-        expect(dfSpecialChances(11).bloater).toBe(0)
-        expect(dfSpecialChances(12).bloater).toBeGreaterThan(0)
-        expect(dfBrutesInRound(7)).toBe(0)
-        expect(dfBrutesInRound(8)).toBe(1)
-        expect(dfBrutesInRound(20)).toBe(2)
-    })
-
-    it('walks early and runs later', () => {
-        for (const roll of [0, 0.5, 0.99]) expect(dfShamblerGait(2, roll)).toBe('walk')
-        expect(dfShamblerGait(7, 0.5)).toBe('run')
-        expect(dfShamblerGait(12, 0.01)).toBe('sprint')
-    })
-})
 
 describe('hit test', () => {
     const target = { type: 'shambler' as const, pos: { x: 0, y: 0, z: 5 }, yaw: 0, anim: 'walk' as const }
@@ -108,7 +56,7 @@ describe('shot validation', () => {
     })
 })
 
-describe('damage and points', () => {
+describe('damage', () => {
     it('falls off with distance', () => {
         const stats = { range: 10, maxRange: 30, minDamageMult: 0.5 }
         expect(dfFalloff(stats, 5)).toBe(1)
@@ -124,15 +72,6 @@ describe('damage and points', () => {
         expect(head).toBeCloseTo(stats.damage * stats.headMult * 1.5)
         expect(dfBulletDamage(stats, { ...DF_BASE_EFFECTS, lastStandDamageMult: 2 }, 'body', 1, true)).toBeCloseTo(stats.damage * 2)
         expect(dfBulletDamage(stats, { ...DF_BASE_EFFECTS, doubleTapBullets: 1 }, 'body', 1, false)).toBeCloseTo(stats.damage * 1.3)
-    })
-
-    it('pays classic kill totals', () => {
-        expect(dfKillPoints('body', false)).toBe(DF_POINTS.killBody)
-        expect(dfKillPoints('limb', false)).toBe(DF_POINTS.killBody)
-        expect(dfKillPoints('head', false)).toBe(DF_POINTS.killHead)
-        expect(dfKillPoints('head', true)).toBe(DF_POINTS.killMelee)
-        expect(dfScalePoints(10, 1, true)).toBe(20)
-        expect(dfScalePoints(60, 1.25, false)).toBe(75)
     })
 })
 

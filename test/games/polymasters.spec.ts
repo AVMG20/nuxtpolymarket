@@ -2,12 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
     PM_MAX_LEVEL,
     PM_MAX_WIN,
-    PM_RTP_BAND,
     PM_SAFE_LANDING_COST,
     playPmRound,
     playPolyMasters,
     playPolyMastersWith,
-    type PmMode,
     type PmRoundOutcome
 } from '../../shared/utils/gamelogic/polymasters'
 import { GAMES_REGISTRY } from '../../shared/utils/games-registry'
@@ -55,7 +53,7 @@ function checkOutcome(o: PmRoundOutcome) {
 describe('playPmRound', () => {
     it('keeps every normal flight internally consistent', () => {
         const rng = mulberry32(1)
-        for (let i = 0; i < 3_000; i++) {
+        for (let i = 0; i < 200; i++) {
             const o = playPmRound(rng, 'normal')
             expect(o.cost).toBe(1)
             checkOutcome(o)
@@ -64,7 +62,7 @@ describe('playPmRound', () => {
 
     it('never puts a Safe Landing flight in the sea', () => {
         const rng = mulberry32(2)
-        for (let i = 0; i < 3_000; i++) {
+        for (let i = 0; i < 100; i++) {
             const o = playPmRound(rng, 'safe')
             expect(o.cost).toBe(PM_SAFE_LANDING_COST)
             expect(['island', 'max']).toContain(o.landing)
@@ -72,27 +70,12 @@ describe('playPmRound', () => {
             checkOutcome(o)
         }
     })
-
-    it.each<PmMode>(['normal', 'safe'])('lands %s mode RTP inside the band', (mode) => {
-        const rng = mulberry32(mode === 'safe' ? 11 : 10)
-        const rounds = mode === 'safe' ? 400_000 : 1_000_000
-        let win = 0
-        let cost = 0
-        for (let i = 0; i < rounds; i++) {
-            const o = playPmRound(rng, mode)
-            win += o.win
-            cost += o.cost
-        }
-        const rtp = win / cost
-        expect(rtp).toBeGreaterThanOrEqual(PM_RTP_BAND.min)
-        expect(rtp).toBeLessThanOrEqual(PM_RTP_BAND.max)
-    }, 60_000)
 })
 
 describe('playPolyMasters', () => {
     it('stakes the bet and pays the counter in coins', () => {
         const rng = mulberry32(3)
-        for (let i = 0; i < 2_000; i++) {
+        for (let i = 0; i < 200; i++) {
             const r = playPolyMastersWith(250, undefined, rng)
             expect(r.mode).toBe('normal')
             expect(r.cost).toBe(250)

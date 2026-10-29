@@ -1,463 +1,909 @@
-/* Xeno Garden design tokens + animations.
+/* Xeno Garden theme.
 
-   Every class here is prefixed `xeno-` and only imported into
-   app/pages/xeno.vue, so it never collides with Nuxt UI's own utilities even
-   though Vite doesn't unload page CSS on navigation. Colours follow the user's
-   live Primary theme via --ui-primary — never a hardcoded hue. */
+   Neutral charcoal (dark) and white (light) surfaces with thin borders and
+   soft shadows. Colour comes from the plants; one green accent marks what is
+   yours to act on (primary action, count badges, ripe plants, selection).
+   Violet is reserved for mutations and void plants, tier colours only appear
+   as small leaf markers. Nothing glows.
 
-.xeno-shell {
-  --xeno-accent: var(--ui-primary);
-  --xeno-glow: color-mix(in srgb, var(--ui-primary) 55%, transparent);
-  --xeno-glow-soft: color-mix(in srgb, var(--ui-primary) 22%, transparent);
-  --xeno-soil: color-mix(in srgb, var(--ui-color-neutral-900) 70%, #2a1d12);
-  --xeno-soil-light: color-mix(in srgb, var(--ui-color-neutral-800) 70%, #4a3320);
-  --xeno-glass: color-mix(in srgb, var(--ui-bg-elevated) 70%, transparent);
-  position: relative;
-  isolation: isolate;
-}
+   Every rule is scoped under `.xeno` (the page shell, or the root of a
+   teleported layer) and every class is prefixed `xg-`, so nothing leaks into
+   the rest of the site even though Vite keeps page CSS loaded after
+   navigation. The theme follows the site's colour mode via `.dark` on <html>.
 
-/* Enabled controls always show the hand cursor inside the game. */
-.xeno-shell button:not(:disabled):not([aria-disabled='true']),
-.xeno-shell [role='button']:not([aria-disabled='true']),
-.xeno-shell a[href] { cursor: pointer; }
+   Everything sits in the `components` layer so Tailwind utilities on the
+   same element (hidden, md:flex, padding…) always win. */
 
-/* ── Ambient background ──────────────────────────────────────────────────── */
-.xeno-bg {
-  background:
-    radial-gradient(ellipse 70% 40% at 15% 0%, color-mix(in srgb, var(--ui-primary) 7%, transparent), transparent 70%),
-    radial-gradient(ellipse 50% 35% at 90% 10%, color-mix(in srgb, var(--ui-secondary) 5%, transparent), transparent 70%),
-    radial-gradient(ellipse 60% 50% at 50% 110%, color-mix(in srgb, var(--ui-primary) 4%, transparent), transparent 70%);
-}
+@layer components {
+  /* ── Tokens ──────────────────────────────────────────────────────────────── */
+  .xeno {
+    color-scheme: light;
+    --xg-bg: #f5f5f4;
+    --xg-surface: #ffffff;
+    --xg-surface2: #fafafa;
+    --xg-well: #f3f3f2;
+    --xg-bar: #ffffff;
+    --xg-edge: rgba(0, 0, 0, 0.08);
+    --xg-edge2: rgba(0, 0, 0, 0.15);
+    --xg-track: rgba(0, 0, 0, 0.07);
+    --xg-hover: rgba(0, 0, 0, 0.035);
+    --xg-ink: #18181b;
+    --xg-muted: #52525b;
+    --xg-faint: #63636b;
+    /* Accent: dark enough for white text (5:1) and for text on white (5:1). */
+    --xg-accent: #15803d;
+    --xg-accent-h: #166534;
+    --xg-accent-ink: #ffffff;
+    --xg-accent-text: #15803d;
+    --xg-accent-soft: rgba(21, 128, 61, 0.09);
+    --xg-accent-edge: rgba(21, 128, 61, 0.5);
+    --xg-uv: #6f56c2;
+    --xg-uv-fill: #6f56c2;
+    --xg-uv-soft: rgba(111, 86, 194, 0.08);
+    --xg-uv-edge: rgba(111, 86, 194, 0.45);
+    /* Read by PlantIcon for undiscovered (silhouette) plants. */
+    --xeno-silhouette: #9a9ea7;
+    --xg-sky: #2f6fa8;
+    --xg-sky-fill: #2f6fa8;
+    /* Dark amber: prices stay readable (7:1) on white and on the cream hover. */
+    --xg-sun: #8a4a00;
+    --xg-sun-edge: rgba(138, 74, 0, 0.5);
+    --xg-rose: #b83f3f;
+    --xg-rose-soft: rgba(184, 63, 63, 0.08);
+    --xg-t1: #4f9a4f; --xg-t2: #3f7fc0; --xg-t3: #b8911a; --xg-t4: #8a5fc4; --xg-t5: #d06c2e;
+    --xg-t6: #c9433f; --xg-t7: #c4478a; --xg-t8: #1f96a0; --xg-t9: #b8983a;
+    --xg-lv0: #868b94; --xg-lv1: #2f9a4a; --xg-lv2: #5f9a12; --xg-lv3: #a88300; --xg-lv4: #c26a00;
+    --xg-lv5: #d4520e; --xg-lv6: #d0302f; --xg-lv7: #cc2f78; --xg-lv8: #8a3fd6; --xg-lv9: #2b62d9;
+    --xg-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 14px -8px rgba(0, 0, 0, 0.1);
+    --xg-shadow-lg: 0 18px 40px -20px rgba(0, 0, 0, 0.25);
+    --xg-scrim: rgba(24, 24, 27, 0.35);
 
-.xeno-spores {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 0;
-}
-.xeno-spore {
-  position: absolute;
-  border-radius: 9999px;
-  background: var(--xeno-accent);
-  filter: blur(0.5px);
-  animation: xeno-drift var(--dur, 14s) ease-in-out var(--delay, 0s) infinite alternate;
-  opacity: 0;
-}
-@keyframes xeno-drift {
-  0%   { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
-  20%  { opacity: var(--peak, 0.35); }
-  80%  { opacity: var(--peak, 0.35); }
-  100% { transform: translate3d(var(--dx, 20px), var(--dy, -80px), 0) scale(1.1); opacity: 0; }
-}
+    /* Nuxt UI components inside the shell pick up the same palette. */
+    --ui-primary: var(--xg-accent);
+    --ui-bg: var(--xg-surface);
+    --ui-bg-muted: var(--xg-well);
+    --ui-bg-elevated: var(--xg-well);
+    --ui-bg-accented: var(--xg-track);
+    --ui-border: var(--xg-edge2);
+    --ui-border-muted: var(--xg-edge);
+    --ui-border-accented: var(--xg-edge2);
+    --ui-text: var(--xg-ink);
+    --ui-text-highlighted: var(--xg-ink);
+    --ui-text-toned: var(--xg-muted);
+    --ui-text-muted: var(--xg-muted);
+    --ui-text-dimmed: var(--xg-faint);
 
-/* ── Panels & nav ────────────────────────────────────────────────────────── */
-.xeno-panel {
-  background: color-mix(in srgb, var(--ui-bg-elevated) 82%, transparent);
-  border: 1px solid var(--ui-border);
-  backdrop-filter: blur(8px);
-}
-.xeno-panel-accent {
-  border-color: color-mix(in srgb, var(--ui-primary) 35%, var(--ui-border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 12%, transparent) inset,
-    0 10px 40px -20px var(--xeno-glow);
-}
+    font-family: 'Manrope', var(--font-sans, system-ui), sans-serif;
+    color: var(--xg-ink);
+  }
 
-.xeno-tab {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.85rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--ui-text-muted);
-  border: 1px solid transparent;
-  transition: color 0.15s, background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-.xeno-tab:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-bg-elevated) 70%, transparent); }
-.xeno-tab-active,
-.xeno-tab-active:hover {
-  color: var(--ui-primary);
-  background: color-mix(in srgb, var(--ui-primary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--ui-primary) 35%, transparent);
-  box-shadow: 0 0 18px -6px var(--xeno-glow);
-}
-.xeno-tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.15rem;
-  height: 1.15rem;
-  padding: 0 0.3rem;
-  border-radius: 9999px;
-  font-size: 0.65rem;
-  font-weight: 800;
-  background: var(--ui-primary);
-  color: var(--ui-bg);
-  box-shadow: 0 0 10px var(--xeno-glow);
-  animation: xeno-badge-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
-}
-@keyframes xeno-badge-pop {
-  from { transform: scale(0); }
-  to   { transform: scale(1); }
-}
+  .dark .xeno {
+    color-scheme: dark;
+    --xg-bg: #0f1012;
+    --xg-surface: #17181b;
+    --xg-surface2: #1c1d21;
+    --xg-well: #131417;
+    --xg-bar: #141518;
+    --xg-edge: rgba(255, 255, 255, 0.08);
+    --xg-edge2: rgba(255, 255, 255, 0.15);
+    --xg-track: rgba(255, 255, 255, 0.09);
+    --xg-hover: rgba(255, 255, 255, 0.045);
+    --xg-ink: #f2f2f3;
+    --xg-muted: #aeb1b8;
+    --xg-faint: #8d909a;
+    --xg-accent: #3fb36b;
+    --xg-accent-h: #4cc178;
+    --xg-accent-ink: #06170d;
+    --xg-accent-text: #4cc178;
+    --xg-accent-soft: rgba(63, 179, 107, 0.12);
+    --xg-accent-edge: rgba(63, 179, 107, 0.5);
+    --xg-uv: #a594dd;
+    --xg-uv-fill: #6f5bc0;
+    --xg-uv-soft: rgba(157, 137, 216, 0.12);
+    --xg-uv-edge: rgba(157, 137, 216, 0.5);
+    --xeno-silhouette: #5a5e68;
+    --xg-sky: #7fb3dc;
+    --xg-sky-fill: #2f6fa8;
+    --xg-sun: #d9a35a;
+    --xg-sun-edge: rgba(217, 163, 90, 0.55);
+    --xg-rose: #e58a8a;
+    --xg-rose-soft: rgba(229, 138, 138, 0.1);
+    --xg-t1: #5fae5f; --xg-t2: #5a98d6; --xg-t3: #c9a227; --xg-t4: #a47ad8; --xg-t5: #e07c3e;
+    --xg-t6: #df5d59; --xg-t7: #d4579a; --xg-t8: #2aa6b0; --xg-t9: #c8a84a;
+    --xg-lv0: #9ca3af; --xg-lv1: #4ade80; --xg-lv2: #a3e635; --xg-lv3: #facc15; --xg-lv4: #fbbf24;
+    --xg-lv5: #fb923c; --xg-lv6: #f87171; --xg-lv7: #f472b6; --xg-lv8: #c084fc; --xg-lv9: #60a5fa;
+    --xg-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --xg-shadow-lg: 0 14px 34px -16px rgba(0, 0, 0, 0.65);
+    --xg-scrim: rgba(6, 6, 8, 0.6);
+  }
 
-.xeno-eyebrow {
-  font-size: 0.65rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-weight: 800;
-  color: var(--ui-text-dimmed);
-}
-.xeno-glow-text { text-shadow: 0 0 14px var(--xeno-glow); }
+  /* ── Base ────────────────────────────────────────────────────────────────── */
+  .xeno.xg-shell { background: var(--xg-bg); position: relative; isolation: isolate; }
+  .xeno .xg-h { font-weight: 800; letter-spacing: -0.025em; }
+  .xeno .xg-num { font-variant-numeric: tabular-nums; }
+  .xeno .xg-muted { color: var(--xg-muted); }
+  .xeno .xg-faint { color: var(--xg-faint); }
+  .xeno .xg-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--xg-faint);
+  }
+  .xeno .xg-stats { font-size: 12.5px; color: var(--xg-muted); font-variant-numeric: tabular-nums; }
+  .xeno .xg-stats b { color: var(--xg-ink); font-weight: 800; }
+  .xeno .xg-link { color: var(--xg-accent-text); font-weight: 800; text-decoration: none; }
+  .xeno .xg-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .xeno button:not(:disabled):not([aria-disabled='true']),
+  .xeno [role='button']:not([aria-disabled='true']),
+  .xeno a[href] { cursor: pointer; }
+  .xeno :where(button, a, [role='button'], [tabindex]):focus-visible {
+    outline: 2px solid var(--xg-ink);
+    outline-offset: 2px;
+  }
 
-/* ── Garden plots ────────────────────────────────────────────────────────── */
-.xeno-plot {
-  position: relative;
-  border-radius: 1rem;
-  border: 1px solid var(--ui-border);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ui-bg-elevated) 85%, transparent) 0%, color-mix(in srgb, var(--ui-bg-elevated) 60%, transparent) 62%, var(--xeno-soil-light) 63%, var(--xeno-soil) 100%);
-  box-shadow: inset 0 -6px 14px -10px rgba(0, 0, 0, 0.6), 0 6px 18px -14px rgba(0, 0, 0, 0.7);
-  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  overflow: hidden;
-}
-.xeno-plot::before {
-  /* soil texture speckle */
-  content: '';
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 38%;
-  background-image:
-    radial-gradient(circle at 20% 30%, rgba(255,255,255,0.05) 1px, transparent 1.5px),
-    radial-gradient(circle at 65% 60%, rgba(255,255,255,0.04) 1px, transparent 1.5px),
-    radial-gradient(circle at 85% 25%, rgba(0,0,0,0.25) 1px, transparent 2px),
-    radial-gradient(circle at 40% 80%, rgba(0,0,0,0.25) 1px, transparent 2px);
-  background-size: 28px 22px, 34px 26px, 30px 24px, 26px 20px;
-  pointer-events: none;
-  opacity: 0.8;
-}
-.xeno-plot-interactive:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border));
-  box-shadow: 0 10px 24px -14px var(--xeno-glow), inset 0 -6px 14px -10px rgba(0, 0, 0, 0.6);
-}
-.xeno-plot-ready {
-  border-color: color-mix(in srgb, var(--ui-primary) 60%, var(--ui-border));
-  animation: xeno-ready-pulse 1.8s ease-in-out infinite;
-}
-.xeno-plot-ready:hover { animation-play-state: paused; box-shadow: 0 0 0 2px var(--ui-primary), 0 0 32px -4px var(--xeno-glow); transform: translateY(-2px) scale(1.02); }
-@keyframes xeno-ready-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 30%, transparent), 0 0 10px -6px var(--xeno-glow); }
-  50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-primary) 55%, transparent), 0 0 18px -4px var(--xeno-glow); }
-}
-.xeno-plot-empty {
-  background: color-mix(in srgb, var(--ui-bg-elevated) 35%, transparent);
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--ui-border) 70%, transparent);
-  box-shadow: none;
-}
-.xeno-plot-empty::before { opacity: 0.35; }
-.xeno-plot-target {
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--ui-primary) 55%, transparent);
-  background: color-mix(in srgb, var(--ui-primary) 6%, transparent);
-  animation: xeno-target-pulse 1.4s ease-in-out infinite;
-}
-@keyframes xeno-target-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-primary) 0%, transparent); }
-  50%      { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-primary) 18%, transparent); }
-}
-.xeno-plot-replace {
-  border-color: color-mix(in srgb, var(--ui-warning) 65%, transparent);
-  background: color-mix(in srgb, var(--ui-warning) 6%, transparent);
-}
-.xeno-plot-locked {
-  background: color-mix(in srgb, var(--ui-bg-elevated) 25%, transparent);
-  border-style: dashed;
-  box-shadow: none;
-}
-.xeno-plot-locked::before { display: none; }
-.xeno-plot-locked-affordable {
-  border-color: color-mix(in srgb, var(--ui-primary) 40%, transparent);
-}
-.xeno-plot-locked-affordable:hover {
-  background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
-  border-style: solid;
-}
-.xeno-plot-busy { opacity: 0.55; pointer-events: none; }
+  /* ── Surfaces ────────────────────────────────────────────────────────────── */
+  .xeno .xg-pane {
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge);
+    border-radius: 20px 20px 20px 6px;
+    box-shadow: var(--xg-shadow);
+    position: relative;
+  }
+  .xeno .xg-pane-r { border-radius: 20px 20px 6px 20px; }
+  .xeno .xg-pane.is-go { border-color: var(--xg-accent-edge); }
+  .xeno .xg-pane.is-uv { border-color: var(--xg-uv-edge); }
+  .xeno .xg-pane.is-dashed { border-style: dashed; background: transparent; box-shadow: none; }
+  .xeno .xg-well { background: var(--xg-well); border: 1px solid var(--xg-edge); border-radius: 12px; }
+  .xeno .xg-rule { height: 1px; background: var(--xg-edge); }
 
-/* Sprite growth: scale is driven by --growth (0.45 → 1), transitioned so
-   the 500ms clock tick reads as continuous growth. */
-.xeno-plant-stage {
-  transform: scale(var(--growth, 1));
-  transform-origin: 50% 85%;
-  transition: transform 0.9s cubic-bezier(0.25, 0.8, 0.3, 1), filter 0.4s;
-  will-change: transform;
-}
-.xeno-sway {
-  animation: xeno-sway var(--sway-dur, 4.2s) ease-in-out var(--sway-delay, 0s) infinite;
-  transform-origin: 50% 90%;
-}
-@keyframes xeno-sway {
-  0%, 100% { rotate: -1.5deg; }
-  50%      { rotate: 1.5deg; }
-}
-.xeno-ready-bounce {
-  animation: xeno-ready-bounce 2s ease-in-out infinite;
-  filter: drop-shadow(0 0 6px var(--xeno-glow));
-}
-@keyframes xeno-ready-bounce {
-  0%, 100% { translate: 0 0; }
-  50%      { translate: 0 -3px; }
-}
-.xeno-pop-in { animation: xeno-pop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
-@keyframes xeno-pop {
-  0%   { transform: scale(0.2) translateY(10px); opacity: 0; }
-  60%  { opacity: 1; }
-  100% { transform: scale(1) translateY(0); opacity: 1; }
-}
-.xeno-shake { animation: xeno-shake 0.4s ease-in-out; }
-@keyframes xeno-shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-3px) rotate(-1deg); }
-  75% { transform: translateX(3px) rotate(1deg); }
-}
+  /* ── Shell nav ───────────────────────────────────────────────────────────── */
+  .xeno .xg-top {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--xg-edge);
+    background: var(--xg-bar);
+  }
+  .xeno .xg-brand { display: flex; align-items: center; gap: 10px; height: 60px; color: var(--xg-ink); flex: none; }
+  .xeno .xg-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .xeno .xg-tabs::-webkit-scrollbar { display: none; }
+  .xeno .xg-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 60px;
+    padding: 0 12px;
+    flex: none;
+    color: var(--xg-muted);
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+    background: none;
+    border: 0;
+  }
+  .xeno .xg-tab:hover { color: var(--xg-ink); }
+  .xeno .xg-tab.on { color: var(--xg-ink); }
+  .xeno .xg-tab.on::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--xg-ink);
+  }
+  .xeno .xg-tab.sub { height: 44px; font-size: 13.5px; }
+  .xeno .xg-tab.sub.on::after { bottom: 0; }
 
-/* Sparkle dots around a ready plant */
-.xeno-sparkle {
-  position: absolute;
-  width: 5px; height: 5px;
-  border-radius: 9999px;
-  background: var(--ui-primary);
-  box-shadow: 0 0 8px var(--ui-primary);
-  animation: xeno-sparkle var(--dur, 1.8s) ease-in-out var(--delay, 0s) infinite;
-  pointer-events: none;
-}
-@keyframes xeno-sparkle {
-  0%, 100% { transform: scale(0); opacity: 0; }
-  50%      { transform: scale(1); opacity: 1; }
-}
+  .xeno .xg-count {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 99px;
+    font-size: 11.5px;
+    font-weight: 800;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--xg-track);
+    color: var(--xg-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .xeno .xg-count.go { background: var(--xg-accent); color: var(--xg-accent-ink); }
+  .xeno .xg-count.uv { background: var(--xg-uv-fill); color: #fff; }
 
-/* Progress ring */
-.xeno-ring-track { stroke: color-mix(in srgb, var(--ui-text) 12%, transparent); }
-.xeno-ring-fill {
-  stroke: var(--ui-primary);
-  stroke-linecap: round;
-  transition: stroke-dashoffset 0.6s linear;
-  filter: drop-shadow(0 0 3px var(--xeno-glow));
-}
-.xeno-ring-ready { stroke: var(--ui-primary); filter: drop-shadow(0 0 6px var(--ui-primary)); }
+  /* Segmented switch (Seeds | Artifacts). The active segment is raised, not
+     filled, so its count chip stays readable in both themes. */
+  .xeno .xg-seg {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 999px;
+    background: var(--xg-well);
+    border: 1px solid var(--xg-edge);
+  }
+  .xeno .xg-seg > button {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--xg-muted);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .xeno .xg-seg > button:hover { color: var(--xg-ink); }
+  .xeno .xg-seg > button.on {
+    background: var(--xg-surface);
+    border-color: var(--xg-edge2);
+    color: var(--xg-ink);
+    box-shadow: var(--xg-shadow);
+  }
 
-/* Harvest burst particles (teleported to body) */
-.xeno-particle {
-  position: fixed;
-  z-index: 9998;
-  pointer-events: none;
-  animation: xeno-burst var(--dur, 0.9s) cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-  will-change: transform, opacity;
-}
-@keyframes xeno-burst {
-  0%   { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
-  70%  { opacity: 1; }
-  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(var(--scale, 1)) rotate(var(--rot, 180deg)); opacity: 0; }
-}
-.xeno-float {
-  animation: xeno-float 1.5s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
-}
-@keyframes xeno-float {
-  0%   { opacity: 0; transform: translate(-50%, 0) scale(0.6); }
-  15%  { opacity: 1; transform: translate(-50%, -8px) scale(1.15); }
-  30%  { transform: translate(-50%, -14px) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -80px) scale(0.95); }
-}
+  /* Phone dock */
+  .xeno .xg-dock {
+    position: fixed;
+    left: 12px;
+    right: 64px; /* clears the site's chat launcher */
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    height: 60px;
+    border-radius: 20px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge2);
+    box-shadow: var(--xg-shadow-lg);
+    z-index: 30;
+  }
+  .xeno .xg-dock > a,
+  .xeno .xg-dock > button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: var(--xg-faint);
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 800;
+    position: relative;
+    background: none;
+    border: 0;
+    min-width: 0;
+  }
+  .xeno .xg-dock > .on { color: var(--xg-ink); }
+  .xeno .xg-dock .xg-count { position: absolute; top: 5px; left: 56%; min-width: 17px; height: 17px; font-size: 10px; padding: 0 4px; }
 
-/* Screen flash for big events */
-.xeno-flash {
-  position: fixed;
-  inset: 0;
-  z-index: 9997;
-  pointer-events: none;
-  background: radial-gradient(circle at var(--fx, 50%) var(--fy, 50%), var(--xeno-glow), transparent 55%);
-  animation: xeno-flash 0.7s ease-out forwards;
-}
-@keyframes xeno-flash {
-  0%   { opacity: 0; }
-  15%  { opacity: 0.9; }
-  100% { opacity: 0; }
-}
+  /* ── Buttons ─────────────────────────────────────────────────────────────── */
+  .xeno .xg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 20px;
+    border-radius: 999px;
+    border: 1px solid var(--xg-edge2);
+    background: var(--xg-surface);
+    color: var(--xg-ink);
+    font: inherit;
+    font-weight: 800;
+    font-size: 14px;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    position: relative;
+    transition: transform 0.1s, background-color 0.15s, border-color 0.15s;
+  }
+  .xeno .xg-btn:hover:not(:disabled) { background: var(--xg-hover); border-color: var(--xg-edge2); }
+  .xeno .xg-btn:active:not(:disabled) { transform: scale(0.97); }
+  .xeno .xg-btn.go { background: var(--xg-accent); border-color: transparent; color: var(--xg-accent-ink); }
+  .xeno .xg-btn.go:hover:not(:disabled) { background: var(--xg-accent-h); }
+  .xeno .xg-btn.uv { background: var(--xg-uv-fill); border-color: transparent; color: #fff; }
+  .xeno .xg-btn.uv:hover:not(:disabled) { background: color-mix(in srgb, var(--xg-uv-fill) 88%, black); }
+  .xeno .xg-btn.sky { background: var(--xg-sky-fill); border-color: transparent; color: #fff; }
+  .xeno .xg-btn.sky:hover:not(:disabled) { background: color-mix(in srgb, var(--xg-sky-fill) 88%, black); }
+  .xeno .xg-btn.sun { background: transparent; border-color: var(--xg-sun); color: var(--xg-sun); }
+  .xeno .xg-btn.sun:hover:not(:disabled) { background: color-mix(in srgb, var(--xg-sun) 10%, transparent); }
+  .xeno .xg-btn.danger { background: transparent; border-color: var(--xg-rose); color: var(--xg-rose); }
+  .xeno .xg-btn.danger:hover:not(:disabled) { background: var(--xg-rose-soft); }
+  .xeno .xg-btn.ghost { background: transparent; border-color: transparent; }
+  .xeno .xg-btn.ghost:hover:not(:disabled) { background: var(--xg-hover); border-color: transparent; }
+  .xeno .xg-btn.lg { min-height: 52px; padding: 0 26px; font-size: 15.5px; }
+  .xeno .xg-btn.sm { min-height: 36px; padding: 0 14px; font-size: 13px; gap: 6px; }
+  .xeno .xg-btn.xs { min-height: 30px; padding: 0 11px; font-size: 12px; gap: 5px; }
+  .xeno .xg-btn.ico { padding: 0; aspect-ratio: 1; }
+  /* Joined buttons (Fill left | Fill right). */
+  .xeno .xg-split { display: inline-flex; }
+  .xeno .xg-split > .xg-btn:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .xeno .xg-split > .xg-btn:not(:first-child) { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+  .xeno .xg-split > .xg-btn:active:not(:disabled) { transform: none; }
+  .xeno .xg-btn.block { width: 100%; }
+  /* Disabled: a flat grey pill with no border, whatever the variant, so it never
+     reads as a live button. A loading button keeps its colour, and `xg-status`
+     opts out for buttons that only display a state. */
+  .xeno .xg-btn:disabled:not([aria-busy='true']):not(.xg-status),
+  .xeno .xg-btn[aria-disabled='true'] {
+    background: var(--xg-track);
+    border-color: transparent;
+    color: var(--xg-faint);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .xeno .xg-btn:disabled:not([aria-busy='true']):not(.xg-status) :is(.xg-coin, .xg-gem, .xg-kbd) { filter: grayscale(1); opacity: 0.55; }
+  .xeno .xg-btn[aria-busy='true'] { opacity: 0.75; cursor: progress; }
+  .xeno .xg-btn.xg-status { cursor: default; }
+  /* A small static leaf on the button while something waits for it. */
+  .xeno .xg-btn.xg-waiting::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 10px 0 10px 0;
+    background: var(--xg-ink);
+    border: 2px solid var(--xg-bg);
+  }
+  /* A green button already says "ready"; the leaf would read as a stray tick. */
+  .xeno .xg-btn.go.xg-waiting::after { display: none; }
+  .xeno .xg-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 6px;
+    border: 1px solid var(--xg-edge2);
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--xg-muted);
+    background: transparent;
+  }
+  .xeno .xg-btn.go .xg-kbd { border-color: currentColor; color: inherit; }
 
-/* Shimmer sweep across a "ready" element */
-.xeno-shimmer { position: relative; overflow: hidden; }
-.xeno-shimmer::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%);
-  transform: translateX(-120%);
-  animation: xeno-shimmer 2.6s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes xeno-shimmer {
-  0%   { transform: translateX(-120%); }
-  60%, 100% { transform: translateX(120%); }
-}
+  /* Coin / gem marks used inside buttons and prices. */
+  .xeno .xg-coin {
+    width: 13px;
+    height: 13px;
+    border-radius: 99px;
+    background: radial-gradient(circle at 35% 35%, #f6e3a8, #d9b25f 55%, #9c7a2c);
+    display: inline-block;
+    flex: none;
+  }
+  .xeno .xg-gem {
+    width: 12px;
+    height: 14px;
+    display: inline-block;
+    flex: none;
+    background: linear-gradient(135deg, #e3ecf0, #6ea8d6 55%, #3d6f96);
+    clip-path: polygon(50% 0, 100% 35%, 50% 100%, 0 35%);
+  }
 
-/* Pulsing call-to-action button */
-.xeno-cta-pulse { animation: xeno-cta 1.6s ease-in-out infinite; }
-@keyframes xeno-cta {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-primary) 45%, transparent); }
-  60%      { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ui-primary) 0%, transparent); }
-}
+  /* ── Markers ─────────────────────────────────────────────────────────────── */
+  .xeno .xg-tier {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--xg-muted);
+    white-space: nowrap;
+  }
+  .xeno .xg-tier::before {
+    content: '';
+    width: 9px;
+    height: 9px;
+    flex: none;
+    background: var(--tc, var(--xg-faint));
+    border-radius: 9px 0 9px 0;
+  }
+  .xeno .xg-leaf {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    flex: none;
+    background: var(--tc, var(--xg-faint));
+    border-radius: 9px 0 9px 0;
+  }
+  .xeno .t1 { --tc: var(--xg-t1); } .xeno .t2 { --tc: var(--xg-t2); } .xeno .t3 { --tc: var(--xg-t3); }
+  .xeno .t4 { --tc: var(--xg-t4); } .xeno .t5 { --tc: var(--xg-t5); } .xeno .t6 { --tc: var(--xg-t6); }
+  .xeno .t7 { --tc: var(--xg-t7); } .xeno .t8 { --tc: var(--xg-t8); } .xeno .t9 { --tc: var(--xg-t9); }
+  .xeno .tv { --tc: var(--xg-uv); }
 
-/* ── Breeder pods ────────────────────────────────────────────────────────── */
-.xeno-pod-card {
-  position: relative;
-  border-radius: 1.25rem;
-  border: 1px solid var(--ui-border);
-  background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--ui-primary) 8%, transparent), transparent 70%),
-    color-mix(in srgb, var(--ui-bg-elevated) 85%, transparent);
-  overflow: hidden;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.xeno-pod-card[data-state='breeding'] {
-  border-color: color-mix(in srgb, var(--ui-primary) 35%, var(--ui-border));
-}
-.xeno-pod-card[data-state='ready'] {
-  border-color: color-mix(in srgb, var(--ui-primary) 65%, var(--ui-border));
-  animation: xeno-ready-pulse 2s ease-in-out infinite;
-}
-.xeno-pod-card[data-state='mutation'] {
-  border-color: color-mix(in srgb, var(--ui-secondary) 65%, var(--ui-border));
-  box-shadow: 0 0 40px -10px color-mix(in srgb, var(--ui-secondary) 60%, transparent);
-}
+  .xeno .xg-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--xg-track);
+    color: var(--xg-ink);
+  }
+  .xeno .xg-chip.uv { background: var(--xg-uv-soft); color: var(--xg-uv); }
+  .xeno .xg-chip.go { background: var(--xg-accent-soft); color: var(--xg-accent-text); }
+  .xeno .xg-chip.sky { background: color-mix(in srgb, var(--xg-sky) 14%, transparent); color: var(--xg-sky); }
 
-.xeno-pod-liquid {
-  transition: transform 1s linear;
-  fill: color-mix(in srgb, var(--ui-primary) 55%, transparent);
-}
-.xeno-pod-liquid-mutation { fill: color-mix(in srgb, var(--ui-secondary) 60%, transparent); }
-.xeno-pod-wave { animation: xeno-wave 3.2s linear infinite; }
-@keyframes xeno-wave {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-120px); }
-}
-.xeno-bubble {
-  fill: rgba(255, 255, 255, 0.55);
-  animation: xeno-bubble var(--dur, 3s) ease-in var(--delay, 0s) infinite;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-@keyframes xeno-bubble {
-  0%   { transform: translateY(0) scale(0.4); opacity: 0; }
-  15%  { opacity: 0.9; }
-  100% { transform: translateY(-110px) scale(1.1); opacity: 0; }
-}
-.xeno-pod-glow { animation: xeno-pod-glow 2.4s ease-in-out infinite; }
-@keyframes xeno-pod-glow {
-  0%, 100% { opacity: 0.35; }
-  50%      { opacity: 0.8; }
-}
+  /* Artifact glyph: neutral tile, the family colour only on the icon stroke. */
+  .xeno .xg-glyph {
+    --gc: var(--xg-muted);
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px 12px 12px 4px;
+    border: 1px solid var(--xg-edge);
+    background: var(--xg-well);
+    color: var(--gc);
+    position: relative;
+  }
+  .xeno .xg-glyph.gem { border: 1.5px solid var(--xg-sky); }
+  .xeno .g-speed { --gc: var(--xg-t3); } .xeno .g-yield { --gc: var(--xg-t2); } .xeno .g-prism { --gc: var(--xg-t8); }
+  .xeno .g-cat { --gc: var(--xg-t1); } .xeno .g-mut { --gc: var(--xg-uv); } .xeno .g-flask { --gc: var(--xg-t7); }
+  /* Level chip on the tile's corner: a fixed-size pill with a cut-out ring in
+     the surface colour, so it reads as a badge, not a clipped label. */
+  .xeno .xg-rn {
+    position: absolute;
+    right: -5px;
+    bottom: -5px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--xg-ink);
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge2);
+    border-radius: 99px;
+    box-shadow: 0 0 0 2px var(--xg-surface);
+  }
 
-.xeno-helix-scroll { animation: xeno-helix 2.4s linear infinite; }
-@keyframes xeno-helix {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-80px); }
-}
+  /* ── Inputs and lists ────────────────────────────────────────────────────── */
+  .xeno .xg-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--xg-edge2);
+    background: transparent;
+    color: var(--xg-muted);
+    font: inherit;
+    font-weight: 700;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .xeno .xg-filter:hover:not(:disabled) { color: var(--xg-ink); }
+  .xeno .xg-filter:disabled { background: var(--xg-track); border-color: transparent; color: var(--xg-faint); cursor: not-allowed; }
+  .xeno .xg-filter.on { background: var(--xg-ink); border-color: var(--xg-ink); color: var(--xg-bg); }
+  .xeno .xg-filter.on .xg-tier,
+  .xeno .xg-filter.on .xg-faint { color: var(--xg-bg); }
 
-.xeno-socket {
-  position: relative;
-  border-radius: 1rem;
-  border: 1px solid var(--ui-border);
-  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--ui-bg-elevated) 100%, transparent), color-mix(in srgb, var(--ui-bg) 80%, transparent));
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-}
-.xeno-socket-open {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--ui-primary) 55%, transparent);
-  animation: xeno-target-pulse 1.4s ease-in-out infinite;
-}
-.xeno-socket-open:hover { transform: scale(1.03); background: color-mix(in srgb, var(--ui-primary) 8%, transparent); }
-.xeno-socket-filled { border-color: color-mix(in srgb, var(--ui-primary) 30%, var(--ui-border)); }
+  /* Compact − n + count field. */
+  .xeno .xg-stepper {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    border-radius: 999px;
+    border: 1px solid var(--xg-edge2);
+    background: var(--xg-surface);
+    flex: none;
+  }
+  .xeno .xg-stepper > button {
+    width: 26px;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: none;
+    color: var(--xg-muted);
+    padding: 0;
+    border-radius: 999px;
+  }
+  .xeno .xg-stepper > button:hover:not(:disabled) { color: var(--xg-ink); background: var(--xg-hover); }
+  .xeno .xg-stepper > button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .xeno .xg-stepper > input {
+    width: 30px;
+    height: 100%;
+    border: 0;
+    background: none;
+    color: var(--xg-ink);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 800;
+    text-align: center;
+    padding: 0;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .xeno .xg-stepper > input::-webkit-inner-spin-button,
+  .xeno .xg-stepper > input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .xeno .xg-stepper:focus-within { border-color: var(--xg-ink); }
+  .xeno .xg-stepper > input:focus-visible { outline: none; }
 
-/* Confetti pieces for mutation reveals */
-.xeno-confetti {
-  position: absolute;
-  top: -10px;
-  width: 7px; height: 11px;
-  border-radius: 2px;
-  animation: xeno-confetti var(--dur, 2.2s) cubic-bezier(0.3, 0.6, 0.6, 1) var(--delay, 0s) forwards;
-  pointer-events: none;
-  opacity: 0;
-}
-@keyframes xeno-confetti {
-  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
-  100% { transform: translate(var(--dx, 0px), 120%) rotate(var(--rot, 720deg)); opacity: 0; }
-}
+  .xeno .xg-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 14px 14px 14px 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--xg-ink);
+    font: inherit;
+    text-align: left;
+  }
+  .xeno .xg-item.hoverable:hover { background: var(--xg-hover); border-color: var(--xg-edge); }
+  .xeno .xg-item.on { background: var(--xg-accent-soft); border-color: var(--xg-accent); }
+  .xeno .xg-thumb {
+    flex: none;
+    border-radius: 12px 12px 12px 4px;
+    background: var(--xg-well);
+    border: 1px solid var(--xg-edge);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .xeno .xg-q { font-weight: 800; font-variant-numeric: tabular-nums; }
 
-/* Reveal scale-in used by result cards and modals */
-.xeno-reveal { animation: xeno-reveal 0.55s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
-@keyframes xeno-reveal {
-  from { transform: scale(0.7) translateY(12px); opacity: 0; }
-  to   { transform: scale(1) translateY(0); opacity: 1; }
-}
-.xeno-stagger > * { animation: xeno-reveal 0.45s cubic-bezier(0.2, 1.2, 0.4, 1) both; }
-.xeno-stagger > *:nth-child(1) { animation-delay: 0.05s; }
-.xeno-stagger > *:nth-child(2) { animation-delay: 0.12s; }
-.xeno-stagger > *:nth-child(3) { animation-delay: 0.19s; }
-.xeno-stagger > *:nth-child(4) { animation-delay: 0.26s; }
-.xeno-stagger > *:nth-child(5) { animation-delay: 0.33s; }
-.xeno-stagger > *:nth-child(6) { animation-delay: 0.40s; }
-.xeno-stagger > *:nth-child(n+7) { animation-delay: 0.47s; }
+  .xeno .xg-check {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px 6px 6px 2px;
+    border: 1.5px solid var(--xg-edge2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    background: transparent;
+    color: transparent;
+    padding: 0;
+  }
+  .xeno .xg-check.on { background: var(--xg-accent); border-color: var(--xg-accent); color: var(--xg-accent-ink); }
+  .xeno .xg-check.some { background: var(--xg-track); color: var(--xg-ink); }
 
-/* Slow rotating orbit ring (logo, roll reveal) */
-.xeno-orbit { animation: xeno-orbit 14s linear infinite; transform-origin: center; }
-@keyframes xeno-orbit { to { transform: rotate(360deg); } }
-.xeno-orbit-rev { animation: xeno-orbit 9s linear infinite reverse; transform-origin: center; }
+  .xeno .xg-sw {
+    width: 38px;
+    height: 22px;
+    border-radius: 99px;
+    background: var(--xg-track);
+    position: relative;
+    flex: none;
+    border: 1px solid var(--xg-edge2);
+  }
+  .xeno .xg-sw::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 99px;
+    background: var(--xg-surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: left 0.15s;
+  }
+  .xeno .xg-sw.on { background: var(--xg-accent); border-color: transparent; }
+  .xeno .xg-sw.on::after { left: 18px; background: #fff; }
+  .xeno .xg-sw.sky.on { background: var(--xg-sky-fill); }
 
-/* Hybrid roll reel */
-.xeno-reel-spin { animation: xeno-reel 0.12s linear infinite; }
-@keyframes xeno-reel {
-  0%   { transform: translateY(-6px) scale(0.92); filter: blur(1px); }
-  100% { transform: translateY(6px) scale(1.02); filter: blur(0.5px); }
-}
+  /* Floating command bar */
+  .xeno .xg-cmd {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 8px 8px 10px;
+    border-radius: 999px;
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge2);
+    box-shadow: var(--xg-shadow-lg);
+  }
+  /* In the page flow (above the planters) it sits flush, like a pane. */
+  .xeno .xg-cmd.flow { border-color: var(--xg-edge); box-shadow: var(--xg-shadow); }
 
-/* Artifact orb */
-.xeno-orb {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--ui-primary) 35%, transparent), color-mix(in srgb, var(--ui-bg) 60%, transparent) 70%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-primary) 30%, transparent), 0 0 18px -6px var(--xeno-glow);
-}
-.xeno-orb-gem {
-  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--ui-secondary) 45%, transparent), color-mix(in srgb, var(--ui-bg) 60%, transparent) 70%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-secondary) 45%, transparent), 0 0 18px -6px color-mix(in srgb, var(--ui-secondary) 60%, transparent);
-}
-.xeno-craft-flash { animation: xeno-craft-flash 0.6s ease-out; }
-@keyframes xeno-craft-flash {
-  0%   { box-shadow: 0 0 0 0 var(--xeno-glow); }
-  100% { box-shadow: 0 0 0 14px transparent; }
-}
+  /* ── Bars ────────────────────────────────────────────────────────────────── */
+  .xeno .xg-meter { height: 6px; border-radius: 6px; background: var(--xg-track); overflow: hidden; position: relative; display: block; }
+  .xeno .xg-meter > span { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--xg-accent); transition: width 0.4s ease; }
+  .xeno .xg-steps { display: flex; gap: 4px; }
+  .xeno .xg-steps > span { flex: 1; height: 6px; border-radius: 6px; background: var(--xg-track); }
+  .xeno .xg-steps > span.on { background: var(--sc, var(--xg-ink)); }
+  .xeno .xg-odds { display: flex; height: 10px; border-radius: 10px; overflow: hidden; background: var(--xg-track); gap: 2px; }
+  .xeno .xg-odds > i { display: block; height: 100%; min-width: 0; }
 
-/* Card hover lift */
-.xeno-lift { transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
-.xeno-lift:hover { transform: translateY(-3px); box-shadow: 0 14px 30px -18px var(--xeno-glow); border-color: color-mix(in srgb, var(--ui-primary) 40%, var(--ui-border)); }
+  /* ── Garden plots ────────────────────────────────────────────────────────── */
+  .xeno .xg-plot {
+    --tc: var(--xg-faint);
+    --p: 0;
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1.08;
+    border-radius: 18px 18px 18px 6px;
+    border: 1px solid var(--xg-edge);
+    background: var(--xg-surface2);
+    padding: 0;
+    color: var(--xg-ink);
+    font: inherit;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: border-color 0.2s, background-color 0.2s, opacity 0.2s;
+  }
+  .xeno .xg-plot:hover { border-color: var(--xg-edge2); }
+  .xeno .xg-plot-art { position: absolute; left: 10%; right: 10%; top: 4%; bottom: 31%; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  /* With the corner tags showing, the plant starts below their first row. */
+  .xeno .xg-plot.has-tags .xg-plot-art { top: 31px; }
+  .xeno .xg-plot-foot { position: absolute; left: 9px; right: 9px; bottom: 8px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; }
+  .xeno .xg-plot-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: var(--xg-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+  }
+  .xeno .xg-root { height: 3px; border-radius: 3px; background: var(--xg-track); overflow: hidden; }
+  .xeno .xg-root > span { display: block; height: 100%; width: calc(var(--p) * 1%); border-radius: 3px; background: var(--tc); transition: width 0.5s linear; }
+  /* Ripe: accent border + small leaf badge; the soil and the plant stay still. */
+  .xeno .xg-plot.ready { border: 2px solid var(--xg-accent); background: color-mix(in srgb, var(--xg-accent) 5%, var(--xg-surface2)); }
+  .xeno .xg-plot.ready::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 11px;
+    height: 11px;
+    border-radius: 11px 0 11px 0;
+    background: var(--xg-accent);
+    z-index: 3;
+  }
+  .xeno .xg-plot.ready .xg-plot-meta { color: var(--xg-accent-text); }
+  .xeno .xg-plot.ready .xg-root > span { background: var(--xg-accent); }
+  .xeno .xg-plot.empty { border-style: dashed; border-color: var(--xg-edge2); background: transparent; }
+  .xeno .xg-plot.target { border-style: dashed; border-color: var(--xg-accent); background: var(--xg-accent-soft); }
+  .xeno .xg-plot.replace { border-style: dashed; border-color: var(--xg-sun); }
+  .xeno .xg-plot.dim { opacity: 0.4; }
+  .xeno .xg-plot.void { background: linear-gradient(var(--xg-uv-soft), var(--xg-uv-soft)), var(--xg-surface2); }
+  .xeno .xg-plot.locked {
+    cursor: default;
+    background: repeating-linear-gradient(135deg, var(--xg-hover) 0 8px, transparent 8px 16px);
+    border-style: solid;
+  }
+  .xeno .xg-plot.next { border-style: dashed; border-color: var(--xg-sun-edge); }
+  .xeno .xg-plot.next.affordable { border-color: var(--xg-sun); }
+  .xeno .xg-plot-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+    pointer-events: none;
+  }
+  /* Top-left corner of a plot: fitted artifact, then the planted stack's levels. */
+  .xeno .xg-plot-tl {
+    position: absolute;
+    top: 7px;
+    left: 7px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    pointer-events: none;
+  }
+  .xeno .xg-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 22px;
+    padding: 0 7px 0 5px;
+    border-radius: 99px;
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge);
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--xg-ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .xeno .xg-tag.gem { border-color: var(--xg-sky); }
+  .xeno .xg-tag.lv { height: 20px; padding: 0 6px 0 5px; gap: 2px; font-size: 10.5px; }
+  .xeno .xg-tag.lv .ic { color: var(--xg-muted); }
+  .xeno .lv0 { color: var(--xg-lv0); }
+  .xeno .lv1 { color: var(--xg-lv1); }
+  .xeno .lv2 { color: var(--xg-lv2); }
+  .xeno .lv3 { color: var(--xg-lv3); }
+  .xeno .lv4 { color: var(--xg-lv4); }
+  .xeno .lv5 { color: var(--xg-lv5); }
+  .xeno .lv6 { color: var(--xg-lv6); }
+  .xeno .lv7 { color: var(--xg-lv7); }
+  .xeno .lv8 { color: var(--xg-lv8); }
+  .xeno .lv9 { color: var(--xg-lv9); }
+  .xeno .xg-tag.lv .sep { width: 1px; height: 10px; margin: 0 2px; background: var(--xg-edge2); }
+  .xeno .xg-plot-x {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 4;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 99px;
+    border: 1px solid var(--xg-edge2);
+    background: var(--xg-surface);
+    color: var(--xg-muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .xeno .xg-plot-x:hover { color: var(--xg-rose); border-color: var(--xg-rose); }
+  .xeno .xg-plot-wrap:hover .xg-plot-x,
+  .xeno .xg-plot-x:focus-visible { opacity: 1; }
+  @media (hover: none) {
+    .xeno .xg-plot-x { opacity: 1; width: 24px; height: 24px; }
+    /* A ripe plot is for harvesting on touch; keep its leaf badge clear. */
+    .xeno .xg-plot-wrap.is-ready .xg-plot-x { display: none; }
+  }
+  .xeno .xg-busy {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 30%, var(--xg-hover) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: xg-sweep 1.2s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes xg-sweep { to { background-position: -200% 0; } }
 
-/* Unknown silhouette for undiscovered species */
-.xeno-silhouette { filter: brightness(0) invert(0.35) opacity(0.5); }
+  /* ── Nursery ─────────────────────────────────────────────────────────────── */
+  .xeno .xg-pot {
+    position: relative;
+    border-radius: 14px 14px 26px 26px;
+    border: 1px solid var(--xg-edge);
+    background: var(--xg-well);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0;
+    color: var(--xg-ink);
+    font: inherit;
+  }
+  .xeno .xg-pot.empty { border-style: dashed; border-color: var(--xg-edge2); background: transparent; }
+  .xeno .xg-pot.target { border-style: dashed; border-color: var(--xg-accent); background: var(--xg-accent-soft); }
+  .xeno .xg-bed {
+    position: relative;
+    border-radius: 26px 26px 26px 8px;
+    border: 1px solid var(--xg-edge2);
+    background: var(--xg-surface2);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .xeno .xg-bed.mut { border: 2px solid var(--xg-uv); background: linear-gradient(var(--xg-uv-soft), var(--xg-uv-soft)), var(--xg-surface2); }
+  .xeno .xg-bed.done { border: 2px solid var(--xg-accent); }
+  .xeno .xg-ring {
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    background: conic-gradient(var(--rc, var(--xg-accent)) calc(var(--p) * 1%), var(--xg-track) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+    pointer-events: none;
+  }
+  .xeno .xg-petals { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+  .xeno .xg-petals > i {
+    position: absolute;
+    left: -22px;
+    top: -130px;
+    width: 44px;
+    height: 110px;
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    background: var(--xg-uv);
+    opacity: 0.16;
+    transform-origin: 22px 130px;
+    animation: xg-open 0.8s cubic-bezier(0.2, 1.2, 0.4, 1) both;
+  }
+  .xeno .xg-petals > i:nth-child(even) { background: var(--xg-t7); opacity: 0.1; }
+  @keyframes xg-open { from { scale: 0.2; } to { scale: 1; } }
 
-/* Count-up number */
-.xeno-tabular { font-variant-numeric: tabular-nums; }
+  /* ── Motion ──────────────────────────────────────────────────────────────── */
+  .xeno .xg-pop { animation: xg-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+  @keyframes xg-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+  .xeno .xg-fade { animation: xg-fade 0.25s ease-out both; }
+  @keyframes xg-fade { from { opacity: 0; } to { opacity: 1; } }
+  .xeno .xg-cycle { animation: xg-cycle 0.14s steps(2) infinite; }
+  @keyframes xg-cycle { 50% { opacity: 0.55; } }
 
-@media (prefers-reduced-motion: reduce) {
-  .xeno-shell *, .xeno-shell *::before, .xeno-shell *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  /* Teleported harvest numbers and leaf bursts (rendered in a `.xeno` layer). */
+  .xeno .xg-float {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    background: var(--xg-surface);
+    border: 1px solid var(--xg-edge2);
+    box-shadow: var(--xg-shadow-lg);
+    font-weight: 800;
+    font-size: 13.5px;
+    color: var(--xg-ink);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    animation: xg-float 1.5s ease-out both;
+  }
+  .xeno .xg-float b { color: var(--xg-accent-text); }
+  @keyframes xg-float {
+    0% { opacity: 0; transform: translate(-50%, -30%) scale(0.9); }
+    15% { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -260%); }
+  }
+  .xeno .xg-particle {
+    position: fixed;
+    z-index: 9998;
+    pointer-events: none;
+    width: var(--s, 9px);
+    height: var(--s, 9px);
+    margin: calc(var(--s, 9px) / -2) 0 0 calc(var(--s, 9px) / -2);
+    border-radius: 9px 0 9px 0;
+    background: var(--c, var(--xg-accent));
+    animation: xg-leaf var(--dur, 1s) cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  }
+  @keyframes xg-leaf {
+    0% { opacity: 0; transform: translate(0, 0) rotate(0) scale(0.6); }
+    15% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(var(--scale, 1)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .xeno .xg-pop,
+    .xeno .xg-fade,
+    .xeno .xg-cycle,
+    .xeno .xg-busy,
+    .xeno .xg-petals > i { animation: none; }
+    .xeno .xg-particle { display: none; }
+    .xeno .xg-float { animation-duration: 0.01s; animation-delay: 0s; opacity: 0; }
+    .xeno .xg-meter > span,
+    .xeno .xg-root > span,
+    .xeno .xg-btn,
+    .xeno .xg-plot { transition: none; }
   }
 }

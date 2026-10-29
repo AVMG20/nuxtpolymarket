@@ -74,6 +74,9 @@ export const userNavLayout = pgTable('user_nav_layout', {
     .primaryKey()
     .references(() => user.id, { onDelete: 'cascade' }),
   layout: jsonb('layout').$type<NavLayout>().notNull(),
+  // Bumped on every save; a save names the revision it started from, so a
+  // stale tab can't overwrite a newer layout
+  revision: integer('revision').notNull().default(0),
   updatedAt: timestamp('updated_at')
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())

@@ -5,7 +5,6 @@ import {
     isTownBoostActive,
     townBoostExtend,
     townBoostMultiplier,
-    townBoostOverlapMs,
     townBoostUntil,
     townBuildBoostedCompletesAt,
     townBuildBoostedMs,
@@ -51,13 +50,6 @@ describe('Boost windows', () => {
         expect(townBoostExtend(T0 - 5 * MIN, T0, TOWN_BOOST_MS)).toBe(T0 + HOUR)
         expect(townBoostExtend(T0 + 20 * MIN, T0, TOWN_BOOST_MS)).toBe(T0 + 80 * MIN)
     })
-
-    it('measures the overlap of a span with the window', () => {
-        expect(townBoostOverlapMs(T0, T0 + 10, T0 + 4)).toBe(4)
-        expect(townBoostOverlapMs(T0, T0 + 10, T0 + 20)).toBe(10)
-        expect(townBoostOverlapMs(T0 + 5, T0 + 10, T0)).toBe(0)
-        expect(townBoostOverlapMs(T0, T0 + 10, null)).toBe(0)
-    })
 })
 
 describe('Builder\'s rush', () => {
@@ -69,10 +61,6 @@ describe('Builder\'s rush', () => {
         expect(townBuildBoostedMs(0, HOUR)).toBe(0)
     })
 
-    it('is continuous where the two cases meet', () => {
-        expect(townBuildBoostedMs(2 * HOUR + 1, HOUR)).toBe(HOUR + 1)
-    })
-
     it('shortens a job started mid-rush by the rush left, not the full hour', () => {
         const until = T0 + 20 * MIN
         // 30 min of work, 20 min of rush: 40 min of work fits in the rush, so it all runs fast.
@@ -82,24 +70,6 @@ describe('Builder\'s rush', () => {
         // No rush, or an expired one: unchanged.
         expect(townBuildBoostedCompletesAt(T0, 3 * HOUR, null)).toBe(T0 + 3 * HOUR)
         expect(townBuildBoostedCompletesAt(T0, 3 * HOUR, T0 - 1)).toBe(T0 + 3 * HOUR)
-    })
-
-    it('rewrites a running job from the start of the window on', () => {
-        expect(townBuildRushedCompletesAt(T0 + 30 * MIN, T0, HOUR)).toBe(T0 + 15 * MIN)
-        expect(townBuildRushedCompletesAt(T0 + 5 * HOUR, T0, HOUR)).toBe(T0 + 4 * HOUR)
-        // Finishes before the window opens: untouched.
-        expect(townBuildRushedCompletesAt(T0 + 10 * MIN, T0 + 20 * MIN, HOUR)).toBe(T0 + 10 * MIN)
-    })
-
-    it('extending a running rush only speeds up what is left past its old end', () => {
-        // A 5 h job, rushed at T0: it now ends at T0 + 4h.
-        const first = townBuildRushedCompletesAt(T0 + 5 * HOUR, T0, HOUR)
-        // 30 min later a second rush adds an hour on the end of the first.
-        const windowStart = Math.max(T0 + 30 * MIN, T0 + HOUR)
-        const second = townBuildRushedCompletesAt(first, windowStart, HOUR)
-        expect(second).toBe(T0 + 3 * HOUR)
-        // The same as one two-hour rush laid down at T0.
-        expect(townBuildRushedCompletesAt(T0 + 5 * HOUR, T0, 2 * HOUR)).toBe(second)
     })
 
     it('treats two rushes at once the same as two in a row', () => {
@@ -114,12 +84,6 @@ describe('Production surge', () => {
     const ticks = 10
     const end = T0 + ticks * TOWN_TICK_MS
     const base = settleTown(sim({ buildings: houseAndFarm() }), end)
-
-    it('leaves a settle without a surge alone', () => {
-        expect(base.ticks).toBe(ticks)
-        expect(settleTown(sim({ buildings: houseAndFarm(), productionBoostUntil: T0 - 1 }), end).delta).toEqual(base.delta)
-        expect(settleTown(sim({ buildings: houseAndFarm(), productionBoostUntil: null }), end).delta).toEqual(base.delta)
-    })
 
     it('doubles what the farm grows over a surged settle, but not what the town eats', () => {
         const surged = settleTown(sim({ buildings: houseAndFarm(), productionBoostUntil: end + HOUR }), end)

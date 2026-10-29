@@ -124,6 +124,8 @@ describe.skipIf(SKIP)('tcg market integration', () => {
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Price out of range' })
         await expect(listCopy(USERS.seller, copyId, TCG_MARKET.maxPrice + 1, null))
             .rejects.toMatchObject({ statusCode: 400 })
+        const pricey = await listCopy(USERS.seller, await seedCopy(USERS.seller), 5_000_000_000, null)
+        expect(Number(pricey.price)).toBe(5_000_000_000)
         await expect(listCopy(USERS.seller, copyId, 1000, 'x'.repeat(TCG_MARKET.noteMaxLength + 1)))
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Note too long' })
     }, 30_000)

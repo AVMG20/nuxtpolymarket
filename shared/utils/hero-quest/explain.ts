@@ -31,6 +31,7 @@
 
 import {
     CHAMPION_PASSIVE_PER_POINT,
+    CLASS_TIER_PWR_MULTIPLIER,
     DPS_STAT_EXPONENT,
     ENEMY_STEP_BASE,
     HP_PER_VIT,
@@ -68,8 +69,9 @@ import {
 } from './stats'
 import { mergeTotals, sumModifiers } from './modifiers'
 import { D, ONE, decPow, formatHq } from './numbers'
+import { HQ_SETTING_DEFAULTS } from './settings'
 import type { Decimal } from './numbers'
-import type { ChampionArchetype, ChampionSnapshot, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
+import type { ChampionArchetype, ChampionSnapshot, ClassTier, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
 
 const STAT_KEYS: readonly HqStatKey[] = ['pwr', 'spd', 'lck', 'imp', 'vit', 'def']
 
@@ -108,7 +110,7 @@ export interface StatPart {
     amount: number
 }
 
-export type StageId = 'base' | 'level' | 'collection' | 'investment' | 'passives'
+export type StageId = 'base' | 'level' | 'tier' | 'collection' | 'investment' | 'passives'
 
 export interface StatStage {
     id: StageId
@@ -154,6 +156,8 @@ export interface DerivedBreakdown {
     key: string
     label: string
     value: string
+    /** A big value's exact Decimal string, for a client to spell out in the player's notation; `value` is the default notation's. */
+    amount?: string
     /** The formula with real numbers in it, not symbols. */
     formula: string
     /**
@@ -276,6 +280,20 @@ function levelStage(key: HqStatKey, base: Decimal, heroLevel: number): StatStage
     }
 }
 
+/** The Hero's class tier, on PWR alone (`CLASS_TIER_PWR_MULTIPLIER`). */
+function tierStage(running: Decimal, tier: ClassTier): StatStage {
+    const factor = D(CLASS_TIER_PWR_MULTIPLIER[tier])
+    return {
+        id: 'tier',
+        label: `Class tier: ${tier.charAt(0).toUpperCase()}${tier.slice(1)}`,
+        factor,
+        running: running.mul(factor),
+        unbounded: false,
+        parts: [],
+        formula: `×${factor.toNumber()}`
+    }
+}
+
 /**
  * The §7 collection passive — owned Champions, not fielded ones.
  *
@@ -370,7 +388,8 @@ function derivedFor(unit: UnitStats, block: Record<HqStatKey, Decimal>): Derived
         {
             key: 'maxHp',
             label: 'Max HP',
-            value: formatHq(unit.maxHp),
+            value: formatHq(unit.maxHp, HQ_SETTING_DEFAULTS.numberNotation),
+            amount: unit.maxHp.toString(),
             formula: `(BASE_HP ${BASE_HP} + vit ${block.vit.toFixed(2)} × ${HP_PER_VIT}) × maxHpFactor`,
             // The one place a *flat* constant meets the compounding curve, so it is worth saying
             // out loud which of the two is currently carrying the pool.
@@ -518,8 +537,9 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
         key => path.map(ancestor => ({ name: ancestor.name, delta: ancestor.delta[key] ?? 0 })),
         hero.heroLevel,
         (key, running) => {
-            const collection = collectionStage(running, hero, key)
-            return [collection, passiveStage(
+            const tier = key === 'pwr' ? [tierStage(running, node.tier)] : []
+            const collection = collectionStage(tier.at(-1)?.running ?? running, hero, key)
+            return [...tier, collection, passiveStage(
                 collection.running, key, D(heroTotals.stats[key]), passiveSources(hero, key, null)
             )]
         },

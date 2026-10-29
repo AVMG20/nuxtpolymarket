@@ -17,7 +17,8 @@ import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const USERS = {
     ann: 'test-tcg-trade-ann',
-    ben: 'test-tcg-trade-ben'
+    ben: 'test-tcg-trade-ben',
+    cal: 'test-tcg-trade-cal'
 }
 const createdSetIds: string[] = []
 

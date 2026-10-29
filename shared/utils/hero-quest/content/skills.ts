@@ -33,6 +33,8 @@ import {
     EXECUTE_BONUS,
     GOLD_BURST_COOLDOWN_SECONDS,
     GOLD_BURST_MINUTES,
+    KINGS_RANSOM_BURST_MINUTES,
+    KINGS_RANSOM_GOLD_BURST_MINUTES,
     SKILL_BASE_ABILITY_MULTIPLIER,
     SKILL_BASE_COOLDOWN_SECONDS,
     SKILL_BUFF_FRACTION,
@@ -45,7 +47,8 @@ import {
     SKILL_PASSIVE_MAGNITUDE,
     SKILL_PIERCE_MULTIPLIER,
     SKILL_POTENCY_PER_POINT,
-    SKILL_STATUS_DURATION_SECONDS
+    SKILL_STATUS_DURATION_SECONDS,
+    TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES
 } from '../constants'
 import { onCooldownRank, scaleEffect } from '../effects'
 import type { AbilityEffect } from '../effects'
@@ -270,10 +273,15 @@ export const SKILLS: readonly SkillDefinition[] = [
         ['Restore a share of your maximum HP.', 'Grants yourself a brief +SPD buff.'],
         { target: 'self', heal: SKILL_HEAL_MULTIPLIER, selfStatus: selfBuff('spd') },
         { abilityMultiplier: 0 }),
-    /** "Hit … wealth-modulated as Gambler's Strike, AND grant yourself a small Gold burst." */
+    /**
+     * "Hit … wealth-modulated as Gambler's Strike, AND grant yourself a small Gold burst."
+     *
+     * The burst has its own constant rather than `burst('epic')`: it rides a damage cadence, not
+     * `GOLD_BURST_COOLDOWN_SECONDS`.
+     */
     active("Treasure Hunter's Gambit", 'epic',
         ['A wealth-scaled hit on your current target.', 'Grants a burst of bonus Gold on the same cast.'],
-        { target: 'enemy_single', wealthScaled: true, goldBurstMinutes: burst('epic') }),
+        { target: 'enemy_single', wealthScaled: true, goldBurstMinutes: TREASURE_HUNTERS_GAMBIT_GOLD_BURST_MINUTES }),
 
     /** "+SPD% AND +LCK% (both medium)." */
     passive("Veteran's Instincts", 'epic', ['+SPD.', '+LCK.'],
@@ -343,14 +351,18 @@ export const SKILLS: readonly SkillDefinition[] = [
         ['Restore a large share of your maximum HP.', 'Cleanses every debuff on you.', 'Grants yourself a brief +DEF buff.'],
         { target: 'self', heal: SKILL_HEAL_MULTIPLIER, cleanse: true, selfStatus: selfBuff('def') },
         { abilityMultiplier: 0 }),
-    /** "A massive wealth-modulated hit …, AND a large Gold burst, AND a chance at a bonus XP burst." */
+    /**
+     * "A massive wealth-modulated hit …, AND a large Gold burst, AND a chance at a bonus XP burst."
+     *
+     * Its own burst constant for the same reason as Treasure Hunter's Gambit.
+     */
     active("King's Ransom", 'mythic',
         ['A massive wealth-scaled hit on your current target.', 'Grants a large burst of bonus Gold.', 'Grants a burst of bonus XP.'],
         {
             target: 'enemy_single',
             wealthScaled: true,
-            goldBurstMinutes: burst('mythic'),
-            xpBurstMinutes: burst('mythic')
+            goldBurstMinutes: KINGS_RANSOM_GOLD_BURST_MINUTES,
+            xpBurstMinutes: KINGS_RANSOM_BURST_MINUTES
         }),
 
     /** "+SPD% AND +LCK% AND +IMP% (all large)." */

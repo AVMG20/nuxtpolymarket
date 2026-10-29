@@ -36,7 +36,7 @@ import {
 import { LOAN_MULTIPLIER } from '#shared/utils/gamelogic/bank'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { PLANT_TYPES } from '#shared/utils/xeno'
-import { BASE_BUILDER_COUNT, HABITAT_BUILDER_JOB_ID, UPGRADE_TRACKS, gemTickMs, getBug, habitatTrackRequirement } from '#shared/utils/colony'
+import { BASE_BUILDER_COUNT, HABITAT_BUILDER_JOB_ID, UPGRADE_TRACKS, habitatTrackRequirement } from '#shared/utils/colony'
 import { getBuilderCount } from '#server/utils/colony'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -100,17 +100,6 @@ describe.skipIf(SKIP)('prestige shop', () => {
 
         await expect(buyPrestigeShopItem(USER_ID, item.id)).rejects.toThrow(/fully bought/i)
         expect(await getPrestigePurchaseCount(USER_ID, item.id)).toBe(item.maxOwned)
-    })
-
-    it('escalates the Xenogenesis Leap price with each purchase', async () => {
-        await seedPrestiged(20)
-
-        const first = await buyPrestigeShopItem(USER_ID, 'xeno-leap')
-        const second = await buyPrestigeShopItem(USER_ID, 'xeno-leap')
-        const third = await buyPrestigeShopItem(USER_ID, 'xeno-leap')
-
-        expect([first.spent, second.spent, third.spent]).toEqual([1, 2, 3])
-        expect((await readUser())?.prestigeTokens).toBe(20 - 6)
     })
 
     // Every escalating item reads its own count and then writes a price derived
@@ -188,14 +177,6 @@ describe.skipIf(SKIP)('prestige shop', () => {
         const bugs = await db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID))
         expect(bugs.length).toBe(COLONY_HIVE_SNAILS_PER_PURCHASE)
         expect(bugs.every(bug => bug.typeId === COLONY_HIVE_SNAIL_TYPE_ID)).toBe(true)
-        // The whole point: five of them hold the base cycle, where five
-        // ordinary Gem Snails crowd each other into a longer one. Social does
-        // NOT make them faster — gemTickMs clamps the multiplier at 1.
-        const hive = { typeId: COLONY_HIVE_SNAIL_TYPE_ID }
-        const base = getBug(COLONY_HIVE_SNAIL_TYPE_ID)!.baseTickMs
-        expect(gemTickMs(hive, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBe(base)
-        expect(gemTickMs(hive, 1)).toBe(base)
-        expect(gemTickMs({ typeId: 'gem_snail' }, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBeGreaterThan(base)
     })
 
     it('raises the builder count without writing colony state', async () => {

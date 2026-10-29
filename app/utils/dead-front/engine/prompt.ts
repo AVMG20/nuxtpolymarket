@@ -5,6 +5,9 @@ import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import { DF_TRAP } from '#shared/utils/dead-front/specials'
 import type { DfHeldWeapon, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import { dfEggRodSpots } from './objective'
+import { dfKitName, dfRarity } from '#shared/utils/dead-front/rarity'
+import { dfBenchPrompt } from './arsenal-prompt'
+import type { DfBenchPick } from './arsenal-prompt'
 import type { Vec3 } from '#shared/utils/dead-front/types'
 import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 
@@ -14,7 +17,7 @@ import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
 export interface DfPrompt {
     /** Interactable id for `use`, or `revive:<pid>`. */
     id: string
-    kind: DfInteractable['kind'] | 'revive'
+    kind: DfInteractable['kind'] | 'revive' | 'kit' | 'crate'
     /** Text before the cost, e.g. "Hold F to clear the debris". */
     text: string
     /** Optional second line (door label, weapon detail). */
@@ -27,6 +30,8 @@ export interface DfPrompt {
     /** Re-send `use` while held (barricades). */
     repeat: boolean
     pid?: number
+    /** Colour of the text: the rarity of what is on offer. */
+    tint?: string
 }
 
 export interface DfPromptCtx {
@@ -34,6 +39,8 @@ export interface DfPromptCtx {
     world: DfWorldSnap
     me: DfPlayerSnap
     solo: boolean
+    /** What the workbench is set to make (the engine's selection). */
+    benchPick?: DfBenchPick
 }
 
 /** Price to refill a weapon at its wall-buy; Pack-a-Punched ammo costs more. */
@@ -80,7 +87,9 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             const wid = it.ref as DfHeldWeapon['id'] | undefined
             if (!wid || !DF_WEAPONS[wid]) return null
             const def = DF_WEAPONS[wid]
-            const owned = me.weapons.find(w => w.id === wid)
+            // the weapon a lent launcher stands in for is still yours (its ammo, not a second copy)
+            const stash = world.arsenal?.players.find(x => x.pid === me.pid)?.stash
+            const owned = me.weapons.find(w => w.id === wid) ?? (stash?.id === wid ? stash : undefined)
             if (owned?.away) return info(it.id, 'wallbuy', 'In the Pack-a-Punch', weaponName(wid, owned.pap))
             if (owned) {
                 const stats = dfWeaponStats(wid, owned.pap, owned.attachments)
@@ -109,8 +118,12 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (!spot || spot.id !== it.id) return null
             const b = world.box
             if (b.state === 'idle') return buyPrompt(it.id, 'box', 'Hold F for a random weapon', DF_COSTS.box, pts)
+            if (b.state === 'ready' && b.owner === me.pid && b.kit) {
+                return { id: it.id, kind: 'box', text: `Hold F to take the ${dfKitName(b.kit)}`, sub: 'Raises the weapon in hand to its tier', cost: null, ok: true, action: 'use', repeat: false, tint: dfRarity(b.kit).color }
+            }
             if (b.state === 'ready' && b.owner === me.pid && b.weapon) {
-                return { id: it.id, kind: 'box', text: `Hold F to take ${DF_WEAPONS[b.weapon].name}`, cost: null, ok: true, action: 'use', repeat: false }
+                const rar = dfRarity(b.rarity)
+                return { id: it.id, kind: 'box', text: `Hold F to take ${DF_WEAPONS[b.weapon].name}`, sub: (b.rarity ?? 0) > 0 ? rar.name : undefined, cost: null, ok: true, action: 'use', repeat: false, tint: (b.rarity ?? 0) > 0 ? rar.color : undefined }
             }
             if (b.state === 'moving') return info(it.id, 'box', 'The box is moving')
             // someone else's roll or offer: say so instead of going quiet
@@ -128,6 +141,7 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (!world.power) return info(it.id, 'pap', 'Requires power')
             const held = heldWeapon(me)
             if (!held) return null
+            if (DF_WEAPONS[held.id]?.temporary) return info(it.id, 'pap', 'It won\'t take a borrowed launcher', 'Switch to your own weapon')
             const cost = dfPapCost(held.pap)
             if (cost === null) return info(it.id, 'pap', 'Maximum upgrade', weaponName(held.id, held.pap))
             return buyPrompt(it.id, 'pap', 'Hold F to Pack-a-Punch', cost, pts, weaponName(held.id, held.pap))
@@ -169,6 +183,8 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
         }
         case 'trap':
             return trapPrompt(it, c)
+        case 'bench':
+            return dfBenchPrompt(it, c)
     }
     return null
 }

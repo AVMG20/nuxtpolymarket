@@ -3,9 +3,7 @@ import { db, type DbExecutor } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, xenoUpgrades } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
 import {
-  getArtifact, getEffectValueFor, getPlant, getPlantDisplay,
-  effectiveGrowTime, breedDuration, getMutationPair,
-  xenoSpeedBoost, type XenoUpgradeLevels,
+  getPlant, getMutationPair, gridGrowSecs, breedSecs, type XenoUpgradeLevels,
 } from '#shared/utils/xeno'
 
 export async function getXenoUpgradeLevels(userId: string, tx: DbExecutor = db): Promise<XenoUpgradeLevels> {
@@ -29,17 +27,8 @@ export function computeGridDuration(
   gemCrafted = false,
   globalSpeedLevel = 0,
 ): number {
-  const base = getPlantDisplay(plant.typeId)
-  if (!base) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${plant.typeId}` })
-  let secs = effectiveGrowTime({ baseTime: base.baseTime, speed: plant.speed })
-  if (artifactTypeId) {
-    const art = getArtifact(artifactTypeId)
-    if (art) {
-      const speedBoost = getEffectValueFor(art, 'grid_speed_boost', gemCrafted)
-      if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
-    }
-  }
-  secs = Math.round(secs * (1 - xenoSpeedBoost(globalSpeedLevel)))
+  const secs = gridGrowSecs(plant, artifactTypeId, gemCrafted, globalSpeedLevel)
+  if (secs == null) throw createError({ statusCode: 400, statusMessage: `Unknown plant type: ${plant.typeId}` })
   return xenoDuration(secs)
 }
 
@@ -51,22 +40,7 @@ export function computeBreedDuration(
   gemCrafted = false,
   globalSpeedLevel = 0,
 ): number {
-  const t1 = getPlant(p1.typeId)
-  const t2 = getPlant(p2.typeId)
-  if (!t1 || !t2) return xenoDuration(3600)
-  let secs = xenoDuration(breedDuration(
-    { baseTime: t1.baseTime },
-    { baseTime: t2.baseTime},
-  ))
-  if (artifactTypeId) {
-    const art = getArtifact(artifactTypeId)
-    if (art) {
-      const speedBoost = getEffectValueFor(art, 'breeder_speed_boost', gemCrafted)
-      if (speedBoost > 0) secs = Math.round(secs * (1 - speedBoost))
-    }
-  }
-  secs = Math.round(secs * (1 - xenoSpeedBoost(globalSpeedLevel)))
-  return secs
+  return xenoDuration(breedSecs(p1, p2, artifactTypeId, gemCrafted, globalSpeedLevel) ?? 3600)
 }
 
 /**

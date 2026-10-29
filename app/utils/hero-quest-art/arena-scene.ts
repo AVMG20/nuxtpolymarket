@@ -28,6 +28,7 @@ import type { SceneBackdrops } from './menu-band'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { HQ_ARENA_TABS, HQ_ARENA_TAB_LABELS, type HqArenaTab } from '../hero-quest-scenes'
 import { ARENA_SEASON_REWARDS } from '#shared/utils/hero-quest/constants'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 /** A face on a card or in the defence: an art asset (`hero/<class>` or `champion/<id>`) and its row. */
 export interface ArenaFace { asset: string, row: 'front' | 'back' }
@@ -81,6 +82,8 @@ export interface ArenaBoardRow { rank: number, name: string, rating: number, you
 
 export interface ArenaView {
     tab: HqArenaTab
+    /** The player's big-number notation, for the Medals and Gem prices. */
+    notation: HqNotation
     /** The open page of a paged tab (Shop has one; Log and Ranking page). */
     page: number
     busy: boolean
@@ -259,7 +262,7 @@ function attackBox(card: Box): Box {
 }
 
 function refreshLabel(view: ArenaView): string {
-    return view.refreshPrice > 0 ? `REFRESH ${view.refreshPrice} GEMS` : `REFRESH, ${view.refreshesLeft} FREE`
+    return view.refreshPrice > 0 ? `REFRESH ${formatHq(view.refreshPrice, view.notation)} GEMS` : `REFRESH, ${view.refreshesLeft} FREE`
 }
 
 /** The preferred-Loadout picker, on the row over the footer, its caption to its left. */
@@ -279,7 +282,7 @@ function pickLines(view: ArenaView): { key: number | 'none', name: string }[] {
 }
 
 function buyAttemptLabel(view: ArenaView): string {
-    return `+1 ATTACK ${view.attemptPrice} GEMS`
+    return `+1 ATTACK ${formatHq(view.attemptPrice, view.notation)} GEMS`
 }
 
 function fightFooter(view: ArenaView, h: number): { refresh: Box, buy: Box } {
@@ -457,7 +460,7 @@ export class ArenaScene {
         const rw = drawText(s, 'RATING', P.x + 6, y, C.stone3, { shadow: 1 })
         drawText(s, String(view.rating), P.x + 10 + rw, y, C.gold3, { shadow: 1 })
         drawText(s, `SEASON ${view.season}  ${view.seasonLeft}`, P.x + (P.w >> 1) + 10, y, C.bone0, { align: 1, shadow: 1 })
-        const medals = String(view.medals)
+        const medals = formatHq(view.medals, view.notation)
         const right = P.x + P.w - 6
         drawText(s, medals, right, y, C.gold3, { align: 2, shadow: 1 })
         miniMedal(s, right - textWidth(medals) - 6, y - 2)
@@ -472,7 +475,7 @@ export class ArenaScene {
             const box = claimBox()
             panel(s, P.x + 4, box.y - 2, P.w - 8, BTN_H + 4, GOLD, C.night2)
             const best = view.rewards.reduce((a, b) => b.medals > a.medals ? b : a)
-            const total = view.rewards.reduce((sum, r) => sum + r.medals, 0)
+            const total = formatHq(view.rewards.reduce((sum, r) => sum + r.medals, 0), view.notation)
             const text = view.rewards.length === 1
                 ? `SEASON ${best.season} OVER: RANK ${best.rank}, ${total} MEDALS`
                 : `${view.rewards.length} SEASONS OVER: ${total} MEDALS`
@@ -630,7 +633,7 @@ export class ArenaScene {
             const room = buttons[0]!.box.x - b.x - 22
             drawText(s, fit(item.name.toUpperCase(), room), b.x + 19, b.y + 3, C.bone1, { shadow: 1 })
             // a medal's glyph is taller than the row's second line: the price is spelled out instead
-            const price = `${item.price} MEDALS`
+            const price = `${formatHq(item.price, view.notation)} MEDALS`
             drawText(s, price, b.x + 19, b.y + 11, C.gold3, { shadow: 1 })
             if (item.sub) drawText(s, fit(item.sub, room - textWidth(price) - 4), b.x + 23 + textWidth(price), b.y + 11, C.stone3, { shadow: 1 })
             for (const { n, box } of buttons) {
@@ -664,7 +667,7 @@ export class ArenaScene {
             const delta = row.ratingChange > 0 ? `+${row.ratingChange}` : String(row.ratingChange)
             drawText(s, delta, cx + 84, y + 2, row.ratingChange > 0 ? C.green4 : row.ratingChange < 0 ? C.red3 : C.stone3, { align: 2, shadow: 1 })
             if (row.medals > 0) {
-                drawText(s, `+${row.medals}`, cx + 101, y + 2, C.gold3, { align: 2, shadow: 1 })
+                drawText(s, `+${formatHq(row.medals, view.notation)}`, cx + 101, y + 2, C.gold3, { align: 2, shadow: 1 })
                 medalPip(s, cx + 103, y + 1)
             }
             drawText(s, row.ago, cx + LOG_COL_W - 3, y + 2, C.stone3, { align: 2, shadow: 1 })
@@ -691,7 +694,7 @@ export class ArenaScene {
             const y = b.y + 18 + i * ROW_H
             if (i === mine) rect(s, b.x + 4, y - 1, b.w - 8, ROW_H - 1, C.blue1)
             drawText(s, bandLabel(i), b.x + 8, y + 1, i === mine ? C.white : C.bone1, { shadow: 1 })
-            const medals = String(r.medals)
+            const medals = formatHq(r.medals, view.notation)
             drawText(s, medals, b.x + b.w - 18, y + 1, C.gold3, { align: 2, shadow: 1 })
             glyph(s, CURRENCY_ICONS.arena_medals!, b.x + b.w - 10, y + 3, true)
         })
@@ -728,6 +731,8 @@ export class ArenaScene {
 // ── The result, after an attack's replay ───────────────────────────────────────────
 
 export interface ArenaResultView {
+    /** The player's big-number notation as the attack landed. */
+    notation: HqNotation
     won: boolean
     dummy: boolean
     opponent: string
@@ -763,6 +768,6 @@ export function drawArenaResult(s: Surface, view: ArenaResultView, lit: boolean,
     drawText(s, view.won ? 'VICTORY' : 'DEFEAT', cx, b.y + 14, view.won ? C.gold2 : C.red2, { font: 'big', align: 1, shadow: 1 })
     const delta = view.dummy ? 'RATING UNCHANGED' : `RATING ${view.rating} (${view.ratingChange >= 0 ? '+' : ''}${view.ratingChange})`
     drawText(s, delta, cx, b.y + 26, view.dummy || view.ratingChange === 0 ? C.stone3 : view.ratingChange > 0 ? C.green4 : C.red3, { align: 1, shadow: 1 })
-    drawText(s, `+${view.medals} MEDALS`, cx, b.y + 35, C.gold3, { align: 1, shadow: 1 })
+    drawText(s, `+${formatHq(view.medals, view.notation)} MEDALS`, cx, b.y + 35, C.gold3, { align: 1, shadow: 1 })
     plateButton(s, resultButtonBox(s.w, s.h), 'CONTINUE', GREEN, true, lit, pressed)
 }

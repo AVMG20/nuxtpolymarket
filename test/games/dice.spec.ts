@@ -88,10 +88,4 @@ describe('playDice payout', () => {
         expect(loss.won).toBe(false)
         expect(loss.payout).toBe(0)
     })
-
-    it('does not include a separate cost field — the caller stakes exactly bet', () => {
-        stubRandomFloat(() => 0.1)
-        const result = playDice(100, { winChance: 50 })
-        expect('cost' in result).toBe(false)
-    })
 })

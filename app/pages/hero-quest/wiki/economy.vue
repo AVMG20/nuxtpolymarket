@@ -23,6 +23,7 @@ import { SHOP_TRACKS } from '#shared/utils/hero-quest/content/shop'
  */
 const live = HQ_CURRENCY_DOCS.filter(currency => currency.live)
 const planned = HQ_CURRENCY_DOCS.filter(currency => !currency.live)
+const { fmt } = useHqNotation()
 </script>
 
 <template>
@@ -93,7 +94,7 @@ const planned = HQ_CURRENCY_DOCS.filter(currency => !currency.live)
         />
         <HeroQuestWikiFormula
           label="Bought with Gold"
-          :formula="`from ${SEAL_LADDER_BASE_GOLD.toLocaleString('en-US')} Gold, rising with each purchase`"
+          :formula="`from ${fmt(SEAL_LADDER_BASE_GOLD)} Gold, rising with each purchase`"
           note="Each gacha has its own counter and its own price. The ladder resets at midnight UTC."
         />
       </div>
@@ -143,7 +144,7 @@ const planned = HQ_CURRENCY_DOCS.filter(currency => !currency.live)
                 {{ Number.isFinite(track.maxLevel) ? track.maxLevel : 'No limit' }}
               </td>
               <td class="py-1.5 pl-3 text-right tabular-nums whitespace-nowrap">
-                {{ track.baseCost.toLocaleString('en-US') }}
+                {{ fmt(track.baseCost) }}
                 {{ track.currency === 'gems' ? 'Gems' : track.currency === 'gold' ? 'Gold' : 'Shards' }}
               </td>
             </tr>

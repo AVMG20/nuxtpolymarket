@@ -1,5 +1,5 @@
 import type { DfZombieAnim } from './protocol'
-import { DF_MAX_ALIVE_ZOMBIES } from './constants'
+import { DF_MAX_ALIVE_ZOMBIES, DF_MAX_PLAYERS } from './constants'
 import type { DfEnemyType, DfHitZone, Vec3 } from './types'
 
 // Enemy definitions, round scaling and the hit test shared by the client
@@ -33,22 +33,22 @@ export const DF_ENEMIES: Record<DfEnemyType, DfEnemyDef> = {
     shambler: {
         type: 'shambler', name: 'Shambler', minRound: 1, healthMult: 1, damage: 50, attackRange: 1.15, attackCooldown: 1.1,
         radius: 0.35, height: 1.8, headY: 1.62, headR: 0.17,
-        speeds: { walk: 1.15, run: 3.0, sprint: 4.7 }, windup: 0.5, tearTime: 1.15
+        speeds: { walk: 1.27, run: 3.3, sprint: 5.2 }, windup: 0.5, tearTime: 1.15
     },
     ghoul: {
         type: 'ghoul', name: 'Ghoul', minRound: 5, healthMult: 0.7, damage: 40, attackRange: 1.25, attackCooldown: 0.75,
         radius: 0.32, height: 1.7, headY: 1.5, headR: 0.16,
-        speeds: { walk: 2.2, run: 4.4, sprint: 5.4 }, windup: 0.32, tearTime: 0.8
+        speeds: { walk: 2.4, run: 4.85, sprint: 5.95 }, windup: 0.32, tearTime: 0.8
     },
     brute: {
         type: 'brute', name: 'Ironclad Brute', minRound: 8, healthMult: 4, damage: 90, attackRange: 1.6, attackCooldown: 1.8,
         radius: 0.55, height: 2.3, headY: 2.05, headR: 0.22,
-        speeds: { walk: 1.35, run: 2.5, sprint: 3.4 }, windup: 0.75, tearTime: 0.7, helmet: 0.6
+        speeds: { walk: 1.5, run: 2.75, sprint: 3.75 }, windup: 0.75, tearTime: 0.7, helmet: 0.6
     },
     bloater: {
         type: 'bloater', name: 'Bloater', minRound: 12, healthMult: 1.8, damage: 40, attackRange: 1.25, attackCooldown: 1.4,
         radius: 0.5, height: 1.9, headY: 1.65, headR: 0.18,
-        speeds: { walk: 1.25, run: 1.9, sprint: 2.4 }, windup: 0.5, tearTime: 1.2
+        speeds: { walk: 1.4, run: 2.1, sprint: 2.65 }, windup: 0.5, tearTime: 1.2
     }
 }
 
@@ -113,7 +113,7 @@ const EARLY_COUNTS = [6, 8, 13, 18, 24]
  */
 export function dfRoundZombieCount(round: number, players: number): number {
     const r = Math.max(1, Math.floor(round))
-    const extra = Math.max(0, Math.min(3, players - 1))
+    const extra = Math.max(0, Math.min(DF_MAX_PLAYERS - 1, players - 1))
     if (r <= EARLY_COUNTS.length) return Math.round(EARLY_COUNTS[r - 1]! * (1 + 0.7 * extra))
     let mult = r / 5
     if (r >= 10) mult *= 1 + (r - 9) * 0.06
@@ -122,7 +122,7 @@ export function dfRoundZombieCount(round: number, players: number): number {
 
 /** Most zombies alive at once: the solo cap plus a couple per extra player. */
 export function dfMaxAlive(players: number): number {
-    return DF_MAX_ALIVE_ZOMBIES + 2 * Math.max(0, Math.min(3, players - 1))
+    return DF_MAX_ALIVE_ZOMBIES + 2 * Math.max(0, Math.min(DF_MAX_PLAYERS - 1, players - 1))
 }
 
 /** Seconds between spawns: unhurried early, a flood later. */

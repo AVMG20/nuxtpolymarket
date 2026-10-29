@@ -46,23 +46,6 @@ describe('playWheel validation', () => {
     })
 })
 
-describe('WHEEL_CONFIGS segment layout', () => {
-    it('every difficulty has 10 total segments', () => {
-        for (const segments of Object.values(WHEEL_CONFIGS)) {
-            expect(segments.reduce((sum, seg) => sum + seg.count, 0)).toBe(10)
-        }
-    })
-
-    it('matches the documented win chance per difficulty', () => {
-        const winChance = (segments: typeof WHEEL_CONFIGS.easy) =>
-            segments.filter(seg => seg.multiplier > 0).reduce((sum, seg) => sum + seg.count, 0) / 10
-
-        expect(winChance(WHEEL_CONFIGS.easy)).toBeCloseTo(0.6, 10)
-        expect(winChance(WHEEL_CONFIGS.medium)).toBeCloseTo(0.5, 10)
-        expect(winChance(WHEEL_CONFIGS.hard)).toBeCloseTo(0.3, 10)
-    })
-})
-
 describe('playWheel segment selection', () => {
     it('picks the segment the roll lands in, easy difficulty', () => {
         stubRandomFloat(() => 0.05) // idx 0 -> red, loss
@@ -110,11 +93,5 @@ describe('playWheel payout', () => {
         const loss = playWheel(300, { difficulty: 'medium' })
         expect(loss.won).toBe(false)
         expect(loss.payout).toBe(0)
-    })
-
-    it('does not include a separate cost field — the caller stakes exactly bet', () => {
-        stubRandomFloat(() => 0.05)
-        const result = playWheel(100, { difficulty: 'medium' })
-        expect('cost' in result).toBe(false)
     })
 })

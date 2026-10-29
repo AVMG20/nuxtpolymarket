@@ -63,10 +63,18 @@ export function useAuth() {
     }
   }
 
+  /** Apply whatever balance and gems an action's response carries */
+  const applyWallet = (res: unknown) => {
+    const wallet = res as { balance?: number | string | null, gems?: number | null } | null
+    if (wallet?.balance != null) setBalance(wallet.balance)
+    if (wallet?.gems != null && user.value) user.value.gems = wallet.gems
+  }
+
   return {
     session,
     user,
     setBalance,
+    applyWallet,
     balanceNum: computed(() => parseFloat(user.value?.balance ?? '0')),
     loggedIn: computed(() => !!session.value),
     signIn: client.signIn,

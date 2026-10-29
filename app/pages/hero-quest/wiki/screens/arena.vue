@@ -18,6 +18,8 @@ import { ARENA_SHOP, eloUpdate, extraAttemptPrice, medalsFor, refreshPrice } fro
  * shown exactly as the server would score it.
  */
 
+const { fmt } = useHqNotation()
+
 const even = eloUpdate(ARENA_RATING_START, ARENA_RATING_START, true)
 const evenLoss = eloUpdate(ARENA_RATING_START, ARENA_RATING_START, false)
 const medalsEvenWin = medalsFor(true, even.expectedAttacker)
@@ -170,7 +172,7 @@ const log = [
                 {{ row.name }}
               </td>
               <td class="py-1.5 pl-3 text-right tabular-nums">
-                {{ row.price.toLocaleString('en-US') }}
+                {{ fmt(row.price) }}
               </td>
             </tr>
           </tbody>
@@ -223,7 +225,7 @@ const log = [
                 {{ row.ranks }}
               </td>
               <td class="py-1.5 pl-3 text-right tabular-nums">
-                {{ row.medals.toLocaleString('en-US') }}
+                {{ fmt(row.medals) }}
               </td>
             </tr>
           </tbody>

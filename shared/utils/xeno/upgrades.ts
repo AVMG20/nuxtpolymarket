@@ -31,7 +31,7 @@ export const XENO_MAX_GLOBAL_SPEED = 0.50
  * it had been priced against T8/T9 income that almost nobody reached, so in
  * practice it was never bought at all. The speed track's last level was a 12.5x
  * step (20B → 250B) where every other step is ~3x. `test/xeno/balance.spec.ts`
- * guards the hours-of-income ceiling; re-run `bun run balance:compare` after
+ * guards the hours-of-income ceiling; re-run `bun scripts/economy-compare.ts` after
  * touching any cost here.
  *
  * Because these are priced in hours of income, the plant sell-value cut in

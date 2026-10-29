@@ -2,7 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import { db } from '#server/database'
 import { colonyBugs } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { settleColony, creditPartialTick } from '#server/utils/colony'
+import { settleColony, creditPartialTick, getUserGems } from '#server/utils/colony'
 import { credit } from '#server/utils/balance'
 import { getBug, REMOVE_REFUND_RATE } from '#shared/utils/colony'
 
@@ -27,12 +27,19 @@ export default defineEventHandler(async (event) => {
 
   const refund = (type?.spawnCost ?? 0) * REMOVE_REFUND_RATE
 
+  // Deleting the bug is the claim: two releases racing on the same bug both
+  // read it above, but only one DELETE returns the row, so only one of them
+  // pays the partial cycle and the refund.
+  const [claimed] = await db.delete(colonyBugs)
+    .where(and(eq(colonyBugs.id, bug.id), eq(colonyBugs.userId, userId)))
+    .returning()
+  if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Bug already released' })
+
   // Releasing a bug stops it immediately — credit whatever fraction of its
   // current cycle it already made instead of just discarding that progress.
-  await creditPartialTick(userId, bug)
+  await creditPartialTick(userId, claimed, true)
 
-  await db.delete(colonyBugs).where(eq(colonyBugs.id, bug.id))
-  if (refund > 0) await credit(userId, refund.toFixed(4), 'colony')
+  const balance = refund > 0 ? await credit(userId, refund.toFixed(4), 'colony') : undefined
 
-  return { ok: true }
+  return { ok: true, balance, gems: await getUserGems(userId) }
 })

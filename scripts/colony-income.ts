@@ -11,7 +11,7 @@
 //
 // Re-run after touching ITEM_TYPES, BUG_TYPES, YIELD_TRACK_LEVELS_PER_LEVEL,
 // MAX_TOTAL_SPEED_PCT, RESEARCH_RESOURCE_MULTIPLIERS or the habitat
-// requirement table. Cross-check against XENO with `bun run balance:compare`.
+// requirement table. Cross-check against XENO with `bun scripts/economy-compare.ts`.
 
 import {
     COLONY_STAGES,

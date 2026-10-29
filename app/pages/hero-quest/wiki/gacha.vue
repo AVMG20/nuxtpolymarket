@@ -4,6 +4,8 @@ import {
     DUPE_LEVEL_CAP,
     DUPE_LEVEL_FACTOR,
     ESSENCE_VALUE_PER_RARITY,
+    HUNDRED_PULL_COST,
+    HUNDRED_PULL_SIZE,
     LEVELS_PER_STAR,
     MAX_GACHA_LEVEL,
     MAX_STAR,
@@ -22,6 +24,8 @@ import { RARITIES, totalDupesToMax } from '#shared/utils/hero-quest/gacha'
  * the three per-rarity constant arrays, and the dupe total is computed by the same
  * `totalDupesToMax` the game uses. Nothing on this page can disagree with the game.
  */
+
+const { fmt } = useHqNotation()
 
 const rarityRows = computed(() => RARITIES.map((rarity, index) => ({
     rarity,
@@ -63,7 +67,7 @@ const dupesToMax = totalDupesToMax()
       </p>
       <HeroQuestWikiFormula
         label="Pull cost"
-        :formula="`1 pull = ${SINGLE_PULL_COST} Seal · ${TEN_PULL_SIZE}-pull = ${TEN_PULL_COST} Seals`"
+        :formula="`1 pull = ${SINGLE_PULL_COST} Seal · ${TEN_PULL_SIZE}-pull = ${TEN_PULL_COST} Seals · ${HUNDRED_PULL_SIZE}-pull = ${HUNDRED_PULL_COST} Seals`"
         :note="`The ${TEN_PULL_SIZE}-pull is a genuine discount, and it still advances your gacha level by ${TEN_PULL_SIZE} — levels count pulls made, not Seals spent.`"
       />
     </HeroQuestWikiSection>
@@ -107,10 +111,10 @@ const dupesToMax = totalDupesToMax()
                 {{ hqNumber(row.statMultiplier) }}
               </td>
               <td class="py-1.5 px-3 text-right tabular-nums">
-                {{ row.essenceValue.toLocaleString('en-US') }}
+                {{ fmt(row.essenceValue) }}
               </td>
               <td class="py-1.5 pl-3 text-right tabular-nums">
-                {{ row.craftCost.toLocaleString('en-US') }}
+                {{ fmt(row.craftCost) }}
               </td>
             </tr>
           </tbody>

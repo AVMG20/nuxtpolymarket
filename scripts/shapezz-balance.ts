@@ -12,7 +12,7 @@
  * the run is over inside a checkpoint. That is not how a human dies in every
  * run, but it is what decides the *ceiling* of a build, which is the thing the
  * economy is priced against. For what real runs do, play them:
- * `bun run balance:shapezz-playtest` drives the actual engine with a bot.
+ * `bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts` drives the actual engine with a bot.
  */
 
 import {

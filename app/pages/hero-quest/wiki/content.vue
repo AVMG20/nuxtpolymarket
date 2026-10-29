@@ -24,7 +24,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { RARITIES, RARITY_STAT_MULTIPLIER, investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier, partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { ZERO, formatHq, hqNumber } from '#shared/utils/hero-quest/numbers'
+import { ZERO, hqNumber } from '#shared/utils/hero-quest/numbers'
 import type { ClassId, HqStatKey, Rarity } from '#shared/utils/hero-quest/types'
 import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
 
@@ -76,10 +76,12 @@ function line(kind: ModifierKind, stat: HqStatKey | undefined, low: number, high
     return `${hqEffectLine(kind, stat, low)} → ${hqEffectLine(kind, stat, high).split(' ').pop()}`
 }
 
+const { fmt } = useHqNotation()
+
 /** A Hero of this class at level 1, as the stat pipeline builds it. */
 function classStats(classId: ClassId) {
     const unit = partyUnitStats({ classId, heroLevel: 1, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 })[0]!
-    return `PWR ${formatHq(unit.pwr)} · DEF ${formatHq(unit.def)} · HP ${formatHq(unit.maxHp)} · ${hqNumber(unit.attacksPerSecond)} att/s · crit ${hqPercent(unit.critChance)} ×${hqNumber(unit.critMultiplier.toNumber())}`
+    return `PWR ${fmt(unit.pwr)} · DEF ${fmt(unit.def)} · HP ${fmt(unit.maxHp)} · ${hqNumber(unit.attacksPerSecond)} att/s · crit ${hqPercent(unit.critChance)} ×${hqNumber(unit.critMultiplier.toNumber())}`
 }
 
 /** Cooldown and damage multiplier, rounded for reading; a utility ability has no multiplier to show. */

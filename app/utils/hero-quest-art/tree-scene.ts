@@ -16,6 +16,7 @@ import type { SceneBackdrops } from './menu-band'
 import { PASSIVE_BAND_MAGNITUDE } from '#shared/utils/hero-quest/constants'
 import { PASSIVE_NODES, PASSIVE_ROOT_ID, type PassiveNode, type PassivePath } from '#shared/utils/hero-quest/content/passive-tree'
 import type { HqModifier } from '#shared/utils/hero-quest/modifiers'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 /** A node as the payload has it: what it holds and what its next level costs. */
 export interface TreeNodeState {
@@ -30,6 +31,8 @@ export interface TreeNodeState {
 }
 
 export interface TreeView {
+    /** The player's big-number notation, for the prices. */
+    notation: HqNotation
     nodes: readonly TreeNodeState[]
     /** Points left, spelled out. */
     points: string
@@ -283,7 +286,7 @@ function controlText(view: TreeView, hover: TreeTarget | null): string {
     if (hover === 'respec') {
         return view.respecFree
             ? 'REFUND EVERY POINT. FREE: A PRESTIGE GRANTED IT.'
-            : `REFUND EVERY POINT FOR ${view.respecGems} GEMS. A PRESTIGE GRANTS A FREE ONE.`
+            : `REFUND EVERY POINT FOR ${formatHq(view.respecGems, view.notation)} GEMS. A PRESTIGE GRANTS A FREE ONE.`
     }
     if (hover === 'zoomIn' || hover === 'zoomOut') return 'ZOOM. THE WHEEL OR A PINCH DOES IT TOO.'
     if (hover === 'center') return 'BACK TO THE ROOT.'
@@ -468,7 +471,7 @@ export class TreeScene {
         }
         // a paid respec carries its Gem price, the glyph after the number like the Traits scene's
         plateButton(s, RESPEC, '', RESPEC_PLATE, enabled, hover === 'respec', pressed)
-        const label = `RESPEC ${view.respecGems}`
+        const label = `RESPEC ${formatHq(view.respecGems, view.notation)}`
         const lw = textWidth(label) + 15
         const sink = enabled && hover === 'respec' && pressed ? 1 : 0
         const x0 = RESPEC.x + ((RESPEC.w - lw) >> 1)
@@ -507,7 +510,7 @@ export class TreeScene {
         const effect = effectText(node, level)
         drawText(s, textWidth(effect) <= right - x ? effect : effectText(node, level, true), x, second, C.bone1, { shadow: 1 })
         if (!buying) return
-        const label = state?.block === 'maxed' ? 'MAXED' : state?.block === 'locked' ? 'LOCKED' : `BUY ${state?.nextCost ?? 0}`
+        const label = state?.block === 'maxed' ? 'MAXED' : state?.block === 'locked' ? 'LOCKED' : `BUY ${formatHq(state?.nextCost ?? 0, view.notation)}`
         plateButton(s, BUY, label, BUY_PLATE, treeTargetEnabled(view, 'buy', selected), hover === 'buy', pressed)
     }
 }

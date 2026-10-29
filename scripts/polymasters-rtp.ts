@@ -4,10 +4,10 @@
 // function (crypto RNG, the same code path /api/games/play-game runs) and
 // fails when either mode's RTP leaves PM_RTP_BAND.
 //
-//   bun run balance:polymasters                 # 10M rounds per mode
-//   bun run balance:polymasters 50000000        # 50M rounds per mode
-//   bun run balance:polymasters 10000000 safe   # one mode only
-//   bun run balance:polymasters --tune          # re-solve the tuned weights
+//   bun scripts/polymasters-rtp.ts                 # 10M rounds per mode
+//   bun scripts/polymasters-rtp.ts 50000000        # 50M rounds per mode
+//   bun scripts/polymasters-rtp.ts 10000000 safe   # one mode only
+//   bun scripts/polymasters-rtp.ts --tune          # re-solve the tuned weights
 //
 // --tune solves the rocket weight (normal) and the multiplier weight (safe) for
 // PM_TARGET_RTP by bisection on a seeded RNG (common random numbers, so every

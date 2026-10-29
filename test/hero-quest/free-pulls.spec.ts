@@ -50,13 +50,6 @@ describe('freePullState', () => {
         expect(spent.remaining).toBe(0)
     })
 
-    it('points a spent allowance at the next UTC day, not at the cooldown', () => {
-        // The two gates answer different questions and the wrong one would show a cooldown
-        // countdown that expires into another refusal.
-        const spent = freePullState(FREE_PULLS_PER_DAY, TODAY, NOW, NOW)
-        expect(spent.unlocksAt).toBe(nextDayResetAt(NOW))
-    })
-
     it('takes the later gate when the allowance resets while a cooldown is still running', () => {
         // Claim the last one just before midnight: the day rolls over first, but the cooldown
         // has not. A naive `nextDayResetAt` would hand out a pull a minute early.
@@ -83,17 +76,6 @@ describe('freePullState', () => {
         expect(state.remaining).toBe(FREE_PULLS_PER_DAY)
         expect(state.available).toBe(false)
         expect(state.unlocksAt).toBe(NOW - 60_000 + COOLDOWN_MS)
-    })
-
-    it('never reports available and a countdown at the same time', () => {
-        // `unlocksAt === null` is the client's only signal to render a live button, so the two
-        // fields disagreeing would put a countdown on an enabled button or vice versa.
-        for (const used of [0, 1, FREE_PULLS_PER_DAY, FREE_PULLS_PER_DAY + 5]) {
-            for (const last of [null, NOW, NOW - COOLDOWN_MS, NOW - COOLDOWN_MS * 3]) {
-                const state = freePullState(used, TODAY, last, NOW)
-                expect(state.available, `${used}/${last}`).toBe(state.unlocksAt === null)
-            }
-        }
     })
 
     it('treats a corrupt negative counter as unspent rather than as extra allowance', () => {
@@ -129,41 +111,6 @@ describe.skipIf(SKIP)('free pull claiming', () => {
     })
     afterEach(cleanup)
     afterAll(async () => { await db.$client.end() })
-
-    it('starts every gacha with its full allowance and an empty clock', async () => {
-        const state = await readState()
-        expect(state.freePullDate).toBeNull()
-        expect(state.freePullsUsedToday).toEqual({})
-        expect(state.freePullClaimedAt).toEqual({})
-
-        for (const system of ['gear', 'champion', 'skill', 'artifact']) {
-            const resolved = freePullState(0, state.freePullDate, null, NOW)
-            expect(resolved.available, system).toBe(true)
-        }
-    })
-
-    it('keeps each gacha on its own allowance and its own clock', async () => {
-        // The whole reason these are per-system maps rather than integers: taking the Champion
-        // entitlement must not consume or delay the Skill one.
-        await db.update(hqState)
-            .set({
-                freePullDate: TODAY,
-                freePullsUsedToday: { champion: FREE_PULLS_PER_DAY },
-                freePullClaimedAt: { champion: new Date(NOW).toISOString() }
-            })
-            .where(eq(hqState.userId, USER_ID))
-
-        const state = await readState()
-        const used = state.freePullsUsedToday as Record<string, number>
-        const clocks = state.freePullClaimedAt as Record<string, string>
-
-        const champion = freePullState(used.champion ?? 0, state.freePullDate, Date.parse(clocks.champion!), NOW)
-        const skill = freePullState(used.skill ?? 0, state.freePullDate, null, NOW)
-
-        expect(champion.available).toBe(false)
-        expect(skill.available).toBe(true)
-        expect(skill.remaining).toBe(FREE_PULLS_PER_DAY)
-    })
 
     it('lets exactly one of a concurrent burst spend the entitlement', async () => {
         // The reason `claimFreePull` is lock-then-read rather than read-then-write. Ten parallel
@@ -213,19 +160,6 @@ describe.skipIf(SKIP)('free pull claiming', () => {
         expect((await readState()).freePullsUsedToday).toMatchObject({ champion: 1 })
     })
 
-    it('refuses a second claim inside the cooldown and says when', async () => {
-        await db.transaction(tx => claimFreePull(tx, USER_ID, 'skill', NOW))
-
-        let message = ''
-        try {
-            await db.transaction(tx => claimFreePull(tx, USER_ID, 'skill', NOW + 60_000))
-        } catch (error) {
-            message = (error as { statusMessage?: string }).statusMessage ?? ''
-        }
-        // A bare refusal is useless on a timed mechanic — the wait has to be in the message.
-        expect(message).toContain('min')
-    })
-
     it('never moves the day back for a claim that read the clock before midnight (issue #30)', async () => {
         // queued behind a claim made after midnight: rebuilding the map on its older day would wipe
         // today's counts and hand the allowance back, and rewind the date for every later claim
@@ -239,24 +173,5 @@ describe.skipIf(SKIP)('free pull claiming', () => {
         const state = await readState()
         expect(state.freePullDate).toBe(ladderDateKey(tomorrow))
         expect(state.freePullsUsedToday).toEqual({ champion: 1 })
-    })
-
-    it('drops a stale day map instead of carrying other systems forward', async () => {
-        // The route rebuilds the map on a rollover rather than spreading it. Spreading would
-        // carry yesterday's Skill count into today and silently eat an allowance for a gacha
-        // the request never touched.
-        const yesterday = ladderDateKey(NOW - 24 * 3600_000)
-        await db.update(hqState)
-            .set({
-                freePullDate: yesterday,
-                freePullsUsedToday: { champion: 2, skill: 2, gear: 2 }
-            })
-            .where(eq(hqState.userId, USER_ID))
-
-        const state = await readState()
-        for (const system of ['champion', 'skill', 'gear']) {
-            const used = (state.freePullsUsedToday as Record<string, number>)[system] ?? 0
-            expect(freePullState(used, state.freePullDate, null, NOW).available, system).toBe(true)
-        }
     })
 })

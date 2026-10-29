@@ -18,7 +18,9 @@ import { ANIM_FPS } from './anim'
 import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, FORGE_MASTER, RAMPANT } from './raids'
 import type { SceneBackdrops } from './menu-band'
 import { RAIDS, paysEveryRun, type RaidFightType, type RaidId } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { RAID_KEYS_PER_DAY, RAID_QUICK_CLEAR_COUNTS, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
+import { nextRaidLevel } from '#shared/utils/hero-quest/raids'
 
 export interface RaidsView {
     /** The raid shown on the right. */
@@ -55,11 +57,14 @@ export interface RaidRowView {
     loadoutLive: boolean
 }
 
+/** A quick-clear button, by how many clears it takes. */
+export type RaidQuickHover = `quick:${RaidQuickClearCount}`
+
 /**
- * What the pointer is over: a raid's row, one of the showcase's two buttons, the Loadout picker, or
+ * What the pointer is over: a raid's row, one of the showcase's buttons, the Loadout picker, or
  * with its list down one of the list's lines ('pick:none' to point at none) or anywhere off it.
  */
-export type RaidsHover = RaidId | 'enter' | 'quick' | 'loadout' | `pick:${number | 'none'}` | 'shut' | null
+export type RaidsHover = RaidId | 'enter' | RaidQuickHover | 'loadout' | `pick:${number | 'none'}` | 'shut' | null
 
 /** The boss a raid's portrait shows: the Forge's finale, the Rampant at its first tier. */
 const BOSS: Readonly<Record<RaidId, CreatureDef>> = {
@@ -105,15 +110,29 @@ const ROW_GAP = 2
 const SHOW = { x: 106, y: TOP, w: 162, h: 5 * ROW_H + 4 * ROW_GAP }
 /** The portrait window at the top of the showcase. */
 const PORTRAIT = { w: SHOW.w - 4, h: 64 }
-const ENTER = { w: 44, h: 13 }
+const ENTER = { w: 40, h: 13 }
+/** QUICK and its multiples, butted close as one green group left of ENTER; a new count fails the typecheck here. */
+const QUICK_W: Readonly<Record<RaidQuickClearCount, number>> = { 1: 30, 5: 20, 10: 20 }
+const QUICK_GAP = 2
+const ENTER_GAP = 3
 
 const SELECTED_RIM = [C.gold0, C.gold1, C.gold2] as const
 const ENTER_PLATE = [C.red0, C.red1, C.red2] as const
 const QUICK_PLATE = [C.green0, C.green1, C.green2] as const
 const LOADOUT_PLATE = [C.blue0, C.blue1, C.blue2] as const
+const ENTER_BOX: Box = { x: SHOW.x + SHOW.w - ENTER.w - 4, y: SHOW.y + SHOW.h - ENTER.h - 4, w: ENTER.w, h: ENTER.h }
+/** The quick-clear buttons in count order, laid right to left from ENTER. */
+const QUICK_BOXES: readonly { count: RaidQuickClearCount, box: Box }[] = (() => {
+    let x = ENTER_BOX.x - ENTER_GAP + QUICK_GAP
+    return [...RAID_QUICK_CLEAR_COUNTS].reverse().map((count) => {
+        x -= QUICK_GAP + QUICK_W[count]
+        return { count, box: { x, y: ENTER_BOX.y, w: QUICK_W[count], h: ENTER.h } }
+    }).reverse()
+})()
 /** The Loadout picker, on its own row above the daily-Keys line, its caption to its left. */
-// as wide as QUICK and ENTER together, right over them
-const LOADOUT = { x: SHOW.x + SHOW.w - 4 - (ENTER.w * 2 + 3), y: SHOW.y + SHOW.h - ENTER.h - 16, w: ENTER.w * 2 + 3, h: 11 }
+// from the first multiple to ENTER's right edge: over QUICK too it would run into "LOADOUT ON"
+const LOADOUT_X = QUICK_BOXES.find(q => q.count > 1)!.box.x
+const LOADOUT = { x: LOADOUT_X, y: SHOW.y + SHOW.h - ENTER.h - 16, w: ENTER_BOX.x + ENTER.w - LOADOUT_X, h: 11 }
 /** The picker's list, opening upward from it: NONE first, then each saved slot. */
 const PICK = { rowH: 10 }
 
@@ -131,15 +150,6 @@ function rowBox(i: number): Box {
     return { x: LIST.x, y: TOP + i * (ROW_H + ROW_GAP), w: LIST.w, h: ROW_H }
 }
 
-function enterBox(): Box {
-    return { x: SHOW.x + SHOW.w - ENTER.w - 4, y: SHOW.y + SHOW.h - ENTER.h - 4, w: ENTER.w, h: ENTER.h }
-}
-
-function quickBox(): Box {
-    const enter = enterBox()
-    return { x: enter.x - ENTER.w - 3, y: enter.y, w: ENTER.w, h: ENTER.h }
-}
-
 function inside(b: Box, x: number, y: number): boolean {
     return x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h
 }
@@ -155,15 +165,26 @@ export function raidsHoverAt(view: RaidsView, x: number, y: number): RaidsHover 
         return line ? `pick:${line.key}` : null
     }
     for (let i = 0; i < RAIDS.length; i++) if (inside(rowBox(i), x, y)) return RAIDS[i]!.id
-    if (inside(enterBox(), x, y)) return 'enter'
-    return inside(quickBox(), x, y) ? 'quick' : null
+    if (inside(ENTER_BOX, x, y)) return 'enter'
+    const quick = QUICK_BOXES.find(q => inside(q.box, x, y))
+    return quick ? `quick:${quick.count}` : null
 }
 
-/** Whether a showcase button does anything for the chosen raid now: open, a Key in hand, and for quick-clear a best to take. */
-export function raidButtonEnabled(view: RaidsView, button: 'enter' | 'quick'): boolean {
+export function isRaidQuickHover(hover: RaidsHover): hover is RaidQuickHover {
+    return hover?.startsWith('quick:') ?? false
+}
+
+/** The clears a quick-clear button takes. */
+export function raidQuickCount(button: RaidQuickHover): RaidQuickClearCount {
+    return Number(button.slice(6)) as RaidQuickClearCount
+}
+
+/** Whether a showcase button does anything for the chosen raid now: open, a Key in hand (one per clear), and for quick-clear a best to take. */
+export function raidButtonEnabled(view: RaidsView, button: 'enter' | RaidQuickHover): boolean {
     const raid = view.raids.find(r => r.id === view.selected)
-    if (!raid || !raid.open || raid.keys < 1 || view.busy) return false
-    return button === 'enter' || raid.best > 0
+    if (!raid || !raid.open || view.busy) return false
+    if (button === 'enter') return raid.keys >= 1
+    return raid.best > 0 && raid.keys >= raidQuickCount(button)
 }
 
 /** Whether the Loadout picker does anything for the chosen raid now: open, a Loadout saved, nothing on its way. */
@@ -305,7 +326,7 @@ export class RaidsScene {
         // the Rampant's tiers are named after it ("The Rampant — rampage 1"); the portrait is the creature
         drawText(s, BOSS[id].name.split(' — ')[0]!.toUpperCase(), x, y, C.gold2, { shadow: 1 })
         // a boss is fought at one past the best; the level goes on the name's line
-        if (row?.open && !paysEveryRun(raid.fightType)) drawText(s, `LV ${row.best + 1}`, SHOW.x + SHOW.w - 5, y, C.gold3, { align: 2, shadow: 1 })
+        if (row?.open && !paysEveryRun(raid.fightType)) drawText(s, `LV ${nextRaidLevel(row.best)}`, SHOW.x + SHOW.w - 5, y, C.gold3, { align: 2, shadow: 1 })
         y += 10
         for (const line of wrap(FIGHT[raid.fightType].line, SHOW.w - 10)) {
             drawText(s, line, x, y, C.bone1, { shadow: 1 })
@@ -322,11 +343,16 @@ export class RaidsScene {
             glyph(s, CURRENCY_ICONS[KEY_ICON[id]]!, right - textWidth(keys) - 8, y + 2, true)
         }
 
-        // beside the buttons, what the daily grant adds
-        if (row?.open) drawText(s, `+${RAID_KEYS_PER_DAY} EVERY DAY`, x, enterBox().y + 4, C.stone3, { shadow: 1 })
+        // beside the buttons, what the daily grant adds; "A DAY", as "EVERY DAY" runs into QUICK
+        if (row?.open) drawText(s, `+${RAID_KEYS_PER_DAY} A DAY`, x, ENTER_BOX.y + 4, C.stone3, { shadow: 1 })
         const open = row?.open ?? false
-        plateButton(s, enterBox(), open ? 'ENTER' : 'SOON', ENTER_PLATE, raidButtonEnabled(view, 'enter'), hover === 'enter', pressed)
-        if (open) plateButton(s, quickBox(), 'QUICK', QUICK_PLATE, raidButtonEnabled(view, 'quick'), hover === 'quick', pressed)
+        plateButton(s, ENTER_BOX, open ? 'ENTER' : 'SOON', ENTER_PLATE, raidButtonEnabled(view, 'enter'), hover === 'enter', pressed)
+        if (open) {
+            for (const { count, box } of QUICK_BOXES) {
+                const id: RaidQuickHover = `quick:${count}`
+                plateButton(s, box, count === 1 ? 'QUICK' : `×${count}`, QUICK_PLATE, raidButtonEnabled(view, id), hover === id, pressed)
+            }
+        }
         if (view.pickerOpen && row?.open) this.drawPicker(s, view, row, hover)
     }
 
@@ -349,9 +375,13 @@ export class RaidsScene {
 
 /** What a round or a quick-clear paid, for the popup that says so. */
 export interface RaidRewardView {
+    /** The player's big-number notation as the reward landed. */
+    notation: HqNotation
     raidId: RaidId
     /** A quick-clear took the best's reward without a round. */
     quick: boolean
+    /** The clears a quick-clear took at once, `reward` being all of them; 1 for a round. */
+    count: number
     /** Whether it paid: a boss raid lost pays nothing and spends no Key. */
     won: boolean
     level: number
@@ -359,29 +389,51 @@ export interface RaidRewardView {
     reward: number
 }
 
+/** The popup's second button: its label, and whether it can go. */
+export interface RaidRefightView {
+    label: 'FIGHT NEXT' | 'FIGHT AGAIN'
+    enabled: boolean
+}
+
+/** A boss won (or quick-cleared) moves on a level; a boss lost, the dummy and the Beast fight the same again. */
+export function raidRefight(reward: RaidRewardView, row: RaidRowView | undefined, busy: boolean): RaidRefightView {
+    const raid = RAIDS.find(r => r.id === reward.raidId)!
+    return {
+        label: paysEveryRun(raid.fightType) || !reward.won ? 'FIGHT AGAIN' : 'FIGHT NEXT',
+        enabled: (row?.open ?? false) && (row?.keys ?? 0) > 0 && !busy
+    }
+}
+
+/** What a point on the popup is over: its Continue (or OK) button, its Fight next / Fight again button, or neither. */
+export type RaidRewardHover = 'ok' | 'refight' | null
+
+// two 52-wide buttons fit "FIGHT AGAIN" (43) and sit 5 in from the sides, as from the bottom
 const REWARD = { w: 120, h: 64 }
 const REWARD_BTN = { w: 52, h: 13 }
+const REWARD_GAP = 6
 
 function rewardBox(w: number, h: number): Box {
     return { x: (w - REWARD.w) >> 1, y: (h - REWARD.h) >> 1, w: REWARD.w, h: REWARD.h }
 }
 
-function rewardButtonBox(w: number, h: number): Box {
+/** The two buttons side by side along the bottom: Continue on the left, the next fight on the right. */
+function rewardButtonBox(w: number, h: number, which: 'ok' | 'refight'): Box {
     const b = rewardBox(w, h)
-    return { x: b.x + ((b.w - REWARD_BTN.w) >> 1), y: b.y + b.h - REWARD_BTN.h - 5, w: REWARD_BTN.w, h: REWARD_BTN.h }
+    const x0 = b.x + ((b.w - REWARD_BTN.w * 2 - REWARD_GAP) >> 1)
+    return { x: which === 'ok' ? x0 : x0 + REWARD_BTN.w + REWARD_GAP, y: b.y + b.h - REWARD_BTN.h - 5, w: REWARD_BTN.w, h: REWARD_BTN.h }
 }
 
-/** Whether a point on a view `w` × `h` is on the reward popup's button. */
-export function onRaidRewardButton(w: number, h: number, x: number, y: number): boolean {
-    return inside(rewardButtonBox(w, h), x, y)
+/** Which of the reward popup's buttons a point on a view `w` × `h` is on. */
+export function raidRewardHoverAt(w: number, h: number, x: number, y: number): RaidRewardHover {
+    if (inside(rewardButtonBox(w, h, 'ok'), x, y)) return 'ok'
+    return inside(rewardButtonBox(w, h, 'refight'), x, y) ? 'refight' : null
 }
 
 /**
- * The reward popup, over whatever the stage shows: kept small, the raid, the level it came to (and
- * whether that is a new best) and what it paid. Its one button puts it away: after a round back to
- * the run, after a quick-clear to the Raids scene.
+ * The reward popup over whatever the stage shows. Continue puts it away (after a round back to the
+ * Raids scene, after a quick-clear it is still there); Fight next / Fight again goes straight into another round.
  */
-export function drawRaidReward(s: Surface, view: RaidRewardView, lit: boolean, pressed: boolean): void {
+export function drawRaidReward(s: Surface, view: RaidRewardView, refight: RaidRefightView, hover: RaidRewardHover, pressed: boolean, busy: boolean): void {
     const raid = RAIDS.find(r => r.id === view.raidId)!
     dither(s, 0, 0, s.w, s.h, C.ink, 9)
     const b = rewardBox(s.w, s.h)
@@ -395,12 +447,14 @@ export function drawRaidReward(s: Surface, view: RaidRewardView, lit: boolean, p
         drawText(s, 'NO KEY SPENT', cx, b.y + 33, C.stone3, { align: 1, shadow: 1 })
     } else {
         if (view.newBest) drawText(s, 'NEW BEST', cx, b.y + 23, C.green3, { align: 1, shadow: 1 })
+        else if (view.quick) drawText(s, view.count > 1 ? `QUICK-CLEAR ×${view.count}` : 'QUICK-CLEAR', cx, b.y + 23, C.bone1, { align: 1, shadow: 1 })
         // what it paid, its currency's icon before it
-        const paid = `+${view.reward} ${raid.reward.toUpperCase()}`
+        const paid = `+${formatHq(view.reward, view.notation)} ${raid.reward.toUpperCase()}`
         const pw = textWidth(paid) + 15
         const py = b.y + 33
         glyph(s, CURRENCY_ICONS[REWARD_ICON[view.raidId]]!, cx - (pw >> 1) + 5, py + 2, true)
         drawText(s, paid, cx - (pw >> 1) + 15, py, C.gold3, { shadow: 1 })
     }
-    plateButton(s, rewardButtonBox(s.w, s.h), view.quick ? 'OK' : 'CONTINUE', QUICK_PLATE, true, lit, pressed)
+    plateButton(s, rewardButtonBox(s.w, s.h, 'ok'), view.quick ? 'OK' : 'CONTINUE', QUICK_PLATE, !busy, hover === 'ok', pressed)
+    plateButton(s, rewardButtonBox(s.w, s.h, 'refight'), refight.label, ENTER_PLATE, refight.enabled, hover === 'refight', pressed)
 }

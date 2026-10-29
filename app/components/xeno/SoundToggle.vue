@@ -4,13 +4,14 @@ const { muted, toggle } = useXenoSound()
 
 <template>
   <UTooltip :text="muted ? 'Unmute sound effects' : 'Mute sound effects'">
-    <UButton
-      :icon="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
-      size="sm"
-      variant="ghost"
-      color="neutral"
-      :aria-label="muted ? 'Unmute' : 'Mute'"
+    <button
+      type="button"
+      class="xg-btn ghost sm ico"
+      :aria-label="muted ? 'Unmute sound effects' : 'Mute sound effects'"
+      :aria-pressed="!muted"
       @click="toggle"
-    />
+    >
+      <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-4.5" />
+    </button>
   </UTooltip>
 </template>

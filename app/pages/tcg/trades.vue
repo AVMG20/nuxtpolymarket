@@ -10,7 +10,8 @@
  * stays server-side for cards you don't own: the counterpart's raw cards
  * render clean, exactly as unknowable as they are on the market.
  */
-import type { TradeCardView, TradeItemView, TradeOfferView, CounterpartCopy } from '~~/server/utils/tcg/trade'
+import { useDebounceFn } from '@vueuse/core'
+import type { TradeCardView, TradeItemView, TradeOfferView, CounterpartCopy, TradeableCopies } from '~~/server/utils/tcg/trade'
 import type { LightboxCard } from '~/components/tcg/TcgCardLightbox.client.vue'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
 
@@ -85,32 +86,94 @@ const partnerId = ref<string | undefined>(undefined)
 const builderSetId = ref<string | undefined>(undefined)
 const setOptions = computed(() => sets.value.map(s => ({ label: `${s.name} (${s.code})`, value: s.id })))
 
-const theirCopies = ref<CounterpartCopy[] | null>(null)
-const myCopies = ref<CounterpartCopy[] | null>(null)
-const pickedTheirs = ref<Set<string>>(new Set())
-const pickedMine = ref<Set<string>>(new Set())
+type BuilderSide = 'mine' | 'theirs'
+const emptyList = (): TradeableCopies => ({ copies: [], truncated: false })
+const myList = ref<TradeableCopies | null>(null)
+const theirList = ref<TradeableCopies | null>(null)
+const mySearch = ref('')
+const theirSearch = ref('')
+// Picked copies are kept whole, so one stays on its list while a search hides it.
+const pickedMine = ref(new Map<string, CounterpartCopy>())
+const pickedTheirs = ref(new Map<string, CounterpartCopy>())
 
-watch([partnerId, builderSetId], async ([partner, set]) => {
-  pickedTheirs.value = new Set()
-  pickedMine.value = new Set()
-  theirCopies.value = null
-  myCopies.value = null
-  if (!partner || !set || !user.value) return
+// Only a side's latest request may land, so a slow answer to an older search can't replace a newer one.
+const listRequest: Record<BuilderSide, number> = { mine: 0, theirs: 0 }
+async function loadCopies(side: BuilderSide) {
+  const list = side === 'mine' ? myList : theirList
+  const ownerId = side === 'mine' ? user.value?.id : partnerId.value
+  const request = ++listRequest[side]
+  if (!ownerId || !builderSetId.value) {
+    list.value = null
+    return
+  }
+  const search = (side === 'mine' ? mySearch : theirSearch).value.trim()
   try {
-    [theirCopies.value, myCopies.value] = await Promise.all([
-      apiFetch<CounterpartCopy[]>('/api/tcg/trades/collection', { query: { userId: partner, setId: set } }),
-      apiFetch<CounterpartCopy[]>('/api/tcg/trades/collection', { query: { userId: user.value.id, setId: set } })
-    ])
+    const result = await apiFetch<TradeableCopies>('/api/tcg/trades/collection', {
+      query: { userId: ownerId, setId: builderSetId.value, ...(search ? { search } : {}) }
+    })
+    if (request === listRequest[side]) list.value = result
   } catch {
-    theirCopies.value = []
-    myCopies.value = []
+    if (request === listRequest[side]) list.value = emptyList()
+  }
+}
+
+// A new set starts both sides over; a new partner only theirs, so your picks survive choosing who to trade with.
+watch(builderSetId, () => {
+  pickedMine.value = new Map()
+  mySearch.value = ''
+  myList.value = null
+  loadCopies('mine')
+})
+watch([partnerId, builderSetId], () => {
+  pickedTheirs.value = new Map()
+  theirSearch.value = ''
+  theirList.value = null
+  loadCopies('theirs')
+})
+const searchMine = useDebounceFn(() => loadCopies('mine'), 250)
+const searchTheirs = useDebounceFn(() => loadCopies('theirs'), 250)
+watch(mySearch, searchMine)
+watch(theirSearch, searchTheirs)
+
+/** Picked copies the current search hides, then the search's results. */
+function shownCopies(picked: Map<string, CounterpartCopy>, list: TradeableCopies | null) {
+  const copies = list?.copies ?? []
+  const listed = new Set(copies.map(copy => copy.copyId))
+  return [...[...picked.values()].filter(copy => !listed.has(copy.copyId)), ...copies]
+}
+const myShown = computed(() => shownCopies(pickedMine.value, myList.value))
+const theirShown = computed(() => shownCopies(pickedTheirs.value, theirList.value))
+
+function toggle(picked: Map<string, CounterpartCopy>, copy: CounterpartCopy) {
+  if (picked.has(copy.copyId)) picked.delete(copy.copyId)
+  else picked.set(copy.copyId, copy)
+}
+
+// The collection's Trade button lands here as `?set=…&give=<copyId>&name=…`: open the builder on
+// that set with the copy already given, and the give side searched to its name so it's in view.
+const route = useRoute()
+const router = useRouter()
+onMounted(async () => {
+  const { set, give, name } = route.query
+  if (typeof set !== 'string' || typeof give !== 'string' || !user.value) return
+  const search = typeof name === 'string' ? name.slice(0, 100) : ''
+  // Off the URL, so a reload or Back doesn't open the builder again.
+  await router.replace({ query: {} })
+  builderSetId.value = set
+  builderOpen.value = true
+  // Past the set watcher, which clears the search for a new set.
+  await nextTick()
+  mySearch.value = search
+  try {
+    const found = await apiFetch<TradeableCopies>('/api/tcg/trades/collection', {
+      query: { userId: user.value.id, setId: set, ...(search ? { search } : {}) }
+    })
+    const copy = found.copies.find(c => c.copyId === give)
+    if (copy && builderSetId.value === set) pickedMine.value.set(copy.copyId, copy)
+  } catch {
+    // The builder is open on the set either way; the card can still be picked by hand.
   }
 })
-
-function toggle(picked: Set<string>, copyId: string) {
-  if (picked.has(copyId)) picked.delete(copyId)
-  else picked.add(copyId)
-}
 
 const coinDirection = ref<'none' | 'pay' | 'ask'>('none')
 const coinAmount = ref(0)
@@ -132,8 +195,8 @@ async function submitOffer() {
       method: 'POST',
       body: {
         toUserId: partnerId.value,
-        senderCopyIds: [...pickedMine.value],
-        receiverCopyIds: [...pickedTheirs.value],
+        senderCopyIds: [...pickedMine.value.keys()],
+        receiverCopyIds: [...pickedTheirs.value.keys()],
         senderCoins: coinDirection.value === 'pay' ? Number(coinAmount.value) : 0,
         receiverCoins: coinDirection.value === 'ask' ? Number(coinAmount.value) : 0,
         note: offerNote.value || null
@@ -366,14 +429,21 @@ function thumbProps(copy: CounterpartCopy) {
             />
           </div>
           <div
-            v-if="partnerId && builderSetId"
+            v-if="builderSetId"
             class="grid grid-cols-2 gap-3"
           >
             <div>
               <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">You give ({{ pickedMine.size }})</p>
+              <UInput
+                v-model="mySearch"
+                icon="i-lucide-search"
+                placeholder="Search name or number…"
+                size="xs"
+                class="mb-1 w-full"
+              />
               <div class="max-h-72 space-y-1 overflow-y-auto pr-1">
                 <div
-                  v-for="copy in myCopies ?? []"
+                  v-for="copy in myShown"
                   :key="copy.copyId"
                   class="flex items-center gap-2 rounded pr-1"
                   :class="pickedMine.has(copy.copyId) ? 'bg-primary/20' : 'hover:bg-elevated'"
@@ -395,24 +465,44 @@ function thumbProps(copy: CounterpartCopy) {
                   <button
                     class="min-w-0 flex-1 cursor-pointer truncate py-1.5 text-left text-xs"
                     :class="pickedMine.has(copy.copyId) ? 'text-highlighted' : 'text-muted'"
-                    @click="toggle(pickedMine, copy.copyId)"
+                    @click="toggle(pickedMine, copy)"
                   >
                     {{ copyChipLabel(copy) }}
                   </button>
                 </div>
                 <p
-                  v-if="myCopies && !myCopies.length"
+                  v-if="myList && !myList.copies.length"
                   class="text-xs text-dimmed"
                 >
-                  Nothing tradeable here.
+                  {{ mySearch.trim() ? 'No cards match.' : 'Nothing tradeable here.' }}
+                </p>
+                <p
+                  v-if="myList?.truncated"
+                  class="text-xs text-dimmed"
+                >
+                  Showing the first {{ myList.copies.length }}. Search to find the rest.
                 </p>
               </div>
             </div>
             <div>
               <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">You get ({{ pickedTheirs.size }})</p>
+              <UInput
+                v-model="theirSearch"
+                icon="i-lucide-search"
+                placeholder="Search name or number…"
+                size="xs"
+                class="mb-1 w-full"
+                :disabled="!partnerId"
+              />
+              <p
+                v-if="!partnerId"
+                class="text-xs text-dimmed"
+              >
+                Pick who to trade with to see their cards.
+              </p>
               <div class="max-h-72 space-y-1 overflow-y-auto pr-1">
                 <div
-                  v-for="copy in theirCopies ?? []"
+                  v-for="copy in theirShown"
                   :key="copy.copyId"
                   class="flex items-center gap-2 rounded pr-1"
                   :class="pickedTheirs.has(copy.copyId) ? 'bg-primary/20' : 'hover:bg-elevated'"
@@ -434,16 +524,22 @@ function thumbProps(copy: CounterpartCopy) {
                   <button
                     class="min-w-0 flex-1 cursor-pointer truncate py-1.5 text-left text-xs"
                     :class="pickedTheirs.has(copy.copyId) ? 'text-highlighted' : 'text-muted'"
-                    @click="toggle(pickedTheirs, copy.copyId)"
+                    @click="toggle(pickedTheirs, copy)"
                   >
                     {{ copyChipLabel(copy) }}
                   </button>
                 </div>
                 <p
-                  v-if="theirCopies && !theirCopies.length"
+                  v-if="theirList && !theirList.copies.length"
                   class="text-xs text-dimmed"
                 >
-                  They have nothing tradeable here.
+                  {{ theirSearch.trim() ? 'No cards match.' : 'They have nothing tradeable here.' }}
+                </p>
+                <p
+                  v-if="theirList?.truncated"
+                  class="text-xs text-dimmed"
+                >
+                  Showing the first {{ theirList.copies.length }}. Search to find the rest.
                 </p>
               </div>
             </div>

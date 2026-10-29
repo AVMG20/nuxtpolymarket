@@ -100,6 +100,27 @@ export function dfDecalFit(world: DfCollisionWorld, hit: DfRayHit, radiusAt1: nu
     return 0
 }
 
+/**
+ * Where a blast came from: the bolt or shell of `kind` (live or just gone)
+ * nearest to it within 4 m, for its heading. The tier is the server's (`tier`
+ * on the `explode` event) when it sent one; the nearest projectile's only as a
+ * fallback, since a point-blank or very fast bolt may never have been drawn.
+ */
+export function dfBlastSource<T extends { pos: Vec3, tier: number, kind: DfProjectileSnap['kind'] }>(pos: Vec3, kind: DfProjectileSnap['kind'], candidates: Iterable<T>, tier?: number): { tier: number, src: T | null } {
+    let best = 4
+    let src: T | null = null
+    for (const c of candidates) {
+        if (c.kind !== kind) continue
+        const d = Math.hypot(c.pos.x - pos.x, c.pos.y - pos.y, c.pos.z - pos.z)
+        if (d < best) {
+            best = d
+            src = c
+        }
+    }
+    const t = typeof tier === 'number' && Number.isFinite(tier) ? tier : src?.tier ?? 0
+    return { tier: Math.max(0, Math.min(3, Math.floor(t))), src }
+}
+
 export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileView {
     const group = new THREE.Group()
     group.name = 'df-projectiles'
@@ -298,6 +319,10 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
         const tier = Math.max(0, Math.min(3, p.tier | 0))
         if (p.kind === 'grenade') {
             mesh = new THREE.Mesh(stickG, solidMat)
+        } else if (p.kind === 'mortar') {
+            // the lent Granatwerfer's heavy shell: a fat dark round
+            mesh = new THREE.Mesh(ball, solidMat)
+            mesh.scale.setScalar(1.9)
         } else if (p.kind === 'pap-grenade') {
             mesh = new THREE.Mesh(ball, papMats[Math.max(0, Math.min(2, p.tier - 1))]!)
         } else if (p.kind === 'xray-bolt') {
@@ -340,23 +365,16 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
             l.light.intensity = 0
             l.light.userData.used = false
         }
-        if (l.kind === 'pap-grenade' || l.kind === 'xray-bolt' || l.kind === 'grenade') recent.push({ pos: l.pos.clone(), vel: l.vel.clone(), tier: l.tier, kind: l.kind, at: time })
+        // a launcher shell bursts as a 'grenade' blast: file it as one so its scorch finds the heading
+        if (l.kind === 'pap-grenade' || l.kind === 'xray-bolt' || l.kind === 'grenade' || l.kind === 'mortar') recent.push({ pos: l.pos.clone(), vel: l.vel.clone(), tier: l.tier, kind: l.kind === 'mortar' ? 'grenade' : l.kind, at: time })
         live.delete(id)
     }
 
-    /** The recently released projectile of a kind nearest to an explosion (tier and heading). */
-    function nearest(pos: THREE.Vector3, kind: DfProjectileSnap['kind']): { tier: number, vel: THREE.Vector3 | null } {
-        let best = 4
-        let out: { tier: number, vel: THREE.Vector3 | null } = { tier: 0, vel: null }
-        for (const r of recent) {
-            if (r.kind !== kind) continue
-            const d = r.pos.distanceTo(pos)
-            if (d < best) {
-                best = d
-                out = { tier: r.tier, vel: r.vel }
-            }
-        }
-        return out
+    /** The blast's tier (the server's, else the nearest projectile's) and the heading of the projectile behind it. */
+    function nearest(pos: THREE.Vector3, kind: DfProjectileSnap['kind'], tier?: number): { tier: number, vel: THREE.Vector3 | null } {
+        // a bolt whose explode event beats its release is still live
+        const r = dfBlastSource(pos, kind, [...recent, ...live.values()], tier)
+        return { tier: r.tier, vel: r.src?.vel ?? null }
     }
 
     function distK(pos: THREE.Vector3, range: number): number {
@@ -428,6 +446,8 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                 } else if (l.kind === 'grenade') {
                     l.mesh.rotation.x += dt * 12
                     l.mesh.rotation.z += dt * 3
+                } else if (l.kind === 'mortar') {
+                    l.mesh.rotation.x += dt * 6
                 } else if (l.kind === 'pap-grenade') {
                     l.mesh.scale.setScalar(1 + Math.sin(time * 30) * 0.15)
                     l.mesh.rotation.y += dt * 9
@@ -455,6 +475,10 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                     } else if (l.kind === 'grenade') {
                         l.trailT = 0.08
                         ctx.fx.burst('smoke', l.pos, { count: 1, scale: 0.08 })
+                    } else if (l.kind === 'mortar') {
+                        l.trailT = 0.04
+                        ctx.fx.burst('smoke', l.pos, { count: 1, scale: 0.22 })
+                        ctx.fx.burst('embers', l.pos, { count: 1, scale: 0.3 })
                     }
                 }
             }
@@ -480,7 +504,7 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                 switch (ev.kind) {
                     case 'grenade':
                     case 'pap-grenade': {
-                        const src = nearest(pos, ev.kind)
+                        const src = nearest(pos, ev.kind, ev.tier)
                         const hit = scorch(pos, src.vel, 1)
                         const n = hit ? new THREE.Vector3(hit.normal.x, hit.normal.y, hit.normal.z) : UP
                         ctx.fx.burst('explosion', pos, { scale: sc })
@@ -494,7 +518,7 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
                         break
                     }
                     case 'xray': {
-                        const src = nearest(pos, 'xray-bolt')
+                        const src = nearest(pos, 'xray-bolt', ev.tier)
                         const tier = src.tier
                         const hit = scorch(pos, src.vel, 0.55 + tier * 0.1)
                         const n = hit ? new THREE.Vector3(hit.normal.x, hit.normal.y, hit.normal.z) : null

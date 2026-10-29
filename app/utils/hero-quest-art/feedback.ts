@@ -75,11 +75,12 @@ export function drawNumberPop(s: Surface, style: NumberStyle, text: string, x: n
     drawNumberAt(s, style, text, x + wobble, y - rise - (numberHeight(style) - 5), qt(t))
 }
 
-/** Glyph atlas for a style: every character the battle prints, in one row. */
-export const NUMBER_ATLAS_CHARS = '0123456789.KMBT+-!MISS'
+/** Glyph atlas for a style: every character the battle prints, in one row; A–Z carry every notation's suffixes and its e. */
+const ATLAS_GLYPHS = '0123456789.+-!ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+export const NUMBER_ATLAS_CHARS = `${ATLAS_GLYPHS}MISS`
 export function drawNumberAtlas(s: Surface, style: NumberStyle): void {
     let x = 2
-    for (const ch of '0123456789.KMBT+-!') {
+    for (const ch of ATLAS_GLYPHS) {
         x += textRamp(s, ch, x, 3, style.ramp, style.font, style.scale, 0, style.shadow) + 3
     }
     // a miss only ever prints in the small cut
@@ -87,7 +88,7 @@ export function drawNumberAtlas(s: Surface, style: NumberStyle): void {
 }
 export function numberAtlasWidth(style: NumberStyle): number {
     let w = 4
-    for (const ch of '0123456789.KMBT+-!') w += textWidth(ch, style.font, style.scale) + 3
+    for (const ch of ATLAS_GLYPHS) w += textWidth(ch, style.font, style.scale) + 3
     return w + (style.font === 'small' ? textWidth('MISS', style.font, style.scale) : 0) + 4
 }
 

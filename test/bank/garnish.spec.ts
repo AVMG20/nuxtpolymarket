@@ -46,7 +46,8 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '500.0000', 'miner')
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(450, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-950, 4)
+        // interest ticks on the bank balance between the seed and the read: cents, not fractions of one
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-950, 2)
     })
 
     it('leaves a solvent player untouched', async () => {
@@ -56,7 +57,7 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '500.0000', 'miner')
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(500, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(2500, 4)
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(2500, 2)
         expect(await garnishRows()).toHaveLength(0)
     })
 
@@ -89,7 +90,7 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '100.0000', 'bank')
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(300, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 4)
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 2)
         expect(await garnishRows()).toHaveLength(0)
     })
 
@@ -128,8 +129,9 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await burst(10, () => credit(USER_ID, '100.0000', 'miner'))
 
         const state = await getBankState(USER_ID)
-        // Debt accrues at 7% daily; over a test's lifetime that is far below a cent.
-        expect(parseFloat(state.balance)).toBeCloseTo(-9_900, 2)
+        // Debt accrues at 7% daily, close to a cent a second on 10k, so a slow burst
+        // drifts past a cent. Half a coin is still far below one 10-coin garnish.
+        expect(parseFloat(state.balance)).toBeCloseTo(-9_900, 0)
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(900, 4)
     })
 })

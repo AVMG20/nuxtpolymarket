@@ -38,25 +38,6 @@ const rawGroups: CommandPaletteGroup[] = [
         keywords: ['home', 'dashboard', 'games', 'hub', 'index', 'main']
       },
       {
-        id: 'ai',
-        label: 'AI Assistant',
-        description: 'Chat with Polynux AI assistant',
-        icon: 'i-lucide-bot',
-        to: '/ai',
-        keywords: ['ai', 'chat', 'bot', 'assistant', 'help', 'gpt']
-      },
-      {
-        id: 'ai-wiki',
-        parentId: 'ai',
-        isSubpage: true,
-        treePrefix: '└──',
-        label: 'Wiki & Guide',
-        description: 'Documentation, guides, and system prompts for AI',
-        icon: 'i-lucide-book-open',
-        to: '/ai-wiki',
-        keywords: ['ai', 'wiki', 'docs', 'manual', 'help', 'guide']
-      },
-      {
         id: 'gem-exchange',
         label: 'Gem Exchange',
         description: 'Convert coins to gems and trade platform currency',

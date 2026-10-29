@@ -1,6 +1,8 @@
 import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
 import type { DfEvent, DfPlayerLife } from '#shared/utils/dead-front/protocol'
 import type { DfEggStep, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
+import { dfArsenalFeedLine } from './arsenal-prompt'
+import type { DfHudArsenal } from './arsenal-prompt'
 
 // HUD state the engine writes (~20 Hz) and the Vue overlay renders. Fast
 // per-frame values (crosshair spread, waypoint position, damage indicator
@@ -89,6 +91,8 @@ export interface DfHudState {
         pap: number
         reloading: boolean
         infinite: boolean
+        /** Rarity tier 0..3 (rarity.ts): the name shows in its colour. */
+        rarity?: number
     }
     grenades: number
     perks: DfHudPerk[]
@@ -101,7 +105,7 @@ export interface DfHudState {
     reviving: { name: string, progress: number } | null
     powerups: DfHudPowerup[]
     announce: { key: number, title: string, sub: string, tone: 'gold' | 'red' | 'pale' } | null
-    prompt: { text: string, sub: string, cost: number | null, ok: boolean, denyKey: number, hold: number } | null
+    prompt: { text: string, sub: string, cost: number | null, ok: boolean, denyKey: number, hold: number, /** Colour of the text (a rarity's). */ tint?: string | null } | null
     objective: {
         visible: boolean
         step: DfEggStep
@@ -118,11 +122,15 @@ export interface DfHudState {
     }
     hitmarker: { key: number, kind: 'hit' | 'kill' | 'head' }
     killKey: number
+    /** The last kill was a headshot (the kill skull's colour; the hitmarker kind moves on with the next hit). */
+    killHead: boolean
     damage: DfHudDamage[]
     scoreboard: boolean
     ping: number
     connection: 'ok' | 'reconnecting' | 'lost'
     locked: boolean
+    /** Escape closed the workbench: the browser dropped the pointer lock, but that is no pause (a click plays on). */
+    benchEscaped: boolean
     started: boolean
     spectating: string | null
     chat: { id: number, name: string, text: string, born: number }[]
@@ -154,6 +162,8 @@ export interface DfHudState {
      * --df-mk{i}-ang (radians toward it when clamped), like the objective waypoint.
      */
     markers: DfHudMarker[]
+    /** Salvage, crafted gear, the workbench list, held support and the round challenge (arsenal.ts). */
+    arsenal: DfHudArsenal
 }
 
 export const DF_HUD_MARKERS = 4
@@ -182,6 +192,8 @@ export interface DfHudFeedItem {
     /** Optional second name, e.g. the revived soldier. */
     target: string | null
     targetColor: string | null
+    /** Colour of the text itself (a weapon's rarity), else the tone's. */
+    textColor?: string | null
 }
 
 export type DfHudFeedLine = Omit<DfHudFeedItem, 'id' | 'born'>
@@ -251,7 +263,7 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
             return null
         }
         default:
-            return null
+            return dfArsenalFeedLine(ev, { me: c.me, line, weaponName: c.weaponName })
     }
 }
 
@@ -267,6 +279,13 @@ export function dfHudPushFeed(feed: DfHudFeedItem[], line: DfHudFeedLine, now: n
 /** Drops entries older than DF_HUD_FEED_MS. */
 export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
     while (feed.length && now - feed[0]!.born > DF_HUD_FEED_MS) feed.shift()
+}
+
+export function dfNewHudArsenal(): DfHudArsenal {
+    return {
+        scrap: 0, launcher: 0, equip: null, kit: false,
+        support: [], bench: null, denyKey: 0, challenge: null, salvageKey: 0, targeting: null
+    }
 }
 
 export function dfCreateHudState(): DfHudState {
@@ -295,11 +314,13 @@ export function dfCreateHudState(): DfHudState {
         objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, rods: null, rodTimer: null, label: '', distance: 0, hasTarget: false },
         hitmarker: { key: 0, kind: 'hit' },
         killKey: 0,
+        killHead: false,
         damage: [],
         scoreboard: false,
         ping: 0,
         connection: 'ok',
         locked: false,
+        benchEscaped: false,
         started: false,
         spectating: null,
         chat: [],
@@ -314,6 +335,7 @@ export function dfCreateHudState(): DfHudState {
         hint: null,
         ammoHint: null,
         lastZombies: 0,
-        markers: []
+        markers: [],
+        arsenal: dfNewHudArsenal()
     }
 }

@@ -2,8 +2,7 @@
 HACKERZ model kit — builds every enemy and turret as low-poly hard-surface
 geometry and exports one GLB per model into public/hackerz/models.
 
-Run headless:  bun run models:hackerz
-          or:  blender --background --factory-startup --python scripts/hackerz-models/build.py
+Run headless:  blender --background --factory-startup --python scripts/hackerz-models/build.py
 
 Conventions the engine relies on (app/utils/hackerz-engine/models.ts):
 

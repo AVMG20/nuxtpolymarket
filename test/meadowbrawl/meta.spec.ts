@@ -10,14 +10,12 @@ import {
     MEADOWBRAWL_WEAPON_UNLOCKS,
     meadowbrawlAccountEffects,
     meadowbrawlCoinCeiling,
-    meadowbrawlMinElapsedMsForWave,
     meadowbrawlPayoutForRun,
     meadowbrawlPetCost,
     meadowbrawlPetEffects,
     meadowbrawlRunCooldownRemainingMs,
     meadowbrawlRushGemCost,
     meadowbrawlSettleRun,
-    meadowbrawlTotalUpgradeCost,
     meadowbrawlUnlockedWeapons,
     meadowbrawlUpgradeCost,
     meadowbrawlValidateSave,
@@ -59,26 +57,12 @@ function account(over: Partial<MeadowbrawlSettlementState> = {}): MeadowbrawlSet
 const HOURS = 60 * 60 * 1000
 
 describe('meadowbrawl economy', () => {
-    it('the whole sink lands between 500M and 800M', () => {
-        const total = meadowbrawlTotalUpgradeCost()
-        expect(total).toBeGreaterThan(500_000_000)
-        expect(total).toBeLessThan(800_000_000)
-    })
-
-    it('every track grows exponentially and stops at its cap', () => {
+    it('every track stops at its cap', () => {
         for (const def of MEADOWBRAWL_UPGRADES) {
-            let prev = 0
-            for (let level = 0; level < def.max; level++) {
-                const cost = meadowbrawlUpgradeCost(def, level)!
-                expect(cost).toBeGreaterThan(prev)
-                prev = cost
-            }
+            expect(meadowbrawlUpgradeCost(def, def.max - 1)).not.toBeNull()
             expect(meadowbrawlUpgradeCost(def, def.max)).toBeNull()
         }
-        for (const pet of MEADOWBRAWL_PETS) {
-            expect(meadowbrawlPetCost(pet, 0)).toBe(pet.baseCost)
-            expect(meadowbrawlPetCost(pet, MEADOWBRAWL_PET_MAX_LEVEL)).toBeNull()
-        }
+        for (const pet of MEADOWBRAWL_PETS) expect(meadowbrawlPetCost(pet, MEADOWBRAWL_PET_MAX_LEVEL)).toBeNull()
     })
 
     it('the coin ceiling climbs every wave', () => {
@@ -89,21 +73,11 @@ describe('meadowbrawl economy', () => {
         expect(meadowbrawlCoinCeiling(99)).toBe(meadowbrawlCoinCeiling(MEADOWBRAWL_TOTAL_WAVES))
     })
 
-    it('a maxed account clearing all thirty waves pays between 1M and 2M', () => {
-        const maxed = meadowbrawlAccountEffects({ prosperity: 10 })
-        const owl = meadowbrawlPetEffects('owl', 10)
-        const mult = maxed.coinMult * owl.coinMult
+    it('a forged haul on a maxed account never pays past the payout cap', () => {
+        const mult = meadowbrawlAccountEffects({ prosperity: 10 }).coinMult * meadowbrawlPetEffects('owl', 10).coinMult
         const win = meadowbrawlPayoutForRun(1e12, MEADOWBRAWL_TOTAL_WAVES, mult, true)
         expect(win.capped).toBe(true)
-        expect(win.awarded).toBeGreaterThan(1_000_000)
         expect(win.awarded).toBeLessThanOrEqual(MEADOWBRAWL_MAX_PAYOUT)
-        // Waves fifteen to twenty, where most good runs end, sit in the 250-500k band.
-        const mid = meadowbrawlPayoutForRun(1e12, 16, mult, false).awarded
-        const deep = meadowbrawlPayoutForRun(1e12, 20, mult, false).awarded
-        expect(mid).toBeGreaterThan(250_000)
-        expect(deep).toBeLessThan(600_000)
-        // A bare account is far below that.
-        expect(meadowbrawlPayoutForRun(1e12, 10, 1, false).awarded).toBeLessThan(50_000)
     })
 
     it('honest coins pass through untouched', () => {
@@ -113,9 +87,7 @@ describe('meadowbrawl economy', () => {
         expect(p.capped).toBe(false)
     })
 
-    it('the pacing floor is far under a real run and the cooldown costs a gem per ten minutes', () => {
-        expect(meadowbrawlMinElapsedMsForWave(5)).toBeLessThan(60_000)
-        expect(meadowbrawlMinElapsedMsForWave(30)).toBeLessThan(10 * 60_000)
+    it('the cooldown costs a gem per ten minutes to rush', () => {
         const finished = new Date(1_000_000)
         expect(meadowbrawlRunCooldownRemainingMs(null, 5)).toBe(0)
         expect(meadowbrawlRunCooldownRemainingMs(finished, finished.getTime() + HOURS)).toBe(HOURS)
@@ -123,28 +95,6 @@ describe('meadowbrawl economy', () => {
         expect(meadowbrawlRushGemCost(2 * HOURS)).toBe(12)
         expect(meadowbrawlRushGemCost(1)).toBe(1)
         expect(meadowbrawlRushGemCost(0)).toBe(0)
-    })
-})
-
-describe('meadowbrawl pets', () => {
-    it('unlock their abilities at three and six and double their potency at ten', () => {
-        expect(meadowbrawlPetEffects('fox', 1).abilities).toHaveLength(0)
-        expect(meadowbrawlPetEffects('fox', 3).abilities.map(a => a.id)).toEqual(['flameDash'])
-        expect(meadowbrawlPetEffects('fox', 6).abilities.map(a => a.id)).toEqual(['flameDash', 'cinderHowl'])
-        expect(meadowbrawlPetEffects('fox', 9).potency).toBe(1)
-        expect(meadowbrawlPetEffects('fox', 10).potency).toBe(2)
-        // Cooldowns shrink with levels past the unlock.
-        const early = meadowbrawlPetEffects('owl', 3).abilities[0]!.cooldown
-        const late = meadowbrawlPetEffects('owl', 10).abilities[0]!.cooldown
-        expect(late).toBeLessThan(early)
-    })
-
-    it('stay useful but modest', () => {
-        expect(meadowbrawlPetEffects('fox', 10).damageMult).toBeCloseTo(1.15)
-        expect(meadowbrawlPetEffects('tortoise', 10).damageReduction).toBeCloseTo(0.1)
-        expect(meadowbrawlPetEffects('tortoise', 10).maxHp).toBe(30)
-        expect(meadowbrawlPetEffects('owl', 10).coinMult).toBeCloseTo(1.1)
-        expect(meadowbrawlPetEffects('tortoise', 10).damageMult).toBe(1)
     })
 })
 

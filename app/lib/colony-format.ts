@@ -48,3 +48,11 @@ export function formatRate(perHour: number): string {
   if (perHour * 60 >= 0.1) return `${(perHour * 60).toFixed(2)}/min`
   return `${(perHour * 3600).toFixed(2)}/s`
 }
+
+/** Burrow card tone for a bug's rolled speed: dull for a weak roll, glowing for a researched one. */
+export function speedTone(pct: number): string {
+  if (pct >= 50) return 'text-cyan-300'
+  if (pct >= 20) return 'text-green-400'
+  if (pct >= 10) return 'text-yellow-300'
+  return 'text-muted'
+}

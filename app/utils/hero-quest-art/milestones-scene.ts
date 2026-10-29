@@ -15,8 +15,11 @@ import type { SceneBackdrops } from './menu-band'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import type { MilestoneReward, MilestoneRow } from '#shared/utils/hero-quest/milestones'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
+import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
 
 export interface MilestonesView {
+    /** The player's big-number notation, for the rewards. */
+    notation: HqNotation
     rows: readonly MilestoneRow[]
 }
 
@@ -87,14 +90,15 @@ export function milestoneTitle(row: MilestoneRow): string {
 }
 
 /** Rewards spelled out in full, joined. */
-export function milestoneRewardLabel(rewards: readonly MilestoneReward[]): string {
+export function milestoneRewardLabel(rewards: readonly MilestoneReward[], notation: HqNotation): string {
     return rewards.map((r) => {
+        const n = formatHq(r.amount, notation)
         switch (r.kind) {
-            case 'all_seals': return `${r.amount} OF EVERY SEAL`
-            case 'seals': return `${r.amount} ${SEAL_NAME[r.system]}`
-            case 'gems': return `${r.amount} GEMS`
-            case 'keys': return `${r.amount} ${getRaid(r.raid).key.toUpperCase()}`
-            case 'medals': return `${r.amount} ARENA MEDALS`
+            case 'all_seals': return `${n} OF EVERY SEAL`
+            case 'seals': return `${n} ${SEAL_NAME[r.system]}`
+            case 'gems': return `${n} GEMS`
+            case 'keys': return `${n} ${getRaid(r.raid).key.toUpperCase()}`
+            case 'medals': return `${n} ARENA MEDALS`
         }
     }).join(' + ')
 }
@@ -159,9 +163,9 @@ export class MilestonesScene {
         const at = hover?.startsWith('row:') ? view.rows[Number(hover.slice(4))] : undefined
         if (at) {
             const text = at.claimable.length
-                ? `CLAIM: ${milestoneRewardLabel(at.claimable)}`
+                ? `CLAIM: ${milestoneRewardLabel(at.claimable, view.notation)}`
                 : at.next
-                    ? `STEP ${at.next.step}: ${milestoneRewardLabel(at.next.reward)}`
+                    ? `STEP ${at.next.step}: ${milestoneRewardLabel(at.next.reward, view.notation)}`
                     : 'EVERY STEP CLAIMED'
             drawText(s, fit(text, s.w - 12), 6, INFO_Y, at.claimable.length ? C.gold3 : C.bone1, { shadow: 1 })
         } else {

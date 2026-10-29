@@ -790,6 +790,32 @@ export function runFight(input: FightInput): FightResult {
                     })
                 }
 
+                /** `partyHeal` and `partyStatus`: every living ally, whatever the pattern selected. */
+                const landOnParty = () => {
+                    if (!effect.partyHeal && !effect.partyStatus) return
+                    party.forEach((ally, allyIndex) => {
+                        if (ally.hp.lte(0)) return
+                        if (effect.partyHeal) {
+                            const before = ally.hp
+                            const healed = ally.hp.add(unit.stats.pwr.mul(effect.partyHeal))
+                            ally.hp = healed.gt(ally.stats.maxHp) ? ally.stats.maxHp : healed
+                            events.push({
+                                at: elapsed, kind: 'heal', unitIndex: allyIndex,
+                                ...(skillId === undefined ? {} : { skillId }),
+                                damage: ally.hp.sub(before).toString(),
+                                remainingHp: ally.hp.toString()
+                            })
+                        }
+                        if (effect.partyStatus) {
+                            applyStatus(ally.statuses, { ...statusFrom(effect.partyStatus), id: `${skillId ?? 'autoattack'}_party` })
+                            events.push({
+                                at: elapsed, kind: 'status_applied', unitIndex: allyIndex,
+                                statusId: skillId ?? 'autoattack'
+                            })
+                        }
+                    })
+                }
+
                 /**
                  * Every ability that fires shows up as a `skill` event, even a pure-utility one
                  * that deals no damage — Haste, Enrage, Totem Storm. Without this a replay
@@ -867,6 +893,7 @@ export function runFight(input: FightInput): FightResult {
                         }
                     }
                     landSelfStatus()
+                    landOnParty()
                     noteUtilityCast()
                     return true
                 }
@@ -941,6 +968,7 @@ export function runFight(input: FightInput): FightResult {
                     }
                 }
                 landSelfStatus()
+                landOnParty()
                 noteUtilityCast()
                 return true
             }

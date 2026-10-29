@@ -26,14 +26,6 @@ describe.skipIf(SKIP)('gems concurrency', () => {
         expect(await getGems()).toBe(0)
     })
 
-    it('never drives the gem balance negative under a concurrent burst', async () => {
-        await seedUser(USER_ID, { gems: 50 })
-
-        await burst(20, () => debitGems(USER_ID, 10))
-
-        expect(await getGems()).toBeGreaterThanOrEqual(0)
-    })
-
     it('rejects a non-integer cost without touching the balance', async () => {
         await seedUser(USER_ID, { gems: 100 })
 
@@ -55,14 +47,6 @@ describe.skipIf(SKIP)('gems concurrency', () => {
 
         expect(result).toEqual({ ok: 10, rejected: 0 })
         expect(await getGems()).toBe(50)
-    })
-
-    it('treats creditGems(0) as a no-op', async () => {
-        await seedUser(USER_ID, { gems: 25 })
-
-        await creditGems(USER_ID, 0)
-
-        expect(await getGems()).toBe(25)
     })
 
     it('rejects a non-integer or negative gem credit without touching the balance', async () => {

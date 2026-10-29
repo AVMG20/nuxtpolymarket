@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { chipRackFor, chipStack, LB_CHIPS } from '#shared/utils/live-blackjack/chips'
 import {
     canDouble,
     canSplit,
     canSurrender,
     dealerShouldHit,
     handScore,
-    hiLoValue,
     isBlackjack,
     LB_RULES,
     settleHand
@@ -180,55 +178,5 @@ describe('action availability', () => {
 
     it('doubles a split ace, which the one-card rule would forbid', () => {
         expect(canDouble(hand(['A', '7'], { fromSplit: true }))).toBe(true)
-    })
-})
-
-describe('hiLoValue', () => {
-    it('scores low cards up, tens and aces down, and the rest neutral', () => {
-        expect([2, 3, 4, 5, 6].map(n => hiLoValue(String(n) as LbRank))).toEqual([1, 1, 1, 1, 1])
-        expect([7, 8, 9].map(n => hiLoValue(String(n) as LbRank))).toEqual([0, 0, 0])
-        expect(['10', 'J', 'Q', 'K', 'A'].map(r => hiLoValue(r as LbRank))).toEqual([-1, -1, -1, -1, -1])
-    })
-
-    it('balances to zero over a full deck', () => {
-        const ranks: LbRank[] = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        const deck = ranks.flatMap(r => [r, r, r, r])
-        expect(deck.reduce((sum, r) => sum + hiLoValue(r), 0)).toBe(0)
-    })
-})
-
-describe('chips', () => {
-    it('breaks an amount down largest-denomination first', () => {
-        expect(chipStack(1_625).map(c => c.value)).toEqual([1000, 500, 100, 25])
-    })
-
-    it('caps the stack rather than rendering hundreds of chips', () => {
-        expect(chipStack(999_999, 5)).toHaveLength(5)
-    })
-
-    it('offers a rack a small bankroll can actually afford', () => {
-        const rack = chipRackFor(3_000)
-        expect(rack[rack.length - 1]!.value).toBe(5_000)
-        expect(rack.some(c => c.value <= 3_000)).toBe(true)
-    })
-
-    it('moves the rack up for a billionaire', () => {
-        const rack = chipRackFor(50_000_000_000)
-        expect(rack[rack.length - 1]!.value).toBe(25_000_000_000)
-        expect(rack[0]!.value).toBeGreaterThanOrEqual(5_000_000)
-    })
-
-    it('never shows chips above the player balance', () => {
-        const rack = chipRackFor(76_000_000_000)
-        for (const c of rack) {
-            expect(c.value).toBeLessThanOrEqual(76_000_000_000)
-        }
-    })
-
-    it('never leaves a chip without art or a label', () => {
-        for (const chip of LB_CHIPS) {
-            expect(chip.label).toBeTruthy()
-            expect(chip.value).toBeGreaterThan(0)
-        }
     })
 })

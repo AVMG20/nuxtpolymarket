@@ -1,23 +1,25 @@
 /**
  * Hero Quest combat sim — the tuning workhorse.
  *
- *   bun run sim:hero-quest                                  # World 1 walk, level 1
- *   bun run sim:hero-quest --report=stage --world=1 --stage=10 --level=14
- *   bun run sim:hero-quest --report=gates                   # min level for every boss gate
- *   bun run sim:hero-quest --report=gold --party=3          # Gold against the platform (#23)
- *   bun run sim:hero-quest --report=stats --level=40        # where every stat comes from
- *   bun run sim:hero-quest --report=stats --sweep-levels=1,20,50,200
- *   bun run sim:hero-quest --report=classes --level=20
- *   bun run sim:hero-quest --set=K=3 --set=BASE_HP=200      # override constants for one run
- *   bun run sim:hero-quest --sweep=K=1..4:0.5               # sweep a dial, tabulate results
+ *   bun scripts/hero-quest-sim.ts                                  # World 1 walk, level 1
+ *   bun scripts/hero-quest-sim.ts --report=stage --world=1 --stage=10 --level=14
+ *   bun scripts/hero-quest-sim.ts --report=gates                   # min level for every boss gate
+ *   bun scripts/hero-quest-sim.ts --report=gold --party=3          # Gold against the platform (#23)
+ *   bun scripts/hero-quest-sim.ts --report=stats --level=40        # where every stat comes from
+ *   bun scripts/hero-quest-sim.ts --report=stats --sweep-levels=1,20,50,200
+ *   bun scripts/hero-quest-sim.ts --report=classes --level=20
+ *   bun scripts/hero-quest-sim.ts --set=K=3 --set=BASE_HP=200      # override constants for one run
+ *   bun scripts/hero-quest-sim.ts --sweep=K=1..4:0.5               # sweep a dial, tabulate results
  *
- *   bun run sim:hero-quest --report=gates --party=3         # what a starting party buys
+ *   bun scripts/hero-quest-sim.ts --report=gates --party=3         # what a starting party buys
  *
- *   bun run sim:hero-quest --report=campaign --party=3 --traits=E   # field a Trait board
- *   bun run sim:hero-quest --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
- *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --traits=E   # field a Trait board
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:0:1 --kit-ramp=epic:0:1@7 --classes --shop
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:0:2 --kit-ladder --classes --shop
  *
- * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --boss-fights --unlocks --no-levelup --json
+ * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --kit-ramp --kit-ladder --classes --shop --boss-fights --unlocks --no-levelup --json
  *
  * `--traits` is `none` (the default), a grade for a board of that grade, `roll:N` for one seeded
  * Roll, or a board written out as `stat:grade:set` slots (`simTraitBoard`). It reaches the stage,
@@ -27,7 +29,15 @@
  * Hero levels (`SimTreePolicy`). It reaches every report.
  *
  * `--kit` is `none` (the default) or `rarity[:star[:level]]`, which fields Gear, Skills, Artifacts and
- * real Champions at that rarity and investment (`withSimKit`). It reaches every report.
+ * real Champions at that rarity and investment (`withSimKit`). It reaches every report. The rarity
+ * can be a mix, `epic*2+legendary`, spread over each gacha's slots in proportion.
+ *
+ * `--kit-ramp`, `--classes` and `--shop` grow the party across the campaign and Gold walks, for
+ * reading pace past a first prestige (`SimProgression`): `--kit-ramp=spec@days,…` upgrades the
+ * `--kit` at those account ages, `--classes` spends each prestige's class token, and `--shop` spends
+ * its Void Shards on slots, then stat tracks. `--kit-ladder` sets the Champions' rarities per run,
+ * comma-separated with the last repeating (`--kit-ladder` alone is `SIM_KIT_LADDER`), at `--kit`'s
+ * star and level, and the rest of the kit follows the same mix.
  *
  * `--unlocks` opens the Trait board and the tree on the game's `FEATURE_UNLOCKS` schedule instead of
  * from the first stage, so early Worlds are measured with what a new player fields.
@@ -69,13 +79,18 @@ const {
     setSimTreePolicy,
     withSimKit,
     withSimTree,
+    parseKitMix,
+    SIM_KIT_LADDER,
     setSimUnlocks,
+    SimProgression,
     DEFAULT_CAMPAIGN_MAX_LEVEL,
     DEFAULT_CAMPAIGN_MAX_PRESTIGE,
     DEFAULT_GRIND_BUDGET_SECONDS,
     SIM_MATURE_TENURE_DAYS
 } = await import('./hero-quest/sim')
-const { formatHq, formatSeconds } = await import('../shared/utils/hero-quest/numbers')
+const { formatHq: formatIn, formatSeconds } = await import('../shared/utils/hero-quest/numbers')
+// reports read in the short scale, whatever a player picked
+const formatHq = (value: Parameters<typeof formatIn>[0]) => formatIn(value, 'standard')
 const { explainStats, levelsToCover, stagesOfCurve } = await import('../shared/utils/hero-quest/explain')
 const {
     BASE_GOLD,
@@ -83,6 +98,7 @@ const {
     GOLD_PLATFORM_DISCOUNT,
     GOLD_REFERENCE_KILLS_PER_HOUR,
     GOLD_STEP_BASE,
+    MAX_CHAMPION_SLOTS,
     MIN_SECONDS_PER_KILL,
     SEAL_LADDER_BASE_GOLD,
     SEAL_LADDER_GROWTH,
@@ -107,13 +123,37 @@ const maxPrestige = Number(arg('max-prestige', String(DEFAULT_CAMPAIGN_MAX_PREST
 const grindHours = Number(arg('grind-hours', String(DEFAULT_GRIND_BUDGET_SECONDS / 3600)))
 const maxLevel = Number(arg('max-level', String(DEFAULT_CAMPAIGN_MAX_LEVEL)))
 /** Total units, Hero included. 1 is a solo Hero; real parties run 3–6. */
-const party = Math.max(1, Number(arg('party', '1')))
+const party = Number(arg('party', '1'))
+if (!Number.isInteger(party) || party < 1 || party > MAX_CHAMPION_SLOTS + 1) {
+    throw new Error(`--party takes a whole number of units from 1 to ${MAX_CHAMPION_SLOTS + 1}, not "${arg('party', '1')}"`)
+}
 const traitsSpec = arg('traits', 'none')
 const traits = simTraitBoard(traitsSpec)
 const treePolicy = setSimTreePolicy(arg('tree', 'none'))
 const kitSpec = arg('kit', 'none')
 const bossFights = setSimBossFights(Number(arg('boss-fights', '0')))
 const unlocks = setSimUnlocks(flag('unlocks'))
+/** `--kit-ramp=epic:0:1@7,legendary:0:1@30`: kit upgrades by account age in days, after `--kit` from day 0. */
+const kitRampSpec = arg('kit-ramp', '')
+const kitRamp = kitRampSpec ? kitRampSpec.split(',').map((step) => {
+    const hit = /^([a-z]+(?::\d+){0,2})@(\d+(?:\.\d+)?)$/.exec(step.trim())
+    if (!hit) throw new Error(`--kit-ramp takes rarity[:star[:level]]@days steps, comma-separated, not "${step}"`)
+    return { spec: hit[1]!, atSeconds: Number(hit[2]) * 86_400 }
+}) : []
+kitRamp.forEach((step, i) => {
+    if (i > 0 && step.atSeconds <= kitRamp[i - 1]!.atSeconds) throw new Error('--kit-ramp steps must be in order of age')
+})
+/** `--kit-ladder` alone is the baseline ladder; `--kit-ladder=rare*2,epic*2` writes one out. */
+const kitLadderSpec = flag('kit-ladder') ? SIM_KIT_LADDER.join(',') : arg('kit-ladder', '')
+const kitLadder = kitLadderSpec ? kitLadderSpec.split(',').map(run => run.trim()) : []
+kitLadder.forEach(parseKitMix)
+if (kitLadder.length && kitRamp.length) throw new Error('--kit-ladder and --kit-ramp both set the kit; pick one')
+const classes = flag('classes')
+const shop = flag('shop')
+/** A fresh one per walk: it carries what the walk has bought. Undefined keeps the party fixed. */
+const progression = () => kitRamp.length || kitLadder.length || classes || shop
+    ? new SimProgression({ classId, party, traits, kit: [{ spec: kitSpec, atSeconds: 0 }, ...kitRamp], kitLadder, classes, shop })
+    : undefined
 /** The party every report fields, with the `--traits` board, the `--kit` and the `--tree` build on it. */
 const makeParty = (classId: ClassId, heroLevel: number, size: number) => withSimTree(withSimKit(makeBareParty(classId, heroLevel, size, { traits }), kitSpec))
 /** `--sweep-levels=1,20,50` — the scaling view on `--report=stats`. Empty means single-level. */
@@ -138,7 +178,7 @@ function banner() {
     const tuning = describeOverrides(overrides)
     const size = party > 1 ? `  party of ${party}` : ''
     const board = traits.length ? `  traits ${traitsSpec} (${traits.map(t => `${t.stat.slice(6)}:${t.grade}`).join(' ')})` : ''
-    const tree = `${treePolicy === 'none' ? '' : `  tree ${treePolicy}`}${kitSpec === 'none' ? '' : `  kit ${kitSpec}`}${bossFights ? `  boss fights ×${bossFights}` : ''}${unlocks ? '  unlocks' : ''}`
+    const tree = `${treePolicy === 'none' ? '' : `  tree ${treePolicy}`}${kitSpec === 'none' ? '' : `  kit ${kitSpec}`}${kitRampSpec ? `  kit ramp ${kitRampSpec}` : ''}${kitLadderSpec ? `  kit ladder ${kitLadderSpec}` : ''}${classes ? '  classes' : ''}${shop ? '  shop' : ''}${bossFights ? `  boss fights ×${bossFights}` : ''}${unlocks ? '  unlocks' : ''}`
     console.log(`\n${classId} @ level ${level} — prestige ${prestige}${size}${board}${tree}${tuning ? `  [${tuning}]` : ''}`)
 }
 
@@ -208,7 +248,8 @@ function reportCampaign() {
     const result: CampaignReport = analyzeCampaign(makeParty(classId, level, party), prestige, {
         maxPrestige,
         grindBudgetSeconds: grindHours * 3600,
-        maxLevel
+        maxLevel,
+        progression: progression()
     })
     if (asJson) return console.log(JSON.stringify(result, replacer))
 
@@ -236,6 +277,23 @@ function reportCampaign() {
             'lvl': `${event.fromLevel} → ${event.toLevel}`,
             'kills': event.kills.toLocaleString('en'),
             'time': formatSeconds(event.seconds)
+        })))
+    }
+
+    if (result.prestiges.length) {
+        console.log('\nPrestiges (what the next run fields)\n')
+        console.table(result.prestiges.map(row => ({
+            'done': row.prestige,
+            'day': (row.atSeconds / 86_400).toFixed(1),
+            'lvl': row.level,
+            'shards': formatHq(row.shardsEarned),
+            'class': row.classId.slice('class_'.length),
+            'token': row.tokenSpentOn ? row.tokenSpentOn.slice('class_'.length) : '—',
+            'party': row.champions + 1,
+            'skills': row.skillSlots,
+            'artifacts': row.artifactSlots,
+            'stat lvls': row.statLevels,
+            'kit': row.kit
         })))
     }
 
@@ -271,7 +329,8 @@ function reportGold() {
     const result: CampaignReport = analyzeCampaign(makeParty(classId, level, party), prestige, {
         maxPrestige,
         grindBudgetSeconds: grindHours * 3600,
-        maxLevel
+        maxLevel,
+        progression: progression()
     })
     if (asJson) return console.log(JSON.stringify(result, replacer))
 
@@ -356,7 +415,7 @@ function reportGold() {
 function reportGates() {
     banner()
     console.log('Minimum hero level to clear each boss gate\n')
-    const rows = gateTable(classId, prestige, WORLD_COUNT, party)
+    const rows = gateTable(classId, prestige, WORLD_COUNT, party, makeParty)
     console.table(rows.map(row => ({
         world: row.world,
         'stage 5 boss': row.bossLevel ?? 'unreachable',
@@ -481,7 +540,7 @@ function reportStatScaling() {
 function reportClasses() {
     banner()
     console.log(`All 16 classes at level ${level} — world ${world}, stage ${stage}\n`)
-    console.table(compareClasses(prestige, world, stage, level, party).map(row => ({
+    console.table(compareClasses(prestige, world, stage, level, party, makeParty).map(row => ({
         class: row.name,
         tier: row.tier,
         DPS: formatHq(row.partyDps),

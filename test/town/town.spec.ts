@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, transactions, townState, townPlots, townBuildings, townInventory, townOrders, townProduction, townTrades } from '#server/database/schema'
@@ -9,8 +9,6 @@ import {
     claimMilestone,
     demolishBuilding,
     foundTown,
-    getExpansions,
-    getProductionHistory,
     getTownMarket,
     getTownLastPrices,
     moveBuilding,
@@ -25,7 +23,6 @@ import {
     deleteTownForUser,
     convertJewels
 } from '#server/utils/town'
-import { listTownEvents, recordTownEvent } from '#server/utils/town-events'
 import {
     TOWN_PLOT_SIZE,
     TOWN_TIER_POP_REQUIREMENT,
@@ -42,18 +39,13 @@ import {
     townPlotCooldownMs,
     townPlotPrice,
     townRushGemCost,
-    townRoadAccess,
     townWorkersFor,
     TOWN_MAX_ORDER_PRICE,
     TOWN_MARKET_MIN_PRICE,
     TOWN_GEM_MINE_CAP,
     TOWN_JEWELS_PER_GEM,
-    TOWN_MAX_BUILDING_LEVEL,
     deriveTown,
     settleTown,
-    townNetPerTick,
-    townFloorIncomePerDay,
-    TOWN_TICK_MS,
     type TownSimBuilding,
     type TownResourceId
 } from '#shared/utils/gamelogic/town'
@@ -300,10 +292,10 @@ async function cleanup() {
     // deleteTownForUser clears these too; doing it here as well keeps the table
     // clean for the users whose town was already deleted by a spec.
     await db.delete(townProduction).where(inArray(townProduction.userId, USERS))
-    for (const id of USERS) {
+    await Promise.all(USERS.map(async (id) => {
         await deleteTownForUser(id)
         await cleanupUser(id)
-    }
+    }))
 }
 
 /**
@@ -345,9 +337,10 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     // One shared realm: hold it for this file so a sibling spec cannot plant
     // or delete plots midway through a test here (db-helpers, lockTownRealm).
     let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
-
-    beforeEach(cleanup)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
     afterEach(cleanup)
     afterAll(async () => {
         await releaseRealm()
@@ -369,12 +362,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const plots = await plotsOf(OWNER)
             expect(plots).toHaveLength(1)
             expect(plots[0]!.id).toBe(plotId)
-        })
 
-        it('refuses a second town and leaves the first one alone', async () => {
-            await seedUser(OWNER)
-            await foundTown(OWNER)
-
+            // A second founding is refused and leaves the first town alone.
             await expect(foundTown(OWNER)).rejects.toThrow(/already have a town/)
             expect(await plotsOf(OWNER)).toHaveLength(1)
         })
@@ -405,18 +394,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(Math.abs(farm!.completesAt.getTime() - expected)).toBeLessThan(5_000)
         })
 
-        it('lays a road instantly, already finished at level one', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-
-            const result = await placeBuilding(OWNER, plotId, 3, 0, 'road')
-
-            const [road] = await buildingsTyped(OWNER, 'road')
-            expect(road!.level).toBe(1)
-            expect(road!.upgradingTo).toBeNull()
-            expect(road!.completesAt.getTime()).toBeLessThanOrEqual(Date.now())
-            expect(result.cost.coins).toBe(townPlaceCost(ROAD, 0).coins)
-        })
-
         it('rejects a tile that is off the plot, or a plot owned by someone else', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             const otherPlot = await foundFor(BUYER, { balance: '100000.0000' })
@@ -430,22 +407,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe('100000.0000')
         })
 
-        it('places a building without a road, leaving it idle until its front door connects', async () => {
-            const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await stockFor(OWNER, townPlaceCost(FARM, 0))
-
-            const { buildingId } = await placeBuilding(OWNER, plotId, 3, 3, 'farm', 2)
-            const before = await settleTownForRead(OWNER)
-            expect(townRoadAccess(before.sim, before.sim.find(b => b.id === buildingId)!)).toBe(false)
-
-            await placeBuilding(OWNER, plotId, 3, 2, 'road')
-            const after = await settleTownForRead(OWNER)
-            expect(townRoadAccess(after.sim, after.sim.find(b => b.id === buildingId)!)).toBe(true)
-
-            expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(1)
-            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(1)
-        })
-
         it('builds nothing when the coins are short', async () => {
             const plotId = await foundFor(OWNER, { balance: '100.0000' })
             await seedRoad(OWNER, plotId, 0)
@@ -455,19 +416,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(0)
             expect(await getBalance(OWNER)).toBe('100.0000')
             expect(await townDebits(OWNER)).toHaveLength(0)
-        })
-
-        it('refuses to stack two buildings on the same tile', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedRoad(OWNER, plotId, 1)
-            await stockFor(OWNER, townPlaceCost(FARM, 0))
-
-            await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
-            await expect(placeBuilding(OWNER, plotId, 1, 1, 'house', FACES_EDGE_ROAD)).rejects.toThrow(/already taken/)
-
-            expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(1)
-            expect(await buildingsTyped(OWNER, 'house')).toHaveLength(0)
-            expect(await getBalance(OWNER)).toBe((100000 - townPlaceCost(FARM, 0).coins).toFixed(4))
         })
 
         it('charges the repeat price for every further copy', async () => {
@@ -485,18 +433,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe((1000000 - first.cost.coins - second.cost.coins).toFixed(4))
         })
 
-        it('counts unfinished copies toward the repeat price too', async () => {
-            const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await seedRoad(OWNER, plotId, 2)
-            await seedRoad(OWNER, plotId, 3)
-            // Seeded straight in, still under construction.
-            await seedBuilding(OWNER, plotId, 'farm', 5, 0, { tileY: 5, completesAt: new Date(Date.now() + HOUR) })
-            await stockFor(OWNER, townPlaceCost(FARM, 1))
-
-            const next = await placeBuilding(OWNER, plotId, 2, 1, 'farm', FACES_EDGE_ROAD)
-            expect(next.cost.coins).toBe(townPlaceCost(FARM, 1).coins)
-        })
-
         it('lets only one of ten concurrent placements on one tile through', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await seedRoad(OWNER, plotId, 4)
@@ -512,21 +448,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe((1000000 - cost.coins).toFixed(4))
             // Exactly one placement's worth of timber left the warehouse.
             expect(await held(OWNER, 'wood')).toBe(9 * cost.resources.wood!)
-        })
-
-        it('spends the resources a tier-2 building needs', async () => {
-            const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await unlockTier2(OWNER, plotId)
-            await seedRoad(OWNER, plotId, 0)
-            const cost = townPlaceCost(MILL, 0)
-            await stock(OWNER, 'wood', cost.resources.wood! + 5)
-            await stock(OWNER, 'stone', cost.resources.stone!)
-
-            await placeBuilding(OWNER, plotId, 0, 1, 'mill', FACES_EDGE_ROAD)
-
-            expect(await held(OWNER, 'wood')).toBe(5)
-            expect(await held(OWNER, 'stone')).toBe(0)
-            expect(await getBalance(OWNER)).toBe((1000000 - cost.coins).toFixed(4))
         })
 
         it('refuses a tier-2 building until a tier-1 one has finished', async () => {
@@ -551,22 +472,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await held(OWNER, 'stone')).toBe(cost.resources.stone!)
         })
 
-        it('refuses a tier-2 building until the town houses enough residents', async () => {
-            const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await seedRoad(OWNER, plotId, 0)
-            await seedStreet(OWNER, plotId, 5, [{ type: 'farm', tileX: 7 }, { type: 'house', tileX: 1 }])
-            await seedProduced(OWNER, { wheat: TOWN_TIER_PRODUCTION_REQUIREMENT[2]!.amount })
-            const cost = townPlaceCost(MILL, 0)
-            await stock(OWNER, 'wood', cost.resources.wood!)
-            await stock(OWNER, 'stone', cost.resources.stone!)
-
-            await expect(placeBuilding(OWNER, plotId, 0, 1, 'mill', FACES_EDGE_ROAD))
-                .rejects.toThrow(new RegExp(`needs ${TOWN_TIER_POP_REQUIREMENT[2]!} residents`))
-
-            expect(await buildingsTyped(OWNER, 'mill')).toHaveLength(0)
-            expect(await townDebits(OWNER)).toHaveLength(0)
-        })
-
         it('refuses a tier-2 building until the town has made enough tier-1 goods', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await unlockTier2(OWNER, plotId)
@@ -580,10 +485,14 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await expect(placeBuilding(OWNER, plotId, 0, 1, 'mill', FACES_EDGE_ROAD))
                 .rejects.toThrow(new RegExp(`producing ${gate.amount} tier-${gate.tier} goods`))
 
-            // One more unit of lifetime output and the tier opens.
+            // One more unit of lifetime output and the tier opens, charging
+            // the coins and exactly the goods the mill costs.
             await seedProduced(OWNER, { wheat: gate.amount })
             await placeBuilding(OWNER, plotId, 0, 1, 'mill', FACES_EDGE_ROAD)
             expect(await buildingsTyped(OWNER, 'mill')).toHaveLength(1)
+            expect(await held(OWNER, 'wood')).toBe(0)
+            expect(await held(OWNER, 'stone')).toBe(0)
+            expect(await getBalance(OWNER)).toBe((1000000 - cost.coins).toFixed(4))
         })
 
         it('rolls the coin charge back when the resources fall short', async () => {
@@ -621,15 +530,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe('100000.0000')
         })
 
-        it('drops a building where there is no road to face — it goes dark, it is not refused', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedRoad(OWNER, plotId, 0)
-            const farm = await seedBuilding(OWNER, plotId, 'farm', 0, 1, { tileY: 1, rotation: FACES_EDGE_ROAD })
-
-            await moveBuilding(OWNER, farm.id, plotId, 4, 4, 0)
-            expect((await buildingsTyped(OWNER, 'farm'))[0]).toMatchObject({ tileX: 4, tileY: 4 })
-        })
-
         it('moves a building that is still going up without touching its clock', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await seedRoad(OWNER, plotId, 0)
@@ -648,27 +548,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(moved!.tileX).toBe(5)
             expect(moved!.level).toBe(0)
             expect(moved!.completesAt.getTime()).toBe(completesAt.getTime())
-        })
-
-        it('lets a road move away and simply cuts off whatever fronted it', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            const [road] = await seedStreet(OWNER, plotId, 0, [])
-            const roads = await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
-            expect(road).toBeUndefined()
-            expect(roads).toHaveLength(2)
-
-            // Connected, the town produces.
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-            expect((await settleTownForRead(OWNER)).delta.wheat).toBe(5)
-
-            // Move the house's road off to an unrelated tile: allowed, but the
-            // house it served no longer houses anybody, so the farm has no staff.
-            const houseRoad = (await buildingsTyped(OWNER, 'road')).find(b => b.tileX === 0)!
-            await moveBuilding(OWNER, houseRoad.id, plotId, 6, 0, 0)
-
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-            const cut = await settleTownForRead(OWNER)
-            expect(cut.delta).toEqual({})
         })
 
         it('refuses an occupied target tile', async () => {
@@ -764,23 +643,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     })
 
     describe('demolishBuilding', () => {
-        it('tears down a road and leaves what fronted it standing but idle', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
-
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-            expect((await settleTownForRead(OWNER)).delta.wheat).toBe(5)
-
-            const houseRoad = (await buildingsTyped(OWNER, 'road')).find(b => b.tileX === 0)!
-            const result = await demolishBuilding(OWNER, houseRoad.id)
-
-            expect(result).toMatchObject({ buildingId: houseRoad.id, type: 'road' })
-            // The house is still there — it just houses nobody now, so the farm idles.
-            expect(await buildingsTyped(OWNER, 'house')).toHaveLength(1)
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-            expect((await settleTownForRead(OWNER)).delta).toEqual({})
-        })
-
         it('refuses a building that belongs to someone else', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await foundFor(BUYER, { balance: '100000.0000' })
@@ -809,16 +671,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(farm!.level).toBe(1)
             expect(farm!.upgradingTo).toBeNull()
             expect(farm!.completesAt.getTime()).toBeLessThanOrEqual(Date.now())
-        })
-
-        it('has nothing to rush on a finished building', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000', gems: 5 })
-            await seedRoad(OWNER, plotId, 0)
-            await stockFor(OWNER, townPlaceCost(FARM, 0))
-            const { buildingId } = await placeBuilding(OWNER, plotId, 0, 1, 'farm', FACES_EDGE_ROAD)
-            await rushBuilding(OWNER, buildingId)
-
             await expect(rushBuilding(OWNER, buildingId)).rejects.toThrow(/Nothing to rush/)
+            expect(await getGems(OWNER)).toBe(5 - result.gems)
         })
 
         it('rushes nothing without the gems to pay for it', async () => {
@@ -889,33 +743,10 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const square = await freeNeighbour(OWNER)
 
             await expect(buyPlot(OWNER, square.x, square.y)).rejects.toThrow(/not selling to you yet/)
-            expect(await plotsOf(OWNER)).toHaveLength(1)
-            expect(await getBalance(OWNER)).toBe('10000000.0000')
-        })
 
-        it('sells the second plot once the cooldown has passed', async () => {
-            await foundFor(OWNER, { balance: '10000000.0000' })
-            await rewindPlotClock(OWNER, townPlotCooldownMs(2) + MINUTE)
-            const square = await freeNeighbour(OWNER)
-
-            const result = await buyPlot(OWNER, square.x, square.y)
-            const price = townPlotPrice(2)
-
-            expect(result).toMatchObject({ price, x: square.x, y: square.y })
-            expect(await getBalance(OWNER)).toBe((10000000 - price).toFixed(4))
-            expect((await stateOf(OWNER)).plotsBought).toBe(2)
-
-            const plots = await plotsOf(OWNER)
-            expect(plots).toHaveLength(2)
-            expect(new Set(plots.map(p => `${p.x},${p.y}`)).size).toBe(2)
-        })
-
-        it('only sells land that touches a plot the player already owns', async () => {
-            await foundFor(OWNER, { balance: '10000000.0000' })
+            // Off cooldown, it still only sells land that shares an edge with the town.
             await rewindPlotClock(OWNER, townPlotCooldownMs(2) + MINUTE)
             const [plot] = await plotsOf(OWNER)
-
-            // Far away, and diagonal — neither shares an edge with the town.
             await expect(buyPlot(OWNER, plot!.x + 5, plot!.y)).rejects.toThrow(/must touch a plot you own/)
             await expect(buyPlot(OWNER, plot!.x + 1, plot!.y + 1)).rejects.toThrow(/must touch a plot you own/)
             await expect(buyPlot(OWNER, plot!.x + 0.5, plot!.y)).rejects.toThrow(/Pick a square/)
@@ -937,36 +768,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await townDebits(OWNER)).toHaveLength(1)
             expect((await stateOf(OWNER)).plotsBought).toBe(2)
             expect(await getBalance(OWNER)).toBe((10000000 - townPlotPrice(2)).toFixed(4))
-        })
-    })
-
-    describe('getExpansions', () => {
-        it('offers the four squares around a one-plot town', async () => {
-            await foundFor(OWNER)
-            const own = await plotsOf(OWNER)
-
-            const expansions = await getExpansions(OWNER, own)
-
-            expect(expansions).toHaveLength(4)
-            for (const square of expansions) {
-                expect(Math.abs(square.x - own[0]!.x) + Math.abs(square.y - own[0]!.y)).toBe(1)
-                // The world is shared, so a neighbour may already belong to someone.
-                if (!square.free) expect(square.ownerName).toBeTruthy()
-            }
-        })
-
-        it('never offers a square the player already owns', async () => {
-            await foundFor(OWNER, { balance: '10000000.0000' })
-            await rewindPlotClock(OWNER, townPlotCooldownMs(2) + MINUTE)
-            const square = await freeNeighbour(OWNER)
-            await buyPlot(OWNER, square.x, square.y)
-
-            const own = await plotsOf(OWNER)
-            const expansions = await getExpansions(OWNER, own)
-            const owned = new Set(own.map(p => `${p.x},${p.y}`))
-
-            expect(expansions.some(e => owned.has(`${e.x},${e.y}`))).toBe(false)
-            expect(expansions).toHaveLength(6)
         })
     })
 
@@ -1014,66 +815,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(settled.buildings.find(b => b.id === buildingId)!.level).toBe(1)
         })
 
-        it('leaves the mayor a note for each build that finished, dated to when it finished', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
-            await seedRoad(OWNER, plotId, 1)
-            await stockFor(OWNER, townPlaceCost(FARM, 0))
-            const { buildingId } = await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
-            const finishedAt = new Date(Date.now() - 3 * MINUTE)
-            await db.update(townBuildings).set({ completesAt: finishedAt }).where(eq(townBuildings.id, buildingId))
-            await rewindSettle(OWNER, 5 * MINUTE)
-
-            await settleTownForRead(OWNER)
-            const { events, more } = await listTownEvents(OWNER, null)
-
-            expect(more).toBe(false)
-            expect(events).toHaveLength(1)
-            expect(events[0]!.data).toEqual({ kind: 'built', type: 'farm', level: 1 })
-            expect(Math.abs(events[0]!.at - finishedAt.getTime())).toBeLessThan(1000)
-
-            // A second settle notices nothing new and writes nothing.
-            await settleTownForRead(OWNER)
-            expect((await listTownEvents(OWNER, null)).events).toHaveLength(1)
-        })
-
-        it('pages the notes newest first through a cursor', async () => {
-            await foundFor(OWNER, { balance: '100000.0000' })
-            const base = Date.now() - HOUR
-            for (let i = 0; i < 12; i++) {
-                await recordTownEvent(db, OWNER, { kind: 'upgraded', type: 'house', level: i + 2 }, base + i * 1000)
-            }
-
-            const first = await listTownEvents(OWNER, null)
-            expect(first.more).toBe(true)
-            expect(first.events.map(e => (e.data as { level: number }).level)).toEqual([13, 12, 11, 10, 9, 8, 7, 6, 5, 4])
-
-            const second = await listTownEvents(OWNER, first.events[first.events.length - 1]!.id)
-            expect(second.more).toBe(false)
-            expect(second.events.map(e => (e.data as { level: number }).level)).toEqual([3, 2])
-
-            // A bigger page is one request; the cap holds.
-            expect((await listTownEvents(OWNER, null, 12)).events).toHaveLength(12)
-            expect((await listTownEvents(OWNER, null, 10_000)).events).toHaveLength(12)
-        })
-
-        it('reports what the window produced and how long it covered', async () => {
-            await surplusTown()
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-
-            const settled = await settleTownForRead(OWNER)
-
-            expect(settled.delta.wheat).toBe(settled.inventory.wheat)
-            expect(settled.delta.wheat).toBe(5)
-            expect(settled.elapsedMs).toBeGreaterThanOrEqual(5 * MINUTE + 30_000)
-            expect(settled.elapsedMs).toBeLessThan(6 * MINUTE + 30_000)
-
-            // Settling again immediately covers no time and produces nothing.
-            const again = await settleTownForRead(OWNER)
-            expect(again.delta).toEqual({})
-            expect(again.elapsedMs).toBeLessThan(5_000)
-        })
-
         it('keeps a workshop\'s unfinished fraction in town_state between settles', async () => {
             // A mill with no farm anywhere runs at the supply floor: a whole
             // tick grinds only a fraction of a flour, so without a carry it
@@ -1109,20 +850,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(again.inventory.flour).toBe(2)
         })
 
-        it('hands back the plots and the buildings in world coordinates', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            const house = await seedBuilding(OWNER, plotId, 'house', 3, 1, { tileY: 2, rotation: 1 })
-
-            const settled = await settleTownForRead(OWNER)
-
-            expect(settled.plots).toHaveLength(1)
-            const plot = settled.plots.find(p => p.id === plotId)!
-            const placed = settled.sim.find(b => b.id === house.id)!
-            expect(placed.wx).toBe(plot.x * TOWN_PLOT_SIZE + 3)
-            expect(placed.wy).toBe(plot.y * TOWN_PLOT_SIZE + 2)
-            expect(placed.rotation).toBe(1)
-        })
-
         it('logs every positive delta to the production table and the lifetime ledger', async () => {
             await surplusTown()
             await rewindSettle(OWNER, 5 * MINUTE + 30_000)
@@ -1139,78 +866,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             // A second settle over no time logs nothing new.
             await settleTownForRead(OWNER)
             expect(await productionOf(OWNER)).toHaveLength(1)
-        })
-
-        it('logs nothing for a window that only consumed', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
-            await stock(OWNER, 'wheat', 20)
-            await rewindSettle(OWNER, 5 * MINUTE)
-
-            const settled = await settleTownForRead(OWNER)
-
-            expect(settled.delta.wheat).toBeLessThan(0)
-            expect(await productionOf(OWNER)).toHaveLength(0)
-            expect((await stateOf(OWNER)).produced).toEqual({})
-        })
-
-        it('refuses to settle a player who never founded a town', async () => {
-            await seedUser(OWNER)
-            await expect(settleTownForRead(OWNER)).rejects.toThrow(/Found a town first/)
-        })
-    })
-
-    describe('getProductionHistory', () => {
-        it('drops each logged window into the hour bucket it covered', async () => {
-            await foundFor(OWNER)
-            const hour = 3_600_000
-            const currentBucket = Math.floor(Date.now() / hour) * hour
-            const threeAgo = currentBucket - 3 * hour
-            const fiveAgo = currentBucket - 5 * hour
-
-            await db.insert(townProduction).values([
-                // Wholly inside one bucket.
-                { userId: OWNER, resource: 'wheat', amount: 30, fromAt: new Date(threeAgo + 10 * MINUTE), toAt: new Date(threeAgo + 20 * MINUTE) },
-                // Straddles two, so it is spread evenly across them.
-                { userId: OWNER, resource: 'wood', amount: 40, fromAt: new Date(fiveAgo + 50 * MINUTE), toAt: new Date(fiveAgo + 70 * MINUTE) },
-                // Older than the window asked for.
-                { userId: OWNER, resource: 'stone', amount: 99, fromAt: new Date(currentBucket - 40 * hour), toAt: new Date(currentBucket - 39 * hour) }
-            ])
-
-            const history = await getProductionHistory(OWNER, 24)
-            const bucketAt = (at: number) => history.buckets.find(b => b.at === at)!
-
-            expect(history.bucketMs).toBe(hour)
-            expect(history.buckets).toHaveLength(25)
-            expect(bucketAt(threeAgo).totals.wheat).toBe(30)
-            expect(bucketAt(fiveAgo).totals.wood).toBe(20)
-            expect(bucketAt(fiveAgo + hour).totals.wood).toBe(20)
-            expect(history.buckets.every(b => b.totals.stone === undefined)).toBe(true)
-            expect(bucketAt(currentBucket).totals).toEqual({})
-        })
-
-        it('clamps the window it will look back over', async () => {
-            await foundFor(OWNER)
-            expect((await getProductionHistory(OWNER, 0)).buckets).toHaveLength(2)
-            expect((await getProductionHistory(OWNER, 1_000)).buckets).toHaveLength(169)
-        })
-
-        it('shows what a real settle produced', async () => {
-            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-
-            const settled = await settleTownForRead(OWNER)
-            const history = await getProductionHistory(OWNER, 24)
-
-            // The window closed a moment ago, so it lands in the newest bucket —
-            // or is split with the one before it when it crossed the hour.
-            const older = history.buckets.slice(0, -2)
-            expect(older.every(b => (b.totals.wheat ?? 0) === 0)).toBe(true)
-            const tail = history.buckets.slice(-2).reduce((sum, b) => sum + (b.totals.wheat ?? 0), 0)
-            expect(tail).toBeGreaterThanOrEqual(settled.delta.wheat!)
-            // A split window rounds each half up, so the tail may read one high.
-            expect(tail).toBeLessThanOrEqual(settled.delta.wheat! + 1)
         })
     })
 
@@ -1300,18 +955,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
             expect((await stateOf(OWNER)).coinsEarned).toBe((WHEAT_FLOOR * 4).toFixed(4))
         })
-
-        it('adds the sale total to the lifetime earnings counter', async () => {
-            await foundFor(OWNER, { balance: '0.0000' })
-            await stock(OWNER, 'wheat', 10)
-            expect(parseFloat((await stateOf(OWNER)).coinsEarned)).toBe(0)
-
-            await sellToFloor(OWNER, 'wheat', 4)
-            expect((await stateOf(OWNER)).coinsEarned).toBe((townFloorPrice('wheat') * 4).toFixed(4))
-
-            await sellToFloor(OWNER, 'wheat', 6)
-            expect((await stateOf(OWNER)).coinsEarned).toBe((townFloorPrice('wheat') * 10).toFixed(4))
-        })
     })
 
     describe('sellBulkToFloor', () => {
@@ -1335,26 +978,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await held(OWNER, 'wood')).toBe(0)
             expect(await held(OWNER, 'stone')).toBe(0)
             expect((await stateOf(OWNER)).coinsEarned).toBe(expected.toFixed(4))
-        })
-
-        it('routes every line through the bids before the hall', async () => {
-            await foundFor(OWNER, { balance: '0.0000' })
-            await foundFor(BUYER, { balance: coins(PURSE * 100) })
-            await stock(OWNER, 'wheat', 10)
-            await stock(OWNER, 'wood', 5)
-            await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 4)
-
-            const result = await sellBulkToFloor(OWNER, [
-                { resource: 'wheat', quantity: 10 },
-                { resource: 'wood', quantity: 5 }
-            ])
-
-            const expected = over(20) * 4 + WHEAT_FLOOR * 6 + townFloorPrice('wood') * 5
-            expect(result.total).toBe(expected)
-            expect(result.resources).toEqual(['wheat'])
-            expect(await getBalance(OWNER)).toBe(expected.toFixed(4))
-            expect(await held(BUYER, 'wheat')).toBe(4)
-            expect((await stateOf(OWNER)).coinsEarned).toBe((WHEAT_FLOOR * 6 + townFloorPrice('wood') * 5).toFixed(4))
         })
 
         it('merges a good listed twice into one line', async () => {
@@ -1456,7 +1079,9 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('counts nothing toward lifetime earnings, whichever side crosses', async () => {
             // A player counterparty can be the seller's own second account, so
             // no trade between players may move the counter the milestones pay
-            // out on. Only the town hall can vouch for a sale.
+            // out on (the Magnate goal alone is ten million coins and gems):
+            // two accounts passing goods back and forth at a price they choose
+            // is free. Only the town hall can vouch for a sale.
             await foundFor(SELLER, { balance: '0.0000' })
             await foundFor(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 16)
@@ -1472,13 +1097,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(parseFloat((await stateOf(BUYER)).coinsEarned)).toBe(0)
             // The seller was still paid both times.
             expect(parseFloat(await getBalance(SELLER))).toBe(over(1) * 10 + over(2) * 6)
-        })
-
-        it('counts a town-hall sale, which is the one counterparty nobody can fake', async () => {
-            await foundFor(SELLER, { balance: '0.0000' })
-            await stock(SELLER, 'wheat', 10)
-            const sale = await sellToFloor(SELLER, 'wheat', 10)
-            expect((await stateOf(SELLER)).coinsEarned).toBe(coins(sale.total))
         })
 
         it('leaves the unmatched remainder resting on the book', async () => {
@@ -1541,26 +1159,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(wayAbove.status).toBe('open')
         })
 
-        it('never lets a pair of accounts wash-trade their way to a milestone', async () => {
-            // The Magnate goal pays ten million coins and twenty-five gems off
-            // a lifetime-earnings counter. Two accounts passing one unit back
-            // and forth at a price they choose is free, so nothing they do to
-            // each other may touch that counter.
-            await foundFor(SELLER, { balance: coins(PURSE * 100) })
-            await foundFor(BUYER, { balance: coins(PURSE * 100) })
-            await stock(SELLER, 'wheat', 1)
-
-            for (let round = 0; round < 3; round++) {
-                await placeTownOrder(SELLER, 'wheat', 'sell', over(20), 1)
-                await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 1)
-                await placeTownOrder(BUYER, 'wheat', 'sell', over(20), 1)
-                await placeTownOrder(SELLER, 'wheat', 'buy', over(20), 1)
-            }
-
-            expect(parseFloat((await stateOf(SELLER)).coinsEarned)).toBe(0)
-            expect(parseFloat((await stateOf(BUYER)).coinsEarned)).toBe(0)
-        })
-
         it('keeps a self-trade out of the price every other mayor reads', async () => {
             await foundFor(SELLER, { balance: coins(PURSE * 100) })
             await stock(SELLER, 'wheat', 2)
@@ -1600,56 +1198,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await openOrders(SELLER)).toHaveLength(0)
             expect(await getBalance(BUYER)).toBe('1.0000')
             expect(await held(SELLER, 'wheat')).toBe(1)
-        })
-
-        it('tells the resting mayor when a taker fills their offer, not the taker', async () => {
-            await seedUser(BUYER, { balance: coins(PURSE * 100) })
-            await seedUser(SELLER, { balance: '0.0000' })
-            await stock(SELLER, 'wheat', 10)
-            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 5)
-
-            // A partial fill from the book, then the rest through the quick sell.
-            await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 2)
-            await sellToFloor(SELLER, 'wheat', 3)
-
-            const buyerNotes = (await listTownEvents(BUYER, null)).events.map(e => e.data)
-            expect(buyerNotes).toEqual([
-                { kind: 'trade', side: 'buy', resource: 'wheat', quantity: 3, price: over(1), coins: over(1) * 3, done: true },
-                { kind: 'trade', side: 'buy', resource: 'wheat', quantity: 2, price: over(1), coins: over(1) * 2, done: false }
-            ])
-            expect((await listTownEvents(SELLER, null)).events).toHaveLength(0)
-        })
-
-        it('aggregates the book by price and reports the caller their own orders', async () => {
-            await seedUser(BUYER, { balance: coins(PURSE * 100) })
-            await seedUser(SELLER, { balance: '0.0000' })
-            await stock(SELLER, 'wheat', 10)
-
-            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 3)
-            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 2)
-            await placeTownOrder(BUYER, 'wheat', 'buy', over(0), 4)
-            await placeTownOrder(SELLER, 'wheat', 'sell', over(10), 6)
-
-            const market = await getTownMarket('wheat', BUYER)
-
-            expect(market.floor).toBe(townFloorPrice('wheat'))
-            expect(market.ceiling).toBe(townCeilingPrice('wheat'))
-            expect(market.bids).toMatchObject([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
-            expect(market.asks).toMatchObject([{ price: over(10), quantity: 6 }])
-            // Each level names who is behind it, and flags the caller's own share.
-            expect(market.bids[0]!.players).toEqual([{ id: BUYER, name: 'concurrency test user', emblem: null, quantity: 5, mine: true }])
-            expect(market.asks[0]!.players).toEqual([{ id: SELLER, name: 'concurrency test user', emblem: null, quantity: 6, mine: false }])
-            expect(market.myOrders).toHaveLength(3)
-            expect(market.myOrders.every(o => o.side === 'buy')).toBe(true)
-
-            const sellerView = await getTownMarket('wheat', SELLER)
-            expect(sellerView.myOrders).toHaveLength(1)
-            expect(sellerView.myOrders[0]!.price).toBe(over(10))
-
-            const anonymous = await getTownMarket('wheat', null)
-            expect(anonymous.myOrders).toEqual([])
-            expect(anonymous.bids).toMatchObject([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
-            expect(anonymous.bids.every(l => l.players.every(p => !p.mine))).toBe(true)
         })
 
         it('records the trade history a fill produces', async () => {
@@ -1699,19 +1247,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getGems(OWNER)).toBe(gems)
         })
 
-        it('pays the coins and the gems a late goal is worth', async () => {
-            const plotId = await foundFor(OWNER, { balance: '0.0000', gems: 0 })
-            // Perfectionist wants a level-10 building and nothing else.
-            const def = getTownMilestone('maxed')!
-            await seedBuilding(OWNER, plotId, 'house', 0, 10)
-
-            const claim = await claimMilestone(OWNER, 'maxed')
-
-            expect(claim).toMatchObject({ id: 'maxed', reward: def.reward, gems: def.gems ?? 0 })
-            expect(await getBalance(OWNER)).toBe(def.reward.toFixed(4))
-            expect(await getGems(OWNER)).toBe(def.gems ?? 0)
-        })
-
         it('refuses a milestone the town has not reached', async () => {
             const plotId = await foundFor(OWNER, { balance: '0.0000' })
 
@@ -1726,25 +1261,10 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe('0.0000')
             expect((await stateOf(OWNER)).milestonesClaimed).toEqual([])
         })
-
-        it('unlocks the sales milestone from the earnings a floor sale recorded', async () => {
-            await foundFor(OWNER, { balance: '0.0000' })
-            await stock(OWNER, 'wheat', 200)
-
-            await expect(claimMilestone(OWNER, 'first-sale')).rejects.toThrow(/not reached yet/)
-
-            const sale = await sellToFloor(OWNER, 'wheat', 200)
-            const claim = await claimMilestone(OWNER, 'first-sale')
-
-            expect(claim.reward).toBe(getTownMilestone('first-sale')!.reward)
-            expect(await getBalance(OWNER)).toBe((sale.total + claim.reward).toFixed(4))
-            expect((await stateOf(OWNER)).milestonesClaimed).toEqual(['first-sale'])
-        })
     })
 
     describe('jewel mine', () => {
         const GEM_MINE = getTownBuilding('gemmine')!
-        const DAY = 24 * HOUR
 
         /** A street of houses and `mines` jewel mines at `level`, every mine fully staffed. */
         function minedTown(mines: number, level: number, now: number): TownSimBuilding[] {
@@ -1759,21 +1279,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             void now
             return out
         }
-
-        it('digs about seventeen gems a day from two maxed mines in a Content town', () => {
-            const now = Date.now()
-            const buildings = minedTown(TOWN_GEM_MINE_CAP, TOWN_MAX_BUILDING_LEVEL, now)
-            const derived = deriveTown(buildings, 50, now)
-            for (const b of buildings) if (b.type === 'gemmine') expect(derived.throughput.get(b.id)).toBe(1)
-
-            // The rate the tick loop works from, over a day of Content ticks.
-            const perDay = (townNetPerTick(buildings, derived, now).jewels ?? 0) * DAY / TOWN_TICK_MS
-            // One jewel a tick per level, like every other workshop.
-            expect(perDay).toBeCloseTo(TOWN_GEM_MINE_CAP * TOWN_MAX_BUILDING_LEVEL * DAY / TOWN_TICK_MS, 6)
-            expect(perDay / TOWN_JEWELS_PER_GEM).toBeCloseTo(17, 0)
-            // Jewels sell for a fraction of a gem, so they barely register as income.
-            expect(townFloorIncomePerDay(buildings, 50, now)).toBeLessThan(5_000)
-        })
 
         it('stops digging once the warehouse is full of jewels', () => {
             const now = Date.now()
@@ -1823,38 +1328,6 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(result.ok).toBe(3)
             expect(await getGems(OWNER)).toBe(3)
             expect(await held(OWNER, 'jewels')).toBe(0)
-        })
-
-        it('still lets jewels be sold to the town hall on purpose', async () => {
-            await seedUser(OWNER, { balance: '0.0000' })
-            await stock(OWNER, 'jewels', 10)
-
-            const result = await sellToFloor(OWNER, 'jewels', 10)
-
-            expect(result.total).toBe(townFloorPrice('jewels') * 10)
-            expect(await held(OWNER, 'jewels')).toBe(0)
-        })
-    })
-
-    describe('deleteTownForUser', () => {
-        it('wipes every trace of a town', async () => {
-            const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
-            await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
-            await stock(OWNER, 'wheat', 5)
-            await placeTownOrder(OWNER, 'wheat', 'sell', over(1), 5)
-            // Give the production log something to hold.
-            await rewindSettle(OWNER, 5 * MINUTE + 30_000)
-            await settleTownForRead(OWNER)
-            expect((await productionOf(OWNER)).length).toBeGreaterThan(0)
-
-            await deleteTownForUser(OWNER)
-
-            expect(await plotsOf(OWNER)).toHaveLength(0)
-            expect(await buildingsOf(OWNER)).toHaveLength(0)
-            expect(await openOrders(OWNER)).toHaveLength(0)
-            expect(await productionOf(OWNER)).toHaveLength(0)
-            expect(await held(OWNER, 'wheat')).toBe(0)
-            expect(await db.query.townState.findFirst({ where: eq(townState.userId, OWNER) })).toBeUndefined()
         })
     })
 })

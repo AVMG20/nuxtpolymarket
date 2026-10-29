@@ -9,7 +9,11 @@ import type { TcgServiceKey } from './grading-model-types'
 export const TCG_MARKET = {
     feeRate: 0.05,
     minPrice: 1,
-    maxPrice: 100_000_000,
+    /**
+     * No design cap on prices: this is only what the numeric(19, 4) price and
+     * coin columns hold, so an absurd price is a 400 and never a DB overflow.
+     */
+    maxPrice: 999_999_999_999_999,
     noteMaxLength: 280,
     /**
      * Copies whose numeric serial is at or below this are excluded from the

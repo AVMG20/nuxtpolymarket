@@ -4,7 +4,7 @@ import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import { fitStage, stagePlaceholderWidth } from '~/utils/hero-quest-art/stage-size'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
-import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
+import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, DetailNav, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView, KitTarget } from '~/utils/hero-quest-art/classes-scene'
@@ -16,7 +16,7 @@ import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/
 import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-quest-art/tree-scene'
-import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
+import type { RaidLoadoutOption, RaidRefightView, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { WelcomeView } from '~/utils/hero-quest-art/welcome-card'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
@@ -26,7 +26,7 @@ import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/pa
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
-import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { LOADOUT_NAME_MAX_LENGTH, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { D } from '#shared/utils/hero-quest/numbers'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
@@ -138,7 +138,7 @@ const props = defineProps<{
     chestToast?: ChestToast | null
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
     raidRound?: StageRaid | null
-    /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
+    /** What a raid round or quick-clear paid, shown over the stage until one of its buttons is pressed. */
     raidReward?: RaidRewardView | null
     /** The welcome-back card: what the last stretch away banked, over the battle until it is put away. */
     welcome?: WelcomeView | null
@@ -213,13 +213,16 @@ const emit = defineEmits<{
     gachaClose: []
     /** A setting's control was pressed. */
     setting: [target: SettingsTarget]
-    /** A raid's enter or quick-clear button was pressed. */
+    /** A raid's enter button was pressed. */
     raidEnter: [raidId: RaidId]
-    raidQuick: [raidId: RaidId]
+    /** A quick-clear button was pressed: the raid, and how many clears it takes. */
+    raidQuick: [raidId: RaidId, count: RaidQuickClearCount]
     /** A line of a raid's preferred-Loadout list was pressed: the slot to point at, or null for none. */
     raidLoadout: [raidId: RaidId, slotIndex: number | null]
-    /** The reward popup's button was pressed. */
+    /** The reward popup's Continue (or OK) button was pressed. */
     raidRewardClose: []
+    /** The reward popup's Fight next / Fight again button was pressed: another round of the same raid. */
+    raidRefight: []
     welcomeClose: []
     /** An Arena button was pressed: an attack, a purchase, a defence copy or a claim. */
     arenaAction: [target: ArenaTarget]
@@ -280,12 +283,12 @@ const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
 /** What the Traits scene draws before its payload lands. */
 const EMPTY_TRAITS: TraitsView = {
-    traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, sets: [], saves: [],
+    notation: HQ_SETTING_DEFAULTS.numberNotation, traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, autoAffordable: false, sets: [], saves: [],
     saveCost: 0, saveAffordable: false, boardFull: false, gems: 0, armed: null, roll: null,
     autoGrade: 'S', gradePickerOpen: false
 }
 /** What the tree scene draws before its payload lands. */
-const EMPTY_TREE: TreeView = { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
+const EMPTY_TREE: TreeView = { notation: HQ_SETTING_DEFAULTS.numberNotation, nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
 
 let stage: BattleDemo | null = null
 let backdrops: SceneBackdrops | null = null
@@ -481,10 +484,10 @@ defineExpose({ skipFight, closeIris })
  * The challenge button and the menu band live in the canvas, so the pointer is hit-tested against
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
-type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | `detail:${DetailNav}` | DetailButton
     | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'reward:refight' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
@@ -506,6 +509,26 @@ watch(detail, () => {
     picking.value = false
 })
 const openEntry = computed(() => detail.value === null ? undefined : props.collections?.entries.find(e => e.id === detail.value))
+
+/**
+ * Previous or next from the open entry, through the tab's tiles in grid order, wrapping at either
+ * end. Never while the picker is up, so it can't change what it is placing under the player.
+ */
+function stepDetail(by: -1 | 1) {
+    const entries = props.collections?.entries ?? []
+    const at = entries.findIndex(e => e.id === detail.value)
+    if (at < 0 || picking.value) return
+    detail.value = entries[(at + by + entries.length) % entries.length]!.id
+}
+
+/** The arrow keys step the open detail too; not while a field has the keys. */
+function onDetailKey(e: KeyboardEvent) {
+    if (openScene.value !== 'collections' || detail.value === null || renaming.value) return
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]')) return
+    e.preventDefault()
+    stepDetail(e.key === 'ArrowLeft' ? -1 : 1)
+}
 
 /** The loadout slot open in the detail view; the cards when null. Leaving the scene shuts it, and any rename. */
 const loadoutDetail = ref<number | null>(null)
@@ -581,8 +604,12 @@ function targetAt(e: PointerEvent): Target | null {
         if (!giftReveal.done(props.holidayReveal, sceneTime)) return 'gift:skip'
         return giftHit.onRevealButton(presenter.w, sceneH, x, y) ? 'gift:ok' : null
     }
-    // the reward popup takes every press: only its button does anything
-    if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    // the reward popup takes every press: only its buttons do anything, and neither while a refight is on its way
+    if (props.raidReward) {
+        const at = raidsHit?.raidRewardHoverAt(presenter.w, sceneH, x, y) ?? null
+        if (at === 'ok') return props.raidsBusy ? null : 'reward:ok'
+        return at === 'refight' && refightNow()?.enabled ? 'reward:refight' : null
+    }
     if (props.welcome) return welcomeHit?.onWelcomeButton(presenter.w, sceneH, props.welcome, x, y) ? 'welcome:ok' : null
     if (props.arenaResult) return arenaHit?.onArenaResultButton(presenter.w, sceneH, x, y) ? 'result:ok' : null
     // the party's stats take every press: their close button, or anywhere beside them, shuts them
@@ -619,6 +646,8 @@ function targetAt(e: PointerEvent): Target | null {
         if (tab) return tab !== props.collections?.tab || detail.value ? `tab:${tab}` : null
         if (detail.value) {
             if (collectionsHit.onDetailClose(presenter.w, h, x, y)) return 'close'
+            const nav = collectionsHit.detailNavAt(presenter.w, h, x, y)
+            if (nav) return `detail:${nav}`
             const button = open ? collectionsHit.detailButtonAt(presenter.w, h, open, x, y) : null
             // a button that cannot be pressed is no target
             return button?.enabled && !props.collectionsBusy ? button.id : null
@@ -668,7 +697,7 @@ function targetAt(e: PointerEvent): Target | null {
     if (openScene.value === 'raids' && raidsHit) {
         const at = raidsHit.raidsHoverAt(raidsView.value, x, y)
         // the enter button waits for the fights; until then only the rows are pressed
-        if (at === 'enter' || at === 'quick') return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
+        if (at === 'enter' || raidsHit.isRaidQuickHover(at)) return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
         if (at === 'loadout') return raidsHit.raidLoadoutEnabled(raidsView.value) || raidPicker.value ? 'raid:loadout' : null
         if (at?.startsWith('pick:') && props.raidsBusy) return null
         return at ? `raid:${at}` : null
@@ -736,6 +765,9 @@ function targetAt(e: PointerEvent): Target | null {
 const settingsScroll = ref(0)
 const DRAG_SLOP = 3
 let drag: { pointer: number, y: number, scroll: number, moved: boolean } | null = null
+/** A finger across an open Collections detail: sideways by at least this much, and mostly sideways, steps it. */
+const SWIPE_MIN = 24
+let swipe: { pointer: number, x: number, y: number } | null = null
 /** The scene's height under the band, set once the stage is built. */
 let sceneH = 0
 
@@ -748,21 +780,24 @@ const detailScrollMax = () => collectionsHit && presenter && openEntry.value && 
     ? collectionsHit.detailMaxScroll(presenter.w, sceneH, openEntry.value)
     : 0
 
-/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, or nothing. */
-const scrollKind = computed<'settings' | 'detail' | null>(() => {
+/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, a 100-pull's reveal, or nothing. */
+const scrollKind = computed<'settings' | 'detail' | 'reveal' | null>(() => {
     if (!ready.value) return null
     if (openScene.value === 'settings') return settingsScrollMax() > 0 ? 'settings' : null
     if (openScene.value === 'collections') return detailScrollMax() > 0 ? 'detail' : null
+    if (openScene.value === 'gacha') return gachaHit && props.gacha?.reveal && gachaHit.revealMaxScroll(props.gacha.reveal.cards.length, sceneH) > 0 ? 'reveal' : null
     return null
 })
 const scrollsHere = computed(() => scrollKind.value !== null)
 
 function scrollNow(): number {
+    if (scrollKind.value === 'reveal') return gachaScene?.revealScroll() ?? 0
     return scrollKind.value === 'detail' ? detailScroll.value : settingsScroll.value
 }
 
 function scrollList(to: number) {
-    if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
+    if (scrollKind.value === 'reveal') gachaScene?.scrollReveal(props.gacha!, sceneH, to)
+    else if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
     else settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
 }
 
@@ -908,6 +943,9 @@ function onPointerDown(e: PointerEvent) {
         drag = { pointer: e.pointerId, y: stageY(e), scroll: scrollNow(), moved: false }
         canvas.value?.setPointerCapture(e.pointerId)
     }
+    if (e.pointerType !== 'mouse' && openScene.value === 'collections' && detail.value !== null && !picking.value && presenter && stageY(e) < sceneH) {
+        swipe = { pointer: e.pointerId, x: stageX(e), y: stageY(e) }
+    }
     if (renaming.value) {
         draftAtPress = { ...renaming.value }
         renaming.value = null
@@ -920,6 +958,15 @@ function onPointerDown(e: PointerEvent) {
 function onPointerUp(e: PointerEvent) {
     const dragged = upOffTree(e) || (drag?.moved ?? false)
     drag = null
+    const swiped = swipe?.pointer === e.pointerId && presenter ? { dx: stageX(e) - swipe.x, dy: stageY(e) - swipe.y } : null
+    swipe = null
+    // a swipe steps the detail, and presses nothing where it let go
+    if (swiped && Math.abs(swiped.dx) >= SWIPE_MIN && Math.abs(swiped.dx) > 2 * Math.abs(swiped.dy)) {
+        pressed.value = false
+        hover.value = null
+        stepDetail(swiped.dx < 0 ? 1 : -1)
+        return
+    }
     // a drag scrolled the list or moved the tree; it presses nothing where it let go
     if (dragged) {
         pressed.value = false
@@ -980,6 +1027,7 @@ function onPointerUp(e: PointerEvent) {
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit === 'reward:refight') emit('raidRefight')
     else if (hit === 'welcome:ok') emit('welcomeClose')
     else if (hit === 'result:ok') emit('arenaResultClose')
     else if (hit === 'stats:open') emit('partyStatsOpen')
@@ -1029,7 +1077,7 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('raid:')) {
         const id = hit.slice(5) as Exclude<RaidsHover, null>
         if (id === 'enter') emit('raidEnter', raidSelected.value)
-        else if (id === 'quick') emit('raidQuick', raidSelected.value)
+        else if (raidsHit?.isRaidQuickHover(id)) emit('raidQuick', raidSelected.value, raidsHit.raidQuickCount(id))
         else if (id === 'loadout') raidPicker.value = !raidPicker.value
         else if (id === 'shut') raidPicker.value = false
         else if (id.startsWith('pick:')) {
@@ -1098,6 +1146,7 @@ function onPointerUp(e: PointerEvent) {
         }
     }
     else if (hit.startsWith('tile:')) detail.value = props.collections?.entries[Number(hit.slice(5))]?.id ?? null
+    else if (hit.startsWith('detail:')) stepDetail(hit === 'detail:prev' ? -1 : 1)
     else {
         const tab = hit.slice(4) as HqCollectionTab
         if (tab === props.collections?.tab) detail.value = null
@@ -1125,6 +1174,7 @@ function onPointerLeave(e?: PointerEvent) {
         upOffTree(e)
     }
     drag = null
+    swipe = null
     hover.value = null
     pressed.value = false
     // a press that left the canvas still committed the name it took the focus from
@@ -1170,6 +1220,7 @@ const bandHover = computed(() => HQ_MENU_SCENES.find(s => s === hover.value) ?? 
 const collectionsHover = computed<CollectionsHover>(() => {
     const h = hover.value
     if (h === 'close' || (h && isDetailButton(h))) return h
+    if (h === 'detail:prev' || h === 'detail:next') return h.slice(7) as DetailNav
     if (h?.startsWith('tile:')) return Number(h.slice(5))
     if (h?.startsWith('picker:') && h !== 'picker:outside') return h.slice(7) as PickerTarget
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
@@ -1211,7 +1262,7 @@ const gachaHover = computed<GachaHover>(() => {
 const arenaTab = ref<HqArenaTab>('fight')
 const arenaPage = ref(0)
 const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'> = {
-    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
+    notation: HQ_SETTING_DEFAULTS.numberNotation, busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
     gems: 0, rewards: [], candidates: null, defense: null, shop: [], log: null, board: null,
     loadout: null, loadoutLive: false, loadoutSlot: null, loadoutOptions: []
 }
@@ -1243,6 +1294,13 @@ watch(openScene, () => { raidPicker.value = false })
 const traitGradePicker = ref(false)
 watch(openScene, () => { traitGradePicker.value = false })
 const traitsView = computed<TraitsView | null>(() => props.traits ? { ...props.traits, gradePickerOpen: traitGradePicker.value } : null)
+/** The reward popup's next-fight button off the live rows, so it goes dark once the engage spends the last Key. */
+function refightNow(): RaidRefightView | null {
+    const reward = props.raidReward
+    if (!reward || !raidsHit) return null
+    return raidsHit.raidRefight(reward, props.raids?.find(r => r.id === reward.raidId), !!props.raidsBusy)
+}
+
 const raidsView = computed<RaidsView>(() => ({
     selected: raidSelected.value,
     raids: props.raids ?? [],
@@ -1419,6 +1477,7 @@ onMounted(async () => {
         stage!.calm = calm.value
         stage!.cinematics = prefs.value.skillCinematics
         stage!.numbers = prefs.value.combatNumbers
+        stage!.notation = prefs.value.numberNotation
         if (!props.fight) stage!.feedRun(feed())
         // under a scene the battle still runs and takes its feed, but is not drawn
         const scene = openScene.value
@@ -1432,10 +1491,10 @@ onMounted(async () => {
                         ? classesScene!.render(t, classesView.value, classHover.value, !!props.classesBusy, pressed.value)
                         : scene === 'shop'
                             ? shopTab.value === 'speed'
-                                ? speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
+                                ? speedScene!.render(t, props.speedView ?? { notation: prefs.value.numberNotation, multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
                                 : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0', gold: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
                             : scene === 'gacha'
-                                ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy, prefs.value.fastReveals, calm.value)
+                                ? gachaScene!.render(t, props.gacha ?? { notation: prefs.value.numberNotation, banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy, prefs.value.fastReveals, calm.value)
                                 : scene === 'raids'
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
                                     : scene === 'traits'
@@ -1445,9 +1504,9 @@ onMounted(async () => {
                                     : scene === 'tree'
                                     ? treeScene!.render(t, props.tree ?? EMPTY_TREE, treeCamera(), treeSelected.value, treeHover.value, pressed.value)
                                     : scene === 'calendar' && calendarTab.value === 'milestones'
-                                    ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
+                                    ? milestonesScene!.render(t, props.milestones ?? { rows: [], notation: prefs.value.numberNotation }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'
-                                    ? calendarScene!.render(t, props.calendar ?? { today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
+                                    ? calendarScene!.render(t, props.calendar ?? { notation: prefs.value.numberNotation, today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false, stageSize: stageSize.value }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
@@ -1463,7 +1522,7 @@ onMounted(async () => {
             if (scene === 'battle') chestHit.drawChestToast(view, props.chestToast, t - chestToastAt)
         }
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
-        else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
+        else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, refightNow()!, hover.value === 'reward:ok' ? 'ok' : hover.value === 'reward:refight' ? 'refight' : null, pressed.value, !!props.raidsBusy)
         else if (props.welcome && welcomeHit) welcomeHit.drawWelcome(view, props.welcome, hover.value === 'welcome:ok', pressed.value)
         if (props.arenaResult && arenaHit) arenaHit.drawArenaResult(view, props.arenaResult, hover.value === 'result:ok', pressed.value)
         if (props.partyStats && partyStatsHit) partyStatsHit.drawPartyStats(view, props.partyStats, hover.value?.startsWith('stats:') ? hover.value.slice(6) as PartyStatsTarget : null)
@@ -1478,6 +1537,7 @@ onMounted(async () => {
     observer.observe(frame.value!)
     // a window only made shorter leaves the frame's width alone
     window.addEventListener('resize', fit)
+    window.addEventListener('keydown', onDetailKey)
     fit()
     ready.value = true
 })
@@ -1490,6 +1550,7 @@ onBeforeUnmount(() => {
     stage?.dispose()
     observer?.disconnect()
     window.removeEventListener('resize', fit)
+    window.removeEventListener('keydown', onDetailKey)
 })
 </script>
 

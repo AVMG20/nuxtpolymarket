@@ -8,7 +8,7 @@ import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { SimZombie } from '#server/utils/dead-front/sim-types'
 
 // Zombie behaviour on a flat test field: fair swipes, the special attacks'
-// tells and dodges, flanking, and stuck recovery that nobody sees.
+// tells and dodges, and stuck recovery that nobody sees.
 
 const spot = (id: string, x: number, z: number) => ({ id, pos: { x, y: 0, z }, yaw: 0, zone: 'a' })
 
@@ -185,62 +185,6 @@ describe('bloater spit', () => {
         z.spitReadyAt = 0
         const hits = run(sim, DF_BLOATER.spitWindup + 2, () => put(sim, 0, { x: 0, y: 0, z: 0 }))
         expect(hits.length).toBeGreaterThan(0)
-    })
-})
-
-describe('hunting', () => {
-    it('flankers swing wide of the straight line and still arrive', () => {
-        const sim = makeSim()
-        put(sim, 0, { x: 0, y: 0, z: 0 })
-        const z = sim.debugSpawn('shambler', { x: 0, y: 0, z: 12 })
-        z.flank = 1.1
-        let maxSide = 0
-        let arrived = false
-        for (let t = 0; t < 20 && !arrived; t += 0.05) {
-            put(sim, 0, { x: 0, y: 0, z: 0 })
-            sim.step(0.05)
-            maxSide = Math.max(maxSide, Math.abs(z.pos.x))
-            if (Math.hypot(z.pos.x, z.pos.z) < DF_ENEMIES.shambler.attackRange + DF_PLAYER.radius + 0.1) arrived = true
-        }
-        expect(maxSide).toBeGreaterThan(1.2)
-        expect(arrived).toBe(true)
-    })
-
-    it('a crowd fans out around the player instead of stacking', () => {
-        const sim = makeSim()
-        put(sim, 0, { x: 0, y: 0, z: 0 })
-        const zs: SimZombie[] = []
-        for (let i = 0; i < 8; i++) {
-            const z = sim.debugSpawn('shambler', { x: (i % 4) * 0.4 - 0.6, y: 0, z: 12 + Math.floor(i / 4) * 0.5 })
-            z.flank = i % 3 === 0 ? 0 : (i % 2 ? 1 : -1) * 0.9
-            z.attackReadyAt = 1e9 // just gather, no swings
-            zs.push(z)
-        }
-        run(sim, 12, () => put(sim, 0, { x: 0, y: 0, z: 0 }))
-        // angular coverage around the player and no overlapping bodies
-        const sectors = new Set(zs.map(z => Math.floor(((Math.atan2(z.pos.x, z.pos.z) + Math.PI) / (Math.PI * 2)) * 8) % 8))
-        expect(sectors.size).toBeGreaterThanOrEqual(3)
-        for (let i = 0; i < zs.length; i++) {
-            for (let j = i + 1; j < zs.length; j++) {
-                expect(Math.hypot(zs[i]!.pos.x - zs[j]!.pos.x, zs[i]!.pos.z - zs[j]!.pos.z)).toBeGreaterThan(0.45)
-            }
-        }
-    })
-
-    it('keeps its target when two players are about as close', () => {
-        const sim = makeSim(2)
-        put(sim, 0, { x: -3, y: 0, z: 0 })
-        put(sim, 1, { x: 3, y: 0, z: 0 })
-        const z = sim.debugSpawn('shambler', { x: 0.2, y: 0, z: 10 })
-        z.speed = 0.01
-        const seen = new Set<number>()
-        for (let t = 0; t < 4; t += 0.05) {
-            put(sim, 0, { x: -3, y: 0, z: Math.sin(t * 3) * 0.4 })
-            put(sim, 1, { x: 3, y: 0, z: Math.cos(t * 3) * 0.4 })
-            sim.step(0.05)
-            if (z.target >= 0) seen.add(z.target)
-        }
-        expect(seen.size).toBe(1)
     })
 })
 

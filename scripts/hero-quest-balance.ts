@@ -5,7 +5,7 @@
  * Nitro, no game around it — so untuned constants get their values from projections rather
  * than from guesses that go load-bearing later.
  *
- *   bun run balance:hero-quest --table=time-to-boss --prestige=0 --world=1
+ *   bun scripts/hero-quest-balance.ts --table=time-to-boss --prestige=0 --world=1
  *
  * Tuning order matters — earlier links feed later ones:
  *   stat tiers → enemy base stats → K → BASE_GOLD → GOLD_STEP_BASE
@@ -48,8 +48,11 @@ import {
 import { attacksPerSecondFor, partyDps } from '../shared/utils/hero-quest/combat'
 import { heroStatBlock, partyUnitStats } from '../shared/utils/hero-quest/stats'
 import { CLASS_NODES } from '../shared/utils/hero-quest/content/classes'
-import { ZERO, formatHq, formatSeconds } from '../shared/utils/hero-quest/numbers'
+import { ZERO, formatHq as formatIn, formatSeconds, type DecimalSource } from '../shared/utils/hero-quest/numbers'
 import type { ClassId, HeroSnapshot, HqStatBlock, HqStatKey } from '../shared/utils/hero-quest/types'
+
+// reports read in the short scale, whatever a player picked
+const formatHq = (value: DecimalSource) => formatIn(value, 'standard')
 
 const STAT_KEYS: readonly HqStatKey[] = ['pwr', 'spd', 'lck', 'imp', 'vit', 'def']
 

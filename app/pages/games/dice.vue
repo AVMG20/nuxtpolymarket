@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DiceResult } from '#shared/utils/gamelogic/dice'
+import { DICE_MAX_CHANCE, DICE_MIN_CHANCE, diceMultiplier, type DiceResult } from '#shared/utils/gamelogic/dice'
 
 type DiceHistoryEntry = { roll: number; won: boolean; payout: number; multiplier: number; bet: number }
 
@@ -12,12 +12,12 @@ const lastResult = ref<DiceResult | null>(null)
 const animRoll = ref<number | null>(null)
 const showHelp = ref(false)
 
-const multiplier = computed(() => 98 / winChance.value)
+const multiplier = computed(() => diceMultiplier(winChance.value))
 const totalPayout = computed(() => bet.value * multiplier.value)
 const displayRoll = computed(() => animRoll.value ?? lastResult.value?.roll ?? null)
 
 function clampWC(v: number) {
-  return Math.round(Math.min(96, Math.max(2, v)) * 10) / 10
+  return Math.round(Math.min(DICE_MAX_CHANCE, Math.max(DICE_MIN_CHANCE, v)) * 10) / 10
 }
 
 let animTimer: ReturnType<typeof setTimeout> | null = null
@@ -92,7 +92,7 @@ onUnmounted(() => {
                 <input
                   v-model.number="winChance"
                   :disabled="isRolling"
-                  type="number" min="2" max="96" step="0.1"
+                  type="number" :min="DICE_MIN_CHANCE" :max="DICE_MAX_CHANCE" step="0.1"
                   class="w-16 bg-elevated border border-default rounded-lg px-2 py-1 font-bold font-mono text-sm text-center focus:outline-none focus:border-primary/60 [appearance:textfield] disabled:opacity-40 transition-colors"
                   @change="winChance = clampWC(Number(winChance))"
                 />
@@ -102,7 +102,7 @@ onUnmounted(() => {
             <input
               v-model.number="winChance"
               :disabled="isRolling"
-              type="range" min="2" max="96" step="0.1"
+              type="range" :min="DICE_MIN_CHANCE" :max="DICE_MAX_CHANCE" step="0.1"
               class="w-full accent-primary disabled:opacity-40"
               @input="winChance = clampWC(Number(winChance))"
             />

@@ -1,253 +1,240 @@
 <script setup lang="ts">
-import {
-  PLANT_TYPES, MUTATIONS, MUTATION_OFFSPRING,
-  tierLabel, tierColor, tierBg, tierNameColor, levelTextColor,
-} from '#shared/utils/xeno'
-import { formatDuration } from '~/lib/xeno-format'
+import { useElementBounding, useElementSize, useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
+import { PLANT_TYPES, MUTATIONS, MUTATION_OFFSPRING, getPlant, xenoMutationBoost } from '#shared/utils/xeno'
+import { TIER_NAMES, roman, tierClass } from '~/lib/xeno-ui'
 
-const mutationOffspring = MUTATION_OFFSPRING
-const { unlockedTypeIds, inventory } = useXeno()
-const { virtualEl: cursorEl, track: trackCursor } = useTooltipCursor()
+const route = useRoute()
+const { unlockedTypeIds, inventory, upgrades } = useXeno()
 const sound = useXenoSound()
 
-// A plant type is "discovered" once it has ever been unlocked — permanent.
-const discoveredIds = computed(() => new Set(unlockedTypeIds.value))
-
+// A species is discovered once it has ever been unlocked — permanent.
+const discovered = computed(() => new Set(unlockedTypeIds.value))
 const ownedByType = computed(() => {
   const m = new Map<string, number>()
   for (const i of inventory.value as any[]) m.set(i.typeId, (m.get(i.typeId) ?? 0) + i.quantity)
   return m
 })
 
-const TIER_LABELS: Record<number, string> = {
-  1: 'Starter', 2: 'Developed', 3: 'Advanced', 4: 'Elite', 5: 'Cosmic',
-  6: 'Ethereal', 7: 'Singularity', 8: 'Transcendent', 9: 'Omega',
+/** Undiscovered species whose recipe parents are both discovered. */
+const withinReach = computed(() => {
+  const d = discovered.value
+  return new Set(PLANT_TYPES
+    .filter(p => !d.has(p.id) && MUTATIONS.some(m => m.offspring === p.id && d.has(m.parent1) && d.has(m.parent2)))
+    .map(p => p.id))
+})
+
+type Status = 'known' | 'reach' | 'unknown'
+function status(id: string): Status {
+  return discovered.value.has(id) ? 'known' : withinReach.value.has(id) ? 'reach' : 'unknown'
 }
 
 // ── Filters ──────────────────────────────────────────────────────────────────
-type Filter = 'all' | 'discovered' | 'undiscovered' | 'next'
+type Filter = 'all' | 'known' | 'reach' | 'unknown'
 const filter = ref<Filter>('all')
 const search = ref('')
-const filters: { id: Filter; label: string; icon: string }[] = [
-  { id: 'all', label: 'All', icon: 'i-lucide-layers' },
-  { id: 'discovered', label: 'Discovered', icon: 'i-lucide-check' },
-  { id: 'undiscovered', label: 'Undiscovered', icon: 'i-lucide-lock' },
-  { id: 'next', label: 'Within reach', icon: 'i-lucide-target' },
-]
+const filters = computed(() => [
+  { id: 'all' as const, label: 'All', n: PLANT_TYPES.length },
+  { id: 'known' as const, label: 'Discovered', n: discoveredCount.value },
+  { id: 'reach' as const, label: 'Within reach', n: withinReach.value.size },
+  { id: 'unknown' as const, label: 'Unknown', n: PLANT_TYPES.length - discoveredCount.value - withinReach.value.size }
+])
 function setFilter(f: Filter) {
   if (filter.value === f) return
   filter.value = f
   sound.play('select')
 }
-
-/** Undiscovered species whose every recipe parent has been discovered. */
-const withinReach = computed(() => {
-  const d = discoveredIds.value
-  return new Set(
-    PLANT_TYPES
-      .filter(p => !d.has(p.id))
-      .filter(p => MUTATIONS.some(m => m.offspring === p.id && d.has(m.parent1) && d.has(m.parent2)))
-      .map(p => p.id),
-  )
-})
-
-function matches(p: { id: string; name: string }): boolean {
+function matches(p: { id: string, name: string }) {
   const q = search.value.trim().toLowerCase()
   if (q && !p.name.toLowerCase().includes(q)) return false
-  const d = discoveredIds.value.has(p.id)
-  if (filter.value === 'discovered') return d
-  if (filter.value === 'undiscovered') return !d
-  if (filter.value === 'next') return withinReach.value.has(p.id)
-  return true
+  return filter.value === 'all' || status(p.id) === filter.value
 }
 
-const tiers = computed(() => [...new Set(PLANT_TYPES.map(plant => plant.tier))].sort((a, b) => a - b)
-  .map(t => ({
-    tier: t,
-    label: TIER_LABELS[t],
-    all: PLANT_TYPES.filter(p => p.tier === t),
-    plants: PLANT_TYPES.filter(p => p.tier === t && matches(p)),
-  }))
-  .filter(t => t.plants.length > 0))
+const allTiers = [...new Set(PLANT_TYPES.map(p => p.tier))].sort((a, b) => a - b)
+const tierBars = computed(() => allTiers.map((t) => {
+  const all = PLANT_TYPES.filter(p => p.tier === t)
+  const have = all.filter(p => discovered.value.has(p.id)).length
+  return { tier: t, have, total: all.length }
+}))
+const tiers = computed(() => allTiers
+  .map(t => ({ tier: t, plants: PLANT_TYPES.filter(p => p.tier === t && matches(p)), bar: tierBars.value.find(b => b.tier === t)! }))
+  .filter(t => t.plants.length))
 
-const totalPlants = PLANT_TYPES.length
-const discoveredCount = computed(() => PLANT_TYPES.filter(p => discoveredIds.value.has(p.id)).length)
-const discoveredPct = computed(() => Math.round((discoveredCount.value / totalPlants) * 100))
+const discoveredCount = computed(() => PLANT_TYPES.filter(p => discovered.value.has(p.id)).length)
 
-function parentsOf(plantId: string) {
-  return MUTATIONS.filter(m => m.offspring === plantId)
+// ── Entry ────────────────────────────────────────────────────────────────────
+const fromQuery = String(route.query.species ?? '')
+const isWide = useMediaQuery('(min-width: 1280px)')
+// Until the player picks a species (or links to one), the entry shows the first
+// species within reach, which follows the state once it has loaded.
+const pickedId = ref<string | null>(getPlant(fromQuery) ? fromQuery : null)
+const selectedId = computed(() => pickedId.value ?? PLANT_TYPES.find(p => withinReach.value.has(p.id))?.id ?? PLANT_TYPES[0]!.id)
+const entryOpen = ref(false)
+// Below xl the entry lives in a sheet, so a ?species= link opens it.
+onMounted(() => {
+  if (pickedId.value && !window.matchMedia('(min-width: 1280px)').matches) entryOpen.value = true
+})
+/** A tile reads as selected only where its entry is visible. */
+const showSelected = (id: string) => selectedId.value === id && (isWide.value || entryOpen.value)
+function pick(id: string) {
+  pickedId.value = id
+  sound.play('select')
+  if (!window.matchMedia('(min-width: 1280px)').matches) entryOpen.value = true
 }
-function tierMutations(tier: number) {
-  const tierPlantIds = new Set(PLANT_TYPES.filter(p => p.tier === tier).map(p => p.id))
-  return MUTATIONS.filter(m => tierPlantIds.has(m.offspring))
+const entry = computed(() => getPlant(selectedId.value)!)
+const entryStatus = computed(() => status(entry.value.id))
+const mutationBoost = computed(() => xenoMutationBoost(upgrades.value.mutation))
+const bredFrom = computed(() => MUTATIONS.filter(m => m.offspring === entry.value.id))
+const breedsInto = computed(() => MUTATIONS
+  .filter(m => m.parent1 === entry.value.id || m.parent2 === entry.value.id)
+  .map(m => ({ ...m, other: m.parent1 === entry.value.id ? m.parent2 : m.parent1 })))
+// Bottom fade on the entry while there is more of it below the fold.
+const entryEl = ref<HTMLElement | null>(null)
+const entryFade = ref(false)
+function measureEntry() {
+  const el = entryEl.value
+  entryFade.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 4
 }
+watch(selectedId, () => nextTick(measureEntry))
+useResizeObserver(entryEl, measureEntry)
+
+// The entry follows the scroll on desktop. The site layout scrolls the document
+// past an overflow container, so `position: sticky` never engages: shift the
+// entry down by hand, keeping it inside the list's row.
+const rowEl = ref<HTMLElement | null>(null)
+const asideEl = ref<HTMLElement | null>(null)
+const row = useElementBounding(rowEl)
+const { height: asideHeight } = useElementSize(asideEl, undefined, { box: 'border-box' })
+useEventListener(document, 'scroll', row.update, { capture: true, passive: true })
+const entryOffset = computed(() => Math.round(Math.min(Math.max(0, 16 - row.top.value), Math.max(0, row.height.value - asideHeight.value))))
+
+const statusLabel = computed(() => ({
+  known: { text: 'Discovered', color: 'var(--xg-accent-text)' },
+  reach: { text: 'Within reach', color: 'var(--xg-uv)' },
+  unknown: { text: 'Unknown', color: 'var(--xg-faint)' }
+})[entryStatus.value])
 </script>
 
 <template>
-  <UContainer class="pt-6">
-    <!-- Header -->
-    <div class="xeno-panel xeno-panel-accent rounded-3xl p-5 mb-6 flex flex-wrap items-center gap-5">
-      <div class="relative size-24 shrink-0">
-        <XenoProgressRing :pct="discoveredPct" :size="96" :stroke="6" :ready="discoveredPct >= 100" />
-        <div class="absolute inset-0 flex flex-col items-center justify-center leading-none">
-          <span class="text-lg font-black tabular-nums">{{ discoveredCount }}<span class="text-xs text-muted">/{{ totalPlants }}</span></span>
-          <span class="text-[9px] uppercase tracking-widest text-muted mt-0.5">species</span>
-        </div>
-      </div>
-      <div class="flex-1 min-w-48">
-        <h1 class="text-2xl font-black tracking-tight">Xenopedia</h1>
-        <p v-if="withinReach.size" class="text-sm text-muted mt-0.5">
-          <span class="font-bold text-default">{{ withinReach.size }}</span> undiscovered species can be bred from parents you already own.
+  <div class="mx-auto max-w-[1440px] px-4 md:px-6 pt-5 md:pt-6 flex flex-col gap-4">
+    <div class="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p class="xg-label">Xenopedia</p>
+        <h1 class="xg-h text-2xl md:text-3xl mt-1">
+          <span class="xg-num">{{ discoveredCount }}</span>
+          <span class="text-(--xg-muted) font-medium"> of {{ PLANT_TYPES.length }} species</span>
+        </h1>
+        <p v-if="withinReach.size" class="text-[13px] text-(--xg-muted) mt-1">
+          <b class="text-(--xg-ink)">{{ withinReach.size }}</b> undiscovered species can be bred from parents you have found.
         </p>
       </div>
-      <div class="flex flex-col gap-2 w-full sm:w-auto">
-        <UInput v-model="search" placeholder="Search species…" icon="i-lucide-search" size="sm" class="sm:w-56" />
-        <div class="flex flex-wrap gap-1">
-          <button v-for="f in filters" :key="f.id" class="xeno-tab !py-1 !px-2.5 !text-xs" :class="filter === f.id ? 'xeno-tab-active' : ''" @click="setFilter(f.id)">
-            <UIcon :name="f.icon" class="size-3.5" /> {{ f.label }}
-          </button>
+      <!-- Per-tier completion -->
+      <div class="grid grid-cols-9 gap-1.5 w-full sm:w-auto sm:grid-cols-[repeat(9,48px)]" aria-label="Discovered per tier">
+        <div v-for="b in tierBars" :key="b.tier" class="flex flex-col items-center gap-1" :title="`Tier ${roman(b.tier)}: ${b.have} of ${b.total}`">
+          <span class="xg-meter !h-[5px] w-full"><span :style="{ width: b.have ? `max(6px, ${(b.have / b.total) * 100}%)` : '0', background: `var(--xg-t${b.tier})` }" /></span>
+          <span class="xg-tier !text-[11px]" :class="tierClass(b.tier)">{{ roman(b.tier) }}</span>
+          <span class="xg-num text-[11.5px] font-bold text-(--xg-muted)">{{ b.have }}/{{ b.total }}</span>
         </div>
       </div>
     </div>
 
-    <div v-if="!tiers.length" class="xeno-panel rounded-2xl text-sm text-muted py-12 text-center">No species match.</div>
+    <div class="flex flex-wrap items-center gap-2">
+      <UInput v-model="search" placeholder="Search species" icon="i-lucide-search" size="lg" class="flex-[0_1_300px] min-w-0" :ui="{ base: 'rounded-full' }" aria-label="Search species" />
+      <button
+        v-for="f in filters"
+        :key="f.id"
+        type="button"
+        class="xg-filter"
+        :class="filter === f.id ? 'on' : ''"
+        :aria-pressed="filter === f.id"
+        @click="setFilter(f.id)"
+      >
+        {{ f.label }} <span class="xg-faint xg-num">{{ f.n }}</span>
+      </button>
+    </div>
 
-    <!-- Tier sections -->
-    <div class="space-y-10">
-      <section v-for="{ tier, label, plants, all } in tiers" :key="tier">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border" :class="[tierBg(tier), tierColor(tier)]">Tier {{ tier }}</span>
-          <p class="text-sm font-black" :class="tierColor(tier)">{{ label }}</p>
-          <div class="flex-1 h-px bg-gradient-to-r from-current to-transparent opacity-20" :class="tierColor(tier)" />
-          <div class="flex items-center gap-1.5 text-xs text-muted">
-            <span class="tabular-nums">{{ all.filter(p => discoveredIds.has(p.id)).length }}/{{ all.length }}</span>
-            <div class="w-16 h-1 rounded-full bg-white/10 overflow-hidden">
-              <div class="h-full bg-primary" :style="{ width: `${(all.filter(p => discoveredIds.has(p.id)).length / all.length) * 100}%` }" />
-            </div>
+    <div ref="rowEl" class="flex gap-6 items-start">
+      <section class="flex-1 min-w-0 flex flex-col gap-5">
+        <p v-if="!tiers.length" class="xg-well text-center text-sm text-(--xg-muted) py-12">No species match.</p>
+        <div v-for="t in tiers" :key="t.tier">
+          <div class="flex items-baseline gap-2.5 mb-2">
+            <span class="xg-tier !text-sm !text-(--xg-ink)" :class="tierClass(t.tier)">Tier {{ roman(t.tier) }}</span>
+            <span class="text-xs text-(--xg-muted)">{{ TIER_NAMES[t.tier] }}</span>
+            <span class="xg-num text-xs text-(--xg-faint)">{{ t.bar.have }} of {{ t.bar.total }}</span>
           </div>
-        </div>
-
-        <!-- Mutation recipes -->
-        <div v-if="tierMutations(tier).length && filter === 'all' && !search" class="mb-4">
-          <p class="xeno-eyebrow mb-2">Mutation recipes</p>
-          <div class="flex flex-wrap gap-2">
-            <div
-              v-for="m in tierMutations(tier)"
-              :key="`${m.parent1}-${m.parent2}-${m.offspring}`"
-              class="xeno-panel rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 text-xs transition-opacity"
-              :class="discoveredIds.has(m.offspring) ? '' : withinReach.has(m.offspring) ? 'border-primary/40' : 'opacity-50'"
-              :title="`${m.parent1} + ${m.parent2} → ${m.offspring}`"
+          <div class="grid gap-2 grid-cols-[repeat(auto-fill,minmax(100px,1fr))]">
+            <button
+              v-for="p in t.plants"
+              :key="p.id"
+              type="button"
+              class="relative flex flex-col items-center gap-1 px-1.5 pt-2.5 pb-2 rounded-[18px_18px_18px_5px] border text-center transition-colors"
+              :class="[
+                showSelected(p.id) ? '!border-solid !border-(--xg-accent) shadow-[inset_0_0_0_1px_var(--xg-accent)]' : '',
+                status(p.id) === 'known' ? 'bg-(--xg-surface2) border-(--xg-edge) hover:border-(--xg-edge2)'
+                : status(p.id) === 'reach' ? 'bg-(--xg-surface2) border-dashed border-(--xg-uv-edge) hover:border-(--xg-uv)'
+                  : 'bg-transparent border-dashed border-(--xg-edge2) text-(--xg-faint)'
+              ]"
+              :aria-pressed="showSelected(p.id)"
+              :aria-label="status(p.id) === 'unknown' ? `Unknown tier ${p.tier} species` : `${p.name}, ${status(p.id) === 'known' ? 'discovered' : 'within reach'}`"
+              @click="pick(p.id)"
             >
-              <XenoPlantIcon :id="m.parent1" :size="18" :class="discoveredIds.has(m.parent1) ? '' : 'xeno-silhouette'" />
-              <span class="text-muted">+</span>
-              <XenoPlantIcon :id="m.parent2" :size="18" :class="discoveredIds.has(m.parent2) ? '' : 'xeno-silhouette'" />
-              <span class="text-muted">→</span>
-              <XenoPlantIcon :id="m.offspring" :size="18" :class="discoveredIds.has(m.offspring) ? '' : 'xeno-silhouette'" />
-              <span class="font-semibold" :class="m.chance > 0 ? 'text-muted' : 'text-error/80'">{{ (m.chance * 100).toFixed(0) }}%</span>
-              <UIcon v-if="withinReach.has(m.offspring)" name="i-lucide-target" class="size-3 text-primary" title="Both parents discovered" />
-            </div>
+              <span class="size-16 flex items-center justify-center">
+                <span v-if="status(p.id) === 'unknown'" class="size-11 rounded-[14px_14px_14px_4px] border-[1.5px] border-dashed border-(--xg-edge2) flex items-center justify-center font-bold text-lg text-(--xg-faint)">?</span>
+                <XenoPlantIcon v-else :id="p.id" :size="64" stage="ready" :silhouette="status(p.id) === 'reach'" />
+              </span>
+              <b class="text-xs leading-tight line-clamp-2">{{ status(p.id) === 'unknown' ? '???' : p.name }}</b>
+              <span class="text-[11.5px] font-bold" :class="status(p.id) === 'known' ? 'text-(--xg-muted)' : status(p.id) === 'reach' ? 'text-(--xg-uv)' : 'text-(--xg-faint)'">
+                <template v-if="status(p.id) === 'known'">{{ p.voidPlant ? 'Void' : MUTATION_OFFSPRING.has(p.id) ? 'Mutation' : p.isStarter ? 'Starter' : 'Found' }}<template v-if="ownedByType.get(p.id)"> · ×{{ formatNumber(ownedByType.get(p.id)!) }}</template></template>
+                <template v-else-if="status(p.id) === 'reach'">Within reach</template>
+                <template v-else>Unknown</template>
+              </span>
+            </button>
           </div>
-        </div>
-
-        <!-- Plant cards grid -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          <UTooltip
-            v-for="plant in plants" :key="plant.id"
-            :delay-duration="200" :reference="cursorEl" :content="{ side: 'bottom', sideOffset: 12 }"
-          >
-            <template #content>
-              <div class="w-64 p-3 space-y-3 bg-elevated border border-default rounded-xl shadow-xl">
-                <div class="flex items-start justify-between gap-2">
-                  <div class="flex items-center gap-2">
-                    <XenoPlantIcon :id="plant.id" :size="28" :class="discoveredIds.has(plant.id) ? '' : 'xeno-silhouette'" />
-                    <div>
-                      <p class="font-bold text-sm" :class="discoveredIds.has(plant.id) ? '' : 'text-default/50'">{{ plant.name }}</p>
-                      <span class="text-xs font-bold uppercase tracking-wider" :class="discoveredIds.has(plant.id) ? tierColor(plant.tier) : 'text-muted/40'">
-                        {{ tierLabel(plant.tier) }}
-                        <span v-if="plant.voidPlant"> · Void</span>
-                        <span v-else-if="mutationOffspring.has(plant.id)"> · Mutation</span>
-                        <span v-else-if="plant.isStarter"> · Starter</span>
-                      </span>
-                    </div>
-                  </div>
-                  <UIcon v-if="!discoveredIds.has(plant.id)" name="i-lucide-lock" class="size-4 text-muted/40 shrink-0 mt-0.5" />
-                  <span v-else-if="ownedByType.get(plant.id)" class="text-xs font-black text-primary tabular-nums">×{{ ownedByType.get(plant.id) }}</span>
-                </div>
-
-                <USeparator />
-                <div class="space-y-1.5" :class="discoveredIds.has(plant.id) ? '' : 'opacity-40'">
-                  <XenoStatLevel label="Speed" :level="plant.speed" color="bg-warning" />
-                  <XenoStatLevel label="Yield" :level="plant.yield" color="bg-info" />
-                </div>
-
-                <USeparator />
-                <div class="space-y-1" :class="discoveredIds.has(plant.id) ? '' : 'opacity-40'">
-                  <div class="flex justify-between text-xs"><span class="text-muted uppercase tracking-wider font-semibold">Growth</span><span class="font-mono">{{ formatDuration(plant.baseTime) }}</span></div>
-                  <div class="flex justify-between text-xs"><span class="text-muted uppercase tracking-wider font-semibold">Incubation</span><span class="font-mono">{{ formatDuration(plant.baseTime * 2) }}</span></div>
-                  <div class="flex justify-between text-xs"><span class="text-muted uppercase tracking-wider font-semibold">Yield</span><span class="font-mono">1–{{ 1 + plant.yield }}</span></div>
-                  <div class="flex justify-between text-xs"><span class="text-muted uppercase tracking-wider font-semibold">Value</span><CoinBalance :value="plant.value" /></div>
-                </div>
-
-                <USeparator />
-                <div>
-                  <p class="text-xs font-bold uppercase tracking-wider text-muted mb-1.5">{{ discoveredIds.has(plant.id) ? 'How to get' : 'How to unlock' }}</p>
-                  <p v-if="plant.isStarter" class="text-xs text-muted">Starter plant — available from the beginning.</p>
-                  <div v-else-if="parentsOf(plant.id).length" class="space-y-1">
-                    <div v-for="m in parentsOf(plant.id)" :key="`${m.parent1}-${m.parent2}`" class="text-xs text-muted flex items-center gap-1">
-                      <XenoPlantIcon :id="m.parent1" :size="16" :class="discoveredIds.has(m.parent1) ? '' : 'xeno-silhouette'" />
-                      <span>+</span>
-                      <XenoPlantIcon :id="m.parent2" :size="16" :class="discoveredIds.has(m.parent2) ? '' : 'xeno-silhouette'" />
-                      <span class="text-muted/60">→</span>
-                      <span class="font-semibold" :class="m.chance > 0 ? 'text-default' : 'text-error'">{{ (m.chance * 100).toFixed(1) }}%</span>
-                      <span v-if="m.chance <= 0" class="text-[10px] text-error/80">needs mutation artifact</span>
-                    </div>
-                  </div>
-                  <p v-else class="text-xs text-muted">No known recipe.</p>
-                  <p v-if="plant.voidPlant" class="text-xs text-secondary mt-1.5 font-semibold">🌑 Void plant — needs a tier II+ artifact in its plot to grow.</p>
-                </div>
-
-                <p v-if="plant.description" class="text-xs italic" :class="discoveredIds.has(plant.id) ? 'text-muted/70' : 'text-muted/40'">{{ plant.description }}</p>
-              </div>
-            </template>
-
-            <!-- Card -->
-            <div
-              class="xeno-lift rounded-2xl border aspect-square flex flex-col overflow-hidden cursor-default relative"
-              :class="discoveredIds.has(plant.id) ? tierBg(plant.tier) : withinReach.has(plant.id) ? 'bg-elevated/30 border-primary/30 border-dashed' : 'bg-elevated/20 border-default/50'"
-              @mousemove.passive="trackCursor"
-            >
-              <div class="flex items-center justify-between px-2 pt-2 shrink-0">
-                <XenoTierLabel :tier="plant.tier" :class="!discoveredIds.has(plant.id) && 'opacity-30'" />
-                <span v-if="plant.voidPlant && discoveredIds.has(plant.id)" class="text-xs leading-none" title="Void plant">🌑</span>
-                <span v-else-if="mutationOffspring.has(plant.id) && discoveredIds.has(plant.id)" class="text-xs leading-none" title="Mutation">✨</span>
-                <UIcon v-else-if="withinReach.has(plant.id)" name="i-lucide-target" class="size-3.5 text-primary" title="Both parents discovered" />
-                <UIcon v-else-if="!discoveredIds.has(plant.id)" name="i-lucide-lock" class="size-3 text-muted/25" />
-              </div>
-
-              <div class="flex-1 flex items-center justify-center relative">
-                <div v-if="discoveredIds.has(plant.id)" class="absolute size-16 rounded-full bg-current opacity-[0.07] blur-xl" :class="tierColor(plant.tier)" />
-                <XenoPlantIcon :id="plant.id" :size="64" class="relative transition-all" :class="discoveredIds.has(plant.id) ? 'xeno-sway' : 'xeno-silhouette'" />
-                <span v-if="!discoveredIds.has(plant.id)" class="absolute text-2xl font-black text-muted/40 select-none">?</span>
-              </div>
-
-              <p class="text-xs font-bold text-center px-1.5 mb-1.5 truncate" :class="discoveredIds.has(plant.id) ? tierNameColor(plant.tier) : 'text-muted/40'">
-                {{ discoveredIds.has(plant.id) ? plant.name : (withinReach.has(plant.id) ? plant.name : '???') }}
-              </p>
-
-              <div class="flex divide-x divide-default/40 border-t border-default/40" :class="!discoveredIds.has(plant.id) && 'opacity-20'">
-                <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
-                  <UIcon name="i-lucide-zap" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'" />
-                  <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.speed) : 'text-muted'">{{ plant.speed }}</span>
-                </div>
-                <div class="flex-1 flex items-center justify-center gap-1 py-1.5">
-                  <UIcon name="i-lucide-gem" class="size-3 shrink-0" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'" />
-                  <span class="text-xs font-black tabular-nums" :class="discoveredIds.has(plant.id) ? levelTextColor(plant.yield) : 'text-muted'">{{ plant.yield }}</span>
-                </div>
-              </div>
-            </div>
-          </UTooltip>
         </div>
       </section>
+
+      <!-- Entry (xl+) -->
+      <!-- Sized to its content; only a very long entry scrolls, with a fade at the cut. -->
+      <aside ref="asideEl" class="hidden xl:flex xg-pane xg-pane-r flex-col w-[420px] 2xl:w-[460px] shrink-0 max-h-[calc(100svh-2rem)] overflow-hidden will-change-transform" :style="{ transform: `translateY(${entryOffset}px)` }" aria-label="Species entry">
+        <div
+          ref="entryEl"
+          class="flex flex-col gap-3.5 p-5 min-h-0 overflow-y-auto"
+          :style="entryFade ? { maskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)', WebkitMaskImage: 'linear-gradient(to bottom, #000 calc(100% - 48px), transparent)' } : undefined"
+          @scroll.passive="measureEntry"
+        >
+          <XenoEncyclopediaEntry
+            :plant="entry"
+            :status="entryStatus"
+            :status-label="statusLabel"
+            :owned="ownedByType.get(entry.id) ?? 0"
+            :bred-from="bredFrom"
+            :breeds-into="breedsInto"
+            :discovered="discovered"
+            :mutation-boost="mutationBoost"
+            @pick="pick"
+          />
+        </div>
+      </aside>
     </div>
-  </UContainer>
+  </div>
+
+  <USlideover
+    v-model:open="entryOpen"
+    title="Xenopedia"
+    side="right"
+    :ui="{ content: 'xeno max-w-md bg-(--xg-surface)', header: 'border-(--xg-edge)', body: 'flex flex-col gap-3.5' }"
+  >
+    <template #body>
+      <XenoEncyclopediaEntry
+        :plant="entry"
+        :status="entryStatus"
+        :status-label="statusLabel"
+        :owned="ownedByType.get(entry.id) ?? 0"
+        :bred-from="bredFrom"
+        :breeds-into="breedsInto"
+        :discovered="discovered"
+        :mutation-boost="mutationBoost"
+        @pick="pick"
+      />
+    </template>
+  </USlideover>
 </template>

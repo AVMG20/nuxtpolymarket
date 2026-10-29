@@ -71,7 +71,7 @@ export const GM_MIN_STAKE = 100
  * rather than riding `CASINO_MAX_BET`. Kept low while the game is unlisted.
  */
 export const GM_MAX_STAKE = 10_000
-/** Cash per stake at the cash-out. Tuned by `bun run balance:gold-miner` so a near-perfect player only just breaks even. */
+/** Cash per stake at the cash-out. Tuned by `bun scripts/gold-miner-rtp.ts` so a near-perfect player only just breaks even. */
 export const GM_CASH_PER_STAKE = 7500
 
 /**

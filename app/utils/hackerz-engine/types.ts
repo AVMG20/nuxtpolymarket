@@ -165,6 +165,8 @@ export interface EnemyEntity {
     phaseMs?: number
     /** Where the glitching picture has skipped to, off its true spot (world units), and for how many more frames. */
     glitchJump?: { x: number, y: number, z: number, frames: number }
+    /** The field spot it was last drawn at, before any glitch skip: where a packet-loss spike's frozen picture stands. */
+    seen?: { u: number, d: number }
     /** Health fraction the bar's draining trail stands at (overlay only). */
     hpTrail?: number
     /** A Database demo's unit: the waypoints it walks in place of its own judgement (see `puppetStep`). */
@@ -173,6 +175,31 @@ export interface EnemyEntity {
     pulseTimer: number
     /** In position at a node and hacking it: its terminal is open. */
     hacking: boolean
+}
+
+/** Where a unit is headed this frame. */
+export interface RouteGoal {
+    /** Depth to stop at: the fence's standoff, or a proxy wall. */
+    stopD: number
+    /** Arrived early: true once the unit is close enough to do its job from where it stands. */
+    near?: (u: number, d: number) => boolean
+}
+
+/** What a projectile carries, whoever fired it. */
+export interface ShotSpec {
+    damage: number
+    pierce: number
+    damageType: HackerzDamageType
+    splashRadius: number
+    splashDamage: number
+    homing: boolean
+    chain: number
+    chainFalloff: number
+    speed: number
+    hex: number
+    projectile: HackerzProjectile
+    crit: boolean
+    fromTurret: boolean
 }
 
 export interface BulletEntity {

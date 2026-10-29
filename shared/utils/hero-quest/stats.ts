@@ -9,6 +9,7 @@ import {
     BASE_THREAT,
     CHAMPION_INVESTMENT_PER_POINT,
     CHAMPION_PASSIVE_PER_POINT,
+    CLASS_TIER_PWR_MULTIPLIER,
     LCK_BASE_SCALE,
     MAX_EVASION,
     MIN_STAT_VALUE,
@@ -190,10 +191,12 @@ export function heroStatBlock(
     /** Gear + Skill passives + Artifacts, already merged. */
     modifiers?: Record<HqStatKey, number>
 ): HqStatBlock {
-    const base = baseSpreadFor(getClass(classId))
+    const node = getClass(classId)
+    const base = baseSpreadFor(node)
     const block = {} as HqStatBlock
     for (const key of STAT_KEYS) {
         block[key] = statAtLevelFor(key, base[key], heroLevel)
+            .mul(key === 'pwr' ? CLASS_TIER_PWR_MULTIPLIER[node.tier] : 1)
             .mul(passive?.[key] ?? 1)
             .mul(Math.max(0, modifiers?.[key] ?? 1))
     }

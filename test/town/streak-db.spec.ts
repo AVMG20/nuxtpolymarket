@@ -40,25 +40,24 @@ async function wallet() {
 
 describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
     let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
 
     beforeEach(async () => {
-        await cleanup()
         await seedUser(OWNER, { balance: '100000000', gems: 0 })
         await foundTown(OWNER)
     })
     afterEach(cleanup)
     afterAll(async () => { await releaseRealm() })
 
-    it('unlocks day 1 once, however many requests race for it', async () => {
-        const results = await Promise.all(Array.from({ length: 8 }, () => getTownStreak(OWNER)))
-        expect(results.filter(r => r.initialized && r.advancedToday)).toHaveLength(1)
+    it('unlocks day 1 once, then advances once a day and once after missed days, however many requests race', async () => {
+        const first = await Promise.all(Array.from({ length: 8 }, () => getTownStreak(OWNER)))
+        expect(first.filter(r => r.initialized && r.advancedToday)).toHaveLength(1)
         expect((await streakRow()).step).toBe(1)
-    })
 
-    it('advances once on the next day, and once after missed days', async () => {
         const today = townStreakDayKey(Date.now())
-        await getTownStreak(OWNER)
         await db.update(townStreak).set({ step: 4, lastDay: townStreakYesterday(today) }).where(eq(townStreak.userId, OWNER))
         const results = await Promise.all(Array.from({ length: 8 }, () => getTownStreak(OWNER)))
         expect(results.filter(r => r.initialized && r.advancedToday)).toHaveLength(1)
@@ -75,32 +74,27 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         expect((await streakRow()).step).toBe(6)
     })
 
-    it('pays a claimed step once under a burst', async () => {
-        await getTownStreak(OWNER)
-        await db.update(townStreak).set({ step: 4 }).where(eq(townStreak.userId, OWNER))
-        const before = await wallet()
-        const { ok } = await burst(10, () => claimTownStreakStep(OWNER, 4))
-        expect(ok).toBe(1)
-        const after = await wallet()
-        expect(after.gems - before.gems).toBe(DAY4_GEMS)
-        expect((await streakRow()).claimed).toBe(townStreakBit(4))
-    })
-
-    it('locks a step at unlock, so growing the town before a late claim pays nothing extra', async () => {
+    it('pays a claimed step once under a burst, at the reward locked when it unlocked', async () => {
         await getTownStreak(OWNER)
         const locked = (await streakRow()).locked['1']
         expect(locked?.reward?.coins).toBeGreaterThan(0)
         // Pretend the town got much richer since: the lock, not the town, decides the payout.
-        await db.update(townStreak).set({ locked: { 1: { ...locked!, reward: { ...locked!.reward!, coins: 12_345 } } } }).where(eq(townStreak.userId, OWNER))
+        await db.update(townStreak).set({ step: 4, locked: { 1: { ...locked!, reward: { ...locked!.reward!, coins: 12_345 } } } }).where(eq(townStreak.userId, OWNER))
         const before = await wallet()
         await claimTownStreakStep(OWNER, 1)
         expect((await wallet()).balance - before.balance).toBeCloseTo(12_345, 0)
+
+        const { ok } = await burst(10, () => claimTownStreakStep(OWNER, 4))
+        expect(ok).toBe(1)
+        expect((await wallet()).gems - before.gems).toBe(DAY4_GEMS)
+        expect((await streakRow()).claimed).toBe(townStreakBit(1) | townStreakBit(4))
     })
 
-    it('refuses a locked step', async () => {
+    it('refuses a locked step, and refuses to reset an active track', async () => {
         await getTownStreak(OWNER)
         await expect(claimTownStreakStep(OWNER, 2)).rejects.toMatchObject({ statusCode: 400 })
         await expect(claimTownStreakStep(OWNER, 0)).rejects.toMatchObject({ statusCode: 400 })
+        await expect(resetTownStreak(OWNER)).rejects.toMatchObject({ statusCode: 400 })
     })
 
     it('resets a finished track once, paying every unclaimed step', async () => {
@@ -165,10 +159,5 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         await resetTownStreak(OWNER)
         expect(await streakRow()).toMatchObject({ step: 1, lastDay: today, cycle: 2 })
         expect(Object.keys((await streakRow()).locked)).toEqual(['1'])
-    })
-
-    it('refuses to reset an active track', async () => {
-        await getTownStreak(OWNER)
-        await expect(resetTownStreak(OWNER)).rejects.toMatchObject({ statusCode: 400 })
     })
 })

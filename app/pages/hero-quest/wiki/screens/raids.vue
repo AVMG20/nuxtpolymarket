@@ -8,6 +8,8 @@ import { RAID_KEY_CAP, raidReward } from '#shared/utils/hero-quest/raids'
  * `raidReward`, the function that pays them, so a retuned ladder shows up here unedited.
  */
 
+const { fmt } = useHqNotation()
+
 const FIGHT: Readonly<Record<RaidFightType, string>> = {
     solo_boss: `One boss, alone. Bring it down within ${RAID_ENRAGE_SECONDS} seconds.`,
     training_dummy: `A dummy that never falls and never hits back. Deal as much damage as you can in ${RAID_DUMMY_SECONDS} seconds: the damage decides the level reached.`,
@@ -40,20 +42,22 @@ const showcase = [
     { term: 'LV n (top right)', text: 'Boss raids only: the level the next Enter fights, one past your best.' },
     { term: 'Pays', text: 'The currency this raid pays, with its icon.' },
     { term: 'Keys / cap', text: 'Keys held, and how many the daily grant fills up to.' },
-    { term: `+${RAID_KEYS_PER_DAY} every day`, text: 'The daily grant of that raid\'s Keys.' }
+    { term: `+${RAID_KEYS_PER_DAY} a day`, text: 'The daily grant of that raid\'s Keys.' }
 ]
 
 const buttons = [
     { term: 'Enter', text: 'Fights the raid, played out on the battle screen, then shows the result. Needs at least one Key.', tone: 'text-error' },
     { term: 'Quick', text: 'Spends one Key and pays your best level at once, without a fight. Needs a best level, so play a round first. It never raises your best.', tone: 'text-success' },
+    { term: '×5 / ×10', text: 'Five or ten quick-clears in one press: a Key and your best level\'s reward each. Greyed out until you hold that many Keys.', tone: 'text-success' },
     { term: 'Loadout', text: 'Picks a saved Loadout to put on whenever you enter this raid, or none. Free. The label turns green while that Loadout is on, and your own setup comes back when you leave the Raids screen.', tone: 'text-info' }
 ]
 
 const result = [
     { term: 'NEW BEST', text: 'This run beat your best level.', tone: 'text-success' },
-    { term: '+n', text: 'What the run paid.' },
+    { term: '+n', text: 'What the run paid; after a ×5 or ×10 quick-clear, all of them together.' },
     { term: 'DEFEATED', text: 'A boss raid lost: no Key spent, nothing paid.', tone: 'text-error' },
-    { term: 'Continue / OK', text: 'Back to the Raids screen.' }
+    { term: 'Continue / OK', text: 'Back to the Raids screen.' },
+    { term: 'Fight next / Fight again', text: 'Fights the raid again straight away. Fight next after a boss win or a quick-clear, one past your best; Fight again after a boss loss, and always for the Training Grounds and the Shardcaller Beast. Greyed out with no Keys left.', tone: 'text-error' }
 ]
 </script>
 
@@ -95,7 +99,7 @@ const result = [
               v-for="reward in raid.rewards"
               :key="reward.level"
               class="ml-2"
-            >{{ reward.level }}: {{ reward.amount.toLocaleString('en-US') }}</span>
+            >{{ reward.level }}: {{ fmt(reward.amount) }}</span>
           </p>
         </div>
       </div>

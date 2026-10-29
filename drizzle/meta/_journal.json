@@ -442,6 +442,13 @@
       "when": 1792400944027,
       "tag": "0062_tricky_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1793027505512,
+      "tag": "0063_rare_otto_octavius",
+      "breakpoints": true
     }
   ]
 }

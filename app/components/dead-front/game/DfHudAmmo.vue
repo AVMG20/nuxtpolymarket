@@ -1,7 +1,11 @@
 <template>
     <div class="df-ammo" :class="{ low: low && !ammo.reloading, reloading: ammo.reloading, pap: ammo.pap > 0 }" :style="papStyle">
-        <!-- name plate with Pack-a-Punch tier blocks; pops on every weapon change -->
-        <div :key="swapKey" class="plate">
+        <!-- name plate: the rarity as a labelled chip and the plate's edge, Pack-a-Punch tier blocks; pops on every weapon change -->
+        <div :key="swapKey" class="plate" :class="{ rare: tier > 0 }" :style="{ '--r': rarity.color }">
+            <span v-if="tier > 0" class="rarity" :aria-label="`${rarity.name} rarity`">
+                <i v-for="i in 3" :key="i" :class="{ on: i <= tier }" />
+                {{ rarity.name }}
+            </span>
             <span class="name">{{ ammo.name }}</span>
             <span v-if="ammo.pap > 0" class="gems" :aria-label="`Pack-a-Punch tier ${ammo.pap}`">
                 <i v-for="i in 3" :key="i" :class="{ on: i <= ammo.pap }" :style="{ '--g': DF_PAP_COLORS[i - 1] }" />
@@ -41,6 +45,7 @@
 // Bottom-right ammo: the weapon's name plate (with Pack-a-Punch tier blocks),
 // a big magazine count over the reserve, and the cartridges left as blocks.
 import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
+import { dfClampRarity, dfRarity } from '#shared/utils/dead-front/rarity'
 import type { DfHudState } from '~/utils/dead-front/engine/hud'
 
 const props = defineProps<{
@@ -50,6 +55,10 @@ const props = defineProps<{
     swapKey: number
 }>()
 
+// rarity (rarity.ts): the name stays chalk on a dark plate; the tier shows as a
+// labelled chip with pips, the plate's edge and a wash of its colour
+const tier = computed(() => dfClampRarity(props.ammo.rarity))
+const rarity = computed(() => dfRarity(tier.value))
 const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[Math.min(3, props.ammo.pap) - 1] } : {}))
 </script>
 
@@ -62,18 +71,49 @@ const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[M
 }
 
 .plate {
+    --edge: var(--df-brass);
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.28rem 0.6rem 0.24rem;
-    color: #261a05;
-    background: #e2b24f;
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, inset 0 2px 0 rgba(255, 250, 220, 0.6), inset 0 -3px 0 rgba(110, 70, 10, 0.5);
+    gap: 0.55rem;
+    padding: 0.3rem 0.65rem 0.28rem 0.75rem;
+    color: var(--df-chalk);
+    background: rgba(12, 14, 16, 0.88);
+    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, inset 4px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, 0.6);
     animation: df-plate 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
 }
 
+.plate.rare {
+    --edge: var(--r);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--r) 30%, rgba(12, 14, 16, 0.9)), rgba(12, 14, 16, 0.9) 75%);
+}
+
 .pap .plate {
-    background: color-mix(in srgb, var(--pap) 55%, #e2b24f);
+    box-shadow: 0 -2px 0 var(--pap), 0 2px 0 var(--pap), -2px 0 0 var(--pap), 2px 0 0 var(--pap), inset 4px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.rarity {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px 1px 5px;
+    font-family: var(--df-font-type);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--r);
+    background: rgba(0, 0, 0, 0.55);
+    box-shadow: inset 0 0 0 1px var(--r);
+}
+
+.rarity i {
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.15);
+    transform: rotate(45deg);
+}
+
+.rarity i.on {
+    background: var(--r);
 }
 
 .name {
@@ -95,8 +135,8 @@ const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[M
 .gems i {
     width: 8px;
     height: 8px;
-    background: rgba(40, 25, 5, 0.35);
-    box-shadow: 0 0 0 1px #261a05;
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 1px #000;
 }
 
 .gems i.on {

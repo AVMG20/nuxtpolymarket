@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useEventListener } from '@vueuse/core'
 import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
@@ -24,13 +25,32 @@ watch(() => route.fullPath, () => {
   }
 })
 
-function customizeSidebar() {
+const recentGames = useRecentGames()
+onMounted(() => {
+  watch(() => route.path, path => recentGames.track(path), { immediate: true })
+  // Starts syncing the sidebar, and switches it over when the account changes
+  watch(() => user.value?.id, () => navLayout.init(), { immediate: true })
+})
+
+// Resetting throws away every folder, so the first click only arms it
+const resetArmed = ref(false)
+let resetTimer: ReturnType<typeof setTimeout> | undefined
+async function resetSidebar() {
+  if (!resetArmed.value) {
+    resetArmed.value = true
+    clearTimeout(resetTimer)
+    resetTimer = setTimeout(() => resetArmed.value = false, 3000)
+    return
+  }
+  clearTimeout(resetTimer)
+  resetArmed.value = false
   menuOpen.value = false
-  open.value = true
-  navLayout.editing.value = true
+  await navLayout.reset()
 }
 
 async function signOut() {
+  // Pending sidebar edits must go out under this account's session
+  await Promise.race([navLayout.flush(), new Promise(resolve => setTimeout(resolve, 2000))])
   await authSignOut({ redirectTo: '/login' })
 }
 
@@ -77,6 +97,14 @@ function setNeutral(color: string) {
 }
 
 const globalSearch = useGlobalSearch()
+
+// Boss key: ` swaps the app for a spreadsheet
+const sheetMode = useSheetMode()
+useEventListener('keydown', (e: KeyboardEvent) => {
+  if (!isSheetModeKey(e)) return
+  e.preventDefault()
+  sheetMode.enter()
+})
 </script>
 
 <template>
@@ -88,7 +116,7 @@ const globalSearch = useGlobalSearch()
       rail
       :ui="{
         header: 'px-3 pt-3 pb-3 flex-col items-stretch gap-2.5 min-h-14',
-        body: 'p-3 gap-0 [scrollbar-width:thin]',
+        body: 'nav-scroll p-3 gap-0',
         footer: 'flex-col items-stretch gap-2 p-3'
       }"
     >
@@ -299,12 +327,25 @@ const globalSearch = useGlobalSearch()
                 <UButton
                   block
                   class="justify-start"
-                  color="neutral"
-                  icon="i-lucide-sliders-horizontal"
-                  label="Customize sidebar"
-                  variant="ghost"
-                  @click="customizeSidebar"
+                  :color="resetArmed ? 'error' : 'neutral'"
+                  :variant="resetArmed ? 'soft' : 'ghost'"
+                  icon="i-lucide-rotate-ccw"
+                  :label="resetArmed ? 'Click again to reset' : 'Reset sidebar'"
+                  @click="resetSidebar"
                 />
+                <UButton
+                  block
+                  class="justify-start"
+                  color="neutral"
+                  icon="i-lucide-sheet"
+                  label="Spreadsheet mode"
+                  variant="ghost"
+                  @click="menuOpen = false; sheetMode.enter()"
+                >
+                  <template #trailing>
+                    <UKbd size="sm" class="ml-auto">`</UKbd>
+                  </template>
+                </UButton>
                 <UButton
                   block
                   class="justify-start"
@@ -372,5 +413,7 @@ const globalSearch = useGlobalSearch()
     </div>
 
     <GlobalSearchModal />
+    <NavDragLayer />
+    <NavFolderDialog />
   </div>
 </template>

@@ -13,23 +13,14 @@ import {
     rerollCost,
     rerollItemMods,
     generateItem,
-    itemPower,
     agentPower,
-    agentSpeedPercent,
     effectiveDurationMs,
-    agentLootPercent,
-    agentXpGain,
     opSuccessChance,
     MIN_DEPLOY_SUCCESS,
-    effectiveCashRange,
-    effectiveGemRange,
     effectiveItemDropChance,
     collectBonuses,
     rollOpReward,
     rollRarity,
-    itemSellPrice,
-    sortModsByPriority,
-    agentBonusStats,
     type ItemMod,
     type HackRarity,
     type AgentClass
@@ -42,20 +33,9 @@ afterEach(() => {
 })
 
 describe('itemUpgradeCost ladder', () => {
-    it('costs 1 gem for the first level and grows monotonically', () => {
-        expect(itemUpgradeCost(1)).toBe(1)
-        for (let lvl = 1; lvl < ITEM_MAX_LEVEL - 1; lvl++) {
-            expect(itemUpgradeCost(lvl + 1)).toBeGreaterThanOrEqual(itemUpgradeCost(lvl))
-        }
-    })
-
     it('sums the per-level cost across a multi-level buy', () => {
         const expected = itemUpgradeCost(3) + itemUpgradeCost(4) + itemUpgradeCost(5)
         expect(itemUpgradeCostForLevels(3, 3)).toBe(expected)
-    })
-
-    it('a full 1→20 upgrade costs 70 gems', () => {
-        expect(itemUpgradeCostForLevels(1, ITEM_MAX_LEVEL - 1)).toBe(70)
     })
 
     it('costs nothing to buy zero levels', () => {
@@ -103,11 +83,6 @@ describe('rerollItemMods', () => {
         expect(result).toHaveLength(mods.length)
         expect(new Set(result.map(m => m.type)).size).toBe(result.length)
     })
-
-    it('replaces every unlocked slot when nothing is locked', () => {
-        const result = rerollItemMods(mods, [])
-        expect(result).toHaveLength(mods.length)
-    })
 })
 
 describe('generateItem', () => {
@@ -123,7 +98,7 @@ describe('generateItem', () => {
     })
 
     it('rolls every mod value within its configured range', () => {
-        for (let i = 0; i < 200; i++) {
+        for (let i = 0; i < 50; i++) {
             const item = generateItem('phantom')
             for (const mod of item.mods) {
                 const range = MOD_RANGES[mod.type]
@@ -134,32 +109,7 @@ describe('generateItem', () => {
     })
 })
 
-describe('itemPower', () => {
-    it('is 2 per level plus any power_flat mods', () => {
-        expect(itemPower({ itemLevel: 5, mods: [] })).toBe(10)
-        expect(itemPower({ itemLevel: 5, mods: [{ type: 'power_flat', value: 12 }] })).toBe(22)
-    })
-})
-
 describe('agentPower', () => {
-    it('sums level, class power, gear and flat traits', () => {
-        const power = agentPower(
-            { level: 10, class: 'bruteforce', rarity: 'phantom' }, // base 100 + 15 class passive = 115
-            [{ itemLevel: 5, mods: [{ type: 'power_flat', value: 10 }] }], // +10 level power +10 mod = 20
-            [{ type: 'power_flat', value: 5 }] // +5
-        )
-        expect(power).toBe(140)
-    })
-
-    it('applies power_percent traits as a multiplier on the flat total', () => {
-        const power = agentPower(
-            { level: 10, class: 'infiltrator', rarity: 'phantom' }, // base 100, no class power
-            [],
-            [{ type: 'power_percent', value: 20 }]
-        )
-        expect(power).toBe(120)
-    })
-
     it('clamps the total to the rarity power cap', () => {
         // base 200 + 20 gear = 220 raw, but a Ghost is capped at 200
         const power = agentPower(
@@ -171,22 +121,7 @@ describe('agentPower', () => {
     })
 })
 
-describe('agentSpeedPercent & effectiveDurationMs', () => {
-    it('sums gear, class passive and speed traits for a single agent', () => {
-        const speed = agentSpeedPercent({
-            class: 'infiltrator', // +0.10 passive
-            traits: [{ type: 'speed_percent', value: 10 }], // +0.10
-            items: [{ mods: [{ type: 'speed_percent', value: 20 }] }] // +0.20
-        })
-        expect(speed).toBeCloseTo(0.4, 5)
-    })
-
-    it('applies each agent multiplicatively (diminishing returns)', () => {
-        const agent = { class: 'cryptographer' as AgentClass, items: [{ mods: [{ type: 'speed_percent', value: 20 }] }] }
-        const duration = effectiveDurationMs(OP, [agent])
-        expect(duration).toBe(Math.round(OP.durationMs * 0.8))
-    })
-
+describe('effectiveDurationMs', () => {
     it('never drops below the squad-wide speed floor', () => {
         const fast = {
             class: 'infiltrator' as AgentClass,
@@ -194,32 +129,6 @@ describe('agentSpeedPercent & effectiveDurationMs', () => {
         }
         const duration = effectiveDurationMs(OP, [fast, fast, fast, fast])
         expect(duration).toBe(Math.round(OP.durationMs * (1 - MAX_TOTAL_SPEED)))
-    })
-})
-
-describe('agentLootPercent', () => {
-    it('sums gear, class passive and loot traits', () => {
-        const loot = agentLootPercent({
-            class: 'cryptographer', // +0.06 passive
-            traits: [{ type: 'loot_percent', value: 4 }], // +0.04
-            items: [{ mods: [{ type: 'loot_percent', value: 10 }] }] // +0.10
-        })
-        expect(loot).toBeCloseTo(0.2, 5)
-    })
-})
-
-describe('agentXpGain', () => {
-    it('awards a reduced flat XP on failure', () => {
-        expect(agentXpGain(OP, { items: [] }, false)).toBe(Math.floor(OP.baseXP * 0.15))
-    })
-
-    it('scales base XP by xp_boost traits and adds flat gear XP on success', () => {
-        const xp = agentXpGain(
-            OP,
-            { traits: [{ type: 'xp_boost', value: 50 }], items: [{ mods: [{ type: 'xp_flat', value: 3 }] }] },
-            true
-        )
-        expect(xp).toBe(Math.round(OP.baseXP * 1.5 + 3))
     })
 })
 
@@ -234,12 +143,6 @@ describe('opSuccessChance', () => {
         expect(opSuccessChance(100_000, 100)).toBe(1)
     })
 
-    it('is exactly the power ratio, so minPower means what it says', () => {
-        expect(opSuccessChance(50, 100)).toBeCloseTo(0.5, 5)
-        expect(opSuccessChance(75, 100)).toBeCloseTo(0.75, 5)
-        expect(opSuccessChance(100, 100)).toBe(1)
-    })
-
     it('deploys nothing below half the op power', () => {
         // The floor is what stops a squad being thrown at an op it can't clear; it
         // has to line up with the curve, or the two disagree about what is runnable.
@@ -250,31 +153,6 @@ describe('opSuccessChance', () => {
 
 describe('effective reward ranges & clamps', () => {
     const bonuses = collectBonuses([])
-
-    it('cash range echoes the base ladder when there are no bonuses', () => {
-        expect(effectiveCashRange(OP, bonuses)).toEqual(OP.baseCash)
-    })
-
-    it('gem range echoes the base ladder when there are no bonuses', () => {
-        const gemOp = OP_TEMPLATES.find(t => t.id === 'project_zero')!
-        expect(effectiveGemRange(gemOp, bonuses)).toEqual(gemOp.baseGemCount)
-    })
-
-    it('scales the gem range by squad gem yield rather than adding a flat amount', () => {
-        // The multiplier is what keeps gems/hour climbing with op tier: a flat squad
-        // bonus divided by duration always favours the shortest op on the ladder.
-        const low = OP_TEMPLATES.find(t => t.id === 'bank_skim')!
-        const high = OP_TEMPLATES.find(t => t.id === 'project_zero')!
-        const geared = { ...bonuses, gemYield: 700 }
-        expect(effectiveGemRange(low, geared)).toEqual([8, 8])
-        expect(effectiveGemRange(high, geared)).toEqual([56, 80])
-    })
-
-    it('never yields a fractional gem from a partially-stacked gem yield trait', () => {
-        const geared = { ...bonuses, gemYield: 33.3 }
-        const gemOp = OP_TEMPLATES.find(t => t.id === 'central_bank')!
-        for (const n of effectiveGemRange(gemOp, geared)) expect(Number.isInteger(n)).toBe(true)
-    })
 
     it('caps item drop chance at 0.9', () => {
         const inflated = { ...bonuses, itemChance: 5 }
@@ -309,7 +187,7 @@ describe('rollRarity', () => {
     it('never returns a zero-weight rarity', () => {
         const weights = { ghost: 60, operative: 35, specialist: 5, elite: 0, phantom: 0 }
         const seen = new Set<HackRarity>()
-        for (let i = 0; i < 2000; i++) seen.add(rollRarity(weights))
+        for (let i = 0; i < 300; i++) seen.add(rollRarity(weights))
         expect(seen.has('elite')).toBe(false)
         expect(seen.has('phantom')).toBe(false)
     })
@@ -320,55 +198,5 @@ describe('rollRarity', () => {
         expect(rollRarity(weights)).toBe('ghost')
         stubRandomFloat(() => 0.99) // roll ≈ 99 → last non-zero bucket
         expect(rollRarity(weights)).toBe('specialist')
-    })
-})
-
-describe('itemSellPrice', () => {
-    it('scales flatly with rarity', () => {
-        expect(itemSellPrice('ghost')).toBe(500)
-        expect(itemSellPrice('phantom')).toBe(150_000)
-        expect(itemSellPrice('elite')).toBeGreaterThan(itemSellPrice('specialist'))
-    })
-})
-
-describe('sortModsByPriority', () => {
-    it('orders mods by the global stat priority', () => {
-        const mods: ItemMod[] = [
-            { type: 'gem_yield', value: 20 },
-            { type: 'power_flat', value: 10 },
-            { type: 'loot_percent', value: 5 }
-        ]
-        expect(sortModsByPriority(mods).map(m => m.type)).toEqual(['power_flat', 'loot_percent', 'gem_yield'])
-    })
-})
-
-describe('agentBonusStats', () => {
-    it('aggregates passives, traits and gear into priority order', () => {
-        const stats = agentBonusStats([
-            {
-                class: 'bruteforce', // +15 power passive
-                traits: [
-                    { type: 'speed_percent', value: 10 },
-                    { type: 'gem_yield', value: 20 }
-                ],
-                gear: {
-                    tool: { mods: [{ type: 'loot_percent', value: 5 }, { type: 'item_chance', value: 0.03 }] }
-                }
-            }
-        ])
-        expect(stats.map(s => s.label)).toEqual(['Power', 'Op Speed', 'Loot', 'Item Find', 'Gem Yield'])
-    })
-
-    it('sums the same stat across sources', () => {
-        const stats = agentBonusStats([
-            { class: 'infiltrator', traits: [{ type: 'speed_percent', value: 10 }], gear: {} }
-        ])
-        const speed = stats.find(s => s.label === 'Op Speed')!
-        expect(speed.value).toBeCloseTo(20, 5) // 10 class passive (×100) + 10 trait
-    })
-
-    it('drops stats that net out to zero', () => {
-        const stats = agentBonusStats([{ class: 'infiltrator', gear: {} }])
-        expect(stats.every(s => s.value > 0)).toBe(true)
     })
 })

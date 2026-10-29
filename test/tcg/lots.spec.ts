@@ -3,7 +3,7 @@
  * Postgres from .env; fixture shape follows market.spec.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgLot, tcgLotItem } from '#server/database/schema'
 import { createLot, buyLot, cancelLot } from '#server/utils/tcg/lots'

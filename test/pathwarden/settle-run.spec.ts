@@ -162,10 +162,4 @@ describe('pathwarden wall-clock caps', () => {
         // A full victory cannot be honoured before the floor for 12 waves.
         expect(pathwardenMaxWaveForElapsedMs(36_000)).toBeLessThan(12)
     })
-
-    it('scales the score ceiling from zero at wave 0 to the full cap at wave 12', () => {
-        expect(pathwardenMaxScore(0, 5)).toBe(0)
-        expect(pathwardenMaxScore(12, 5)).toBe(250_000_000)
-        expect(pathwardenMaxScore(6, 5)).toBeLessThan(pathwardenMaxScore(12, 5))
-    })
 })

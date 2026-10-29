@@ -8,16 +8,15 @@ import {
     ARENA_SHOP_BUY_BODY,
     BUY_SEALS_BODY,
     CALENDAR_CLAIM_BODY,
-    DEV_SET_BODY,
-    DEV_SKIP_BODY,
     LOADOUT_APPLY_BODY,
     LOADOUT_PREFERENCE_BODY,
     LOADOUT_SAVE_BODY,
     LOADOUT_SET_BODY,
     PULL_BODY,
-    SETTING_BODY,
+    QUICK_CLEAR_BODY,
     TRAIT_LOCK_BODY,
     validateHqBody,
+    validateSettingBody,
     type BodySchema
 } from '#server/utils/hero-quest-api'
 
@@ -33,13 +32,12 @@ function refusal<T>(body: unknown, schema: BodySchema<T>): string | null {
 describe('hero-quest request bodies', () => {
     it('reads a missing body as an empty one, and hands back only the declared fields', () => {
         expect(validateHqBody(undefined, CALENDAR_CLAIM_BODY)).toEqual({ makeup: false })
-        expect(validateHqBody({ key: 'tutorials', value: false, extra: 1 }, SETTING_BODY)).toEqual({ key: 'tutorials', value: false })
+        expect(validateSettingBody({ key: 'tutorials', value: false, extra: 1 })).toEqual({ key: 'tutorials', value: false })
     })
 
     it('answers the first broken field with its route\'s own 400', () => {
         expect(refusal({}, ARENA_ATTACK_BODY)).toBe('Pick an opponent from the list')
         expect(refusal({ slot: 0 }, ARENA_ATTACK_BODY)).toBe('Pick an opponent from the list')
-        expect(refusal({ key: 'nope', value: true }, SETTING_BODY)).toBe('Unknown setting')
         expect(refusal({ system: 'nope' }, PULL_BODY)).toBe('Unknown gacha')
         expect(refusal({ slotIndex: 9, locked: true }, TRAIT_LOCK_BODY)).toBe('Pick a Trait slot')
         expect(refusal({ slotIndex: 0, locked: 'yes' }, TRAIT_LOCK_BODY)).toBe('Say whether to lock it')
@@ -62,11 +60,19 @@ describe('hero-quest request bodies', () => {
         expect(refusal({ itemId: 'x', quantity: 0 }, ARENA_SHOP_BUY_BODY)).toMatch(/^Buy between 1 and/)
     })
 
-    it('reads a flag as on only when it is true, and a pull as ten only when it asks for ten', () => {
+    it('reads a flag as on only when it is true, and a pull as ten or a hundred only when it asks for that', () => {
         expect(validateHqBody({ makeup: 'yes' }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: false })
         expect(validateHqBody({ makeup: true }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: true })
         expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
         expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
+        expect(validateHqBody({ system: 'champion', count: 100 }, PULL_BODY)).toEqual({ system: 'champion', count: 100, free: false })
+    })
+
+    it('takes a quick-clear as 1, 5 or 10 at a time, 1 when left out, and nothing else', () => {
+        expect(validateHqBody({ raidId: 'raid_guild' }, QUICK_CLEAR_BODY)).toEqual({ raidId: 'raid_guild' })
+        for (const count of [1, 5, 10]) expect(validateHqBody({ raidId: 'raid_guild', count }, QUICK_CLEAR_BODY)).toEqual({ raidId: 'raid_guild', count })
+        for (const count of [0, 2, 3, 11, 5.5, '5', null, -1]) expect(refusal({ raidId: 'raid_guild', count }, QUICK_CLEAR_BODY)).toBe('Quick-clear 1 / 5 / 10 at a time')
+        expect(refusal({ raidId: 'nope', count: 5 }, QUICK_CLEAR_BODY)).toBe('Unknown raid')
     })
 
     it('needs an auto-buy\'s price, as a number or as text', () => {
@@ -90,9 +96,30 @@ describe('hero-quest request bodies', () => {
         expect(refusal({ skillIds: [1] }, LOADOUT_SET_BODY)).toBe('skillIds must be an array of ids')
     })
 
-    it('reads the playtest harness the loose way it always has', () => {
-        expect(validateHqBody({ world: '3', killCount: -2, bossLost: 1 }, DEV_SET_BODY)).toEqual({ world: 3, killCount: -2, bossLost: true })
-        expect(validateHqBody({ hours: null, mode: 'sideways' }, DEV_SKIP_BODY)).toEqual({ mode: 'offline' })
-        expect(refusal({ hours: 'soon' }, DEV_SKIP_BODY)).toBe('hours must be a positive number')
+    describe('a setting', () => {
+        function settingRefusal(body: unknown): string | null {
+            try {
+                validateSettingBody(body)
+                return null
+            } catch (error) {
+                return (error as { statusMessage?: string }).statusMessage ?? 'threw'
+            }
+        }
+
+        it('takes a switch as a boolean and the notation as one of its three names', () => {
+            expect(validateSettingBody({ key: 'reduceMotion', value: true })).toEqual({ key: 'reduceMotion', value: true })
+            for (const value of ['scientific', 'standard', 'alphabetical']) {
+                expect(validateSettingBody({ key: 'numberNotation', value })).toEqual({ key: 'numberNotation', value })
+            }
+        })
+
+        it('refuses an unknown key, a switch sent text, and a notation sent a boolean or an unknown name', () => {
+            expect(settingRefusal({ key: 'nope', value: true })).toBe('Unknown setting')
+            expect(settingRefusal({ key: 'tutorials', value: 'scientific' })).toBe('Unknown setting')
+            expect(settingRefusal({ key: 'tutorials', value: 1 })).toBe('Unknown setting')
+            expect(settingRefusal({ key: 'numberNotation', value: true })).toBe('Unknown setting')
+            expect(settingRefusal({ key: 'numberNotation', value: 'engineering' })).toBe('Unknown setting')
+            expect(settingRefusal({ key: 'numberNotation' })).toBe('Unknown setting')
+        })
     })
 })

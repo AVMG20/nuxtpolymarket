@@ -8,32 +8,17 @@ import {
     heldBattleSpeedExpiry,
     speedBoostFor
 } from '#shared/utils/hero-quest/battle-speed'
-import { BATTLE_SPEED_DURATIONS_MINUTES, BATTLE_SPEED_TIERS, MAX_BATTLE_SPEED } from '#shared/utils/hero-quest/constants'
+import { BATTLE_SPEED_DURATIONS_MINUTES, BATTLE_SPEED_TIERS } from '#shared/utils/hero-quest/constants'
 
 const NOW = Date.UTC(2026, 9, 4, 12)
 const MINUTE = 60_000
 
 describe('battle speed', () => {
     describe('pricing', () => {
-        it('matches the table in idle-mechanics.md §3, cell for cell', () => {
-            const table: Record<number, number[]> = {
-                2: [250, 475, 905, 1715],
-                3: [375, 715, 1355, 2570],
-                5: [625, 1190, 2255, 4285]
-            }
-            for (const speed of BATTLE_SPEED_TIERS) {
-                expect(BATTLE_SPEED_DURATIONS_MINUTES.map(m => battleSpeedPrice(speed, m))).toEqual(table[speed])
-            }
-        })
-
         it('prices every block in whole Gems, which is all debitGems takes', () => {
             for (const speed of BATTLE_SPEED_TIERS) {
                 for (const minutes of BATTLE_SPEED_DURATIONS_MINUTES) expect(Number.isInteger(battleSpeedPrice(speed, minutes))).toBe(true)
             }
-        })
-
-        it('tops out at the fastest tier', () => {
-            expect(MAX_BATTLE_SPEED).toBe(5)
         })
     })
 

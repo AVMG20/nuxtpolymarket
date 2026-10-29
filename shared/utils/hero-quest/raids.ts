@@ -34,14 +34,16 @@ import {
     RAID_KNIGHT_STAGES_PER_LEVEL,
     RAID_KEY_BANK_DAYS,
     RAID_KEYS_PER_DAY,
+    RAID_QUICK_CLEAR_COUNTS,
     RAID_REWARD_BASE,
     RAID_REWARD_GROWTH,
     RAID_REWARD_SHAPE,
     RAID_REWARD_STEP_LEVELS,
-    STAGES_PER_WORLD
+    STAGES_PER_WORLD,
+    type RaidQuickClearCount
 } from './constants'
 import { D, ZERO, type Decimal } from './numbers'
-import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp } from './settle'
+import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp, prestigeHpShed } from './settle'
 import { runFight, type FightEvent, type FightResult } from './fight'
 import type { EnemyPack, EnemyStats, HeroSnapshot, RunPosition } from './types'
 import type { RaidId } from './content/raids'
@@ -63,6 +65,11 @@ export function raidReward(raid: RaidId, level: number, shape: 'exponential' | '
 
 /** How many Keys a raid can bank. */
 export const RAID_KEY_CAP = RAID_KEYS_PER_DAY * RAID_KEY_BANK_DAYS
+
+/** One of the quick-clear counts a press may take; anything else (2, '5', 5.5) is refused. */
+export function isRaidQuickClearCount(value: unknown): value is RaidQuickClearCount {
+    return (RAID_QUICK_CLEAR_COUNTS as readonly unknown[]).includes(value)
+}
 
 /** The UTC day a moment falls on, counted from the epoch. */
 function utcDay(at: number): number {
@@ -104,6 +111,15 @@ export function dummyPack(): EnemyPack {
     return { members: [{ hp: DUMMY_HP, pwr: ZERO, def: ZERO }] }
 }
 
+/**
+ * A raid's enemy at a curve position, on the continuous HP curve: a raid level walks the index
+ * across prestiges, and the campaign's per-run drift shed would make it step down at each one.
+ */
+function raidStatsAt(pos: RunPosition): EnemyStats {
+    const stats = enemyStatsAt(pos)
+    return { ...stats, hp: stats.hp.mul(prestigeHpShed(pos.prestige)) }
+}
+
 /** The run position at curve index `n`: the world-and-stage the dummy's level `n` stands for. */
 function positionAt(n: number): RunPosition {
     const prestige = Math.floor(n / PRESTIGE_INDEX_STEPS)
@@ -117,7 +133,8 @@ function positionAt(n: number): RunPosition {
  */
 export function dummyThreshold(level: number): Decimal {
     if (level <= 1) return ZERO
-    return packHp(enemyPackAt(positionAt((level - 1) * RAID_DUMMY_STAGES_PER_LEVEL))).mul(RAID_DUMMY_PACKS)
+    const pos = positionAt((level - 1) * RAID_DUMMY_STAGES_PER_LEVEL)
+    return packHp(enemyPackAt(pos)).mul(prestigeHpShed(pos.prestige)).mul(RAID_DUMMY_PACKS)
 }
 
 /**
@@ -178,7 +195,7 @@ export function runDummyRound(hero: HeroSnapshot, position: RunPosition, seed: n
  */
 export function knightStats(level: number): EnemyStats {
     const l = Math.max(1, Math.floor(level))
-    const boss = enemyStatsAt(positionAt((l - 1) * RAID_KNIGHT_STAGES_PER_LEVEL + RAID_KNIGHT_STAGES_PER_LEVEL - 1))
+    const boss = raidStatsAt(positionAt((l - 1) * RAID_KNIGHT_STAGES_PER_LEVEL + RAID_KNIGHT_STAGES_PER_LEVEL - 1))
     return { hp: boss.hp.mul(RAID_KNIGHT_HP_MULT), pwr: boss.pwr.mul(RAID_KNIGHT_PWR_MULT), def: boss.def }
 }
 
@@ -198,8 +215,9 @@ export function runKnightFight(hero: HeroSnapshot, position: RunPosition, seed: 
 export function digSiteStats(level: number): { boss: EnemyStats, add: EnemyStats } {
     const l = Math.max(1, Math.floor(level))
     const pos = positionAt((l - 1) * RAID_DIG_STAGES_PER_LEVEL + RAID_DIG_STAGES_PER_LEVEL - 1)
-    const boss = enemyStatsAt(pos)
-    const add = bossMinionStats(pos)
+    const boss = raidStatsAt(pos)
+    const minion = bossMinionStats(pos)
+    const add = { ...minion, hp: minion.hp.mul(prestigeHpShed(pos.prestige)) }
     return {
         boss: { hp: boss.hp.mul(RAID_DIG_HP_MULT), pwr: boss.pwr.mul(RAID_DIG_PWR_MULT), def: boss.def },
         add: { ...add, hp: add.hp.mul(RAID_DIG_ADD_HP_MULT) }
@@ -227,7 +245,7 @@ export function runDigSiteFight(hero: HeroSnapshot, position: RunPosition, seed:
 /** The Forge's three bosses at a level, in the order they walk out: each a step up from the last. */
 export function forgeStats(level: number): EnemyStats[] {
     const l = Math.max(1, Math.floor(level))
-    const base = enemyStatsAt(positionAt((l - 1) * RAID_FORGE_STAGES_PER_LEVEL + RAID_FORGE_STAGES_PER_LEVEL - 1))
+    const base = raidStatsAt(positionAt((l - 1) * RAID_FORGE_STAGES_PER_LEVEL + RAID_FORGE_STAGES_PER_LEVEL - 1))
     return RAID_FORGE_BOSS_STEPS.map(step => ({
         hp: base.hp.mul(RAID_FORGE_HP_MULT * step),
         pwr: base.pwr.mul(RAID_FORGE_PWR_MULT * step),
@@ -254,7 +272,7 @@ export function runForgeFight(hero: HeroSnapshot, position: RunPosition, seed: n
 
 function rampageBoss(level: number): EnemyStats {
     const l = Math.max(1, Math.floor(level))
-    return enemyStatsAt(positionAt((l - 1) * RAID_RAMPAGE_STAGES_PER_LEVEL + RAID_RAMPAGE_STAGES_PER_LEVEL - 1))
+    return raidStatsAt(positionAt((l - 1) * RAID_RAMPAGE_STAGES_PER_LEVEL + RAID_RAMPAGE_STAGES_PER_LEVEL - 1))
 }
 
 /** The damage that takes the Beast from `level` to the next (incremental: it starts over each level). */

@@ -12,32 +12,12 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
-    "typecheck": "nuxt typecheck",
-    "test": "vitest run",
-    "test:integration": "vitest run --reporter=verbose",
-    "sentry:check": "bun scripts/sentry-check.ts",
-    "balance:xeno": "bun scripts/xeno-income.ts",
-    "balance:colony": "bun scripts/colony-income.ts",
-    "balance:hack": "bun scripts/hack-income.ts",
-    "balance:firewall": "bun scripts/firewall-balance.ts",
-    "balance:hackerz": "bun scripts/hackerz-balance.ts",
-    "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
-    "balance:pirates": "bun scripts/pirates-balance.ts",
-    "balance:pirates-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts",
-    "balance:shapezz": "bun scripts/shapezz-balance.ts",
-    "balance:shapezz-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts",
-    "balance:compare": "bun scripts/economy-compare.ts",
-    "balance:polymasters": "bun scripts/polymasters-rtp.ts",
-    "balance:emberportals": "bun scripts/slot-rtp.ts emberportals",
-    "balance:gold-miner": "bun scripts/gold-miner-rtp.ts",
-    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts",
-    "balance:hero-quest": "bun scripts/hero-quest-balance.ts",
-    "sim:hero-quest": "bun scripts/hero-quest-sim.ts",
-    "art:hero-quest": "bun scripts/hero-quest-art.ts",
-    "models:hackerz": "blender --background --factory-startup --python scripts/hackerz-models/build.py"
+    "typecheck": "NODE_ENV=production nuxt prepare && bun check --no-script -b -p tsconfig.check.json && vue-tsc -p .nuxt/tsconfig.app.json --noEmit",
+    "test": "bun --bun vitest run"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
+    "@iconify-json/material-symbols": "^1.2.96",
     "@iconify-json/simple-icons": "^1.2.74",
     "@nuxt/ui": "^4.8.2",
     "@sentry/nuxt": "^10.68.0",
@@ -72,5 +52,5 @@
     "h3": "1.15.11",
     "vue": "3.5.40"
   },
-  "packageManager": "bun@1.3.10"
+  "packageManager": "bun@1.4.4"
 }

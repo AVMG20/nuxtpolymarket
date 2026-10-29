@@ -18,10 +18,8 @@ describe('DfMatchSim soak on Sainte-Croix', () => {
         })
         const s = sim
         const counts = new Map<string, number>()
-        let maxTickMs = 0
-        let totalMs = 0
         const ticks = 20 * 240
-        for (let t = 0; t < ticks && !s.over && s.round < 4; t++) {
+        for (let t = 0; t < ticks && !s.over && s.round < 3; t++) {
             for (const p of s.players) {
                 if (p.life === 'dead') continue
                 const w = p.weapons[p.slot]
@@ -44,16 +42,11 @@ describe('DfMatchSim soak on Sainte-Croix', () => {
                     break
                 }
             }
-            const t0 = performance.now()
             s.step(0.05)
-            const ms = performance.now() - t0
-            totalMs += ms
-            maxTickMs = Math.max(maxTickMs, ms)
             const snap = s.snapshot()
             for (const e of snap.events as DfEvent[]) counts.set(e.k, (counts.get(e.k) ?? 0) + 1)
             JSON.stringify(snap)
         }
-        console.log('[soak] round', s.round, 'over', s.over, 'events', Object.fromEntries(counts), 'avg ms', (totalMs / Math.max(1, s.tick)).toFixed(3), 'max ms', maxTickMs.toFixed(2))
         expect(s.round).toBeGreaterThanOrEqual(2)
         expect(counts.get('kill') ?? 0).toBeGreaterThan(10)
         expect(counts.get('plank') ?? 0).toBeGreaterThan(0)

@@ -1,7 +1,7 @@
 // Every Hero Quest art asset, in one registry.
 //
 // An entry is a frame size, a frame count and a render function. The in-app gallery, the PNG
-// exporter (`bun run art:hero-quest`) and the coverage spec all read this list, so an asset
+// exporter (`bun scripts/hero-quest-art.ts`) and the coverage spec all read this list, so an asset
 // that exists here exists everywhere and one that is missing fails the spec.
 //
 // IDs are paths — `hero/class_warrior/attack` — and become the exported file names.
@@ -649,7 +649,7 @@ function holidayGiftAssets(): ArtAsset[] {
             rect(d, 0, 0, d.w, d.h, C.night2)
             // a fresh reveal per frame, opened at 0 and handed its lines at 0.6, so any frame renders alone
             const reveal = new GiftReveal()
-            const view = (lines: GiftRewardLine[] | null) => ({ key: 1, id: 'holiday_christmas' as const, name: 'Christmas', lines })
+            const view = (lines: GiftRewardLine[] | null) => ({ notation: 'standard' as const, key: 1, id: 'holiday_christmas' as const, name: 'Christmas', lines })
             reveal.render(d, 0, view(null), false, false)
             if (t >= 0.6) reveal.render(d, 0.6, view(GIFT_SAMPLE), false, false)
             rect(d, 0, 0, d.w, d.h, C.night2)
