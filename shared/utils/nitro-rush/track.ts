@@ -20,7 +20,7 @@
  * within a fraction of a percent of the distance driven.
  */
 
-import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT, TWIN_HELIX } from './layout'
+import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT, TWIN_HELIX, ZIGZAG_SPRINT } from './layout'
 
 export type TrackGroup = 'circuits' | 'sprints'
 
@@ -96,7 +96,7 @@ export function formatLapTime(seconds: number, signed = false) {
 }
 
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
-export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(TWIN_HELIX), buildTrack(S_BEND_SPRINT)]
+export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(TWIN_HELIX), buildTrack(S_BEND_SPRINT), buildTrack(ZIGZAG_SPRINT)]
 
 export function findTrack(id: string) {
     return TRACKS.find(t => t.id === id) ?? null

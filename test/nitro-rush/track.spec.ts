@@ -146,6 +146,18 @@ describe('track blocks', () => {
         expect(() => buildTrack(sprint([checkpoint, straight(30), start, straight(200), finish, straight(100)]))).toThrow(/between the start and the finish/)
         expect(() => buildTrack(loop([start, corner('left', 8)]))).toThrow(/wider than the track/)
     })
+
+    it('turns an eighth onto the diagonal, and two eighths make a quarter', () => {
+        const t = new Track(buildTrack(sprint([straight(30), start, corner('right', 60, 45), straight(100), finish, straight(100)])))
+        const p = t.pointAt(t.startS + LINE_BLOCK_LENGTH / 2 + Math.PI / 4 * 60 + 50)
+        expect(p.tx).toBeCloseTo(Math.SQRT1_2, 6)
+        expect(p.tz).toBeCloseTo(-Math.SQRT1_2, 6)
+        // Building at all proves the eighths close the loop exactly as the quarter did.
+        const quarter = new Track(buildTrack(loop([start, straight(80), ...square])))
+        const eighths = new Track(buildTrack(loop([start, straight(80), corner('right', 50, 45), corner('right', 50, 45), ...square.slice(1)])))
+        expect(eighths.length).toBeCloseTo(quarter.length, 1)
+        expect(() => buildTrack(loop([start, corner('right', 50, 60)]))).toThrow(/steps of 45/)
+    })
 })
 
 describe('ramps and spirals', () => {
@@ -154,7 +166,7 @@ describe('ramps and spirals', () => {
     const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
     /** A rounded square that climbs one side and comes back down the next. */
     const hill = [start, straight(80), corner('right', 50), ramp(100, 8), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]
-    const helix = (rise: number) => sprint([straight(30), start, straight(100), spiral('right', 40, 5, rise), straight(100), finish, straight(100)])
+    const helix = (rise: number) => sprint([straight(30), start, straight(100), spiral('right', 40, 450, rise), straight(100), finish, straight(100)])
 
     it('eases a slope in and out, so pieces meet without a kink', () => {
         expect(climbAt(0, 100)).toBe(0)
@@ -215,7 +227,7 @@ describe('ramps and spirals', () => {
         expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/below the ground/)
         expect(() => buildTrack(sprint([ramp(100, 5), start, straight(100), finish, straight(100)]))).toThrow(/start line must sit on the ground/)
         expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(50, 8), straight(50), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/longer than/)
-        expect(() => buildTrack(sprint([straight(30), start, straight(100), spiral('right', 40, 2.5, 4), straight(100), finish, straight(100)]))).toThrow(/whole number of quarters/)
+        expect(() => buildTrack(sprint([straight(30), start, straight(100), spiral('right', 40, 100, 4), straight(100), finish, straight(100)]))).toThrow(/steps of 45/)
     })
 })
 

@@ -10,6 +10,9 @@ import type { TrackDef, TrackGroup } from './track'
  * completes the lap. An open course runs from its first piece to its last,
  * with a start and a finish block along it.
  *
+ * Corners and spirals turn in eighths (45°), so a straight after an odd number
+ * of eighths runs on the diagonal.
+ *
  * Ramps and spirals change the road's height; every other piece holds it.
  * A loop has to come back down to where it started, and wherever the road
  * passes over itself the levels must be far enough apart to drive under.
@@ -19,9 +22,9 @@ export type LineBlock = 'start' | 'finish' | 'checkpoint'
 
 export type TrackPiece =
     | { type: 'straight', length: number }
-    | { type: 'corner', turn: 'left' | 'right', radius: number }
+    | { type: 'corner', turn: 'left' | 'right', radius: number, angle: number }
     | { type: 'ramp', length: number, rise: number }
-    | { type: 'spiral', turn: 'left' | 'right', radius: number, quarters: number, rise: number }
+    | { type: 'spiral', turn: 'left' | 'right', radius: number, angle: number, rise: number }
     | { type: LineBlock }
 
 export interface TrackLayout {
@@ -53,12 +56,12 @@ export const MIN_CLEARANCE = 6.5
 const GANTRY_CLEARANCE = 11
 
 export const straight = (length: number): TrackPiece => ({ type: 'straight', length })
-/** A quarter turn. */
-export const corner = (turn: 'left' | 'right', radius: number): TrackPiece => ({ type: 'corner', turn, radius })
+/** A bend of `angle` degrees, in steps of 45. */
+export const corner = (turn: 'left' | 'right', radius: number, angle = 90): TrackPiece => ({ type: 'corner', turn, radius, angle })
 /** A straight that climbs `rise` metres, or falls with a negative rise. */
 export const ramp = (length: number, rise: number): TrackPiece => ({ type: 'ramp', length, rise })
-/** `quarters` quarter turns at one radius, climbing `rise` metres over the lot; past four it passes over itself. */
-export const spiral = (turn: 'left' | 'right', radius: number, quarters: number, rise: number): TrackPiece => ({ type: 'spiral', turn, radius, quarters, rise })
+/** A bend of `angle` degrees climbing `rise` metres over the lot; past 360 it passes over itself. */
+export const spiral = (turn: 'left' | 'right', radius: number, angle: number, rise: number): TrackPiece => ({ type: 'spiral', turn, radius, angle, rise })
 export const start: TrackPiece = { type: 'start' }
 export const finish: TrackPiece = { type: 'finish' }
 export const checkpoint: TrackPiece = { type: 'checkpoint' }
@@ -99,12 +102,13 @@ export function buildTrack(layout: TrackLayout): TrackDef {
         z += dz * length
         y += rise
     }
-    const turn = (side: number, radius: number, quarters = 1, rise = 0) => {
+    const turn = (side: number, radius: number, eighths: number, rise = 0) => {
         // Right of the heading is (cos h, sin h); the centre lies `radius` toward the turn.
         const cx = x + Math.cos(h) * radius * side
         const cz = z + Math.sin(h) * radius * side
-        const n = Math.max(4, Math.round(radius * Math.PI / 2 / STEP)) * quarters
-        const sweep = Math.PI / 2 * quarters
+        // Sampled per quarter as before eighths existed, so the older courses keep their exact lengths.
+        const n = Math.max(2, Math.round(Math.max(4, Math.round(radius * Math.PI / 2 / STEP)) * eighths / 2))
+        const sweep = Math.PI / 4 * eighths
         const length = radius * sweep
         const at = (a: number) => [cx - Math.cos(a) * radius * side, cz - Math.sin(a) * radius * side] as [number, number]
         for (let i = 0; i < n; i++) {
@@ -118,20 +122,23 @@ export function buildTrack(layout: TrackLayout): TrackDef {
         y += rise
     }
 
+    const eighthsOf = (angle: number) => {
+        if (!(angle > 0) || !Number.isInteger(angle / 45)) fail('a corner or spiral turns in steps of 45°')
+        return angle / 45
+    }
     for (const piece of layout.pieces) {
         if (piece.type === 'straight') {
             if (!(piece.length > 0)) fail('a straight needs a positive length')
             run(piece.length)
         } else if (piece.type === 'corner') {
             if (!(piece.radius > layout.wallOffset)) fail('a corner must be wider than the track')
-            turn(piece.turn === 'right' ? 1 : -1, piece.radius)
+            turn(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle))
         } else if (piece.type === 'ramp') {
             if (!(piece.length > EASE_LENGTH * 2)) fail(`a ramp needs to be longer than ${EASE_LENGTH * 2} m`)
             run(piece.length, piece.rise)
         } else if (piece.type === 'spiral') {
             if (!(piece.radius > layout.wallOffset)) fail('a spiral must be wider than the track')
-            if (!Number.isInteger(piece.quarters) || piece.quarters < 1) fail('a spiral turns a whole number of quarters')
-            turn(piece.turn === 'right' ? 1 : -1, piece.radius, piece.quarters, piece.rise)
+            turn(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), piece.rise)
         } else {
             run(LINE_BLOCK_LENGTH / 2)
             lines.push({ type: piece.type, at: pts.length })
@@ -273,9 +280,9 @@ export const TWIN_HELIX: TrackLayout = {
         straight(120),
         ramp(150, 12),
         straight(40),
-        spiral('right', 36, 5, -12),
+        spiral('right', 36, 450, -12),
         straight(120),
-        spiral('left', 36, 5, 12),
+        spiral('left', 36, 450, 12),
         corner('right', 40),
         ramp(150, -12),
         straight(40),
@@ -287,5 +294,34 @@ export const TWIN_HELIX: TrackLayout = {
         straight(372),
         corner('right', 50),
         straight(168)
+    ]
+}
+
+/** A point-to-point sprint that zigzags up the diagonals: eighth turns out of and back onto the straights, quarters between. */
+export const ZIGZAG_SPRINT: TrackLayout = {
+    id: 'zigzag-sprint',
+    name: 'Zigzag Sprint',
+    group: 'sprints',
+    halfWidth: 9,
+    wallOffset: 10.6,
+    closed: false,
+    origin: { x: -30, z: 580, heading: 0 },
+    pieces: [
+        straight(30),
+        start,
+        straight(150),
+        corner('right', 60, 45),
+        straight(150),
+        corner('left', 60),
+        straight(120),
+        checkpoint,
+        straight(120),
+        corner('right', 60),
+        straight(150),
+        corner('left', 60, 45),
+        straight(120),
+        finish,
+        // Room to brake to a stop from nitro top speed before the end barrier.
+        straight(170)
     ]
 }
