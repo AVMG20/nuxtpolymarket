@@ -2,25 +2,31 @@ import * as THREE from 'three'
 import { ChaseCamera, shotFor } from './camera'
 import { CarEffects, tyreSlide } from './car-fx'
 import { disposeModelShared } from './car-kit'
+import { poseCar, type PoseSample } from './car-pose'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
+import { decodeGhost, encodeGhost, ghostPose, GhostRecorder, type Ghost } from './ghost'
+import { GhostView } from './ghost-view'
 import { carInput } from './input'
 import { RushPost } from './post'
 import { AdaptiveResolution } from './resolution'
 import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
-import { headingOf, Track, wrapAngle } from '#shared/utils/nitro-rush/track'
-import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { headingOf, Track, wrapAngle, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { World } from './world'
 import type { NitroAudio } from './audio'
-import { EMPTY_RECORD, type Control, type EngineEvents, type Phase, type TrackRecord } from './types'
+import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostFrame, type GhostSource, type Phase, type TrackRecord } from './types'
 
 /** The grid slot, this far behind the start line. */
 const GRID_OFFSET = -14
 /** How long an open course's finish holds before the next run lines up. */
 const RESTART_DELAY = 2.5
 const STEP = 1 / PHYSICS_HZ
+/** A car that drops into a jump's gap starts again this far before it, at a standstill. */
+const RESPAWN_BACK = 120
+/** Falling this fast onto the road shakes the camera. */
+const HARD_LANDING = 8
 /** Attract-mode demo laps run a touch off the limit. */
 const DEMO_PACE = 0.85
 
@@ -57,7 +63,11 @@ export class NitroRushEngine {
 
     // Car, physics and race
     private state: CarState
-    private readonly prev = { x: 0, z: 0, y: 0, s: 0, heading: 0 }
+    private readonly prev = { x: 0, z: 0, y: 0, s: 0, heading: 0, lateral: 0, rel: 0 }
+    /** The car as drawn this frame, between the last two physics states. */
+    private readonly drawn: PoseSample = { x: 0, z: 0, y: 0, along: 0, lateral: 0, heading: 0, rel: 0, vy: 0, speed: 0, onRail: false, airborne: false }
+    private readonly drawnPos = new THREE.Vector3()
+    private readonly drawnQuat = new THREE.Quaternion()
     private accumulator = 0
     private timer: LapTimer | null = null
     private record: TrackRecord = { ...EMPTY_RECORD }
@@ -74,13 +84,27 @@ export class NitroRushEngine {
     private latAcc = 0
     private longAcc = 0
 
+    // Ghosts: the best lap's replay and any others registered, all drawn by one view.
+    private readonly ghosts: GhostView
+    private readonly ghostSources = new Set<GhostSource>()
+    private readonly ghostFrames: GhostFrame[] = []
+    private readonly recorder = new GhostRecorder()
+    private readonly recordPose: CarPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
+    private readonly poseMatrix = new THREE.Matrix4()
+    private readonly posePos = new THREE.Vector3()
+    private readonly poseQuat = new THREE.Quaternion()
+    private readonly poseScale = new THREE.Vector3()
+    private bestGhost: Ghost | null = null
+    private bestGhostOn = true
+    private readonly bestGhostFrame: GhostFrame = { id: 'self:best', pose: { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 } }
+
     // Post
     private aberrationPulse = 0
     private readonly flash = new THREE.Color(0, 0, 0)
     private readonly tint = new THREE.Color()
     private nitroK = 0
 
-    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, trackId: string) {
+    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, track: TrackDef) {
         this.host = host
         this.events = events
         this.audio = audio
@@ -97,9 +121,11 @@ export class NitroRushEngine {
         this.envTarget = buildCityEnvironment(this.renderer)
         this.scene.environment = this.envTarget.texture
 
-        this.track = new Track(findTrack(trackId) ?? TRACKS[0]!)
+        this.track = new Track(track)
         this.cam = new ChaseCamera(this.track)
         this.fx = new CarEffects(this.scene)
+        this.ghosts = new GhostView(this.scene)
+        this.ghostSources.add(this.bestGhostSource)
         this.world = this.buildWorld()
 
         this.car = new CarView(findPaint(paint).color)
@@ -136,12 +162,42 @@ export class NitroRushEngine {
 
     setRecord(r: TrackRecord) {
         this.record = { ...r }
+        this.bestGhost = decodeGhost(r.ghost)
     }
 
-    /** Swaps the course, rebuilding the scenery, and returns to the menu on it. */
-    setTrack(id: string) {
-        const def = findTrack(id)
-        if (!def || def.id === this.track.def.id) return
+    /** Shows or hides the best lap's ghost; other ghost sources are not affected. */
+    setBestGhost(on: boolean) {
+        this.bestGhostOn = on
+    }
+
+    /**
+     * Adds ghosts to draw: every rendered frame the engine calls `src(performance.now(), lapTime)`
+     * and draws the frames it returns. Returns the function that removes it again.
+     */
+    addGhostSource(src: GhostSource): () => void {
+        this.ghostSources.add(src)
+        return () => {
+            this.ghostSources.delete(src)
+        }
+    }
+
+    /** The player's car where it is drawn this frame, read off the model so it holds every tilt the model takes. */
+    carPose(out: CarPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }): CarPose {
+        this.car.group.updateWorldMatrix(true, false)
+        this.poseMatrix.copy(this.car.group.matrixWorld).decompose(this.posePos, this.poseQuat, this.poseScale)
+        out.x = this.posePos.x
+        out.y = this.posePos.y
+        out.z = this.posePos.z
+        out.qx = this.poseQuat.x
+        out.qy = this.poseQuat.y
+        out.qz = this.poseQuat.z
+        out.qw = this.poseQuat.w
+        return out
+    }
+
+    /** Swaps the course, rebuilding the scenery, and returns to the menu on it. A rebuilt custom course comes in as a new def under the same id. */
+    setTrack(def: TrackDef) {
+        if (def === this.track.def) return
         this.scene.remove(this.world.group)
         this.world.dispose()
         this.track = new Track(def)
@@ -149,6 +205,7 @@ export class NitroRushEngine {
         this.world = this.buildWorld()
         this.sizeWorld()
         this.record = { ...EMPTY_RECORD }
+        this.bestGhost = null
         this.sessionBest = null
         this.toMenu()
         this.lineUpDemo()
@@ -201,6 +258,7 @@ export class NitroRushEngine {
 
     toMenu() {
         this.timer = null
+        this.recorder.reset()
         this.sessionBest = null
         this.lastLap = null
         this.runs = 0
@@ -218,6 +276,8 @@ export class NitroRushEngine {
         this.post.dispose()
         this.world.dispose()
         this.fx.dispose()
+        this.ghosts.dispose()
+        this.ghostSources.clear()
         this.car.dispose()
         this.envTarget.dispose()
         disposeModelShared()
@@ -235,7 +295,7 @@ export class NitroRushEngine {
     private buildWorld() {
         const world = new World(this.scene, this.track, { w: 512, h: 512 })
         world.applyTheme(NIGHT, this.renderer, this.scene)
-        world.hideFromReflection(this.fx.speedLines.mesh)
+        world.hideFromReflection(this.fx.speedLines.mesh, this.ghosts.group)
         return world
     }
 
@@ -272,6 +332,7 @@ export class NitroRushEngine {
         this.state.nitro = 1
         this.accumulator = 0
         this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET, this.track.checkpointDistances)
+        this.recorder.reset()
         this.nitroReadyAnnounced = true
         this.wrongWayTime = 0
         this.fx.clear()
@@ -292,8 +353,49 @@ export class NitroRushEngine {
         this.keepPrev()
         this.lastTravel = s.travel
         this.lastSpeed = s.speed
-        this.car.place(s.x, s.proj.y, s.z, s.heading, s.proj)
+        this.poseAt(1)
         this.fx.place(this.car.tailLights(this.tails))
+    }
+
+    /** Poses the model `a` of the way from the last physics state to the current one. */
+    private poseAt(a: number) {
+        const s = this.state
+        const p = this.prev
+        const d = this.drawn
+        let ds = s.proj.s - p.s
+        // A loop's s jumps by its length at the start line.
+        if (this.track.closed && Math.abs(ds) > this.track.length / 2) ds -= Math.sign(ds) * this.track.length
+        d.x = p.x + (s.x - p.x) * a
+        d.z = p.z + (s.z - p.z) * a
+        d.y = p.y + (s.y - p.y) * a
+        d.along = p.s + ds * a
+        d.lateral = p.lateral + (s.proj.lateral - p.lateral) * a
+        d.heading = p.heading + wrapAngle(s.heading - p.heading) * a
+        d.rel = p.rel + wrapAngle(s.rel - p.rel) * a
+        d.vy = s.vy
+        d.speed = s.speed
+        d.onRail = s.onRail
+        d.airborne = s.airborne
+        poseCar(this.track, d, this.drawnPos, this.drawnQuat)
+        this.car.place(this.drawnPos, this.drawnQuat)
+    }
+
+    /** Back on the road before the gap the car fell into, stopped; the clock keeps running. */
+    private respawn() {
+        const s = this.state
+        const gap = this.track.gaps.find(([a, b]) => s.proj.s >= a && s.proj.s < b)
+        // Never far enough back to read as a lap the wrong way, nor past the start of an open course.
+        const back = Math.min(RESPAWN_BACK, this.track.closed ? this.track.length / 2 - 5 : Infinity)
+        const at = (gap ? gap[0] : s.proj.s) - back
+        const nitro = s.nitro
+        this.state = createCar(this.track, this.track.closed ? this.track.wrapS(at) : Math.max(this.track.startS - 10, at))
+        this.state.nitro = nitro
+        // A lap with a jump back in it makes no ghost.
+        this.recorder.reset()
+        this.fx.clearSkids()
+        this.placeCar()
+        this.cam.cut(this.state.heading)
+        if (this.phase === 'racing') this.events.popup({ text: 'RESPAWN', tone: 'danger' })
     }
 
     /** The state before a physics step, which rendering interpolates from. */
@@ -302,8 +404,10 @@ export class NitroRushEngine {
         this.prev.x = s.x
         this.prev.z = s.z
         this.prev.heading = s.heading
-        this.prev.y = s.proj.y
+        this.prev.y = s.y
         this.prev.s = s.proj.s
+        this.prev.lateral = s.proj.lateral
+        this.prev.rel = s.rel
     }
 
     // ─── Main loop ─────────────────────────────────────────────────────────
@@ -354,6 +458,7 @@ export class NitroRushEngine {
                 this.keepPrev()
                 const racing = this.phase === 'racing'
                 const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
+                if (ev.fell) this.respawn()
                 if (racing) this.onStep(ev)
                 if (racing && this.timer) for (const e of this.timer.update(this.timerS(), STEP)) this.onLapEvent(e)
             }
@@ -381,7 +486,8 @@ export class NitroRushEngine {
             }
         }
         const racing = this.phase === 'racing'
-        const slide = tyreSlide(s, this.playerInput(), racing)
+        // Off the plan (rails) or off the ground, there's no tarmac to leave marks on.
+        const slide = s.onRail || s.airborne ? 0 : tyreSlide(s, this.playerInput(), racing)
         this.audio.skid(racing || this.phase === 'finished' ? slide * Math.min(1, Math.abs(s.speed) / 12) : 0)
         this.fx.tyres(dt, s, slide)
 
@@ -407,6 +513,10 @@ export class NitroRushEngine {
 
     private onStep(ev: StepEvents) {
         const s = this.state
+        if (ev.landed > HARD_LANDING) {
+            this.cam.shake(Math.min(0.8, ev.landed / 30))
+            this.audio.bump()
+        }
         if (ev.wallImpact > 1.5) {
             const k = Math.min(1, ev.wallImpact / 14)
             const hard = ev.wallImpact > 6
@@ -439,8 +549,12 @@ export class NitroRushEngine {
             const sub = rec.bestLap === null ? label : `${label} · ${formatLapTime(e.time - rec.bestLap, true)}`
             this.lastLap = e.time
             if (this.sessionBest === null || e.time < this.sessionBest) this.sessionBest = e.time
+            const lapGhost = this.recorder.lap(e.time)
             if (isBest) {
-                this.record = { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time] }
+                // The new best's ghost; a lap that couldn't record one keeps the old ghost, which is still a real lap.
+                const ghost = (lapGhost && encodeGhost(lapGhost)) ?? rec.ghost
+                if (ghost !== rec.ghost) this.bestGhost = decodeGhost(ghost)
+                this.record = { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time], ghost }
                 this.events.record(this.track.def.id, this.record)
                 this.flash.setRGB(0.25, 0.2, 0.05)
             }
@@ -455,6 +569,48 @@ export class NitroRushEngine {
         }
     }
 
+    // ─── Ghosts ────────────────────────────────────────────────────────────
+
+    /**
+     * The lap clock at the moment the car is drawn, up to a physics step behind the timer;
+     * null off the clock. Past a sprint's finish it keeps running, so a ghost still behind
+     * gets to cross the line.
+     */
+    private drawnLapTime(): number | null {
+        const timer = this.timer
+        if (!timer || this.phase === 'attract') return null
+        if (this.phase === 'finished') return (this.lastLap ?? 0) + (this.time - this.finishedAt)
+        if (this.phase === 'countdown') return 0
+        return Math.max(0, timer.clock - STEP + this.accumulator) - timer.lapStart
+    }
+
+    /** The best lap, replayed against the lap clock. */
+    private readonly bestGhostSource: GhostSource = (_now, lapTime) => {
+        if (!this.bestGhostOn || !this.bestGhost || lapTime === null) return []
+        ghostPose(this.bestGhost, lapTime, this.bestGhostFrame.pose)
+        return [this.bestGhostFrame]
+    }
+
+    /** Records the car as drawn, then draws every source's ghosts at the same lap time. Runs after the car and camera are placed. */
+    private drawGhosts() {
+        const lapTime = this.drawnLapTime()
+        if (lapTime !== null && (this.phase === 'countdown' || this.phase === 'racing')) this.recorder.add(lapTime, this.carPose(this.recordPose))
+        const now = performance.now()
+        const shown = lapTime === null ? null : Math.max(0, lapTime)
+        const frames = this.ghostFrames
+        frames.length = 0
+        for (const src of this.ghostSources) {
+            try {
+                frames.push(...src(now, shown))
+            } catch (e) {
+                // A broken source shouldn't stop the race being drawn.
+                console.error('Nitro Rush: a ghost source failed and was removed', e)
+                this.ghostSources.delete(src)
+            }
+        }
+        this.ghosts.update(frames, now, this.cam.camera, this.height)
+    }
+
     // ─── Camera, car pose, post and HUD ────────────────────────────────────
 
     private render(dt: number) {
@@ -465,26 +621,22 @@ export class NitroRushEngine {
         const speedK = THREE.MathUtils.clamp(Math.abs(s.speed) / ENGINE_TOP_SPEED, 0, 1)
 
         // Pose between the last two physics states, so motion is smooth at any refresh rate.
-        const a = this.phase === 'countdown' ? 1 : this.accumulator / STEP
-        const x = this.prev.x + (s.x - this.prev.x) * a
-        const z = this.prev.z + (s.z - this.prev.z) * a
-        const heading = this.prev.heading + wrapAngle(s.heading - this.prev.heading) * a
-        const y = this.prev.y + (s.proj.y - this.prev.y) * a
-        let ds = s.proj.s - this.prev.s
-        // A loop's s jumps by its length at the start line.
-        if (this.track.closed && Math.abs(ds) > this.track.length / 2) ds -= Math.sign(ds) * this.track.length
-        const along = this.prev.s + ds * a
-        this.car.place(x, y, z, heading, s.proj)
+        this.poseAt(this.phase === 'countdown' ? 1 : this.accumulator / STEP)
+        const { x, z, along } = this.drawn
+        const y = this.drawnPos.y
         this.car.animate(dt, s, this.latAcc, this.longAcc, racing && this.controls.throttle)
 
         this.cam.update(dt, this.time, {
-            x, y, z, along, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK: this.nitroK, latAcc: this.latAcc
+            x, y, z, along, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK: this.nitroK, latAcc: this.latAcc,
+            pos: this.drawnPos, quat: this.drawnQuat, onRail: s.onRail, airborne: s.airborne
         }, shotFor(this.phase, this.countdown, this.time - this.finishedAt))
         const blend = this.cam.blend
         this.fx.frame(dt, {
             camera: this.cam.camera, height: this.height, pixelRatio: this.resolution.ratio, yaw: this.cam.yaw, blend,
             roadY: y, speed: s.speed, speedK, nitroK: this.nitroK, nitro, tails: this.car.tailLights(this.tails)
         })
+
+        this.drawGhosts()
 
         this.aberrationPulse = Math.max(0, this.aberrationPulse - dt * 2.6)
         this.flash.multiplyScalar(Math.exp(-dt * 7))

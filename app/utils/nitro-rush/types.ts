@@ -1,5 +1,9 @@
 /** What the engine and the game's UI exchange: phases, controls, the HUD, popups and records. */
 
+import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
+import type { StoredGhost } from './ghost'
+
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'
 
@@ -28,6 +32,8 @@ export interface HudState {
 export interface TrackRecord {
     bestLap: number | null
     bestSplits: number[] | null
+    /** The best lap's ghost, kept in this browser only; records from before ghosts have none. */
+    ghost?: StoredGhost
 }
 
 export const EMPTY_RECORD: Readonly<TrackRecord> = { bestLap: null, bestSplits: null }
@@ -47,4 +53,38 @@ export interface EngineEvents {
     phase: (p: Phase) => void
     /** A new personal best lap; the component persists it and sends it to the leaderboard. */
     record: (trackId: string, r: TrackRecord) => void
+}
+
+/** Where a car sits in the world: its model's position and orientation. Full 3D, so it holds through loopings and corkscrews. */
+export interface CarPose {
+    x: number
+    y: number
+    z: number
+    qx: number
+    qy: number
+    qz: number
+    qw: number
+}
+
+/** A ghost car to draw this frame: the player's best lap, or another player live on the same course. */
+export interface GhostFrame {
+    /** Stable per ghost, so its model is reused frame to frame. */
+    id: string
+    pose: CarPose
+    /** A name tag over the car; left out for the player's own ghost. */
+    label?: string
+    /** Body colour, as a hex number. */
+    color?: number
+}
+
+/**
+ * Supplies ghosts each rendered frame. `now` is `performance.now()`; `lapTime` is
+ * the running lap clock in seconds, or null while no lap is being timed.
+ */
+export type GhostSource = (now: number, lapTime: number | null) => GhostFrame[]
+
+/** A player's own course on the track menu, with its drivable form once it's finished. */
+export interface CustomTrackEntry {
+    track: CustomTrack
+    def: TrackDef | null
 }
