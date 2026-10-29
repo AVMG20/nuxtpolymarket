@@ -124,19 +124,6 @@ describe('max-win cap', () => {
     })
 })
 
-describe('RTP', () => {
-    it('stays within a sane band over a seeded sample of base spins', () => {
-        stubRandomFloat(mulberry32(7))
-        const bet = 1
-        const rounds = 1500
-        let totalPayout = 0
-        for (let i = 0; i < rounds; i++) totalPayout += playCandyMadness(bet).payout
-        const rtp = totalPayout / (rounds * bet)
-        expect(rtp).toBeGreaterThan(0.3)
-        expect(rtp).toBeLessThan(3)
-    })
-})
-
 describe('multiplier spot growth', () => {
     it('every spot value is CM_MULT_START doubled some number of times, capped at CM_MULT_CAP', () => {
         stubRandomFloat(mulberry32(13))

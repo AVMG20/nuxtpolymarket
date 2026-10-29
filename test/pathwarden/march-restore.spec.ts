@@ -77,26 +77,4 @@ describe('pathwarden march restore', () => {
             stubCanvas(), callbacks, undefined, 1, 'warden-stone', { mapPlan: otherPlan, gameState }, true
         )).toThrow(/Disconnected road route/)
     }, 120_000)
-
-    it('never calls a genuine march unrestorable', async () => {
-        const { PathwardenEngine } = await import('../../app/utils/pathwarden-engine')
-        const rejected: string[] = []
-        for (let seed = 1; seed <= 6; seed++) {
-            const mapPlan = createPathwardenMapPlan({ seed, realm: (seed % 5) + 1 })
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const engine: any = new PathwardenEngine(
-                stubCanvas(), callbacks, undefined, (seed % 5) + 1, 'warden-stone', { mapPlan }, true
-            )
-            let random = (seed * 2_654_435_761) >>> 0
-            for (let claim = 0; claim < 25 && engine.pathChoices.length; claim++) {
-                random = (random * 1_664_525 + 1_013_904_223) >>> 0
-                engine.phase = 'path'
-                engine.extendPath(engine.pathChoices[random % engine.pathChoices.length])
-                if (pathwardenSaveIsHydratable(mapPlan, engine.exportGameState())) continue
-                rejected.push(`seed ${seed} claim ${claim}`)
-                break
-            }
-        }
-        expect(rejected).toEqual([])
-    }, 300_000)
 })

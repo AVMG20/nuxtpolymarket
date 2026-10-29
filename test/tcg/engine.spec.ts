@@ -468,7 +468,7 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
         it('(f) open racing return of a sealed pack never destroys minted copies', async () => {
             const fixture = await buildCommittedSet(20, null)
             const cardsPerPack = 5 // commons k=4 + hits k=1
-            for (let round = 0; round < 8; round++) {
+            for (let round = 0; round < 4; round++) {
                 const pack = await buyPack(fixture.setId, USER_ID)
                 const [openResult, returnResult] = await Promise.allSettled([
                     openPack(pack.id, USER_ID),

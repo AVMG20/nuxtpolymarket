@@ -6,11 +6,9 @@ import {
   FIREWALL_MAX_WAVE,
   FIREWALL_RUN_COOLDOWN_MS,
   FIREWALL_COOLDOWN_RUSH_MS_PER_GEM,
-  FIREWALL_TURRETS,
   FIREWALL_TYPE_BONUS,
   FIREWALL_UPGRADES,
   FIREWALL_WEAPONS,
-  firewallCoinValue,
   firewallCooldownRushCost,
   firewallDifficulty,
   firewallMainframeCost,
@@ -25,8 +23,6 @@ import {
   type FirewallDifficultyId
 } from '#shared/utils/gamelogic/firewall'
 import {
-  firewallFreshBuild,
-  firewallGearedBuild,
   firewallMaxBuild,
   firewallSimulateRun
 } from '#shared/utils/gamelogic/firewall-sim'
@@ -40,43 +36,9 @@ describe('damage types', () => {
     expect(firewallTypeMultiplier('energy', true)).toBe(1)
     expect(firewallTypeMultiplier('kinetic', false)).toBe(1)
   })
-
-  it('covers both types across weapons and turrets', () => {
-    for (const types of [FIREWALL_WEAPONS.map(w => w.damageType), FIREWALL_TURRETS.map(t => t.damageType)]) {
-      expect(types).toContain('kinetic')
-      expect(types).toContain('energy')
-    }
-  })
 })
 
 describe('shop shape', () => {
-  it('offers exactly four ways to upgrade the gun', () => {
-    expect(FIREWALL_UPGRADES.filter(u => u.tab === 'rail')).toHaveLength(4)
-  })
-
-  it('has no in-run credit-rate upgrade — that moved to the Mainframe', () => {
-    expect(FIREWALL_UPGRADES.some(u => u.id === ('bounty' as never))).toBe(false)
-    expect(FIREWALL_MAINFRAME.some(m => m.id === 'salvage')).toBe(true)
-  })
-
-  it('gates weapons and turrets behind waves, in ascending price order', () => {
-    const purchasable = FIREWALL_WEAPONS.filter(w => w.cost > 0)
-    for (let i = 1; i < purchasable.length; i++) {
-      expect(purchasable[i]!.cost).toBeGreaterThan(purchasable[i - 1]!.cost)
-      expect(purchasable[i]!.unlockWave).toBeGreaterThan(purchasable[i - 1]!.unlockWave)
-    }
-    for (let i = 1; i < FIREWALL_TURRETS.length; i++) {
-      expect(FIREWALL_TURRETS[i]!.cost).toBeGreaterThan(FIREWALL_TURRETS[i - 1]!.cost)
-      expect(FIREWALL_TURRETS[i]!.unlockWave).toBeGreaterThan(FIREWALL_TURRETS[i - 1]!.unlockWave)
-    }
-  })
-
-  it('prices the last turret as a real commitment against the first', () => {
-    const [first] = FIREWALL_TURRETS
-    const last = FIREWALL_TURRETS[FIREWALL_TURRETS.length - 1]!
-    expect(last.cost / first!.cost).toBeGreaterThanOrEqual(10)
-  })
-
   it('never lets an upgrade level get cheaper than the one before it', () => {
     for (const def of FIREWALL_UPGRADES) {
       for (let level = 1; level < def.max; level++) {
@@ -94,45 +56,11 @@ describe('mounts', () => {
 })
 
 describe('the Mainframe', () => {
-  it('opens in the tens of thousands and tops out in the tens of millions', () => {
-    const opening = FIREWALL_MAINFRAME.map(def => firewallMainframeCost(def, 0) ?? 0)
-    expect(Math.min(...opening)).toBe(20_000)
-
-    // The whole tree is a few hundred million — roughly three hundred endgame
-    // runs, and in the same bracket as the Pirate Raid armoury. It used to run
-    // to 167 billion, which no account could reach in any number of runs.
-    const topLevels = FIREWALL_MAINFRAME.map(def => firewallMainframeCost(def, def.max - 1) ?? 0)
-    expect(Math.max(...topLevels)).toBeGreaterThan(50_000_000)
-    expect(Math.max(...topLevels)).toBeLessThan(150_000_000)
-
-    let tree = 0
-    for (const def of FIREWALL_MAINFRAME) {
-      for (let level = 0; level < def.max; level++) tree += firewallMainframeCost(def, level) ?? 0
-    }
-    expect(tree).toBeGreaterThan(300_000_000)
-    expect(tree).toBeLessThan(800_000_000)
-  })
-
   it('returns null once maxed rather than an ever-growing price', () => {
     for (const def of FIREWALL_MAINFRAME) {
       expect(firewallMainframeCost(def, def.max)).toBeNull()
       expect(firewallMainframeCost(def, def.max - 1)).toBeGreaterThan(0)
     }
-  })
-
-  it('raises base values without touching the in-run ceiling', () => {
-    const none = firewallMainframeEffects({
-      bulwark: 0, munitions: 0, foundry: 0, grant: 0, salvage: 0, capacitor: 0, charter: 0, arsenal: 0
-    })
-    const maxed = firewallMaxBuild().mainframe
-    const full = firewallMainframeEffects(maxed)
-    expect(none.wallHp).toBe(1)
-    expect(none.weaponDamage).toBe(1)
-    // Deliberately modest: the Mainframe is how you reach a harder difficulty,
-    // not how you skip the run you are on.
-    expect(full.weaponDamage).toBeLessThanOrEqual(2)
-    expect(full.turretDamage).toBeLessThanOrEqual(2)
-    expect(full.wallHp).toBeLessThanOrEqual(2)
   })
 
   it('lifts weapon wave gates one weapon at a time', () => {
@@ -144,17 +72,6 @@ describe('the Mainframe', () => {
 })
 
 describe('difficulties', () => {
-  it('offers five, ordered by both danger and reward', () => {
-    expect(FIREWALL_DIFFICULTIES).toHaveLength(5)
-    for (let i = 1; i < FIREWALL_DIFFICULTIES.length; i++) {
-      const previous = FIREWALL_DIFFICULTIES[i - 1]!
-      const current = FIREWALL_DIFFICULTIES[i]!
-      expect(current.enemyHp).toBeGreaterThan(previous.enemyHp)
-      expect(current.reward).toBeGreaterThan(previous.reward)
-      expect(current.requiredBestWave).toBeGreaterThanOrEqual(previous.requiredBestWave)
-    }
-  })
-
   it('leaves the two lowest ungated so a new account can always play', () => {
     expect(FIREWALL_DIFFICULTIES[0]!.requiredBestWave).toBe(0)
     expect(FIREWALL_DIFFICULTIES[1]!.requiredBestWave).toBe(0)
@@ -162,14 +79,6 @@ describe('difficulties', () => {
 })
 
 describe('run depth', () => {
-  it('ends a fully-invested Zero Day run inside the 20-30 wave band', () => {
-    // The headline balance target: everything bought, hardest difficulty, and
-    // the run still has to end. An infinite game is an infinite payout.
-    const run = firewallSimulateRun(firewallMaxBuild(), 'zeroday')
-    expect(run.endedWave).toBeGreaterThanOrEqual(20)
-    expect(run.endedWave).toBeLessThanOrEqual(FIREWALL_MAX_WAVE)
-  })
-
   it('can never run past the wave cap on any difficulty', () => {
     for (const difficulty of FIREWALL_DIFFICULTIES) {
       const run = firewallSimulateRun(firewallMaxBuild(), difficulty.id)
@@ -177,38 +86,9 @@ describe('run depth', () => {
       expect(run.waves.length).toBeLessThanOrEqual(FIREWALL_MAX_WAVE)
     }
   })
-
-  it('gives a bare account a real run on the opening difficulties', () => {
-    const run = firewallSimulateRun(firewallFreshBuild(), 'breach', { autoUpgrade: true })
-    expect(run.endedWave).toBeGreaterThanOrEqual(8)
-    expect(run.endedWave).toBeLessThan(FIREWALL_MAX_WAVE)
-  })
-
-  it('makes a bare account lose badly on a difficulty it has not invested for', () => {
-    const fresh = firewallSimulateRun(firewallFreshBuild(), 'zeroday', { autoUpgrade: true })
-    const geared = firewallSimulateRun(firewallGearedBuild(), 'zeroday', { autoUpgrade: true })
-    expect(fresh.endedWave).toBeLessThan(8)
-    expect(geared.endedWave).toBeGreaterThan(fresh.endedWave)
-  })
 })
 
 describe('coin economy', () => {
-  it('pays deeper waves disproportionately more than early ones', () => {
-    const difficulty = firewallDifficulty('breach')
-    const early = firewallCoinValue(100, 2, difficulty, 1)
-    const late = firewallCoinValue(100, 20, difficulty, 1)
-    // Superlinear on purpose: without it the best play on a high difficulty is
-    // to farm wave three forever.
-    expect(late / early).toBeGreaterThan(10)
-  })
-
-  it('makes climbing the ladder the way to earn more', () => {
-    const byDifficulty = FIREWALL_DIFFICULTIES.map(d => firewallSimulateRun(firewallMaxBuild(), d.id).coins)
-    for (let i = 1; i < byDifficulty.length; i++) {
-      expect(byDifficulty[i]!).toBeGreaterThan(byDifficulty[i - 1]!)
-    }
-  })
-
   it('leaves honest play well clear of the anti-cheat ceiling', () => {
     for (const difficulty of FIREWALL_DIFFICULTIES) {
       const run = firewallSimulateRun(firewallMaxBuild(), difficulty.id)

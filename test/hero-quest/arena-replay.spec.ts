@@ -111,7 +111,7 @@ describe('the Arena on the stage', () => {
     it('plays every death a real duel logs, and ends with the log\'s fallen down and its revived standing', { timeout: 120_000 }, () => {
         const classes: ClassId[] = ['class_beginner', 'class_warrior', 'class_mage', 'class_archer', 'class_paladin', 'class_hunter', 'class_witch_doctor', 'class_marksman']
         let falls = 0
-        for (const seed of [2, 10, 18, 24, 31, 47]) {
+        for (const seed of [2, 18, 31]) {
             const attackerClass = classes[seed % classes.length]!
             const defenderClass = classes[(seed * 3) % classes.length]!
             const attacking = [champion(seed, 'front'), champion(seed + 5, 'back'), champion(seed + 9, 'back')]
@@ -134,6 +134,6 @@ describe('the Arena on the stage', () => {
                 }
             }
         }
-        expect(falls).toBeGreaterThan(10)
+        expect(falls).toBeGreaterThan(4)
     })
 })

@@ -91,6 +91,7 @@ Edit `schema.ts`, then run `bun run db:generate` (commit the generated `drizzle/
   - Good: `- **Ember Portals**: portals from the triggering spin stay open for the free spins, and portals max out at a white ×256.`
   - You may rewrite the whole day's file at any time to make it shorter: merge, trim or drop entries when it grows long.
 - **Before any commit**: `bun run typecheck` and `bun run test` must both pass. `nuxt build` does not typecheck. A red `main` blocks every branch and deploy, so fix failures and call out any that are genuinely pre-existing. DB tests need the compose Postgres running.
+- **Balance checks and simulations go in `scripts/`, never in tests.** To verify or tune a game (RTP, income curves, difficulty, bot playthroughs), add or extend a `scripts/<game>-*.ts`. Tests run on every deploy, so they cover rules and correctness, not tuning numbers that move whenever a feature changes.
 - **Commits**: only when asked. Short imperative subject, no body or footer, no `Co-Authored-By`. Split commits by concern.
 - **Branches**: `feature/…` or `bugfix/…` in kebab-case, from an up-to-date `main`.
 - **PRs**: title is the branch name, empty body, base `main`.

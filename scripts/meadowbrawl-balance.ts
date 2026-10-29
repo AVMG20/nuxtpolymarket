@@ -1,20 +1,18 @@
-import { describe, expect, it } from 'vitest'
 import { writeFileSync } from 'node:fs'
-import { DEFAULT_RUN_CONFIG, MeadowbrawlGame, type Enemy } from '../../app/utils/meadowbrawl/engine'
-import { WEAPONS } from '../../app/utils/meadowbrawl/weapons'
-import { UPGRADE_BY_ID } from '../../app/utils/meadowbrawl/upgrades'
-import type { Element, Offer, WeaponId } from '../../app/utils/meadowbrawl/types'
+import { DEFAULT_RUN_CONFIG, MeadowbrawlGame, type Enemy } from '../app/utils/meadowbrawl/engine'
+import { WEAPONS } from '../app/utils/meadowbrawl/weapons'
+import { UPGRADE_BY_ID } from '../app/utils/meadowbrawl/upgrades'
+import type { Element, Offer, WeaponId } from '../app/utils/meadowbrawl/types'
 
 /**
  * Difficulty probe. A mortal bot with decent (not superhuman) habits plays
  * runs to the death with a few boon strategies, and the wave it dies on
- * is the difficulty curve. Off by default — it takes minutes:
+ * is the difficulty curve. It takes minutes:
  *
- *   MB_SIM=1 MB_RUNS=8 MB_WEAPONS=sword,scythe bunx vitest run test/meadowbrawl/balance.spec.ts
+ *   MB_RUNS=8 MB_WEAPONS=sword,scythe bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/meadowbrawl-balance.ts
  *
  * Intended band: 10–15 should fall to a competent run, 20–25 to a strong
- * build, 30 only to a great one. The assertions are loose sanity bounds;
- * the printed table is the actual output.
+ * build, 30 only to a great one.
  */
 
 type Strategy = 'random' | 'greedy' | 'fire' | 'ice' | 'shock'
@@ -144,37 +142,27 @@ function pct(list: number[], p: number): number {
     return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!
 }
 
-const enabled = process.env.MB_SIM === '1'
+const all: WeaponId[] = ['sword', 'greataxe', 'spear', 'daggers', 'warhammer', 'scythe']
+const weapons = (process.env.MB_WEAPONS?.split(',').filter((w): w is WeaponId => all.includes(w as WeaponId)) ?? [])
+const picked = weapons.length ? weapons : [...all].sort(() => Math.random() - 0.5).slice(0, 3)
+const runs = Number(process.env.MB_RUNS ?? 6)
+const strategies: Strategy[] = (process.env.MB_STRATEGIES?.split(',') as Strategy[] | undefined) ?? ['random', 'greedy', 'fire', 'ice', 'shock']
 
-describe.skipIf(!enabled)('difficulty probe', () => {
-    const all: WeaponId[] = ['sword', 'greataxe', 'spear', 'daggers', 'warhammer', 'scythe']
-    const weapons = (process.env.MB_WEAPONS?.split(',').filter((w): w is WeaponId => all.includes(w as WeaponId)) ?? [])
-    const picked = weapons.length ? weapons : [...all].sort(() => Math.random() - 0.5).slice(0, 3)
-    const runs = Number(process.env.MB_RUNS ?? 6)
-    const strategies: Strategy[] = (process.env.MB_STRATEGIES?.split(',') as Strategy[] | undefined) ?? ['random', 'greedy', 'fire', 'ice', 'shock']
-
-    it('reports how deep a mortal bot gets', () => {
-        const lines: string[] = []
-        const allWaves: number[] = []
-        for (const weapon of picked) {
-            for (const strategy of strategies) {
-                const results: RunResult[] = []
-                for (let i = 0; i < runs; i++) results.push(playRun(weapon, strategy))
-                const waves = results.map(r => r.wave)
-                allWaves.push(...waves)
-                const reach = (n: number) => Math.round(waves.filter(w => w >= n).length / waves.length * 100)
-                lines.push(`${weapon.padEnd(10)} ${strategy.padEnd(7)} median ${String(pct(waves, 0.5)).padStart(2)}  p25 ${String(pct(waves, 0.25)).padStart(2)}  p75 ${String(pct(waves, 0.75)).padStart(2)}  ≥10 ${reach(10)}%  ≥15 ${reach(15)}%  ≥20 ${reach(20)}%  ≥25 ${reach(25)}%  won ${Math.round(results.filter(r => r.won).length / results.length * 100)}%`)
-                const bestRun = results.reduce((a, b) => (b.wave > a.wave ? b : a))
-                lines.push(`           best: wave ${bestRun.wave} in ${bestRun.seconds}s with ${bestRun.boons.join(', ')}`)
-            }
-        }
-        const report = `\n${lines.join('\n')}\n`
-        console.log(report)
-        if (process.env.MB_OUT) writeFileSync(process.env.MB_OUT, report)
-        expect(allWaves.length).toBeGreaterThan(0)
-        for (const w of allWaves) expect(w).toBeGreaterThanOrEqual(1)
-    }, 20 * 60 * 1000)
-})
+const lines: string[] = []
+for (const weapon of picked) {
+    for (const strategy of strategies) {
+        const results: RunResult[] = []
+        for (let i = 0; i < runs; i++) results.push(playRun(weapon, strategy))
+        const waves = results.map(r => r.wave)
+        const reach = (n: number) => Math.round(waves.filter(w => w >= n).length / waves.length * 100)
+        lines.push(`${weapon.padEnd(10)} ${strategy.padEnd(7)} median ${String(pct(waves, 0.5)).padStart(2)}  p25 ${String(pct(waves, 0.25)).padStart(2)}  p75 ${String(pct(waves, 0.75)).padStart(2)}  ≥10 ${reach(10)}%  ≥15 ${reach(15)}%  ≥20 ${reach(20)}%  ≥25 ${reach(25)}%  won ${Math.round(results.filter(r => r.won).length / results.length * 100)}%`)
+        const bestRun = results.reduce((a, b) => (b.wave > a.wave ? b : a))
+        lines.push(`           best: wave ${bestRun.wave} in ${bestRun.seconds}s with ${bestRun.boons.join(', ')}`)
+    }
+}
+const report = `\n${lines.join('\n')}\n`
+console.log(report)
+if (process.env.MB_OUT) writeFileSync(process.env.MB_OUT, report)
 
 // Element type is referenced so the strategy union stays in step with the schools.
 export type { Element }

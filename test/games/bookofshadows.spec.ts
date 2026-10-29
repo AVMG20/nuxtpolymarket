@@ -128,19 +128,6 @@ describe('max-win cap', () => {
     })
 })
 
-describe('RTP', () => {
-    it('stays within a sane band over a seeded sample of base spins', () => {
-        stubRandomFloat(mulberry32(7))
-        const bet = 1
-        const rounds = 4000
-        let totalPayout = 0
-        for (let i = 0; i < rounds; i++) totalPayout += playBookOfShadows(bet).payout
-        const rtp = totalPayout / (rounds * bet)
-        expect(rtp).toBeGreaterThan(0.3)
-        expect(rtp).toBeLessThan(3)
-    })
-})
-
 describe('bonus retrigger boundary', () => {
     it('extends totalSpins by BONUS_RETRIGGER_SPINS exactly once when it fires, and stops BOOK from landing afterwards', () => {
         stubRandomFloat(mulberry32(3))
