@@ -1,10 +1,6 @@
 import * as THREE from 'three'
 import {
-    HACKERZ_SPIDER_CAP,
-    HACKERZ_SPIDER_HATCH_MS,
-    HACKERZ_SPIDER_INFECT_RADIUS,
-    HACKERZ_SPIDER_INJECT_MS,
-    hackerzEnemy
+    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS, hackerzEnemy
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, SHIELD_D } from '../constants'
 import { clamp, randRange } from '../math'
@@ -83,7 +79,7 @@ export class Rootkit {
         this.game.transient?.ring(at, enemy.def.hex, 7, 0.45)
         this.game.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.6 })
         this.game.overlay.floatText(bodyPoint(enemy, 1, _v), 'BURROWING', enemy.def.hex, 1.2)
-        if (this.game.rail.target === enemy) this.game.rail.target = null
+        this.game.rail.drop(enemy)
     }
 
     /** Spiderlings on the field. */

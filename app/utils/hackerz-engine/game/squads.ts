@@ -1,9 +1,6 @@
 import * as THREE from 'three'
 import {
-    HACKERZ_HACKER_ID,
-    hackerzEnemy,
-    hackerzIsAirborne,
-    type HackerzEnemyId
+    HACKERZ_HACKER_ID, hackerzEnemy, hackerzIsAirborne, type HackerzEnemyId
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, RAIL_U } from '../constants'
 import { clamp, randRange } from '../math'

@@ -72,8 +72,8 @@ export class DemoDirector {
     fire(at: 'lead' | 'node' | null) {
         if (!this.game.demo) return
         this.firing = at
-        this.game.rail.holding = at !== null
-        if (!at) this.game.rail.target = null
+        this.game.rail.setTrigger(at !== null)
+        if (!at) this.game.rail.lock(null)
     }
 
     /** Sets off one of the rail's abilities for the script, charged or not. */
@@ -107,16 +107,13 @@ export class DemoDirector {
     private aim() {
         if (this.firing === 'lead') {
             if (this.game.rail.target && this.game.rail.target.hp > 0 && this.game.enemies.includes(this.game.rail.target)) return
-            this.game.rail.target = this.game.enemies
+            this.game.rail.lock(this.game.enemies
                 .filter(e => e.hp > 0 && !e.turned && !this.game.combat.untargetable(e))
-                .sort((a, b) => a.d - b.d)[0] ?? null
+                .sort((a, b) => a.d - b.d)[0] ?? null)
         } else if (this.firing === 'node') {
             const chip = this.game.pathChips?.ordered.find(c => c.state === 'hacked')
-            this.game.rail.target = null
-            if (chip) {
-                this.game.rail.aimU = chip.u
-                this.game.rail.aimD = chip.d
-            }
+            this.game.rail.lock(null)
+            if (chip) this.game.rail.aimAt(chip.u, chip.d)
         }
     }
 

@@ -73,16 +73,9 @@ export class Input {
             // Press fires; holding keeps firing. Pressed on a hostile, the rail
             // tracks it for as long as the button stays down — though not
             // through a packet-loss spike, which drops every lock.
-            this.game.rail.lockSpot = null
-            this.game.rail.target = this.game.lag.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y)
-            this.game.rail.holding = true
-            this.game.rail.queuedShot = true
+            this.game.rail.press(this.game.lag.boardLagMs > 0 ? null : this.pickEnemy(p.x, p.y))
         }
-        const release = () => {
-            this.game.rail.holding = false
-            this.game.rail.target = null
-            this.game.rail.lockSpot = null
-        }
+        const release = () => this.game.rail.release()
         // Only letting go of the fire button stops the fire: a ping released
         // mid-burst leaves it running.
         const lift = (event: PointerEvent) => {
@@ -96,7 +89,7 @@ export class Input {
             const key = event.key.toLowerCase()
             if (key === 'r') this.game.rail.beginReload()
             if (key === 'escape') {
-                this.game.rail.target = null
+                this.game.rail.lock(null)
                 this.game.deployer.arm(null)
             }
             const deploy = DEPLOY_KEYS[key]
@@ -142,8 +135,7 @@ export class Input {
         this.raycaster.setFromCamera(ndc, view.camera)
         const hit = this.raycaster.ray.intersectPlane(this.groundPlane, _v)
         if (!hit) return
-        this.game.rail.aimU = hit.x * PER_WORLD
-        this.game.rail.aimD = Math.max(20, -hit.z * PER_WORLD)
+        this.game.rail.aimAt(hit.x * PER_WORLD, Math.max(20, -hit.z * PER_WORLD))
     }
 
     /**

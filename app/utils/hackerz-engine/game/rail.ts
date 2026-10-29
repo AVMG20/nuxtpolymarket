@@ -32,47 +32,109 @@ export class Rail {
     constructor(private readonly game: HackerzGame) {}
 
     railRig: ModelRig | null = null
-
     ammoRack: AmmoRack | null = null
-
     weapon: HackerzWeaponRuntime | null = null
-
     mag = 10
-
     magSize = 10
-
     fireTimer = 0
-
     reloadTimer = 0
-
     /** Rounds the Tarpit Grid has drawn from the magazine but not yet spent a whole round of. */
     tarpitDrain = 0
-
     railHeading = Math.PI
-
     /** Where the rail gun stands along the wall: the middle, or wherever a railgun has glided to on its track. */
     railU = RAIL_U
-
     /** The railgun's track across the deck, shown while the Longbore is on. */
     railTrack: THREE.Object3D | null = null
-
     railKick = 0
 
-    /** The hostile the button was pressed on: tracked only while it stays held. */
-    target: EnemyEntity | null = null
-
-    /** Left button held: the rail fires, at `target` or else at the cursor. */
-    holding = false
-
-    /** Where a lag spike left the rail firing when it dropped the lock. */
-    lockSpot: { u: number, d: number, y: number } | null = null
-
+    // ── Aim: read anywhere, changed only through the methods below ──
+    private locked: EnemyEntity | null = null
+    private trigger = false
+    private spot: { u: number, d: number, y: number } | null = null
     /** A press always fires once, even if the button is up again before the next frame. */
-    queuedShot = false
+    private queuedShot = false
+    private cursorU = 0
+    private cursorD = FIELD_DEPTH * 0.5
 
-    aimU = 0
+    /** The hostile the rail is locked on: tracked while the trigger stays held. */
+    get target() { return this.locked }
+    /** The trigger is held: the rail fires, at `target`, else at `lockSpot`, else at the cursor. */
+    get holding() { return this.trigger }
+    /** Where a lag spike or the dark left the rail firing when the lock slipped. */
+    get lockSpot() { return this.spot }
+    /** The cursor (or the spot auto-play or a demo aims at), on the field. */
+    get aimU() { return this.cursorU }
+    get aimD() { return this.cursorD }
 
-    aimD = FIELD_DEPTH * 0.5
+    /**
+     * Locks on a hostile, or lets go with null; the trigger and any `lockSpot` are
+     * left as they are. Player input wants `press`, `hold` or `release` instead.
+     */
+    lock(target: EnemyEntity | null) {
+        this.locked = target
+    }
+
+    /** Lets go of `enemy` if the rail is locked on it: it died, turned, burrowed or forked. */
+    drop(enemy: EnemyEntity) {
+        if (this.locked === enemy) this.locked = null
+    }
+
+    /** The lock slips (a lag spike, the dark): the rail keeps firing where it last saw its target. */
+    slip() {
+        const target = this.locked
+        if (!target) return
+        this.spot = { u: target.u, d: target.d, y: enemyCentreY(target) }
+        this.locked = null
+    }
+
+    /** The fire button goes down: on `target`, or on the cursor with null; it fires at least once. */
+    press(target: EnemyEntity | null) {
+        this.spot = null
+        this.locked = target
+        this.trigger = true
+        this.queuedShot = true
+    }
+
+    /** Holds the trigger on `target`, or lets go of it with null (auto-play). */
+    hold(target: EnemyEntity | null) {
+        this.locked = target
+        this.spot = null
+        this.trigger = !!target
+    }
+
+    /** Holds the trigger on a spot rather than a hostile: firing blind into the dark. */
+    holdOn(spot: { u: number, d: number, y: number }) {
+        this.locked = null
+        this.spot = spot
+        this.trigger = true
+    }
+
+    /**
+     * Pulls or lets go of the trigger, the lock left as it is (a demo board's
+     * script). Player input wants `press`, `hold` or `release` instead.
+     */
+    setTrigger(on: boolean) {
+        this.trigger = on
+    }
+
+    /** The fire button comes up: no trigger, no lock, no spot. */
+    release() {
+        this.trigger = false
+        this.locked = null
+        this.spot = null
+    }
+
+    /** Stops firing and lets go of the lock, as a wave ends or the run stops. */
+    ceaseFire() {
+        this.trigger = false
+        this.locked = null
+    }
+
+    /** Points the rail's aim at a field spot. */
+    aimAt(u: number, d: number) {
+        this.cursorU = u
+        this.cursorD = d
+    }
 
     /** The Tarpit Grid has power while the gun has rounds in it and is not reloading. */
     get tarpitPowered() {
