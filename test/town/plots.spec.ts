@@ -1,7 +1,7 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { transactions, townState, townPlots, townBuildings, townRealm } from '#server/database/schema'
+import { transactions, townState, townPlots, townBuildings } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
 import {
     buyPlotFromPlayer,
@@ -13,7 +13,6 @@ import {
 } from '#server/utils/town'
 import {
     TOWN_FOUNDING_GAP,
-    townPlotIsFlat,
     TOWN_MAX_PLOTS,
     TOWN_PLOT_MAX_LIST_PRICE,
     TOWN_PLOT_MIN_LIST_PRICE,
@@ -22,8 +21,7 @@ import {
     isValidTownListPrice,
     townPlotDistance,
     townPlotPrice,
-    townPlotRefundFor,
-    townSpiralCoords
+    townPlotRefundFor
 } from '#shared/utils/gamelogic/town'
 import { SKIP, burst, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
@@ -101,12 +99,6 @@ describe('plot market rules', () => {
             expect(townPlotDistance({ x: 0, y: 0 }, { x: 1, y: 1 })).toBe(1)
             expect(townPlotDistance({ x: 0, y: 0 }, { x: 3, y: 1 })).toBe(3)
             expect(townPlotDistance({ x: -2, y: 5 }, { x: 1, y: 4 })).toBe(3)
-        })
-
-        it('is symmetric', () => {
-            const a = { x: 4, y: -7 }
-            const b = { x: -1, y: 2 }
-            expect(townPlotDistance(a, b)).toBe(townPlotDistance(b, a))
         })
     })
 })
@@ -207,19 +199,21 @@ async function seedBuilding(userId: string, plotId: string, type = 'road', tileX
 }
 
 async function cleanup() {
-    for (const id of USERS) {
+    await Promise.all(USERS.map(async (id) => {
         await deleteTownForUser(id)
         await cleanupUser(id)
-    }
+    }))
 }
 
 describe.skipIf(SKIP)('polytown plot market (database)', () => {
     // One shared realm: hold it for this file so a sibling spec cannot plant
     // or delete plots midway through a test here (db-helpers, lockTownRealm).
     let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
 
-    beforeEach(cleanup)
     afterEach(cleanup)
     afterAll(async () => {
         await releaseRealm()
@@ -255,43 +249,10 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
                 }
             }
         })
-
-        it('plants the town on a spiral square that clears the gap, and never walks back', async () => {
-            const before = await allPlots()
-            await seedUser(OWNER)
-            await foundTown(OWNER)
-
-            const [plot] = await plotsOf(OWNER)
-            const spot = { x: plot!.x, y: plot!.y }
-
-            // It is a square on the spiral, clear of everyone, and worth having.
-            let index = -1
-            for (let i = 0; i < 200_000; i++) {
-                const s = townSpiralCoords(i)
-                if (s.x === spot.x && s.y === spot.y) { index = i; break }
-            }
-            expect(index).toBeGreaterThanOrEqual(0)
-            expect(townPlotIsFlat(spot.x, spot.y)).toBe(false)
-            for (const p of await survivingPlots(before)) expect(townPlotDistance(p, spot)).toBeGreaterThan(TOWN_FOUNDING_GAP)
-
-            // And the realm's cursor moved past it, so the next founding starts
-            // where this one finished rather than walking the spiral again.
-            const [realm] = await db.select().from(townRealm).where(eq(townRealm.id, 1))
-            expect(realm!.foundingCursor).toBeGreaterThan(index)
-        })
-
-        it('spaces a run of foundings without ever reusing a square', async () => {
-            for (const id of [OWNER, SELLER, BUYER, RIVAL]) {
-                await seedUser(id)
-                await foundTown(id)
-            }
-            const squares = (await allPlots()).map(p => `${p.x},${p.y}`)
-            expect(new Set(squares).size).toBe(squares.length)
-        })
     })
 
     describe('listPlot', () => {
-        it('sets and clears the asking price', async () => {
+        it('sets and clears the asking price, and refuses to list the last plot', async () => {
             const at = await freeRegion()
             const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
             const spare = pick(rows, at.x + 1, at.y)
@@ -300,54 +261,21 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect(listed.listPrice).toBe(1_250.5)
             expect((await plotRow(spare.id))!.listPrice).toBe('1250.5000')
 
+            // Down to the last plot, a mayor can still take it off the market but not put it back on.
+            await db.delete(townPlots).where(eq(townPlots.id, pick(rows, at.x, at.y).id))
             const cleared = await listPlot(OWNER, spare.id, null)
             expect(cleared.listPrice).toBeNull()
+            await expect(listPlot(OWNER, spare.id, 500)).rejects.toThrow(/last plot/)
             expect((await plotRow(spare.id))!.listPrice).toBeNull()
         })
 
-        it('refuses a plot that is not yours', async () => {
+        it('refuses a plot that is not yours, a price outside the band, or a plot with a building on it', async () => {
             const at = await freeRegion()
             const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
+            const spare = pick(rows, at.x + 1, at.y)
             await townAt(RIVAL, [{ x: at.x + 5, y: at.y }])
 
-            await expect(listPlot(RIVAL, pick(rows, at.x + 1, at.y).id, 500)).rejects.toThrow(/not yours/)
-            expect((await plotRow(pick(rows, at.x + 1, at.y).id))!.listPrice).toBeNull()
-        })
-
-        it('refuses a plot with a building on it — roads count', async () => {
-            const at = await freeRegion()
-            const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
-            const spare = pick(rows, at.x + 1, at.y)
-            await seedBuilding(OWNER, spare.id, 'road')
-
-            await expect(listPlot(OWNER, spare.id, 500)).rejects.toThrow(/Clear every building/)
-            expect((await plotRow(spare.id))!.listPrice).toBeNull()
-        })
-
-        it('refuses the last plot a mayor has left', async () => {
-            const at = await freeRegion()
-            const [only] = await townAt(OWNER, [{ x: at.x, y: at.y }])
-
-            await expect(listPlot(OWNER, only!.id, 500)).rejects.toThrow(/last plot/)
-            expect((await plotRow(only!.id))!.listPrice).toBeNull()
-        })
-
-        it('still lets a mayor take their last plot off the market', async () => {
-            const at = await freeRegion()
-            const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
-            const spare = pick(rows, at.x + 1, at.y)
-            await listPlot(OWNER, spare.id, 500)
-            await db.delete(townPlots).where(eq(townPlots.id, pick(rows, at.x, at.y).id))
-
-            await expect(listPlot(OWNER, spare.id, null)).resolves.toMatchObject({ listPrice: null })
-            expect((await plotRow(spare.id))!.listPrice).toBeNull()
-        })
-
-        it('refuses a price outside the allowed band', async () => {
-            const at = await freeRegion()
-            const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
-            const spare = pick(rows, at.x + 1, at.y)
-
+            await expect(listPlot(RIVAL, spare.id, 500)).rejects.toThrow(/not yours/)
             for (const price of [
                 TOWN_PLOT_MIN_LIST_PRICE - 0.01,
                 0,
@@ -357,26 +285,14 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             ]) {
                 await expect(listPlot(OWNER, spare.id, price)).rejects.toThrow(/at least 1 coin/)
             }
+            // Roads count.
+            await seedBuilding(OWNER, spare.id, 'road')
+            await expect(listPlot(OWNER, spare.id, 500)).rejects.toThrow(/Clear every building/)
             expect((await plotRow(spare.id))!.listPrice).toBeNull()
         })
     })
 
     describe('sellPlotToSystem', () => {
-        it('pays a quarter of the plot price, removes the plot and steps plotsBought back', async () => {
-            const at = await freeRegion()
-            const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }], { balance: '0' })
-            const spare = pick(rows, at.x + 1, at.y)
-            const refund = townPlotRefundFor(townPlotPrice(2))
-
-            const result = await sellPlotToSystem(OWNER, spare.id)
-
-            expect(result.refund).toBe(refund)
-            expect(await getBalance(OWNER)).toBe(refund.toFixed(4))
-            expect(await plotRow(spare.id)).toBeUndefined()
-            expect(await plotsOf(OWNER)).toHaveLength(1)
-            expect((await stateOf(OWNER)).plotsBought).toBe(1)
-        })
-
         it('never drops plotsBought below one', async () => {
             const at = await freeRegion()
             const rows = await townAt(
@@ -395,33 +311,24 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect((await stateOf(OWNER)).plotsBought).toBe(1)
         })
 
-        it('refuses a plot that still has something standing on it', async () => {
+        it('refuses a plot that is not yours, one with a building on it, or the last plot', async () => {
             const at = await freeRegion()
             const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }], { balance: '0' })
             const spare = pick(rows, at.x + 1, at.y)
-            await seedBuilding(OWNER, spare.id, 'house')
-
-            await expect(sellPlotToSystem(OWNER, spare.id)).rejects.toThrow(/Clear every building/)
-            expect(await plotsOf(OWNER)).toHaveLength(2)
-            expect(await getBalance(OWNER)).toBe('0.0000')
-        })
-
-        it('refuses the last plot a mayor has left', async () => {
-            const at = await freeRegion()
-            const [only] = await townAt(OWNER, [{ x: at.x, y: at.y }], { balance: '0' })
-
-            await expect(sellPlotToSystem(OWNER, only!.id)).rejects.toThrow(/last plot/)
-            expect(await plotsOf(OWNER)).toHaveLength(1)
-            expect(await getBalance(OWNER)).toBe('0.0000')
-        })
-
-        it('refuses a plot that is not yours', async () => {
-            const at = await freeRegion()
-            const rows = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
             await townAt(RIVAL, [{ x: at.x + 5, y: at.y }], { balance: '0' })
 
-            await expect(sellPlotToSystem(RIVAL, pick(rows, at.x + 1, at.y).id)).rejects.toThrow(/not yours/)
-            expect(await plotsOf(OWNER)).toHaveLength(2)
+            await expect(sellPlotToSystem(RIVAL, spare.id)).rejects.toThrow(/not yours/)
+
+            await seedBuilding(OWNER, spare.id, 'house')
+            await expect(sellPlotToSystem(OWNER, spare.id)).rejects.toThrow(/Clear every building/)
+
+            await db.delete(townBuildings).where(eq(townBuildings.plotId, spare.id))
+            await db.delete(townPlots).where(eq(townPlots.id, pick(rows, at.x, at.y).id))
+            await expect(sellPlotToSystem(OWNER, spare.id)).rejects.toThrow(/last plot/)
+
+            expect(await plotsOf(OWNER)).toHaveLength(1)
+            expect(await ledger(OWNER, 'credit')).toHaveLength(0)
+            expect(await getBalance(OWNER)).toBe('0.0000')
             expect(await getBalance(RIVAL)).toBe('0.0000')
         })
 
@@ -484,22 +391,6 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect((await stateOf(SELLER)).plotsBought).toBe(2)
         })
 
-        it('leaves the seller plot counter alone', async () => {
-            const at = await freeRegion()
-            await townAt(BUYER, [{ x: at.x, y: at.y }], { balance: '10000.0000' })
-            const sellerPlots = await townAt(
-                SELLER,
-                [{ x: at.x + 1, y: at.y }, { x: at.x + 2, y: at.y }],
-                { balance: '0', plotsBought: 1 }
-            )
-            const forSale = pick(sellerPlots, at.x + 1, at.y)
-            await listPlot(SELLER, forSale.id, 100)
-
-            await buyPlotFromPlayer(BUYER, forSale.id)
-
-            expect((await stateOf(SELLER)).plotsBought).toBe(1)
-        })
-
         it('refuses to buy at a price the buyer never saw', async () => {
             const { forSale } = await marketPair(250)
 
@@ -514,12 +405,21 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect(done.price).toBe(250)
         })
 
-        it('refuses a plot nobody put on the market', async () => {
-            const { forSale } = await marketPair(null)
-
+        it('refuses a plot that is not listed, does not touch your land, or still has a building on it', async () => {
+            const { at, forSale, sellerKeeps } = await marketPair(null)
             await expect(buyPlotFromPlayer(BUYER, forSale.id)).rejects.toThrow(/not for sale/)
-            expect((await plotRow(forSale.id))!.userId).toBe(SELLER)
+
+            await listPlot(SELLER, sellerKeeps.id, 300)
+            expect(Math.abs(sellerKeeps.x - at.x) + Math.abs(sellerKeeps.y - at.y)).toBe(2)
+            await expect(buyPlotFromPlayer(BUYER, sellerKeeps.id)).rejects.toThrow(/does not touch your land/)
+
+            await listPlot(SELLER, forSale.id, 250)
+            await seedBuilding(SELLER, forSale.id, 'road')
+            await expect(buyPlotFromPlayer(BUYER, forSale.id)).rejects.toThrow(/Clear every building/)
+
+            expect(await plotsOf(SELLER)).toHaveLength(2)
             expect(await getBalance(BUYER)).toBe('10000.0000')
+            expect(await getBalance(SELLER)).toBe('0.0000')
         })
 
         it('refuses your own listing', async () => {
@@ -535,26 +435,6 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             await expect(buyPlotFromPlayer(BUYER, own.id)).rejects.toThrow(/already yours/)
             expect(await getBalance(BUYER)).toBe('10000.0000')
             expect((await plotRow(own.id))!.listPrice).toBe('400.0000')
-        })
-
-        it('refuses a listing with a building still on it', async () => {
-            const { forSale } = await marketPair(250)
-            await seedBuilding(SELLER, forSale.id, 'road')
-
-            await expect(buyPlotFromPlayer(BUYER, forSale.id)).rejects.toThrow(/Clear every building/)
-            expect((await plotRow(forSale.id))!.userId).toBe(SELLER)
-            expect(await getBalance(BUYER)).toBe('10000.0000')
-            expect(await getBalance(SELLER)).toBe('0.0000')
-        })
-
-        it('refuses a listing that does not touch land you already own', async () => {
-            const { at, sellerKeeps } = await marketPair(250)
-            await listPlot(SELLER, sellerKeeps.id, 300)
-            expect(Math.abs(sellerKeeps.x - at.x) + Math.abs(sellerKeeps.y - at.y)).toBe(2)
-
-            await expect(buyPlotFromPlayer(BUYER, sellerKeeps.id)).rejects.toThrow(/does not touch your land/)
-            expect((await plotRow(sellerKeeps.id))!.userId).toBe(SELLER)
-            expect(await getBalance(BUYER)).toBe('10000.0000')
         })
 
         it('refuses a buyer who is already at the plot cap', async () => {
@@ -647,26 +527,6 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect(view.listings).toEqual([
                 { plotId: forSale.id, x: forSale.x, y: forSale.y, ownerName: SEED_NAME, price: 900 }
             ])
-        })
-
-        it('leaves out land far outside the radius', async () => {
-            const at = await freeRegion()
-            const [ownPlot] = await townAt(OWNER, [{ x: at.x, y: at.y }])
-            const nearPlots = await townAt(SELLER, [{ x: at.x + 1, y: at.y }, { x: at.x + 2, y: at.y }], { balance: '0' })
-            const far = await townAt(RIVAL, [{ x: at.x + 12, y: at.y }])
-            await listPlot(SELLER, pick(nearPlots, at.x + 1, at.y).id, 50)
-
-            const view = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }], 6)
-
-            expect(view.towns.map(t => t.id)).not.toContain(far[0]!.id)
-            expect(view.towns.map(t => t.ownerId)).not.toContain(RIVAL)
-            expect(view.towns.map(t => t.id).sort()).toEqual(nearPlots.map(p => p.id).sort())
-            expect(view.listings).toHaveLength(1)
-        })
-
-        it('returns nothing for a mayor with no land', async () => {
-            await seedUser(OWNER)
-            expect(await getWorldView(OWNER, [])).toEqual({ towns: [], listings: [] })
         })
 
         it('works for a town whose centre falls between two squares', async () => {

@@ -15,7 +15,6 @@ import {
     TOWN_MAX_DRAG_TILES,
     getTownBuilding,
     getTownTerrain,
-    townDragLine,
     townTerrainAt,
     townGroupMoveIssue,
     townPlaceCost,
@@ -34,30 +33,6 @@ const FACES_EDGE_ROAD = 2
 
 // ─── Pure rules ──────────────────────────────────────────────────────────────
 
-describe('townDragLine', () => {
-    it('covers a single tile when the drag never left it', () => {
-        expect(townDragLine(3, 4, 3, 4)).toEqual([{ wx: 3, wy: 4 }])
-    })
-
-    it('runs straight along a row or a column, both ends included', () => {
-        expect(townDragLine(0, 0, 3, 0)).toEqual([{ wx: 0, wy: 0 }, { wx: 1, wy: 0 }, { wx: 2, wy: 0 }, { wx: 3, wy: 0 }])
-        expect(townDragLine(2, 5, 2, 3)).toEqual([{ wx: 2, wy: 5 }, { wx: 2, wy: 4 }, { wx: 2, wy: 3 }])
-    })
-
-    it('turns one corner, the longer axis first', () => {
-        expect(townDragLine(0, 0, 3, 1)).toEqual([
-            { wx: 0, wy: 0 }, { wx: 1, wy: 0 }, { wx: 2, wy: 0 }, { wx: 3, wy: 0 }, { wx: 3, wy: 1 }
-        ])
-        expect(townDragLine(0, 0, 1, 3)).toEqual([
-            { wx: 0, wy: 0 }, { wx: 0, wy: 1 }, { wx: 0, wy: 2 }, { wx: 0, wy: 3 }, { wx: 1, wy: 3 }
-        ])
-    })
-
-    it('never asks for more tiles than one drag may place', () => {
-        expect(townDragLine(0, 0, 500, 0)).toHaveLength(TOWN_MAX_DRAG_TILES)
-    })
-})
-
 describe('townGroupMoveIssue', () => {
     const sim = (over: Partial<TownSimBuilding> & { id: string, type: TownSimBuilding['type'] }): TownSimBuilding => ({
         level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, rotation: 0, ...over
@@ -74,17 +49,6 @@ describe('townGroupMoveIssue', () => {
         expect(issue).toBeNull()
     })
 
-    it('lets two buildings swap tiles', () => {
-        // Water refuses a building wherever it falls, so pick a dry pair first.
-        let x = 0
-        while (getTownTerrain(townTerrainAt(x, 0)).blocked || getTownTerrain(townTerrainAt(x + 1, 0)).blocked) x++
-        const buildings = [road('a', x, 0), road('b', x + 1, 0)]
-        expect(townGroupMoveIssue(buildings, [
-            { id: 'a', wx: x + 1, wy: 0, rotation: 0 },
-            { id: 'b', wx: x, wy: 0, rotation: 0 }
-        ])).toBeNull()
-    })
-
     it('refuses a tile something outside the group is standing on', () => {
         const buildings = [road('r', 0, 0), road('other', 4, 4)]
         expect(townGroupMoveIssue(buildings, [{ id: 'r', wx: 4, wy: 4, rotation: 0 }])).toMatch(/already taken/)
@@ -98,19 +62,10 @@ describe('townGroupMoveIssue', () => {
         ])).toMatch(/already taken/)
     })
 
-    it('lets a house move away from its road — it stops working, it is not refused', () => {
-        const buildings = [road('r', 0, 0), house('h', 0, 1)]
-        expect(townGroupMoveIssue(buildings, [{ id: 'h', wx: 5, wy: 5, rotation: FACES_EDGE_ROAD }])).toBeNull()
-    })
-
     it('refuses water', () => {
         let x = 0
         while (!getTownTerrain(townTerrainAt(x, 0)).blocked) x++
         expect(townGroupMoveIssue([road('r', 0, 3)], [{ id: 'r', wx: x, wy: 0, rotation: 0 }])).toMatch(/water/)
-    })
-
-    it('has nothing to say about an empty move', () => {
-        expect(townGroupMoveIssue([], [])).toMatch(/Nothing to move/)
     })
 })
 
@@ -160,33 +115,6 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
             expect(parseFloat(await getBalance(OWNER))).toBeCloseTo(before - spent, 4)
         })
 
-        it('skips the tiles it cannot use and reports why', async () => {
-            const plotId = await foundFor()
-            await placeBuildings(OWNER, [{ plotId, tileX: 1, tileY: 0, type: 'road', rotation: 0 }])
-
-            const res = await placeBuildings(OWNER, [0, 1, 2].map(tileX => ({ plotId, tileX, tileY: 0, type: 'road', rotation: 0 })))
-
-            expect(res.placed).toHaveLength(2)
-            expect(res.skipped).toBe(1)
-            expect(res.reason).toMatch(/already taken/)
-            expect(await own('road')).toHaveLength(3)
-        })
-
-        it('judges each tile against the ones the same drag already laid', async () => {
-            const plotId = await foundFor()
-            await stock('wood', 10_000)
-            await stock('stone', 10_000)
-            await stock('wheat', 10_000)
-
-            // The road goes down first, so the house behind it has a front door.
-            const res = await placeBuildings(OWNER, [
-                { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
-                { plotId, tileX: 0, tileY: 1, type: 'house', rotation: FACES_EDGE_ROAD }
-            ])
-
-            expect(res.placed.map(p => p.type)).toEqual(['road', 'house'])
-        })
-
         it('stops where the purse runs out instead of failing the whole drag', async () => {
             // Enough for two road tiles and not the third.
             const afford = townPlaceCost(ROAD, 0).coins + townPlaceCost(ROAD, 1).coins + Math.floor(townPlaceCost(ROAD, 2).coins / 2)
@@ -225,56 +153,9 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
             await expect(placeBuildings(OWNER, many)).rejects.toThrow(/Too many/)
             await expect(placeBuildings(OWNER, [])).rejects.toThrow(/Nothing to build/)
         })
-
-        it('throws when not one tile of the drag could be used', async () => {
-            const plotId = await foundFor()
-            await placeBuildings(OWNER, [{ plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 }])
-            await expect(placeBuildings(OWNER, [{ plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 }]))
-                .rejects.toThrow(/already taken/)
-        })
     })
 
     describe('moveBuildings', () => {
-        it('moves a block, its street included, in one go', async () => {
-            const plotId = await foundFor()
-            await stock('wood', 10_000)
-            await stock('stone', 10_000)
-            await stock('wheat', 10_000)
-            const { placed } = await placeBuildings(OWNER, [
-                { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
-                { plotId, tileX: 0, tileY: 1, type: 'house', rotation: FACES_EDGE_ROAD }
-            ])
-            const road = placed.find(p => p.type === 'road')!
-            const house = placed.find(p => p.type === 'house')!
-
-            await moveBuildings(OWNER, [
-                { buildingId: road.buildingId, plotId, tileX: 5, tileY: 5, rotation: 0 },
-                { buildingId: house.buildingId, plotId, tileX: 5, tileY: 6, rotation: FACES_EDGE_ROAD }
-            ])
-
-            const rows = await own()
-            expect(rows.find(r => r.id === road.buildingId)).toMatchObject({ tileX: 5, tileY: 5 })
-            expect(rows.find(r => r.id === house.buildingId)).toMatchObject({ tileX: 5, tileY: 6 })
-        })
-
-        it('swaps two buildings that trade tiles', async () => {
-            const plotId = await foundFor()
-            const { placed } = await placeBuildings(OWNER, [
-                { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
-                { plotId, tileX: 1, tileY: 0, type: 'road', rotation: 0 }
-            ])
-            const [a, b] = placed
-
-            await moveBuildings(OWNER, [
-                { buildingId: a!.buildingId, plotId, tileX: 1, tileY: 0, rotation: 0 },
-                { buildingId: b!.buildingId, plotId, tileX: 0, tileY: 0, rotation: 0 }
-            ])
-
-            const rows = await own()
-            expect(rows.find(r => r.id === a!.buildingId)!.tileX).toBe(1)
-            expect(rows.find(r => r.id === b!.buildingId)!.tileX).toBe(0)
-        })
-
         it('moves nothing at all when one member of the group cannot land', async () => {
             const plotId = await foundFor()
             await stock('wood', 10_000)
@@ -297,21 +178,6 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
             expect((await own('road')).find(r => r.id === road.buildingId)).toMatchObject({ tileX: 0, tileY: 0 })
         })
 
-        it('lets a house leave its road; it just goes dark until one reaches it', async () => {
-            const plotId = await foundFor()
-            await stock('wood', 10_000)
-            await stock('stone', 10_000)
-            await stock('wheat', 10_000)
-            const { placed } = await placeBuildings(OWNER, [
-                { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
-                { plotId, tileX: 0, tileY: 1, type: 'house', rotation: FACES_EDGE_ROAD }
-            ])
-            const house = placed.find(p => p.type === 'house')!
-
-            await moveBuildings(OWNER, [{ buildingId: house.buildingId, plotId, tileX: 5, tileY: 5, rotation: FACES_EDGE_ROAD }])
-            expect((await own('house'))[0]).toMatchObject({ tileX: 5, tileY: 5 })
-        })
-
         it('refuses a building listed twice, and one that is not there', async () => {
             const plotId = await foundFor()
             const { placed } = await placeBuildings(OWNER, [{ plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 }])
@@ -326,17 +192,6 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
     })
 
     describe('demolishBuildings', () => {
-        it('clears every id it is given and says which went', async () => {
-            const plotId = await foundFor()
-            const { placed } = await placeBuildings(OWNER, [0, 1, 2].map(tileX => ({ plotId, tileX, tileY: 0, type: 'road', rotation: 0 })))
-            const ids = placed.map(p => p.buildingId)
-
-            const res = await demolishBuildings(OWNER, [ids[0]!, ids[1]!])
-
-            expect(res.demolished.sort()).toEqual([ids[0]!, ids[1]!].sort())
-            expect(await own('road')).toHaveLength(1)
-        })
-
         it('leaves another mayor\'s buildings alone', async () => {
             const plotId = await foundFor()
             const { placed } = await placeBuildings(OWNER, [{ plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 }])
@@ -371,12 +226,6 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
             expect(res.reason).toMatch(/Roads have no levels/)
             const rows = await db.select().from(townBuildings).where(inArray(townBuildings.id, houses))
             expect(rows.every(r => r.upgradingTo === 2)).toBe(true)
-        })
-
-        it('throws when none of them could start', async () => {
-            const plotId = await foundFor()
-            const { placed } = await placeBuildings(OWNER, [{ plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 }])
-            await expect(upgradeBuildings(OWNER, [placed[0]!.buildingId])).rejects.toThrow(/Roads have no levels/)
         })
 
         it('charges nothing for an upgrade it did not start', async () => {

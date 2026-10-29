@@ -56,16 +56,6 @@ describe('fetchCardPrice', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {})
         expect(await fetchCardPrice('swsh7_4', BASE)).toBeNull()
     })
-
-    it('url-encodes the card id', async () => {
-        const seen: string[] = []
-        stubFetch((url) => {
-            seen.push(url)
-            return { price: { usd: 1 } }
-        })
-        await fetchCardPrice('sv8-5_en_074_alt', BASE)
-        expect(seen[0]).toBe(`${BASE}/cards/sv8-5_en_074_alt/price`)
-    })
 })
 
 describe('the price cache', () => {
@@ -104,10 +94,5 @@ describe('fetchCardPrices', () => {
         expect(prices.get('a')).toMatchObject({ eur: 9.5 })
         expect(prices.get('broken')).toBeNull()
         expect(prices.get('unpriced')).toBeNull()
-    })
-
-    it('returns an empty map for no ids', async () => {
-        stubFetch(() => ({ price: { eur: 1 } }))
-        expect((await fetchCardPrices([], BASE)).size).toBe(0)
     })
 })

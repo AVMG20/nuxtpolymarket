@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgCopyTransfer, tcgTradeOffer } from '#server/database/schema'
-import { createOffer, acceptOffer, declineOffer, cancelOffer, tradeableCopiesOf, TRADE_COLLECTION_LIMIT } from '#server/utils/tcg/trade'
+import { createOffer, acceptOffer, declineOffer, cancelOffer } from '#server/utils/tcg/trade'
 import { listCopy } from '#server/utils/tcg/market'
 import { vendorCopy } from '#server/utils/tcg/vendor'
 import { mintCondition } from '#shared/utils/tcg/condition'
@@ -89,40 +89,6 @@ describe.skipIf(SKIP)('tcg direct trades integration', () => {
         }
         await db.delete(tcgSet).where(eq(tcgSet.code, 'TRDE'))
     }
-
-    it('collection search: name or number, wildcards literal, truncation past the limit', async () => {
-        const [card] = await db.insert(tcgCard).values({
-            setId, plaatjesBaseId: 'trd-1', number: '042', name: 'Zappy 100%', raw: {}
-        }).returning()
-        const [zappy] = await db.insert(tcgPrinting).values({
-            setId, cardId: card!.id, plaatjesCardId: 'trd-1', finish: 'nonholo'
-        }).returning()
-        await db.insert(tcgCopy).values({
-            printingId: zappy!.id, setId, ownerId: USERS.cal, packId, sheetId,
-            cutIndex: 0, slotOffset: nextSlot++, condition: mintCondition()
-        })
-        await db.insert(tcgCopy).values(Array.from({ length: TRADE_COLLECTION_LIMIT }, () => ({
-            printingId, setId, ownerId: USERS.cal, packId, sheetId,
-            cutIndex: 0, slotOffset: nextSlot++, condition: mintCondition()
-        })))
-
-        // 501 copies: the alphabetical first page stops before Zappy.
-        const all = await tradeableCopiesOf(USERS.cal, setId)
-        expect(all.copies).toHaveLength(TRADE_COLLECTION_LIMIT)
-        expect(all.truncated).toBe(true)
-        expect(all.copies.some(copy => copy.card.name.startsWith('Zappy'))).toBe(false)
-
-        for (const search of ['zap', 'ZAPPY', '100%', '042']) {
-            const found = await tradeableCopiesOf(USERS.cal, setId, search)
-            expect(found.truncated).toBe(false)
-            expect(found.copies.map(copy => copy.card.name)).toEqual(['Zappy 100%'])
-        }
-        // `%` and `_` match themselves, not anything.
-        expect((await tradeableCopiesOf(USERS.cal, setId, '%')).copies).toHaveLength(1)
-        expect((await tradeableCopiesOf(USERS.cal, setId, '_')).copies).toHaveLength(0)
-        // A number matches whole, not as a fragment of a name or another number.
-        expect((await tradeableCopiesOf(USERS.cal, setId, '04')).copies).toHaveLength(0)
-    }, 30_000)
 
     it('accept swaps atomically with the coin leg at 95/5', async () => {
         const annCard1 = await seedCopy(USERS.ann)

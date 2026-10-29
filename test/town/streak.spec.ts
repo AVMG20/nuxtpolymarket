@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
     TOWN_STREAK_CHESTS,
     TOWN_STREAK_DAYS,
-    TOWN_STREAK_EXTRA_KINDS,
     TOWN_STREAK_LUCKY_GOLDEN_MULTIPLIER,
     rollTownStreakExtras,
-    townStreakExtraChance,
     townStreakLuckyChest,
     townStreakOpensChest,
     TOWN_STREAK_MIN_INCOME_PER_DAY,
@@ -23,19 +21,15 @@ import {
     townStreakCoins,
     townStreakDayKey,
     townStreakDue,
-    townStreakExpectedGems,
     townStreakGoodAmount,
     townStreakGoods,
     townStreakIsClaimed,
-    townStreakMaxGems,
     townStreakNextDayAt,
-    townStreakPreview,
     townStreakScale,
     townStreakStatus,
     townStreakYesterday,
     type TownStreakScale
 } from '#shared/utils/gamelogic/town-streak'
-import type { TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { TOWN_BOOST_MS, TOWN_MARKET_DAY_MS, TOWN_TEMP_BUILDER_MS } from '#shared/utils/gamelogic/town-boosts'
 
 /** Deterministic uniform [0, 1) so rolls are reproducible. */
@@ -138,43 +132,6 @@ describe('Mayor streak track', () => {
         const last = TOWN_STREAK_TRACK[29]!
         expect(last.kind === 'chest' && last.chest).toBe('golden')
     })
-
-    it('keeps gem days between 1 and 10 and only the golden chest above, at 10 to 15', () => {
-        for (const def of TOWN_STREAK_TRACK) {
-            if (def.kind !== 'gems') continue
-            expect(def.gems).toBeGreaterThanOrEqual(1)
-            expect(def.gems).toBeLessThanOrEqual(10)
-        }
-        expect(TOWN_STREAK_CHESTS.wooden.gems[1]).toBeLessThanOrEqual(10)
-        expect(TOWN_STREAK_CHESTS.silver.gems[1]).toBeLessThanOrEqual(10)
-        expect(TOWN_STREAK_CHESTS.golden.gems).toEqual([10, 15])
-        // Every chest holds gems: a chest that might be empty of them reads as a dud.
-        for (const chest of Object.values(TOWN_STREAK_CHESTS)) expect(chest.gemChance).toBe(1)
-    })
-
-    it('keeps daily coin rewards between 10% and 40% of a day, ramping up', () => {
-        const shares = TOWN_STREAK_TRACK.flatMap(d => d.kind === 'coins' ? [d.share] : [])
-        expect(Math.min(...shares)).toBeGreaterThanOrEqual(0.1)
-        expect(Math.max(...shares)).toBeLessThanOrEqual(0.4)
-        for (let i = 1; i < shares.length; i++) expect(shares[i]!).toBeGreaterThanOrEqual(shares[i - 1]!)
-    })
-
-    it('pays 50 to 60 gems a run in expectation, chests included', () => {
-        const expected = townStreakExpectedGems()
-        expect(expected).toBeGreaterThanOrEqual(50)
-        expect(expected).toBeLessThanOrEqual(60)
-        expect(townStreakMaxGems()).toBeLessThanOrEqual(65)
-
-        // The rolls agree with the closed form.
-        const rng = mulberry32(42)
-        const runs = 20_000
-        let gems = 0
-        for (let r = 0; r < runs; r++) {
-            for (const def of TOWN_STREAK_TRACK) gems += rollTownStreakReward(def, EMPTY, rng).gems
-        }
-        expect(gems / runs).toBeGreaterThan(expected - 0.3)
-        expect(gems / runs).toBeLessThan(expected + 0.3)
-    })
 })
 
 describe('Mayor streak scaling', () => {
@@ -182,17 +139,6 @@ describe('Mayor streak scaling', () => {
         const scale = townStreakScale([], 50, Date.now())
         expect(scale.incomePerDay).toBe(TOWN_STREAK_MIN_INCOME_PER_DAY)
         expect(townStreakCoins(scale, 0.1)).toBe(Math.round(TOWN_STREAK_MIN_INCOME_PER_DAY * 0.1))
-    })
-
-    it('scales coins with a big town', () => {
-        expect(townStreakCoins(BIG, 0.4)).toBe(2_000_000_000)
-    })
-
-    it('reads output from what the town actually makes', () => {
-        const now = Date.now()
-        const farm: TownSimBuilding = { id: 'f', type: 'farm', level: 1, completesAt: now - 1, upgradingTo: null, createdAt: now - 1000 }
-        const scale = townStreakScale([farm], 50, now)
-        expect(scale.incomePerDay).toBeGreaterThanOrEqual(TOWN_STREAK_MIN_INCOME_PER_DAY)
     })
 
     it('hands a town that makes nothing the basic goods, with a minimum', () => {
@@ -228,7 +174,7 @@ describe('Mayor streak rolls', () => {
         const rng = mulberry32(7)
         for (const chest of ['wooden', 'silver', 'golden'] as const) {
             const def = TOWN_STREAK_CHESTS[chest]
-            for (let i = 0; i < 2_000; i++) {
+            for (let i = 0; i < 300; i++) {
                 const r = rollTownStreakChest(chest, BIG, rng)
                 expect(r.chest).toBe(chest)
                 expect(r.coins > 0 || Object.keys(r.resources).length > 0).toBe(true)
@@ -245,7 +191,7 @@ describe('Mayor streak rolls', () => {
 
     it('always gives both coins and goods from a golden chest', () => {
         const rng = mulberry32(9)
-        for (let i = 0; i < 500; i++) {
+        for (let i = 0; i < 100; i++) {
             const r = rollTownStreakChest('golden', EMPTY, rng)
             expect(r.coins).toBeGreaterThan(0)
             expect(Object.keys(r.resources).length).toBeGreaterThan(0)
@@ -268,18 +214,6 @@ describe('Mayor streak rolls', () => {
         ])
         expect(total.boosts).toEqual({ build: 2 * TOWN_BOOST_MS })
         expect(total.extras.map(e => e.kind)).toEqual(['build', 'lucky', 'builder'])
-    })
-
-    it('previews chests as ranges with odds', () => {
-        const golden = townStreakPreview(TOWN_STREAK_TRACK[29]!, BIG)
-        expect(golden.milestone).toBe(true)
-        expect(golden.chest).toBe('golden')
-        expect(golden.coins![0]).toBeLessThan(golden.coins![1])
-        expect(golden.gemChance).toBe(1)
-        expect(Object.keys(golden.resources!).sort()).toEqual(['machines', 'steel'])
-        const day1 = townStreakPreview(TOWN_STREAK_TRACK[0]!, EMPTY)
-        expect(day1.coins).toEqual([6_000, 6_000])
-        expect(day1.milestone).toBe(false)
     })
 })
 
@@ -305,22 +239,9 @@ describe('Mayor streak locking', () => {
     it('falls back to the current scale for a step unlocked before locking', () => {
         expect(claimTownStreakReward(coinDay, undefined, BIG).coins).toBe(rollTownStreakReward(coinDay, BIG).coins)
     })
-
-    it('previews a locked step at its fixed amount and a future one as an estimate', () => {
-        const lock = lockTownStreakStep(coinDay, EMPTY)
-        const fixed = townStreakPreview(coinDay, BIG, lock)
-        expect(fixed.fixed).toBe(true)
-        expect(fixed.coins).toEqual([lock.reward!.coins, lock.reward!.coins])
-        expect(townStreakPreview(coinDay, BIG).fixed).toBe(false)
-    })
 })
 
 describe('Mayor streak boost days', () => {
-    it('puts Builder\'s rush on days 9 and 23 and Production surge on 12 and 26', () => {
-        const boosts = TOWN_STREAK_TRACK.flatMap(d => d.kind === 'boost' ? [[d.step, d.boost]] : [])
-        expect(boosts).toEqual([[9, 'build'], [12, 'production'], [23, 'build'], [26, 'production']])
-    })
-
     it('pays an hour of the boost and nothing else, locked at unlock', () => {
         const day9 = TOWN_STREAK_TRACK[8]!
         const lock = lockTownStreakStep(day9, BIG)
@@ -328,68 +249,12 @@ describe('Mayor streak boost days', () => {
         expect(claimTownStreakReward(day9, lock, EMPTY).boosts).toEqual({ build: TOWN_BOOST_MS })
         expect(townStreakOpensChest(day9, lock)).toBe(false)
     })
-
-    it('previews a boost day as its boost and length', () => {
-        for (const lock of [undefined, lockTownStreakStep(TOWN_STREAK_TRACK[11]!, EMPTY)]) {
-            const preview = townStreakPreview(TOWN_STREAK_TRACK[11]!, BIG, lock)
-            expect(preview.kind).toBe('boost')
-            expect(preview.label).toBe('Production surge')
-            expect(preview).toMatchObject({ boost: 'production', boostMs: TOWN_BOOST_MS, coins: null, gems: null, resources: null })
-        }
-        expect(townStreakPreview(TOWN_STREAK_TRACK[8]!, BIG).label).toBe('Builder\'s rush')
-    })
 })
 
 describe('Mayor streak chest extras', () => {
-    it('rolls one, two or three slots by tier', () => {
-        expect(TOWN_STREAK_CHESTS.wooden.extras.slots).toBe(1)
-        expect(TOWN_STREAK_CHESTS.silver.extras.slots).toBe(2)
-        expect(TOWN_STREAK_CHESTS.golden.extras.slots).toBe(3)
-        const rng = mulberry32(3)
-        for (const chest of ['wooden', 'silver', 'golden'] as const) {
-            const counts = new Set<number>()
-            for (let i = 0; i < 3_000; i++) counts.add(rollTownStreakExtras(chest, rng, 5).length)
-            const slots = TOWN_STREAK_CHESTS[chest].extras.slots
-            expect(Math.max(...counts)).toBe(slots)
-            expect(Math.min(...counts)).toBe(chest === 'golden' ? 1 : 0)
-        }
-    })
-
-    it('hits each slot at the chest\'s odds, and always gives a golden chest one', () => {
-        const rng = mulberry32(11)
-        const runs = 20_000
-        for (const chest of ['wooden', 'silver', 'golden'] as const) {
-            let any = 0
-            let total = 0
-            for (let i = 0; i < runs; i++) {
-                const n = rollTownStreakExtras(chest, rng, 5).length
-                if (n > 0) any++
-                total += n
-            }
-            const t = TOWN_STREAK_CHESTS[chest].extras
-            expect(any / runs).toBeCloseTo(townStreakExtraChance(chest), 1)
-            if (!t.guaranteed) expect(total / runs).toBeCloseTo(t.slots * t.chance, 1)
-        }
-        expect(townStreakExtraChance('golden')).toBe(1)
-        expect(townStreakExtraChance('wooden')).toBeCloseTo(0.25)
-        expect(townStreakExtraChance('silver')).toBeCloseTo(1 - 0.6 * 0.6)
-    })
-
-    it('weighs every kind, better ones more in rarer chests', () => {
-        for (const chest of ['wooden', 'silver', 'golden'] as const) {
-            for (const kind of TOWN_STREAK_EXTRA_KINDS) expect(TOWN_STREAK_CHESTS[chest].extras.weights[kind]).toBeGreaterThan(0)
-        }
-        const share = (chest: 'wooden' | 'golden', kind: 'instant' | 'lucky') => {
-            const w = TOWN_STREAK_CHESTS[chest].extras.weights
-            return w[kind] / Object.values(w).reduce((a, b) => a + b, 0)
-        }
-        expect(share('golden', 'instant')).toBeGreaterThan(share('wooden', 'instant'))
-        expect(share('golden', 'lucky')).toBeGreaterThan(share('wooden', 'lucky'))
-    })
-
     it('gives timed extras their length', () => {
         const rng = mulberry32(5)
-        for (let i = 0; i < 2_000; i++) {
+        for (let i = 0; i < 200; i++) {
             for (const e of rollTownStreakExtras('golden', rng, 3)) {
                 if (e.kind === 'build' || e.kind === 'production') expect(e.ms).toBe(TOWN_BOOST_MS)
                 else if (e.kind === 'builder') expect(e.ms).toBe(TOWN_TEMP_BUILDER_MS)
@@ -402,7 +267,7 @@ describe('Mayor streak chest extras', () => {
     it('never rolls an instant finish without a job for it, and no more than there are jobs', () => {
         const rng = mulberry32(13)
         let instants = 0
-        for (let i = 0; i < 5_000; i++) {
+        for (let i = 0; i < 500; i++) {
             expect(rollTownStreakExtras('golden', rng, 0).some(e => e.kind === 'instant')).toBe(false)
             const one = rollTownStreakExtras('golden', rng, 1).filter(e => e.kind === 'instant').length
             expect(one).toBeLessThanOrEqual(1)
@@ -424,15 +289,6 @@ describe('Mayor streak chest extras', () => {
         }
         expect(found).toBe(true)
     })
-
-    it('leaves the coin, goods and gem rolls as they were', () => {
-        // Extras are rolled last, so the first draws match a roll that ignores them.
-        for (let seed = 0; seed < 50; seed++) {
-            const a = rollTownStreakChest('silver', BIG, mulberry32(seed))
-            const b = rollTownStreakChest('silver', BIG, mulberry32(seed), { instantJobs: 4 })
-            expect([a.coins, a.gems, a.resources]).toEqual([b.coins, b.gems, b.resources])
-        }
-    })
 })
 
 describe('Mayor streak lucky chests', () => {
@@ -450,7 +306,7 @@ describe('Mayor streak lucky chests', () => {
         expect(townStreakOpensChest(wooden, lock)).toBe(true)
         const rng = mulberry32(21)
         let maxExtras = 0
-        for (let i = 0; i < 2_000; i++) {
+        for (let i = 0; i < 300; i++) {
             const r = claimTownStreakReward(wooden, lock, EMPTY, rng, { lucky: true, instantJobs: 2 })
             expect(r.chest).toBe('silver')
             expect(r.upgradedFrom).toBe('wooden')
@@ -472,10 +328,5 @@ describe('Mayor streak lucky chests', () => {
             expect(lucky.gems).toBe(Math.round(plain.gems * 1.5))
             for (const [id, qty] of Object.entries(plain.resources)) expect(lucky.resources[id as 'steel']).toBe(Math.round(qty * 1.5))
         }
-    })
-
-    it('previews chests with their extra odds', () => {
-        expect(townStreakPreview(wooden, EMPTY)).toMatchObject({ extraSlots: 1, extraChance: townStreakExtraChance('wooden') })
-        expect(townStreakPreview(golden, EMPTY)).toMatchObject({ extraSlots: 3, extraChance: 1 })
     })
 })

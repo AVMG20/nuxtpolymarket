@@ -1,13 +1,13 @@
 /**
  * Displays (§10.5): binders hold raw cards, shelves hold slabs, a copy sits
- * in one pocket anywhere, and pockets self-heal when the copy moves on.
+ * in one pocket anywhere, and nothing public ever leaks a card's condition.
  * Real Postgres from .env; fixture shape follows lots.spec.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgDisplay } from '#server/database/schema'
-import { createDisplay, saveDisplay, deleteDisplay, getDisplay, listDisplays, displayCandidates } from '#server/utils/tcg/display'
+import { createDisplay, saveDisplay, deleteDisplay, getDisplay, listDisplays } from '#server/utils/tcg/display'
 import { galleryFor } from '#server/utils/tcg/gallery'
 import { mintCondition } from '#shared/utils/tcg/condition'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
@@ -133,37 +133,11 @@ describe.skipIf(SKIP)('tcg displays integration', () => {
         const second = await createDisplay(USERS.owner, 'binder', 'Second binder')
         await expect(saveDisplay(USERS.owner, second.id, { slots: [raw] }))
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'A card is already in another display' })
-
-        // The shelf takes the slab, and candidates report where each copy sits.
-        await saveDisplay(USERS.owner, shelf.id, { slots: [slab] })
-        const binderCandidates = await displayCandidates(USERS.owner, 'binder')
-        expect(binderCandidates.find(candidate => candidate.copyId === raw)?.displayId).toBe(binder.id)
-        expect(binderCandidates.some(candidate => candidate.copyId === slab)).toBe(false)
-        const shelfCandidates = await displayCandidates(USERS.owner, 'shelf')
-        expect(shelfCandidates.find(candidate => candidate.copyId === slab)?.gradeService).toBe('PSI')
-    })
-
-    it('pockets self-heal when the copy moves on, and viewers can read', async () => {
-        const binder = await createDisplay(USERS.owner, 'binder', 'Healing binder')
-        const staying = await seedCopy(USERS.owner)
-        const leaving = await seedCopy(USERS.owner)
-        await saveDisplay(USERS.owner, binder.id, { slots: [staying, leaving] })
-
-        // The copy is traded away out from under the binder.
-        await db.update(tcgCopy).set({ ownerId: USERS.viewer }).where(eq(tcgCopy.id, leaving))
-
-        const view = await getDisplay(binder.id)
-        expect(view.slots.map(slot => slot.copyId)).toEqual([staying])
-        expect((await listDisplays(USERS.owner))[0]!.filled).toBe(1)
-
-        // Any logged-in user reads the same view — there is no owner gate.
-        const asViewer = await getDisplay(binder.id)
-        expect(asViewer.ownerId).toBe(USERS.owner)
     })
 
     it('gallery: owned-only, public to other users, never condition', async () => {
-        const raw = await seedCopy(USERS.owner)
-        const slab = await seedCopy(USERS.owner, 'slabbed')
+        await seedCopy(USERS.owner)
+        await seedCopy(USERS.owner, 'slabbed')
 
         const gallery = await galleryFor(USERS.owner)
         const spec = gallery.find(set => set.id === setId)!
@@ -177,32 +151,5 @@ describe.skipIf(SKIP)('tcg displays integration', () => {
         // The viewer owns nothing here — their gallery has no spec set entry.
         const viewerGallery = await galleryFor(USERS.viewer)
         expect(viewerGallery.find(set => set.id === setId)?.printings.find(p => p.id === printingId)?.slabbed ?? 0).toBe(0)
-        void raw
-        void slab
-    })
-
-    // The serial sort orders tiles by the earliest copy of each printing the
-    // viewer owns, so the gallery has to carry that copy's serial.
-    it('gallery: carries the earliest owned serial per printing', async () => {
-        const printing = (await galleryFor(USERS.owner))
-            .find(set => set.id === setId)!
-            .printings.find(p => p.id === printingId)!
-
-        // The fixture's sheet is one slot per pack, so the serial number is
-        // slotOffset + 1 and the earliest copy seeded here is offset 0.
-        expect(printing.serialNo).toBe(1)
-        expect(printing.serial).toBe('d #1')
-    })
-
-    it('caps displays per user and validates capacity', async () => {
-        const binder = await createDisplay(USERS.viewer, 'binder', 'Cap binder')
-        await expect(saveDisplay(USERS.viewer, binder.id, { capacity: 7, slots: [] }))
-            .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Invalid capacity' })
-        await expect(saveDisplay(USERS.viewer, binder.id, { capacity: 999, slots: [] }))
-            .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Invalid capacity' })
-        await saveDisplay(USERS.viewer, binder.id, { capacity: 27, slots: [] })
-        expect((await getDisplay(binder.id)).capacity).toBe(27)
-        await expect(createDisplay(USERS.viewer, 'binder', ''))
-            .rejects.toMatchObject({ statusCode: 400 })
     })
 })

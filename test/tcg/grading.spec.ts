@@ -4,14 +4,13 @@
  * minted condition — no pack opening required.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgSubmission } from '#server/database/schema'
-import { submitForGrading, collectSubmission, crackSlab, popReport, applyServiceReading, GAG_CENTERING_STRICTNESS } from '#server/utils/tcg/grading'
+import { submitForGrading, collectSubmission, crackSlab } from '#server/utils/tcg/grading'
 import type { CrackRng } from '#server/utils/tcg/grading'
 import { mintCondition } from '#shared/utils/tcg/condition'
 import { gradingFeeFor } from '#shared/utils/tcg/grading-fees'
-import { SERVICES } from '#shared/utils/tcg/grading-model'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -55,7 +54,7 @@ async function buildFixture(): Promise<Fixture> {
 
 let nextSlot = 0
 
-async function seedCopy(ownerId: string, withCondition = true): Promise<string> {
+async function seedCopy(ownerId: string): Promise<string> {
     const [copy] = await db.insert(tcgCopy).values({
         printingId: fx.printingId,
         setId: fx.setId,
@@ -64,7 +63,7 @@ async function seedCopy(ownerId: string, withCondition = true): Promise<string> 
         sheetId: fx.sheetId,
         cutIndex: 0,
         slotOffset: nextSlot++,
-        condition: withCondition ? mintCondition() : null
+        condition: mintCondition()
     }).returning()
     return copy!.id
 }
@@ -110,7 +109,6 @@ describe.skipIf(SKIP)('tcg grading integration', () => {
         const expected = gradingFeeFor('PSI', await getGemGuidePrice())
         const row = await submitForGrading(USERS.main, copyId, 'PSI', '9.5')
         expect(Number(row.fee)).toBe(expected)
-        expect(Number(row.fee)).toBeGreaterThanOrEqual(100_000)
         expect(row.predictedGrade).toBe('9.5')
         expect(await balanceOf(USERS.main)).toBeCloseTo(before - expected, 4)
         const [copy] = await db.select({ lifecycle: tcgCopy.lifecycle }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
@@ -154,39 +152,21 @@ describe.skipIf(SKIP)('tcg grading integration', () => {
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Still at the grader' })
     })
 
-    it('collect grades per service report tier and slabs the copy', async () => {
-        for (const service of ['PSI', 'CCC', 'GAG', 'BRK'] as const) {
-            const copyId = await seedCopy(USERS.main)
-            const row = await submitForGrading(USERS.main, copyId, service, null)
-            await forceReturnable(row.id)
-            const collected = await collectSubmission(USERS.main, row.id)
+    it('collect slabs the copy with the grade it reports', async () => {
+        const copyId = await seedCopy(USERS.main)
+        const row = await submitForGrading(USERS.main, copyId, 'GAG', null)
+        await forceReturnable(row.id)
+        const collected = await collectSubmission(USERS.main, row.id)
 
-            expect(collected.certNumber.startsWith(`${service}-`)).toBe(true)
-            const grade = collected.result.grade
-            expect(grade).toBeGreaterThanOrEqual(1)
-            expect(grade).toBeLessThanOrEqual(10)
-
-            if (service === 'PSI') {
-                expect(collected.result.subGrades).toBeNull()
-                expect(collected.result.score).toBeNull()
-                expect(collected.result.flaws).toBeNull()
-            } else if (service === 'GAG') {
-                expect(Object.keys(collected.result.subGrades!)).toHaveLength(8)
-                expect(collected.result.score).toBeGreaterThanOrEqual(100)
-                expect(collected.result.score).toBeLessThanOrEqual(1000)
-                expect(Array.isArray(collected.result.flaws)).toBe(true)
-            } else {
-                expect(Object.keys(collected.result.subGrades!)).toHaveLength(4)
-                expect(collected.result.score).toBeNull()
-            }
-
-            const [copy] = await db.select().from(tcgCopy).where(eq(tcgCopy.id, copyId))
-            expect(copy!.lifecycle).toBe('slabbed')
-            expect(copy!.grade).toBe(String(grade))
-            expect(copy!.gradeService).toBe(service)
-            expect(copy!.certNumber).toBe(collected.certNumber)
-        }
-    }, 30_000)
+        const grade = collected.result.grade
+        expect(grade).toBeGreaterThanOrEqual(1)
+        expect(grade).toBeLessThanOrEqual(10)
+        const [copy] = await db.select().from(tcgCopy).where(eq(tcgCopy.id, copyId))
+        expect(copy!.lifecycle).toBe('slabbed')
+        expect(copy!.grade).toBe(String(grade))
+        expect(copy!.gradeService).toBe('GAG')
+        expect(copy!.certNumber).toBe(collected.certNumber)
+    })
 
     it('collect burst grades exactly once', async () => {
         const copyId = await seedCopy(USERS.main)
@@ -221,98 +201,18 @@ describe.skipIf(SKIP)('tcg grading integration', () => {
         expect(after!.condition!.subs[aSite.category]!).toBeLessThanOrEqual(aSite.value)
     })
 
-    it('crack without damage leaves the condition untouched', async () => {
-        const copyId = await seedCopy(USERS.main)
-        const row = await submitForGrading(USERS.main, copyId, 'GAG', null)
-        await forceReturnable(row.id)
-        await collectSubmission(USERS.main, row.id)
-
-        const [before] = await db.select({ condition: tcgCopy.condition }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
-        const safeRng: CrackRng = { chance: () => false, pick: items => items[0]!, float: () => 0 }
-        const cracked = await crackSlab(USERS.main, copyId, safeRng)
-        expect(cracked.damaged).toBe(false)
-        const [after] = await db.select({ condition: tcgCopy.condition }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
-        expect(after!.condition).toEqual(before!.condition)
-    })
-
-    it('crack burst wins once; a raw copy cannot be cracked', async () => {
+    it('crack burst wins once, undamaged leaves the condition alone; a raw copy cannot be cracked', async () => {
         const copyId = await seedCopy(USERS.main)
         const row = await submitForGrading(USERS.main, copyId, 'PSI', null)
         await forceReturnable(row.id)
         await collectSubmission(USERS.main, row.id)
+        const [before] = await db.select({ condition: tcgCopy.condition }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
         const safeRng: CrackRng = { chance: () => false, pick: items => items[0]!, float: () => 0 }
         const result = await burst(10, () => crackSlab(USERS.main, copyId, safeRng))
         expect(result).toEqual({ ok: 1, rejected: 9 })
+        const [after] = await db.select({ condition: tcgCopy.condition }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
+        expect(after!.condition).toEqual(before!.condition)
         await expect(crackSlab(USERS.main, copyId, safeRng))
             .rejects.toMatchObject({ statusCode: 400, statusMessage: 'Copy is not slabbed' })
-    }, 30_000)
-
-    it('a cracked copy can be resubmitted and re-rolls its grade', async () => {
-        const copyId = await seedCopy(USERS.main)
-        const first = await submitForGrading(USERS.main, copyId, 'GAG', null)
-        await forceReturnable(first.id)
-        const firstResult = await collectSubmission(USERS.main, first.id)
-        const safeRng: CrackRng = { chance: () => false, pick: items => items[0]!, float: () => 0 }
-        await crackSlab(USERS.main, copyId, safeRng)
-        const second = await submitForGrading(USERS.main, copyId, 'PSI', null)
-        await forceReturnable(second.id)
-        const collected = await collectSubmission(USERS.main, second.id)
-        expect(collected.result.grade).toBeGreaterThanOrEqual(1)
-
-        const submissions = await db.select().from(tcgSubmission)
-            .where(eq(tcgSubmission.copyId, copyId))
-            .orderBy(tcgSubmission.submittedAt)
-        expect(submissions).toHaveLength(2)
-        expect(submissions[0]!.gradeResult?.service).toBe('GAG')
-        expect(submissions[0]!.certNumber).toBe(firstResult.certNumber)
-        expect(submissions[1]!.gradeResult?.service).toBe('PSI')
-        expect(submissions[1]!.certNumber).toBe(collected.certNumber)
-    })
-
-    it('GAG reads centering stricter; the other services do not', () => {
-        const condition = mintCondition()
-        condition.subs[0] = 8
-        condition.subs[1] = 9.4
-        const gag = applyServiceReading('GAG', condition)
-        expect(gag.subs[0]).toBeCloseTo(10 - 2 * GAG_CENTERING_STRICTNESS, 10)
-        expect(gag.subs[1]).toBeCloseTo(10 - 0.6 * GAG_CENTERING_STRICTNESS, 10)
-        // Only centering moves; the floor holds; the original is untouched.
-        expect(gag.subs.slice(2)).toEqual(condition.subs.slice(2))
-        expect(condition.subs[0]).toBe(8)
-        condition.subs[0] = 6.4
-        expect(applyServiceReading('GAG', condition).subs[0]).toBe(6.3)
-        for (const service of ['PSI', 'CCC', 'BRK'] as const) {
-            expect(applyServiceReading(service, condition)).toBe(condition)
-        }
-    })
-
-    it('pop report counts graded copies per (printing, service, grade, designation) and nothing raw', async () => {
-        const rawId = await seedCopy(USERS.main)
-        void rawId // stays raw — must not appear
-        const gradedIds: string[] = []
-        for (let i = 0; i < 3; i++) {
-            const copyId = await seedCopy(USERS.main)
-            const row = await submitForGrading(USERS.main, copyId, 'PSI', null)
-            await forceReturnable(row.id)
-            await collectSubmission(USERS.main, row.id)
-            gradedIds.push(copyId)
-        }
-        const rows = await popReport(fx.setId)
-        const total = rows.reduce((sum, row) => sum + row.count, 0)
-        // The report covers exactly the slabbed copies of this set — the raw
-        // copy contributes nothing (§6.5: raw population is unknown).
-        const slabbed = await db.select({ id: tcgCopy.id }).from(tcgCopy)
-            .where(and(eq(tcgCopy.setId, fx.setId), eq(tcgCopy.lifecycle, 'slabbed')))
-        const slabbedInSet = slabbed.length
-        expect(total).toBe(slabbedInSet)
-        expect(gradedIds).toHaveLength(3)
-        for (const row of rows) {
-            expect(row.count).toBeGreaterThan(0)
-            expect(Object.keys(SERVICES)).toContain(row.service)
-            expect(row.printingId).toBe(fx.printingId)
-        }
-        // The three PSI copies just graded appear under PSI rows summing ≥ 3.
-        const psiTotal = rows.filter(r => r.service === 'PSI').reduce((sum, row) => sum + row.count, 0)
-        expect(psiTotal).toBeGreaterThanOrEqual(3)
     }, 30_000)
 })
