@@ -12,6 +12,7 @@ const INSPECTED: InspectorDef[] = [
   { id: 'firewall', name: 'Firewall', url: '/api/firewall/state' },
   { id: 'hackerz', name: 'Hackerz', url: '/api/hackerz/state' },
   { id: 'meadowbrawl', name: 'Meadowbrawl', url: '/api/meadowbrawl/state' },
+  { id: 'riftborn', name: 'Riftborn', url: '/api/riftborn/state' },
   { id: 'gold-miner', name: 'Gold Miner', url: '/api/gold-miner/state' },
   { id: 'tcg', name: 'TCG', url: '/api/tcg/state' },
   { id: 'battler', name: 'TCG Battler', url: '/api/battler/state' }

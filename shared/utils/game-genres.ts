@@ -67,6 +67,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     Firewall: 'active',
     Hackerz: 'active',
     Meadowbrawl: 'active',
+    Riftborn: 'active',
     TCG: 'active',
     // Not in the sidebar: the TCG battler, and standalone active games.
     Battler: 'active',

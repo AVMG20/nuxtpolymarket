@@ -65,6 +65,7 @@ export const NAV_CATALOG: NavSection[] = [
             { label: 'Dead Front', icon: 'i-lucide-crosshair', to: '/dead-front', description: 'Co-op round-based zombies in a ruined 1917 chapel' },
             { label: 'Firewall', icon: 'i-lucide-shield-half', to: '/firewall', description: 'Lane defence over 30 waves with five difficulties and a Mainframe' },
             { label: 'Hackerz', icon: 'i-lucide-skull', to: '/hackerz', description: 'Hold the fence against hackers on a neon 3D grid across 30 waves' },
+            { label: 'Riftborn', icon: 'i-lucide-flame-kindling', to: '/riftborn', description: 'Horde-survival roguelike: six classes, wild builds and five bosses' },
             { label: 'Meadowbrawl', icon: 'i-lucide-swords', to: '/meadowbrawl', description: 'Top-down melee roguelite: chain combos and stack absurd boons' },
             { label: 'TCG', icon: 'i-lucide-layers', to: '/tcg', description: 'Open packs, collect cards and build decks for the trading card game' }
         ]

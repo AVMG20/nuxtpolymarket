@@ -41,6 +41,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     baccarat: 'Baccarat',
     town: 'Polytown',
     meadowbrawl: 'Meadowbrawl',
+    riftborn: 'Riftborn',
     pathwarden: 'Pathwarden',
     firewall: 'Firewall',
     hackerz: 'Hackerz',
