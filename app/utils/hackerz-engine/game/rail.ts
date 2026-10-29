@@ -66,7 +66,10 @@ export class Rail {
     get aimU() { return this.cursorU }
     get aimD() { return this.cursorD }
 
-    /** Locks on a hostile, or lets go with null; the trigger is left as it is. */
+    /**
+     * Locks on a hostile, or lets go with null; the trigger and any `lockSpot` are
+     * left as they are. Player input wants `press`, `hold` or `release` instead.
+     */
     lock(target: EnemyEntity | null) {
         this.locked = target
     }
@@ -106,7 +109,10 @@ export class Rail {
         this.trigger = true
     }
 
-    /** Pulls or lets go of the trigger, the lock left as it is (a demo board's script). */
+    /**
+     * Pulls or lets go of the trigger, the lock left as it is (a demo board's
+     * script). Player input wants `press`, `hold` or `release` instead.
+     */
     setTrigger(on: boolean) {
         this.trigger = on
     }
