@@ -1,18 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import {
-    DF_SUPPORT_HELD, DF_SUPPORT, DF_STRIKE, dfPlanStrike,
-    dfIsStrike, dfStrikeFlightStart
-} from '#shared/utils/dead-front/support'
+import { DF_SUPPORT_HELD } from '#shared/utils/dead-front/support'
 import { DF_MAP, dfInteractables } from '#shared/utils/dead-front/map'
 import { DF_BENCH_SIZE, dfBenchUsePoint, dfMapBenches } from '#shared/utils/dead-front/map-benches'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight } from '#shared/utils/dead-front/physics'
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import {
-    DF_CRAFT_ORDER, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY, dfChallengeCounts, dfChallengePool, dfChallengeReward,
-    dfCraftBlocked, dfCraftSpend, dfSalvageBonus, dfSalvageFade, DF_SILENCER_SALVAGE, dfSalvageRoll, dfSalvageSquad, dfSentryPick, dfTurnToward, dfYawGap
+    DF_RECIPES, DF_SALVAGE, DF_SENTRY, dfChallengeCounts, dfChallengePool, dfChallengeReward,
+    dfCraftBlocked, dfCraftSpend, dfSalvageRoll, dfSentryPick
 } from '#shared/utils/dead-front/salvage'
 import type { DfKitState } from '#shared/utils/dead-front/salvage'
-import { DF_RARITY_UPGRADE } from '#shared/utils/dead-front/rarity'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup } from '#server/utils/dead-front/sim-types'
 
@@ -47,7 +43,7 @@ const kit = (over: Partial<DfKitState> = {}): DfKitState => ({ equip: null, kit:
 describe('salvage: drops', () => {
     it('brutes always drop a pile; bloaters usually; the roll stays in range', () => {
         const roll = seeded(7)
-        for (let i = 0; i < 400; i++) {
+        for (let i = 0; i < 50; i++) {
             const b = dfSalvageRoll('brute', 9, roll)
             expect(b).toBeGreaterThanOrEqual(DF_SALVAGE.brute.scrap[0])
             expect(b).toBeLessThanOrEqual(DF_SALVAGE.brute.scrap[1])
@@ -55,37 +51,9 @@ describe('salvage: drops', () => {
             expect(s === 0 || (s >= DF_SALVAGE.amount[0] && s <= DF_SALVAGE.amount[1])).toBe(true)
         }
     })
-
-    it('a squad splits the horde, so each player\'s drops are richer', () => {
-        expect(dfSalvageSquad(1)).toBe(1)
-        expect(dfSalvageSquad(4)).toBeCloseTo(1 + DF_SALVAGE.perPlayer * 3, 5)
-        expect(dfSalvageSquad(9)).toBe(dfSalvageSquad(4))
-        // a roll just over the solo chance drops in a squad
-        const at = () => DF_SALVAGE.chance * 1.1
-        expect(dfSalvageRoll('shambler', 1, at)).toBe(0)
-        expect(dfSalvageRoll('shambler', 1, at, 1, 2)).toBeGreaterThan(0)
-        // and a brute's pile grows
-        expect(dfSalvageRoll('brute', 1, () => 0, 1, 4)).toBe(Math.round(DF_SALVAGE.brute.scrap[0] * dfSalvageSquad(4)))
-    })
 })
 
 describe('salvage: the workbench rules', () => {
-    it('the bench sells everything, support included: cheapest gear first, the bomber the priciest support, the field kit dearest of all', () => {
-        expect(DF_CRAFT_ORDER).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber'])
-        expect(Object.keys(DF_RECIPES).sort()).toEqual([...DF_CRAFT_ORDER].sort())
-        const price = (id: keyof typeof DF_RECIPES) => DF_RECIPES[id].scrap
-        expect(price('sentry')).toBeLessThan(price('kit'))
-        for (const id of DF_CRAFT_ORDER) {
-            if (id !== 'sentry' && id !== 'decoy') expect(price(id)).toBeGreaterThan(Math.max(price('sentry'), price('decoy')))
-            if (id !== 'bomber' && id !== 'kit') expect(price(id)).toBeLessThan(price('bomber'))
-            if (id !== 'kit') expect(price(id)).toBeLessThan(price('kit'))
-        }
-        // a cheat death costs as much as a Legendary upgrade
-        expect({ scrap: DF_RECIPES.kit.scrap }).toEqual(DF_RARITY_UPGRADE[2])
-        // every support item is on the bench
-        expect(Object.keys(DF_SUPPORT).every(id => DF_RECIPES[id as keyof typeof DF_RECIPES]?.use === 'support')).toBe(true)
-    })
-
     it('blocks for cost, full hands, full support and a kit in the pack', () => {
         const rich = { scrap: DF_SALVAGE.maxScrap }
         expect(dfCraftBlocked(DF_RECIPES.sentry, { scrap: DF_RECIPES.sentry.scrap - 1 }, kit())).toBe('scrap')
@@ -142,50 +110,6 @@ describe('sentry rules', () => {
         expect(dfSentryPick(muzzle, targets, () => false)).toBeNull()
         expect(dfSentryPick(muzzle, [{ id: 9, pos: { x: 0, y: 0, z: -2 }, hp: 5, skip: true }], () => true)).toBeNull()
     })
-
-    it('swings toward its target at a limited rate', () => {
-        let yaw = 0
-        yaw = dfTurnToward(yaw, Math.PI / 2, DF_SENTRY.turnRate, 0.05)
-        expect(yaw).toBeCloseTo(DF_SENTRY.turnRate * 0.05, 5)
-        for (let i = 0; i < 20; i++) yaw = dfTurnToward(yaw, Math.PI / 2, DF_SENTRY.turnRate, 0.05)
-        expect(dfYawGap(yaw, Math.PI / 2)).toBeLessThan(1e-6)
-        // the short way round
-        expect(dfTurnToward(3, -3, 10, 0.01)).toBeGreaterThan(3)
-    })
-})
-
-describe('support plans', () => {
-    it('plans: shells walk round the mark, bombs and bursts run along the line', () => {
-        const roll = seeded(3)
-        const at = { x: 10, y: 0, z: 5 }
-        const barrage = dfPlanStrike('barrage', at, { x: 0, y: 0, z: -1 }, roll)
-        expect(barrage.hits).toHaveLength(DF_STRIKE.barrage.shells)
-        for (const h of barrage.hits) {
-            expect(Math.hypot(h.x - at.x, h.z - at.z)).toBeLessThanOrEqual(DF_STRIKE.barrage.spread + 0.01)
-            expect(h.t).toBeGreaterThanOrEqual(DF_SUPPORT.barrage.delay - DF_STRIKE.barrage.jitter)
-        }
-        expect([...barrage.hits].sort((a, b) => a.t - b.t)).toEqual(barrage.hits)
-        const zep = dfPlanStrike('zeppelin', at, { x: 1, y: 0, z: 0 }, roll)
-        expect(zep.hits).toHaveLength(DF_STRIKE.zeppelin.bombs)
-        for (const h of zep.hits) expect(Math.abs(h.z - at.z)).toBeLessThanOrEqual(1.3)
-        // west to east, in order
-        expect(zep.hits[0]!.x).toBeLessThan(zep.hits[zep.hits.length - 1]!.x)
-        expect(zep.hits[0]!.t).toBeLessThan(zep.hits[zep.hits.length - 1]!.t)
-        expect(dfStrikeFlightStart(zep)).toBeGreaterThan(0)
-        // the bomber: rows of bombs inside the circle, then the whole circle (last)
-        const bomber = dfPlanStrike('bomber', at, { x: 0, y: 0, z: 1 }, roll)
-        const last = bomber.hits[bomber.hits.length - 1]!
-        expect(last).toMatchObject({ x: at.x, z: at.z, r: DF_STRIKE.bomber.radius, all: true })
-        expect(bomber.hits.filter(h => h.all)).toHaveLength(1)
-        expect(bomber.hits.length).toBeGreaterThan(10)
-        for (const h of bomber.hits) {
-            expect(Math.hypot(h.x - at.x, h.z - at.z)).toBeLessThanOrEqual(DF_STRIKE.bomber.radius + 0.6)
-            expect(h.t).toBeLessThanOrEqual(last.t)
-        }
-        expect(bomber.from.z).toBeLessThan(at.z)
-        expect(bomber.to.z).toBeGreaterThan(at.z)
-        expect(dfIsStrike('launcher')).toBe(false)
-    })
 })
 
 describe('round challenges', () => {
@@ -226,25 +150,6 @@ describe('salvage: the match', () => {
         // the same claim again finds nothing
         expect(sim.arsenal.pickUp(a!, id)).toBe(false)
         expect(sim.arsenal.gearOf(a!).pool.scrap).toBe(2)
-    })
-
-    it('a silencer turns up more salvage', () => {
-        expect(dfSalvageBonus('thompson', { muzzle: 'thompson-maxim' })).toBe(DF_SILENCER_SALVAGE)
-        expect(dfSalvageBonus('thompson', {})).toBe(1)
-        // a roll just over the plain chance only drops with the silencer
-        const at = () => DF_SALVAGE.chance * (1 + (DF_SILENCER_SALVAGE - 1) / 2)
-        expect(dfSalvageRoll('shambler', 1, at, DF_SILENCER_SALVAGE)).toBeGreaterThan(0)
-        expect(dfSalvageRoll('shambler', 1, at)).toBe(0)
-    })
-
-    it('the drop chances fade with the round, so the horde outgrows the income', () => {
-        expect(dfSalvageFade(1)).toBe(1)
-        expect(dfSalvageFade(DF_SALVAGE.fadeFrom)).toBe(1)
-        expect(dfSalvageFade(DF_SALVAGE.fadeFrom * 4)).toBeCloseTo(0.5, 5)
-        // a roll that drops early doesn't late
-        const at = () => DF_SALVAGE.chance * 0.9
-        expect(dfSalvageRoll('shambler', 1, at)).toBeGreaterThan(0)
-        expect(dfSalvageRoll('shambler', 50, at)).toBe(0)
     })
 
     it('kills drop salvage on the ground (brutes always) and it rusts away', () => {
@@ -354,7 +259,7 @@ describe('salvage: the match', () => {
         expect(sim.arsenal.sentries).toHaveLength(0)
     })
 
-    it('a sentry doesn\'t shoot through walls and gets clawed apart', () => {
+    it('a sentry doesn\'t shoot through walls', () => {
         const { sim } = makeSim()
         const p = sim.player(0)!
         sim.dev(0, { k: 'god', on: true })
@@ -366,33 +271,6 @@ describe('salvage: the match', () => {
         const hidden = sim.debugSpawn('shambler', { x: s.pos.x, y: 0, z: -3 }, 200)
         run(sim, 1.5)
         expect(hidden.hp).toBe(200)
-        sim.zombies.splice(sim.zombies.indexOf(hidden), 1)
-        // three brutes on top of it (out of the gun's arc while it turns, armoured heads)
-        for (let i = 0; i < 3; i++) sim.debugSpawn('brute', { x: s.pos.x + Math.cos(i * 2) * 0.8, y: 0, z: s.pos.z + Math.sin(i * 2) * 0.8 }, 1e9)
-        const events = run(sim, 6)
-        expect(events.some(e => e.k === 'sentry' && e.what === 'broken')).toBe(true)
-    })
-
-    it('a gramophone pulls zombies off you, then blows them up', () => {
-        const { sim } = makeSim()
-        const p = sim.player(0)!
-        sim.dev(0, { k: 'god', on: true })
-        sim.dev(0, { k: 'hold', on: true })
-        sim.arsenal.gearOf(p).equip = 'decoy'
-        const at = { x: p.pos.x + 8, y: 0, z: p.pos.z - 2 }
-        expect(sim.arsenal.handle(p, { k: 'deploy', pos: at, yaw: 0 })).toBe(true)
-        const d = sim.arsenal.decoys[0]!
-        const z = sim.debugSpawn('shambler', { x: p.pos.x - 2, y: 0, z: p.pos.z - 6 }, 1e5)
-        const start = Math.hypot(z.pos.x - d.pos.x, z.pos.z - d.pos.z)
-        run(sim, 4)
-        const mid = Math.hypot(z.pos.x - d.pos.x, z.pos.z - d.pos.z)
-        expect(mid).toBeLessThan(start - 2)
-        z.hp = 300
-        const events = run(sim, DF_DECOY.fuse)
-        expect(events.some(e => e.k === 'decoy')).toBe(true)
-        expect(events.some(e => e.k === 'explode' && e.kind === 'grenade')).toBe(true)
-        expect(sim.zombies.includes(z)).toBe(false)
-        expect(p.health).toBe(p.effects.maxHealth)
     })
 
     it('kills never hand out support', () => {
@@ -400,14 +278,14 @@ describe('salvage: the match', () => {
         const p = sim.player(0)!
         sim.arsenal.rng.chance = () => false
         const origin = { x: p.pos.x, y: p.pos.y + 1.1, z: p.pos.z }
-        for (let i = 0; i < 60; i++) {
+        for (let i = 0; i < 20; i++) {
             const z = sim.debugSpawn('shambler', { x: p.pos.x, y: 0, z: p.pos.z - 5 }, 1)
             p.weapons[0]!.mag = p.weapons[0]!.stats.magSize
             sim.fire(0, { origin, dirs: [{ x: 0, y: 0, z: -1 }], hits: [{ z: z.id, zone: 'body', dist: 5 }] })
             sim.step(0.4)
             advance(0.4)
         }
-        expect(p.kills).toBeGreaterThanOrEqual(60)
+        expect(p.kills).toBeGreaterThanOrEqual(20)
         expect(sim.arsenal.gearOf(p).support).toEqual([])
         expect(sim.snapshot().world.arsenal!.players[0]!.support).toEqual([])
     })

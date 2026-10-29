@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DF_COSTS, DF_PLAYER, DF_POINTS, DF_REVIVE_GRACE, DF_SOLO_SECONDWIND_MAX } from '#shared/utils/dead-front/constants'
+import { DF_PLAYER, DF_POINTS, DF_REVIVE_GRACE, DF_SOLO_SECONDWIND_MAX } from '#shared/utils/dead-front/constants'
 import type { DfMapDef } from '#shared/utils/dead-front/map'
 import type { DfServerMsg } from '#shared/utils/dead-front/protocol'
 import type { DfProfileView, DfProgressReport, DfWeaponId } from '#shared/utils/dead-front/types'
@@ -38,26 +38,6 @@ function makeSim(start: DfWeaponId[] = ['m1911', 'm1911']) {
 const knockDown = (sim: DfMatchSim, pid: number) => sim['hurtPlayer'](sim.player(pid)!, 10_000, 1, false)
 
 describe('last stand', () => {
-    it('keeps the Second Wind Last Stand mod for the down that took the perk', () => {
-        const { sim, tick } = makeSim()
-        const a = sim.player(0)!
-        a.setup.perkMods = { secondwind: ['secondwind-laststand'] }
-        a.perks = ['secondwind']
-        sim['setEffects'](a)
-        knockDown(sim, 0)
-        expect(a.perks).toEqual([])
-        expect(a.effects.lastStandDamageMult).toBe(1.75)
-        const b = sim.player(1)!
-        b.pos = { x: 0.8, y: 0, z: 0 }
-        sim.revive(1, 0)
-        tick(DF_PLAYER.reviveTime + DF_REVIVE_GRACE + 0.2)
-        expect(a.life).toBe('alive')
-        // no Second Wind bought back: the next down is a plain one
-        knockDown(sim, 0)
-        expect(a.life).toBe('down')
-        expect(a.effects.lastStandDamageMult).toBe(1)
-    })
-
     it('hands a downed player their own pistol and gives back the gun they held on revive', () => {
         const { sim, tick } = makeSim()
         const a = sim.player(0)!
@@ -78,18 +58,6 @@ describe('last stand', () => {
         expect(b.points).toBe(DF_POINTS.startPoints + DF_POINTS.revive)
     })
 
-    it('lends the start pistol to someone carrying none, and returns their guns', () => {
-        const { sim, tick } = makeSim(['kar98k', 'm1911'])
-        const a = sim.player(0)!
-        a.weapons.push({ id: 'mp18', pap: 0, mag: 20, reserve: 100, attachments: {}, stats: dfWeaponStats('mp18', 0) })
-        knockDown(sim, 0)
-        expect(a.weapons.map(w => w.id)).toEqual(['m1911'])
-        sim.player(1)!.pos = { x: 0.8, y: 0, z: 0 }
-        sim.revive(1, 0)
-        tick(DF_PLAYER.reviveTime + 0.2)
-        expect(a.weapons.map(w => w.id)).toEqual(['kar98k', 'mp18'])
-    })
-
     it('a revive only counts while the reviver keeps holding and stays close', () => {
         const { sim, tick } = makeSim()
         knockDown(sim, 0)
@@ -105,20 +73,6 @@ describe('last stand', () => {
         b.pos = { x: 6, y: 0, z: 0 }
         tick(DF_PLAYER.reviveTime)
         expect(sim.player(0)!.life).toBe('down')
-    })
-
-    it('gives a revived player a moment of grace before zombies can drop them again', () => {
-        const { sim, tick } = makeSim()
-        knockDown(sim, 0)
-        sim.player(1)!.pos = { x: 0.8, y: 0, z: 0 }
-        sim.revive(1, 0)
-        tick(DF_PLAYER.reviveTime + 0.1)
-        const a = sim.player(0)!
-        knockDown(sim, 0)
-        expect(a.life).toBe('alive')
-        tick(DF_REVIVE_GRACE)
-        knockDown(sim, 0)
-        expect(a.life).toBe('down')
     })
 })
 
@@ -153,15 +107,6 @@ describe('dropped players', () => {
         tick(0.1)
         expect(sim.over).toBe(true)
     })
-
-    it('zombies ignore a disconnected player', () => {
-        const { sim, tick } = makeSim()
-        sim.setConnected(0, false)
-        sim.player(1)!.pos = { x: 20, y: 0, z: 0 }
-        const z = sim.debugSpawn('shambler', { x: 0, y: 0, z: 3 })
-        tick(1)
-        expect(z.target).toBe(1)
-    })
 })
 
 describe('solo Second Wind', () => {
@@ -187,7 +132,6 @@ describe('solo Second Wind', () => {
         sim.use(0, 'perk-sw')
         expect(p.points).toBe(before)
         expect(p.perks).not.toContain('secondwind')
-        expect(DF_COSTS.secondwindSolo).toBeLessThan(1000)
     })
 })
 

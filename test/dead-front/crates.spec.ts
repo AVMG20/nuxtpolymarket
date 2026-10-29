@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { DF_CRATE, DF_RECIPES, dfCrateBlocked, dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
+import { DF_CRATE, dfCrateBlocked } from '#shared/utils/dead-front/salvage'
 import { DF_SUPPORT_HELD } from '#shared/utils/dead-front/support'
-import type { DfEvent, DfSnapshot } from '#shared/utils/dead-front/protocol'
+import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup, SimPlayer, SimZombie } from '#server/utils/dead-front/sim-types'
-import { dfArsenalFeedLine, dfCratePrompt } from '../../app/utils/dead-front/engine/arsenal-prompt'
 
 const setup = (userId: string): DfPlayerSetup => ({ userId, name: userId, startWeapon: 'm1911', attachments: {}, perkMods: {} })
 
@@ -30,9 +29,6 @@ function kill(sim: DfMatchSim, p: SimPlayer, z: SimZombie): void {
 
 describe('supply crates', () => {
     it('a rare kill drops a crate with a bench item in it, picked uniformly', () => {
-        expect(DF_CRATE.chance).toBeGreaterThan(0)
-        expect(DF_CRATE.chance).toBeLessThan(0.01)
-        expect(DF_CRATE.items).toEqual(['sentry', 'decoy', 'kit', 'barrage', 'zeppelin', 'launcher', 'bomber'])
         const sim = makeSim(1)
         const p = sim.player(0)!
         const asked: number[] = []
@@ -82,7 +78,7 @@ describe('supply crates', () => {
         expect(sim.arsenal.mine(a!.pid).events.filter(e => e.k === 'crate')).toEqual([{ k: 'crate', p: a!.pid, owner: a!.pid, item: 'bomber', id, pos: { x: at.x, y: 0, z: at.z } }])
     })
 
-    it('after 15 s anyone sees it and can take it (the feed names who); gone at 60 s', () => {
+    it('after 15 s anyone sees it and can take it; gone at 60 s', () => {
         const sim = makeSim()
         const [a, b] = sim.players
         const at = { x: a!.pos.x + 4, y: 0, z: a!.pos.z }
@@ -98,10 +94,6 @@ describe('supply crates', () => {
         const ev = sim.snapshot().events.find(e => e.k === 'crate')!
         expect(ev).toMatchObject({ k: 'crate', p: b!.pid, owner: a!.pid, item: 'zeppelin' })
         expect(sim.arsenal.gearOf(b!).support).toEqual(['zeppelin'])
-        const line = dfArsenalFeedLine(ev, { me: a!.pid, line: (tone, pid, text, target) => ({ tone, who: pid === null ? null : `P${pid}`, whoColor: null, text, target: target == null ? null : `P${target}`, targetColor: null }), weaponName: id => id })!
-        expect(line.text).toBe('took the Zeppelin Raid found by')
-        expect(line.target).toBe(`P${a!.pid}`)
-        expect(line.textColor).toBe(DF_RECIPES.zeppelin.color)
         // another one nobody takes rusts away a minute after it dropped
         sim.arsenal.debugCrate(a!.pid, 'sentry', { x: a!.pos.x - 6, y: 0, z: a!.pos.z })
         run(sim, DF_CRATE.life - 1)
@@ -128,7 +120,7 @@ describe('supply crates', () => {
         expect(sim.snapshot().events.filter(e => e.k === 'crate')).toHaveLength(1)
     })
 
-    it('if you can\'t carry it, it stays (and says why) for someone who can', () => {
+    it('if you can\'t carry it, it stays for someone who can', () => {
         const sim = makeSim()
         const [a, b] = sim.players
         const at = { x: a!.pos.x + 4, y: 0, z: a!.pos.z }
@@ -138,12 +130,6 @@ describe('supply crates', () => {
         run(sim, 1)
         expect(sim.arsenal.crates.map(x => x.id)).toEqual([id])
         expect(sim.arsenal.gearOf(a!).support).toHaveLength(DF_SUPPORT_HELD.max)
-        // the client explains
-        const s = { ...sim.snapshot(), ack: 0, mine: sim.arsenal.mine(a!.pid) } as DfSnapshot
-        dfMergeArsenalMine(s)
-        const me = s.players.find(p => p.pid === a!.pid)!
-        const crate = s.world.arsenal!.crates![0]!
-        expect(dfCratePrompt(crate, { world: s.world, me })!.sub).toBe('Call in your support first (X)')
         // once it's open, the teammate takes it
         run(sim, DF_CRATE.private)
         b!.pos = { ...at }

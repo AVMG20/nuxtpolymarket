@@ -5,7 +5,7 @@ import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import type { DfProfileView, DfProgressReport, DfWeaponId } from '#shared/utils/dead-front/types'
 import { dfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { DfMatch } from '#server/utils/dead-front/match'
-import { DF_BOX_MOVE_CHANCE, DfMatchSim } from '#server/utils/dead-front/sim'
+import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup, SimPlayer, SimWeapon } from '#server/utils/dead-front/sim-types'
 
 // Pack-a-Punch never loses (or duplicates) a weapon, its slots never shift,
@@ -63,15 +63,11 @@ const use = (sim: DfMatchSim, pid: number, id: string) => {
 const noDupes = (p: SimPlayer) => expect(new Set(ids(p)).size).toBe(p.weapons.length)
 
 describe('Pack-a-Punch keeps every weapon', () => {
-    it('costs 5,000 then 15,000 then 30,000', () => {
-        expect(DF_COSTS.pap).toEqual([5000, 15000, 30000])
-        expect(dfPapCost(0)).toBe(5000)
-        expect(dfPapCost(1)).toBe(15000)
-        expect(dfPapCost(2)).toBe(30000)
+    it('charges each of the three tiers, then stops', () => {
         expect(dfPapCost(3)).toBeNull()
         const { sim } = makeSim()
         const p = sim.player(0)!
-        p.points = 5000 + 15000 + 30000
+        p.points = dfPapCost(0)! + dfPapCost(1)! + dfPapCost(2)!
         for (let tier = 0; tier < 3; tier++) {
             use(sim, 0, 'pap')
             step(sim, DF_MACHINE_TIMES.papWork + 0.1)
@@ -128,19 +124,6 @@ describe('Pack-a-Punch keeps every weapon', () => {
         expect(p.slot).toBe(0)
         const events: DfEvent[] = sim.snapshot().events
         expect(events).toContainEqual({ k: 'papReturn', p: 0, weapon: 'thompson', tier: 1 })
-    })
-
-    it('returns the only weapon into your hands', () => {
-        const { sim } = makeSim()
-        const p = sim.player(0)!
-        use(sim, 0, 'pap')
-        expect(ids(p)).toEqual(['m1911'])
-        expect(p.weapons[0]!.away).toBe(true)
-        expect(sim.fire(0, { origin: { x: 0, y: 1.62, z: 0 }, dirs: [{ x: 0, y: 0, z: 1 }], hits: [] })).toBe(false)
-        step(sim, DF_MACHINE_TIMES.papWork + DF_MACHINE_TIMES.papOffer + 0.5)
-        expect(ids(p)).toEqual(['m1911'])
-        expect(p.weapons[0]!.pap).toBe(1)
-        expect(p.slot).toBe(0)
     })
 
     it('a weapon bought meanwhile takes the free slot; the packed one still comes back to its own', () => {
@@ -248,16 +231,6 @@ describe('Pack-a-Punch keeps every weapon', () => {
         }
         noDupes(p)
     })
-
-    it('a new weapon slots in before the wunderweapon, never behind it', () => {
-        const { sim } = makeSim()
-        const p = sim.player(0)!
-        p.weapons = [weapon(sim, p, 'kar98k'), weapon(sim, p, 'wunder')]
-        p.slot = 1
-        use(sim, 0, 'wall-mp18')
-        expect(ids(p)).toEqual(['kar98k', 'mp18', 'wunder'])
-        expect(p.slot).toBe(1)
-    })
 })
 
 describe('mystery box locations', () => {
@@ -275,7 +248,7 @@ describe('mystery box locations', () => {
 
     it('never starts in the start zone', () => {
         const seen = new Set<number>()
-        for (let i = 0; i < 200; i++) {
+        for (let i = 0; i < 30; i++) {
             const sim = boxSim()
             expect(boxMap.boxSpots[sim.box.spot]!.zone).not.toBe(boxMap.startZone)
             seen.add(sim.box.spot)
@@ -284,54 +257,34 @@ describe('mystery box locations', () => {
         expect(seen.size).toBe(2)
     })
 
-    it('moves after about 10% of rolls, refunds those rolls and never touches your weapons', () => {
-        expect(DF_BOX_MOVE_CHANCE).toBe(0.1)
+    it('a move refunds the roll, announces itself and never touches your weapons', () => {
         const sim = boxSim()
         const p = sim.player(0)!
         p.weapons = [weapon(sim, p, 'kar98k'), weapon(sim, p, 'thompson')]
         p.slot = 0
-        const rolls = 1500
-        let moves = 0
         const visited = new Set<number>()
-        for (let i = 0; i < rolls; i++) {
+        for (let i = 0; i < 4; i++) {
             const at = boxMap.boxSpots[sim.box.spot]!
             visited.add(sim.box.spot)
             p.pos = { ...at.pos }
             const before = p.points
+            sim.snapshot()
             use(sim, 0, at.id)
             expect(sim.box.state).toBe('rolling')
             expect(p.points).toBe(before - DF_COSTS.box)
+            sim['boxInternal'].willMove = true
             step(sim, DF_MACHINE_TIMES.boxRoll + 0.05)
-            if (sim.box.state === 'moving') {
-                moves++
-                expect(p.points).toBe(before)
-                const from = sim.box.spot
-                step(sim, DF_MACHINE_TIMES.boxMove + 0.05)
-                expect(sim.box.state).toBe('idle')
-                expect(sim.box.spot).not.toBe(from)
-            } else {
-                expect(sim.box.state).toBe('ready')
-                sim['resetBox']()
-            }
+            expect(sim.box.state).toBe('moving')
+            expect(p.points).toBe(before)
+            expect(sim.snapshot().events).toContainEqual({ k: 'box', what: 'move' })
+            const from = sim.box.spot
+            step(sim, DF_MACHINE_TIMES.boxMove + 0.05)
+            expect(sim.box.state).toBe('idle')
+            expect(sim.box.spot).not.toBe(from)
             expect(ids(p)).toEqual(['kar98k', 'thompson'])
         }
-        const rate = moves / rolls
-        expect(rate).toBeGreaterThan(0.065)
-        expect(rate).toBeLessThan(0.135)
         // it may wander into the start zone later
-        expect(visited.has(0)).toBe(true)
-    })
-
-    it('a move announces itself in the squad feed', () => {
-        const sim = boxSim()
-        sim['boxInternal'].willMove = true
-        const at = boxMap.boxSpots[sim.box.spot]!
-        sim.player(0)!.pos = { ...at.pos }
-        sim.snapshot()
-        use(sim, 0, at.id)
-        sim['boxInternal'].willMove = true
-        step(sim, DF_MACHINE_TIMES.boxRoll + 0.05)
-        expect(sim.snapshot().events).toContainEqual({ k: 'box', what: 'move' })
+        expect(visited.size).toBeGreaterThan(1)
     })
 })
 

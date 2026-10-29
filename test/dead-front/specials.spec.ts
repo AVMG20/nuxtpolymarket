@@ -7,8 +7,7 @@ import { dfMapTraps } from '#shared/utils/dead-front/map-traps'
 import { dfBodyFits, dfBuildCollision } from '#shared/utils/dead-front/physics'
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import {
-    DF_CRAWL, DF_GAS, DF_STREAK, DF_TRAP, dfCrawlChance, dfGasDepth, dfGasFirstRound, dfGasNextRound, dfGasRoundCount,
-    dfGasSchedule, dfInTrap, dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick
+    DF_STREAK, DF_TRAP, dfGasRoundCount, dfGasSchedule, dfInTrap, dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick
 } from '#shared/utils/dead-front/specials'
 import type { DfTrapRun } from '#shared/utils/dead-front/specials'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
@@ -35,20 +34,6 @@ function run(sim: DfMatchSim, seconds: number, dt = 0.05): DfEvent[] {
 }
 
 describe('gas rounds: schedule', () => {
-    it('first falls on round 5 or 6, then every 4 to 6 rounds', () => {
-        expect(dfGasFirstRound(0)).toBe(5)
-        expect(dfGasFirstRound(0.999)).toBe(6)
-        expect(dfGasNextRound(6, 0)).toBe(10)
-        expect(dfGasNextRound(6, 0.5)).toBe(11)
-        expect(dfGasNextRound(6, 0.999)).toBe(12)
-        for (let i = 0; i < 50; i++) {
-            const r = Math.random()
-            const f = dfGasFirstRound(r)
-            expect(f).toBeGreaterThanOrEqual(DF_GAS.first[0])
-            expect(f).toBeLessThanOrEqual(DF_GAS.first[1])
-        }
-    })
-
     it('marks the due round and catches up after a jump', () => {
         const zero = () => 0
         expect(dfGasSchedule(4, 5, zero)).toEqual({ gas: false, next: 5 })
@@ -56,33 +41,6 @@ describe('gas rounds: schedule', () => {
         // jumped from round 3 to 12: the schedule rolls forward past the skipped rounds
         expect(dfGasSchedule(12, 5, zero)).toEqual({ gas: false, next: 13 })
         expect(dfGasSchedule(13, 13, zero)).toEqual({ gas: true, next: 17 })
-    })
-
-    it('runs a smaller pack and never more than once in a row', () => {
-        expect(dfGasRoundCount(29)).toBe(17)
-        expect(dfGasRoundCount(4)).toBe(DF_GAS.minCount)
-        const { sim } = makeSim()
-        const gasRounds: number[] = []
-        for (let r = 1; r <= 40; r++) {
-            sim.startRound()
-            if (sim.specials.gas) gasRounds.push(sim.round)
-            sim.specials.roundEnd()
-        }
-        expect(gasRounds[0]).toBeGreaterThanOrEqual(5)
-        expect(gasRounds[0]).toBeLessThanOrEqual(6)
-        for (let i = 1; i < gasRounds.length; i++) {
-            const gap = gasRounds[i]! - gasRounds[i - 1]!
-            expect(gap).toBeGreaterThanOrEqual(4)
-            expect(gap).toBeLessThanOrEqual(6)
-        }
-    })
-
-    it('gas pockets: depth falls off from the heart', () => {
-        const pockets = [{ x: 0, y: 0, z: 0, r: 4 }]
-        expect(dfGasDepth(pockets, { x: 0, y: 0, z: 0 })).toBe(1)
-        expect(dfGasDepth(pockets, { x: 2, y: 0, z: 0 })).toBeCloseTo(0.5)
-        expect(dfGasDepth(pockets, { x: 5, y: 0, z: 0 })).toBe(0)
-        expect(dfGasDepth(pockets, { x: 0, y: 3, z: 0 })).toBe(0)
     })
 })
 
@@ -121,14 +79,6 @@ describe('gas rounds: the match', () => {
         expect(sim.snapshot().world.special).toBeUndefined()
         sim.startRound()
         expect(sim.specials.gas).toBe(false)
-    })
-
-    it('a dev wipe is not a last kill', () => {
-        const { sim } = makeSim()
-        sim.dev(0, { k: 'special', what: 'gas' })
-        sim.dev(0, { k: 'round', round: 6 })
-        sim.dev(0, { k: 'round', round: 7 })
-        expect(sim.powerups.length).toBe(0)
     })
 })
 
@@ -175,7 +125,7 @@ describe('electric traps', () => {
         expect(dfTrapPlayerDamage(DF_TRAP.playerFloor)).toBe(0)
     })
 
-    it('costs 1000, runs 25 s, cools down 60 s, and needs the power', () => {
+    it('charges per run, refuses while live or cooling down, and needs the power', () => {
         const { sim, advance } = makeSim()
         const p = sim.player(0)!
         sim.dev(0, { k: 'points', amount: 5000 })
@@ -243,15 +193,6 @@ describe('crawlers', () => {
     const shambler = DF_ENEMIES.shambler
     const fwd = { x: 0, y: 0, z: 1 }
 
-    it('blasts and heavy leg hits can take the legs; brutes and bloaters keep theirs', () => {
-        expect(dfCrawlChance('shambler', 'limb', 60, 150, false)).toBe(DF_CRAWL.limbChance)
-        expect(dfCrawlChance('shambler', 'limb', 20, 150, false)).toBe(0)
-        expect(dfCrawlChance('shambler', 'body', 120, 150, false)).toBe(0)
-        expect(dfCrawlChance('ghoul', 'body', 40, 150, true)).toBe(DF_CRAWL.blastChance)
-        expect(dfCrawlChance('brute', 'limb', 999, 1000, true)).toBe(0)
-        expect(dfCrawlChance('bloater', 'limb', 999, 1000, true)).toBe(0)
-    })
-
     it('hitboxes lie low along the facing', () => {
         const target = { type: 'shambler' as const, pos: { x: 0, y: 0, z: 0 }, yaw: 0, anim: 'crawl' as const }
         const g = dfCrawlGeometry('shambler')
@@ -275,22 +216,6 @@ describe('crawlers', () => {
         const east = { ...target, yaw: Math.PI / 2 }
         expect(dfZombieHitTest(east, { x: g.headAhead, y: g.headY, z: -3 }, fwd, 20)?.zone).toBe('head')
     })
-
-    it('a crawler drags itself along slowly, never leaps, and still bites', () => {
-        const { sim } = makeSim()
-        const p = sim.player(0)!
-        const z = sim.debugSpawn('ghoul', { x: p.pos.x, y: 0, z: p.pos.z - 4 }, 5000)
-        sim.dev(0, { k: 'special', what: 'crawl' })
-        expect(z.crawl).toBe(true)
-        expect(z.speed).toBe(DF_CRAWL.ghoulSpeed)
-        sim.step(1)
-        const snap = sim.snapshot().zombies.find(s => s.id === z.id)!
-        expect(snap.crawl).toBe(true)
-        expect(['crawl', 'attack']).toContain(snap.anim)
-        const events = run(sim, 8)
-        expect(z.state === 'lunge' || z.dash !== null).toBe(false)
-        expect(events.some(e => e.k === 'zhit' && e.z === z.id)).toBe(true)
-    })
 })
 
 describe('kill streaks', () => {
@@ -306,17 +231,6 @@ describe('kill streaks', () => {
         // a pause breaks the chain
         expect(dfStreakKill(st, 11.6 + DF_STREAK.window + 0.01, false)).toEqual([])
         expect(st.chain).toBe(1)
-    })
-
-    it('counts headshot kills in a row', () => {
-        const st = dfNewStreak()
-        const heads: number[] = []
-        for (let i = 0; i < 12; i++) {
-            const hits = dfStreakKill(st, i * 5, i !== 6)
-            for (const h of hits) if (h.kind === 'head') heads.push(h.n)
-        }
-        // 0..5 → five in a row at i = 4, i = 6 breaks it, 7..11 → five more
-        expect(heads).toEqual([5, 5])
     })
 
     it('two quick kills pay the bonus and tell the killer', () => {

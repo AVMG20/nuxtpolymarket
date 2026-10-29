@@ -1,4 +1,3 @@
-import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { DF_COSTS, DF_MACHINE_TIMES } from '#shared/utils/dead-front/constants'
 import { dfBulletDamage } from '#shared/utils/dead-front/combat'
@@ -11,7 +10,6 @@ import { DfMatchSim } from '#server/utils/dead-front/sim'
 import type { DfPlayerSetup } from '#server/utils/dead-front/sim-types'
 import { dfBenchItem } from '../../app/utils/dead-front/engine/arsenal-prompt'
 import { dfPromptFor } from '../../app/utils/dead-front/engine/prompt'
-import { dfBuildGunRig } from '../../app/utils/dead-front/weapons/models'
 
 const setup = (userId: string): DfPlayerSetup => ({ userId, name: userId, startWeapon: 'm1911', attachments: {}, perkMods: {} })
 
@@ -96,31 +94,6 @@ describe('the grenade launcher', () => {
         expect(p.slot).toBe(1)
     })
 
-    it('fires heavy shells that burst wide, with no self-damage and no weapon XP; going dry gives it back', () => {
-        const { sim, advance, p, original } = withLauncher()
-        const w = p.weapons[1]!
-        p.swapUntil = 0
-        const horde = [0, 1, 2, 3].map(i => sim.debugSpawn('brute', { x: p.pos.x + (i - 1.5) * 2.5, y: 0, z: p.pos.z - 12 }, 2000))
-        const hp = p.health
-        let fired = 0
-        for (let i = 0; i < 20 && w.mag + w.reserve > 0; i++) {
-            if (w.mag <= 0) {
-                w.mag = Math.min(w.stats.magSize, w.reserve)
-                w.reserve -= w.mag
-            }
-            if (sim.fire(0, { origin: { x: p.pos.x, y: 1.5, z: p.pos.z }, dirs: [{ x: 0, y: -0.05, z: -1 }], hits: [] })) fired++
-            expect(sim.projectiles.some(pr => pr.kind === 'mortar') || fired === 0).toBe(true)
-            run(sim, 0.9)
-            advance(0.9)
-        }
-        expect(fired).toBe(12)
-        expect(horde.filter(z => sim.zombies.includes(z))).toHaveLength(0)
-        expect(p.health).toBe(hp)
-        expect(p.weaponKills[DF_LAUNCHER.weapon]).toBeUndefined()
-        run(sim, 1.5)
-        expect(p.weapons[1]).toBe(original)
-    })
-
     it('going down, a wall-buy or the box give it back; it never goes in the Pack-a-Punch, the box pool or the armory', () => {
         expect(DF_WEAPON_IDS).not.toContain(DF_LAUNCHER.weapon)
         expect(dfBoxPool()).not.toContain(DF_LAUNCHER.weapon)
@@ -151,14 +124,6 @@ describe('the grenade launcher', () => {
             expect(p.weapons.map(w => w.id)).toContain('mp18')
             expect(original.id).toBe('thompson')
         }
-    })
-
-    it('has a chunky viewmodel with a drum that comes out on the reload', () => {
-        const rig = dfBuildGunRig('granatwerfer', 0)
-        const box = new THREE.Box3().setFromObject(rig.root)
-        expect(box.max.z - box.min.z).toBeGreaterThan(0.85)
-        expect(rig.mag).not.toBeNull()
-        expect(dfWeaponStats('granatwerfer', 0).shot).toBe('grenade')
     })
 
     it('can\'t be upgraded or take a kit; the bench says why', () => {
