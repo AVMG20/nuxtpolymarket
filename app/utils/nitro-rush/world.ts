@@ -8,6 +8,7 @@ import {
     PUDDLE_TILE_LENGTH, radialTexture, roadTextures, ROAD_TILE_LENGTH, skylineTexture, type FacadeKind
 } from './textures'
 import type { Track } from '#shared/utils/nitro-rush/track'
+import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 
 /**
  * The circuit and everything around it, built once from the track's
@@ -23,6 +24,14 @@ const KERB_MIN_CURVATURE = 0.004
 /** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
 const WALL_BASE_HALF = 0.32
 const START_LIGHTS = 5
+/** The elevated road's slab, below the surface. */
+const DECK_DEPTH = 0.8
+const PILLAR_SPACING = 16
+const PILLAR_SIZE = 0.8
+/** Floodlight pole height; a pole with road above it inside this is left out. */
+const LAMP_HEIGHT = 11.5
+/** Over this stretch the wet mirror fades out where the road leaves the ground. */
+const MIRROR_FADE = 18
 
 const WetShader = {
     name: 'WetTrackReflection',
@@ -36,11 +45,14 @@ const WetShader = {
     },
     vertexShader: /* glsl */`
         uniform mat4 textureMatrix;
+        attribute float fade;
         varying vec4 vProj;
         varying vec2 vUv;
         varying float vDepth;
+        varying float vFade;
         void main() {
             vUv = uv;
+            vFade = fade;
             vProj = textureMatrix * vec4(position, 1.0);
             vec4 mv = modelViewMatrix * vec4(position, 1.0);
             vDepth = -mv.z;
@@ -55,6 +67,7 @@ const WetShader = {
         varying vec4 vProj;
         varying vec2 vUv;
         varying float vDepth;
+        varying float vFade;
         void main() {
             vec2 wuv = vUv * uWetRepeat;
             float wet = texture2D(tWet, wuv).r;
@@ -72,7 +85,7 @@ const WetShader = {
             c /= 4.0;
             float k = mix(0.22, 0.85, puddle) * uStrength;
             // Fade with distance so the far track blends into the fog.
-            k *= 1.0 - smoothstep(70.0, 220.0, vDepth);
+            k *= (1.0 - smoothstep(70.0, 220.0, vDepth)) * vFade;
             gl_FragColor = vec4(c * color * k, 1.0);
         }`
 }
@@ -148,16 +161,16 @@ const SkyShader = {
  * A strip laid flat along the track between two lateral offsets (+ is right
  * of the driving direction), from distance `from` to `to`. `u` runs 0 to 1
  * across, `v` is distance divided by `vScale`, so textures tile at a fixed
- * world scale.
+ * world scale. `y` lifts it off the road surface.
  */
 function ribbon(track: Track, from: number, to: number, latA: number, latB: number, y: number, vScale: number) {
-    const samples: { s: number, x: number, z: number, tx: number, tz: number }[] = []
+    const samples: { s: number, x: number, y: number, z: number, tx: number, tz: number }[] = []
     const push = (s: number, i?: number) => {
         if (i === undefined) {
             const p = track.pointAt(s)
             samples.push({ s, ...p })
         } else {
-            samples.push({ s, x: track.xs[i]!, z: track.zs[i]!, tx: track.txs[i]!, tz: track.tzs[i]! })
+            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, tx: track.txs[i]!, tz: track.tzs[i]! })
         }
     }
     push(from)
@@ -175,7 +188,7 @@ function ribbon(track: Track, from: number, to: number, latA: number, latB: numb
     const index: number[] = []
     samples.forEach((p, i) => {
         // Right of the driving direction is (-tz, tx).
-        pos.push(p.x - p.tz * latA, y, p.z + p.tx * latA, p.x - p.tz * latB, y, p.z + p.tx * latB)
+        pos.push(p.x - p.tz * latA, p.y + y, p.z + p.tx * latA, p.x - p.tz * latB, p.y + y, p.z + p.tx * latB)
         uv.push(0, p.s / vScale, 1, p.s / vScale)
         if (i > 0) {
             const a = (i - 1) * 2
@@ -208,7 +221,7 @@ function sweep(track: Track, side: number, offset: number, profile: [number, num
             const s = i === n ? track.length : track.cum[k]!
             for (const [a, y] of [[a0, y0], [a1, y1]] as const) {
                 const lat = side * (offset - a)
-                pos.push(track.xs[k]! - track.tzs[k]! * lat, y, track.zs[k]! + track.txs[k]! * lat)
+                pos.push(track.xs[k]! - track.tzs[k]! * lat, track.ys[k]! + y, track.zs[k]! + track.txs[k]! * lat)
             }
             uv.push(u0, s / 4, u0 + edge, s / 4)
             if (i > 0) {
@@ -224,6 +237,83 @@ function sweep(track: Track, side: number, offset: number, profile: [number, num
     g.setIndex(index)
     g.computeVertexNormals()
     return g
+}
+
+/**
+ * The wet mirror's strip: the road where it lies on the ground, since a planar
+ * mirror can't follow a climb. Its `fade` attribute dims it toward each ramp.
+ */
+function mirrorStrip(track: Track, hw: number) {
+    const L = track.length
+    const flat = (i: number) => track.ys[i % track.n]! < 0.01 && track.ys[(i + 1) % track.n]! < 0.01
+    const runs: [number, number][] = []
+    if (!track.elevated) {
+        runs.push([0, L])
+    } else {
+        // On a loop, start the scan just past a raised segment so no run is split at the seam.
+        let first = 0
+        if (track.closed) while (flat(first)) first++
+        const begin = track.closed ? first + 1 : 0
+        let open = -1
+        for (let k = begin; k < begin + track.segments; k++) {
+            if (flat(k) && open < 0) open = k
+            if (!flat(k) && open >= 0) {
+                runs.push([sAtIndex(track, open), sAtIndex(track, k)])
+                open = -1
+            }
+        }
+        if (open >= 0) runs.push([sAtIndex(track, open), sAtIndex(track, begin + track.segments)])
+    }
+    const geos = runs.filter(([a, b]) => b - a > 1).map(([from, to]) => {
+        const g = ribbon(track, from, to, -hw, hw, 0, ROAD_TILE_LENGTH)
+        const uv = g.getAttribute('uv')
+        const fade = new Float32Array(uv.count)
+        // Only an end that meets a ramp fades; an open course's ends and a flat loop stay bright.
+        const fadeIn = track.elevated && (track.closed || from > 0)
+        const fadeOut = track.elevated && (track.closed || to < L)
+        for (let i = 0; i < uv.count; i++) {
+            const s = uv.getY(i) * ROAD_TILE_LENGTH
+            fade[i] = Math.max(0, Math.min(1, fadeIn ? (s - from) / MIRROR_FADE : 1, fadeOut ? (to - s) / MIRROR_FADE : 1))
+        }
+        g.setAttribute('fade', new THREE.Float32BufferAttribute(fade, 1))
+        return g
+    })
+    if (!geos.length) {
+        const g = ribbon(track, 0, L, -hw, hw, 0, ROAD_TILE_LENGTH)
+        g.setAttribute('fade', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('uv').count), 1))
+        return g
+    }
+    const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos)!
+    if (geos.length > 1) for (const g of geos) g.dispose()
+    return merged
+}
+
+/** Distance along the line at point index `k`, counting on past the seam of a loop. */
+function sAtIndex(track: Track, k: number) {
+    return track.cum[k % track.n]! + Math.floor(k / track.n) * track.length
+}
+
+/** True when another stretch of road below `top` covers ground within `radius` of (x, z). */
+function roadBelow(track: Track, x: number, z: number, radius: number, top: number) {
+    for (let k = 0; k < track.n; k++) {
+        if (track.ys[k]! >= top) continue
+        const dx = track.xs[k]! - x
+        const dz = track.zs[k]! - z
+        if (dx * dx + dz * dz < radius * radius) return true
+    }
+    return false
+}
+
+/** True when road lies above (x, y, z), between `low` and `high` metres up, within `radius` across. */
+function roadAbove(track: Track, x: number, y: number, z: number, radius: number, low: number, high: number) {
+    for (let k = 0; k < track.n; k++) {
+        const up = track.ys[k]! - y
+        if (up < low || up > high) continue
+        const dx = track.xs[k]! - x
+        const dz = track.zs[k]! - z
+        if (dx * dx + dz * dz < radius * radius) return true
+    }
+    return false
 }
 
 /** A building's walls (facade texture tiled at a fixed scale) and its roof, as separate geometries for merging. */
@@ -306,7 +396,7 @@ export class World {
             map: road.map, normalMap: road.normal, normalScale: new THREE.Vector2(0.6, 0.6), roughnessMap: road.rough, roughness: 0.85, metalness: 0.05, envMapIntensity: 0.5
         })))
         // The mirror needs its plane in local XY; the same strip, stood up and laid back down.
-        this.reflector = new Reflector(own(roadGeo.clone().rotateX(Math.PI / 2)), {
+        this.reflector = new Reflector(own(mirrorStrip(track, hw).rotateX(Math.PI / 2)), {
             textureWidth: reflectionSize.w,
             textureHeight: reflectionSize.h,
             clipBias: 0.003,
@@ -376,6 +466,36 @@ export class World {
         for (const side of [-1, 1]) {
             add(sweep(track, side, wall + 0.16, [[0, 0.46], [-0.03, 0.72]]),own(new THREE.MeshBasicMaterial({ color: side > 0 ? 0xff2bd6 : 0x3df2ff, side: THREE.DoubleSide })))
         }
+        // ── Where the road leaves the ground: the slab's sides and underside, on pillars just outside its edges ──
+        if (track.elevated) {
+            const edge = wall + WALL_BASE_HALF * 2
+            for (const side of [-1, 1]) add(sweep(track, side, edge, [[0, 0], [0, -DECK_DEPTH], [edge, -DECK_DEPTH]]), wallMat)
+            const spots: THREE.Matrix4[] = []
+            const p = { x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 }
+            for (let s = PILLAR_SPACING / 2; s < L; s += PILLAR_SPACING) {
+                track.pointAt(s, p)
+                const top = p.y - DECK_DEPTH
+                if (top < 0.3) continue
+                for (const side of [-1, 1]) {
+                    const lat = side * (edge + PILLAR_SIZE / 2)
+                    const x = p.x - p.tz * lat
+                    const z = p.z + p.tx * lat
+                    // A pillar may stand beside a lower level, as in a spiral, but never on its road.
+                    if (roadBelow(track, x, z, wall + 0.5, p.y - MIN_CLEARANCE / 2)) continue
+                    spots.push(new THREE.Matrix4().compose(
+                        new THREE.Vector3(x, 0, z),
+                        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-p.tx, -p.tz)),
+                        new THREE.Vector3(1, top, 1)
+                    ))
+                }
+            }
+            const pillars = new THREE.InstancedMesh(own(new THREE.BoxGeometry(PILLAR_SIZE, 1, PILLAR_SIZE).translate(0, 0.5, 0)), wallMat, Math.max(1, spots.length))
+            own(pillars)
+            spots.forEach((m, i) => pillars.setMatrixAt(i, m))
+            pillars.count = spots.length
+            this.group.add(pillars)
+        }
+
         // An open course is closed off at both ends by the same wall, run straight across.
         if (!track.closed) {
             const span = (wall + WALL_BASE_HALF * 2) * 2
@@ -387,7 +507,7 @@ export class World {
                 // The barrier's face sits at the very end of the line; its body lies outside the course.
                 const out = end === 0 ? -1 : 1
                 const g = new THREE.Group()
-                g.position.set(p.x + p.tx * out * WALL_BASE_HALF, 0, p.z + p.tz * out * WALL_BASE_HALF)
+                g.position.set(p.x + p.tx * out * WALL_BASE_HALF, p.y, p.z + p.tz * out * WALL_BASE_HALF)
                 g.rotation.y = Math.atan2(-p.tx, -p.tz)
                 g.add(new THREE.Mesh(barrierGeo, wallMat))
                 const band = new THREE.Mesh(bandGeo, bandMat)
@@ -426,20 +546,25 @@ export class World {
                 const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
                 const p = track.pointAt(s)
                 const lat = side * (wall + WALL_BASE_HALF)
+                // Under another level the pole would run through its deck.
+                if (track.elevated && roadAbove(track, p.x, p.y, p.z, wall + 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
                 // Local -x is the arm; turn it to point across the track.
                 const inX = p.tz * side
                 const inZ = -p.tx * side
-                dummy.position.set(p.x - p.tz * lat, 0.86, p.z + p.tx * lat)
+                dummy.position.set(p.x - p.tz * lat, p.y + 0.86, p.z + p.tx * lat)
                 dummy.rotation.set(0, Math.atan2(inZ, -inX), 0)
                 dummy.updateMatrix()
                 for (const m of lamps) m.setMatrixAt(li, dummy.matrix)
-                this.lampHeads.push(new THREE.Vector3(dummy.position.x + inX * 3, 11.5, dummy.position.z + inZ * 3))
-                dummy.position.y = 0
+                this.lampHeads.push(new THREE.Vector3(dummy.position.x + inX * 3, p.y + LAMP_HEIGHT, dummy.position.z + inZ * 3))
+                // The light pool lies on the road, tipped to its slope.
+                dummy.position.y = p.y
+                dummy.rotation.set(Math.atan(side * p.grade), Math.atan2(inZ, -inX), 0, 'YXZ')
                 dummy.updateMatrix()
                 pool.setMatrixAt(li, dummy.matrix)
                 li++
             }
         }
+        for (const m of [...lamps, pool]) m.count = li
 
         // ── Gantries over the line: posts, beam, banners, and on the start one the five lights ──
         const steel = own(new THREE.MeshStandardMaterial({ color: 0x80848c, roughness: 0.4, metalness: 0.85 }))
@@ -451,7 +576,7 @@ export class World {
         const buildGantry = (at: number, sub: string, lights: boolean) => {
             const p = track.pointAt(at)
             const g = new THREE.Group()
-            g.position.set(p.x, 0, p.z)
+            g.position.set(p.x, p.y, p.z)
             g.rotation.y = Math.atan2(-p.tx, -p.tz)
             for (const side of [-1, 1]) {
                 const post = new THREE.Mesh(postGeo, steel)
@@ -545,8 +670,12 @@ export class World {
             const s = (i + 0.25) / 8 * L
             const p = track.pointAt(s)
             const lat = -(wall + 14)
+            const bx = p.x - p.tz * lat
+            const bz = p.z + p.tx * lat
+            // Not where another stretch of road runs close by, or over it.
+            if (track.elevated && Math.abs(track.project(bx, bz).lateral) < wall + 9) continue
             const g = new THREE.Group()
-            g.position.set(p.x - p.tz * lat, 0, p.z + p.tx * lat)
+            g.position.set(bx, 0, bz)
             // Face the oncoming cars, angled a little toward the track.
             g.rotation.y = Math.atan2(-p.tx, -p.tz) + 0.5
             const b = new THREE.Mesh(boardGeo, boardMats[i % boardMats.length]!)
@@ -577,7 +706,7 @@ export class World {
         const beaconSpots: THREE.Vector3[] = []
         const toStand = new THREE.Matrix4().makeRotationY(stand.rotation.y).setPosition(stand.position).invert()
         const local = new THREE.Vector3()
-        const proj = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1 }
+        const proj = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 }
         const CELL = 36
         for (let gx = -12; gx <= 12; gx++) {
             for (let gz = -16; gz <= 16; gz++) {
@@ -668,17 +797,18 @@ export class World {
         scene.add(this.group)
     }
 
-    /** The floodlight head nearest a point, so a real light can ride along with it. */
-    nearestLamp(x: number, z: number, out: THREE.Vector3) {
+    /** The floodlight head nearest a spot on the road, so a real light can ride along with it; returns how far its pole stands. */
+    nearestLamp(x: number, y: number, z: number, out: THREE.Vector3) {
         let best = Infinity
         for (const p of this.lampHeads) {
-            const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z)
+            const dy = p.y - LAMP_HEIGHT - y
+            const d = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) + dy * dy
             if (d < best) {
                 best = d
                 out.copy(p)
             }
         }
-        return out
+        return Math.sqrt(best)
     }
 
     get lampColor() {

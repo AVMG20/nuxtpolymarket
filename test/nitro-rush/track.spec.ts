@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrack, checkpoint, corner, finish, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { buildTrack, checkpoint, climbAt, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, POLYTOWN_OVAL, ramp, spiral, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
 import { findTrack, formatLapTime, LapTimer, Track, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/track'
 
 const oval = new Track(buildTrack(POLYTOWN_OVAL))
@@ -145,6 +145,77 @@ describe('track blocks', () => {
         expect(() => buildTrack(sprint([straight(30), finish, straight(200), start, straight(100)]))).toThrow(/finish comes before/)
         expect(() => buildTrack(sprint([checkpoint, straight(30), start, straight(200), finish, straight(100)]))).toThrow(/between the start and the finish/)
         expect(() => buildTrack(loop([start, corner('left', 8)]))).toThrow(/wider than the track/)
+    })
+})
+
+describe('ramps and spirals', () => {
+    const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
+    const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
+    const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
+    /** A rounded square that climbs one side and comes back down the next. */
+    const hill = [start, straight(80), corner('right', 50), ramp(100, 8), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]
+    const helix = (rise: number) => sprint([straight(30), start, straight(100), spiral('right', 40, 5, rise), straight(100), finish, straight(100)])
+
+    it('eases a slope in and out, so pieces meet without a kink', () => {
+        expect(climbAt(0, 100)).toBe(0)
+        expect(climbAt(100, 100)).toBeCloseTo(1, 12)
+        expect(climbAt(50, 100)).toBeCloseTo(0.5, 12)
+        for (let d = 1; d <= 100; d++) expect(climbAt(d, 100)).toBeGreaterThan(climbAt(d - 1, 100))
+        // Level at both ends: the first and last metre barely rise.
+        expect(climbAt(1, 100)).toBeLessThan(0.001)
+        expect(1 - climbAt(99, 100)).toBeLessThan(0.001)
+    })
+
+    it('climbs a ramp and comes back down to the ground', () => {
+        const t = new Track(buildTrack(loop(hill)))
+        expect(t.elevated).toBe(true)
+        expect(Math.max(...t.ys)).toBeCloseTo(8, 6)
+        expect(t.pointAt(0).y).toBe(0)
+        // Halfway up the climb, the road rises in the driving direction.
+        const up = t.pointAt(LINE_BLOCK_LENGTH / 2 + 80 + Math.PI * 25 + 50)
+        expect(up.y).toBeCloseTo(4, 1)
+        expect(up.grade).toBeGreaterThan(0.08)
+        const down = t.pointAt(LINE_BLOCK_LENGTH / 2 + 80 + Math.PI * 50 + 150)
+        expect(down.y).toBeCloseTo(4, 1)
+        expect(down.grade).toBeLessThan(-0.08)
+    })
+
+    it('leaves a flat course without heights', () => {
+        expect(buildTrack(POLYTOWN_OVAL).heights).toBeUndefined()
+        expect(oval.elevated).toBe(false)
+        expect(oval.pointAt(300).y).toBe(0)
+    })
+
+    it('stacks a spiral with room to drive under its upper level', () => {
+        const t = new Track(buildTrack(helix(12)))
+        const into = t.startS + LINE_BLOCK_LENGTH / 2 + 100
+        const below = t.pointAt(into)
+        const above = t.pointAt(into + Math.PI * 2 * 40)
+        // The sampled line is a polygon, a hair shorter round than the true circle.
+        expect(Math.hypot(above.x - below.x, above.z - below.z)).toBeLessThan(0.05)
+        expect(above.y - below.y).toBeGreaterThan(MIN_CLEARANCE)
+        expect(t.pointAt(t.length).y).toBeCloseTo(12, 6)
+    })
+
+    it('projects onto the level a height picks where a spiral passes over itself', () => {
+        const t = new Track(buildTrack(helix(12)))
+        const into = t.startS + LINE_BLOCK_LENGTH / 2 + 100
+        const p = t.pointAt(into + 10)
+        const lower = t.project(p.x, p.z, -1, undefined, p.y)
+        const upper = t.project(p.x, p.z, -1, undefined, t.pointAt(into + 10 + Math.PI * 2 * 40).y)
+        expect(lower.s).toBeCloseTo(into + 10, 1)
+        expect(upper.s).toBeCloseTo(into + 10 + Math.PI * 2 * 40, 0)
+        // A hint keeps the search on its own level whatever the height says.
+        expect(t.project(p.x, p.z, t.segmentAt(into + 10)).s).toBeCloseTo(into + 10, 1)
+    })
+
+    it('rejects heights a road cannot be built with', () => {
+        expect(() => buildTrack(helix(6))).toThrow(/passes .* m from another stretch/)
+        expect(() => buildTrack(loop([...hill.slice(0, 5), straight(100), ...hill.slice(6)]))).toThrow(/off the ground/)
+        expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/below the ground/)
+        expect(() => buildTrack(sprint([ramp(100, 5), start, straight(100), finish, straight(100)]))).toThrow(/start line must sit on the ground/)
+        expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(50, 8), straight(50), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/longer than/)
+        expect(() => buildTrack(sprint([straight(30), start, straight(100), spiral('right', 40, 2.5, 4), straight(100), finish, straight(100)]))).toThrow(/whole number of quarters/)
     })
 })
 

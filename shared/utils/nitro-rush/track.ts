@@ -14,9 +14,13 @@
  *
  * Courses are laid out from blocks in `layout.ts`; this file only sees the
  * sampled line they compile to.
+ *
+ * The road can climb: each point has a height, and the road is level across.
+ * `s` stays a distance over the ground plan, which the gentle grades keep
+ * within a fraction of a percent of the distance driven.
  */
 
-import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT } from './layout'
+import { buildTrack, POLYTOWN_OVAL, S_BEND_SPRINT, TWIN_HELIX } from './layout'
 
 export type TrackGroup = 'circuits' | 'sprints'
 
@@ -31,6 +35,8 @@ export interface TrackDef {
     name: string
     group: TrackGroup
     points: [number, number][]
+    /** Road height at each point, in metres above the ground; left out on a flat course. */
+    heights?: number[]
     halfWidth: number
     /** Centreline to the face of the wall. */
     wallOffset: number
@@ -51,6 +57,10 @@ export interface Projection {
     /** Unit tangent of the segment, in driving direction. */
     tx: number
     tz: number
+    /** Road height at the projected point. */
+    y: number
+    /** Rise per metre in the driving direction. */
+    grade: number
 }
 
 export interface TrackPoint {
@@ -58,11 +68,15 @@ export interface TrackPoint {
     z: number
     tx: number
     tz: number
+    y: number
+    grade: number
 }
 
 const TAU = Math.PI * 2
 /** Segments either side of the hint that a projection checks before falling back to a full scan. */
 const SEARCH_WINDOW = 10
+/** How much a metre of height counts against a metre across when a full scan picks between stacked roads. */
+const LEVEL_WEIGHT = 4
 const DEFAULT_RUN_UP = 30
 const DEFAULT_RUN_OFF = 150
 /** Faster than the car can ever average (its nitro top speed is ~103 m/s), so the server can refuse impossible laps. */
@@ -82,7 +96,7 @@ export function formatLapTime(seconds: number, signed = false) {
 }
 
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
-export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(S_BEND_SPRINT)]
+export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(TWIN_HELIX), buildTrack(S_BEND_SPRINT)]
 
 export function findTrack(id: string) {
     return TRACKS.find(t => t.id === id) ?? null
@@ -97,6 +111,9 @@ export class Track {
     readonly length: number
     readonly xs: Float64Array
     readonly zs: Float64Array
+    readonly ys: Float64Array
+    /** Per point: rise per metre in the driving direction. */
+    readonly grades: Float64Array
     /** Distance along the line at each point; `cum[n]` is the full length either way. */
     readonly cum: Float64Array
     /** Per point: the unit tangent averaged over its two segments, so offsets mitre cleanly. */
@@ -115,9 +132,11 @@ export class Track {
         this.segments = this.closed ? n : n - 1
         this.xs = new Float64Array(n)
         this.zs = new Float64Array(n)
+        this.ys = new Float64Array(n)
         def.points.forEach(([x, z], i) => {
             this.xs[i] = x
             this.zs[i] = z
+            this.ys[i] = def.heights?.[i] ?? 0
         })
         this.cum = new Float64Array(n + 1)
         for (let i = 0; i < n; i++) {
@@ -130,6 +149,7 @@ export class Track {
         this.txs = new Float64Array(n)
         this.tzs = new Float64Array(n)
         this.curvature = new Float64Array(n)
+        this.grades = new Float64Array(n)
         for (let i = 0; i < n; i++) {
             // An open course's end points only have the one segment.
             const p = this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)
@@ -147,6 +167,7 @@ export class Track {
             this.tzs[i] = tz / lt
             const turn = la && lb ? Math.abs(wrapAngle(Math.atan2(bx, bz) - Math.atan2(ax, az))) : 0
             this.curvature[i] = turn / ((la + lb) / 2 || 1)
+            this.grades[i] = (this.ys[j]! - this.ys[p]!) / (la + lb || 1)
         }
     }
 
@@ -201,7 +222,12 @@ export class Track {
         return lo
     }
 
-    pointAt(s: number, out: TrackPoint = { x: 0, z: 0, tx: 0, tz: 0 }): TrackPoint {
+    /** True when any of the road leaves the ground. */
+    get elevated() {
+        return this.ys.some(y => y > 0)
+    }
+
+    pointAt(s: number, out: TrackPoint = { x: 0, z: 0, tx: 0, tz: 0, y: 0, grade: 0 }): TrackPoint {
         const w = this.wrapS(s)
         const i = this.segmentAt(w)
         const j = (i + 1) % this.n
@@ -211,16 +237,20 @@ export class Track {
         out.z = this.zs[i]! + (this.zs[j]! - this.zs[i]!) * t
         out.tx = (this.xs[j]! - this.xs[i]!) / (len || 1)
         out.tz = (this.zs[j]! - this.zs[i]!) / (len || 1)
+        out.y = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
+        out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * t
         return out
     }
 
     /**
      * Nearest point on the centreline. Pass the last segment as `hint` to search only around it.
      * Past either end of an open course `s` runs below 0 or above `length`, so the physics can find the barrier.
+     * Where roads stack (a spiral, a bridge), `y` picks the level a full scan lands on.
      */
-    project(x: number, z: number, hint = -1, out: Projection = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1 }): Projection {
+    project(x: number, z: number, hint = -1, out: Projection = { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 }, y = Number.NaN): Projection {
         let best = Infinity
         const last = this.segments - 1
+        let level = false
         const test = (i: number) => {
             const j = (i + 1) % this.n
             const ax = this.xs[i]!
@@ -233,7 +263,10 @@ export class Track {
             const t = Math.min(hi, Math.max(lo, ((x - ax) * dx + (z - az) * dz) / len2))
             const cx = ax + dx * t
             const cz = az + dz * t
-            const d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz)
+            const f = Math.min(1, Math.max(0, t))
+            const ry = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * f
+            let d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz)
+            if (level) d2 += (y - ry) * (y - ry) * LEVEL_WEIGHT * LEVEL_WEIGHT
             if (d2 < best) {
                 best = d2
                 const len = Math.sqrt(len2)
@@ -243,6 +276,8 @@ export class Track {
                 out.tz = dz / len
                 // Right of the driving direction is the tangent turned a quarter clockwise seen from above.
                 out.lateral = (x - ax) * -out.tz + (z - az) * out.tx
+                out.y = ry
+                out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * f
             }
         }
         if (hint >= 0) {
@@ -255,6 +290,7 @@ export class Track {
         // A teleport or a bad hint: the windowed answer is only trusted while it's on the track.
         if (hint < 0 || Math.sqrt(best) > this.def.wallOffset + 4) {
             best = Infinity
+            level = Number.isFinite(y)
             for (let i = 0; i <= last; i++) test(i)
         }
         return out

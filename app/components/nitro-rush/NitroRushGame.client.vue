@@ -524,7 +524,7 @@ function myBest(id: string) {
                   :aria-pressed="t.id === trackId"
                   @click="selectTrack(t.id)"
                 >
-                  <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
+                  <NitroRushTrackPreview class="nr-track-preview" :points="t.points" :heights="t.heights" :closed="t.closed !== false" :color="t.id === trackId ? '#ff2bd6' : '#3df2ff'" />
                   <div class="min-w-0 flex-1">
                     <div class="flex items-baseline justify-between gap-2">
                       <span class="nr-track-name">{{ t.name }}</span>

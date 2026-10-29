@@ -58,6 +58,7 @@ const CAR_HALF_LENGTH = 2.25
 const DRIFT_STEER_THRESHOLD = 0.35
 /** Wheel into the drift below which the player counts as letting go of it. */
 const DRIFT_LET_GO = 0.1
+const GRAVITY = 9.81
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
@@ -70,9 +71,10 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, nitro: 0, nitroTime: 0,
-        proj: { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1 }
+        proj: { seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 }
     }
-    track.project(x, z, -1, car.proj)
+    // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
+    track.project(x, z, track.segmentAt(s), car.proj)
     return car
 }
 
@@ -123,6 +125,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     if (input.throttle > 0 && v < -0.5) resist += BRAKE_DECEL * input.throttle
     if (input.handbrake) resist += HANDBRAKE_DECEL
     if (car.drifting) resist += DRIFT_SCRUB * Math.abs(Math.sin(slipAngle(car)))
+    drive -= GRAVITY * slopeAlong(car)
     car.speed = moveTowards(v + drive * dt, 0, resist * dt)
 
     // ── Drift entry: a stab of brake or handbrake with the wheel turned, at speed ──
@@ -163,7 +166,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     car.z += car.speed * -Math.cos(car.travel) * dt
 
     // ── Walls ──
-    const p = track.project(car.x, car.z, car.proj.seg, car.proj)
+    const p = track.project(car.x, car.z, car.proj.seg, car.proj, car.proj.y)
     const limit = wallLimit(track, car)
     if (Math.abs(p.lateral) > limit) {
         const side = Math.sign(p.lateral)
@@ -183,6 +186,13 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         }
     }
     return ev
+}
+
+/** Sine of the road's slope along the direction of travel: + climbing. */
+function slopeAlong(car: CarState) {
+    const g = car.proj.grade
+    const along = -Math.sin(car.travel) * car.proj.tx - Math.cos(car.travel) * car.proj.tz
+    return g * along / Math.sqrt(1 + g * g)
 }
 
 /** How far the body reaches along the track from its centre, for the end barriers. */

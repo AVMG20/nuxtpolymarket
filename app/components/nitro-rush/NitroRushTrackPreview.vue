@@ -2,6 +2,7 @@
 /** A course's centreline as a single-colour line, turning slowly on a tilted turntable. */
 const props = defineProps<{
     points: readonly [number, number][]
+    heights?: readonly number[]
     closed: boolean
     color: string
 }>()
@@ -14,18 +15,23 @@ const TURN_SECONDS = 16
 const STILL_ANGLE = 0.6
 const LINE_PX = 2
 const PAD_PX = 4
+/** Heights are tiny beside a course's length; stretched so a ramp or a spiral reads at card size. */
+const HEIGHT_SCALE = 5
+/** Turntable angles sampled to find the line's reach over a whole turn. */
+const FIT_ANGLES = 48
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 let frame = 0
 let observer: ResizeObserver | null = null
 
-/** Evenly spaced points, centred and scaled into the unit circle. */
+/** Evenly spaced points, centred and scaled into the unit circle, with their heights on the same scale. */
 const shape = computed(() => {
     const pts = props.points
+    const hs = props.heights
     const cum = [0]
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]))
     const total = cum[cum.length - 1]! + (props.closed ? Math.hypot(pts[0]![0] - pts[pts.length - 1]![0], pts[0]![1] - pts[pts.length - 1]![1]) : 0)
-    const out: [number, number][] = []
+    const out: [number, number, number][] = []
     let j = 0
     for (let k = 0; k < SAMPLES; k++) {
         const s = total * k / (props.closed ? SAMPLES : SAMPLES - 1)
@@ -34,14 +40,50 @@ const shape = computed(() => {
         const b = pts[(j + 1) % pts.length]!
         const span = (j + 1 < pts.length ? cum[j + 1]! : total) - cum[j]!
         const f = span > 0 ? Math.min(1, (s - cum[j]!) / span) : 0
-        out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f])
+        const ha = hs?.[j] ?? 0
+        const hb = hs?.[(j + 1) % pts.length] ?? 0
+        out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, ha + (hb - ha) * f])
     }
     const xs = out.map(p => p[0])
     const zs = out.map(p => p[1])
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2
     const cz = (Math.min(...zs) + Math.max(...zs)) / 2
     const r = Math.max(...out.map(([x, z]) => Math.hypot(x - cx, z - cz))) || 1
-    return out.map(([x, z]) => [(x - cx) / r, (z - cz) / r] as [number, number])
+    return out.map(([x, z, h]) => [(x - cx) / r, (z - cz) / r, h / r * HEIGHT_SCALE] as [number, number, number])
+})
+
+/** Where a point lands at turntable angle `angle`, before scaling to the canvas. */
+function place(p: readonly [number, number, number], ca: number, sa: number) {
+    const sin = Math.sin(TILT)
+    const cos = Math.cos(TILT)
+    const rx = p[0] * ca - p[1] * sa
+    const rz = p[0] * sa + p[1] * ca
+    const toward = rz * cos + p[2] * sin
+    const f = CAMERA / (CAMERA - toward)
+    return { x: rx * f, y: (rz * sin - p[2] * cos) * f, depth: rz }
+}
+
+/** The box the line sweeps over a whole turn, so it never clips or breathes as it spins. */
+const bounds = computed(() => {
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (let k = 0; k < FIT_ANGLES; k++) {
+        const a = k / FIT_ANGLES * Math.PI * 2
+        const ca = Math.cos(a)
+        const sa = Math.sin(a)
+        for (const p of shape.value) {
+            const q = place(p, ca, sa)
+            minX = Math.min(minX, q.x)
+            maxX = Math.max(maxX, q.x)
+            minY = Math.min(minY, q.y)
+            maxY = Math.max(maxY, q.y)
+        }
+    }
+    // Centred on the turntable's axis, so the spin stays put.
+    const halfX = Math.max(-minX, maxX)
+    return { halfX, minY, maxY }
 })
 
 function draw(angle: number) {
@@ -51,21 +93,15 @@ function draw(angle: number) {
     const w = el.width
     const h = el.height
     const dpr = w / Math.max(1, el.clientWidth)
-    const sin = Math.sin(TILT)
-    const cos = Math.cos(TILT)
-    // Sized for the widest the unit circle can project at any angle, so the line never clips or breathes.
-    const near = CAMERA / (CAMERA - cos)
-    const far = CAMERA / (CAMERA + cos)
     const pad = PAD_PX * dpr
-    const scale = Math.min((w / 2 - pad) / near, (h - pad * 2) / (sin * (near + far)))
-    const oy = h / 2 - scale * sin * (near - far) / 2
+    const b = bounds.value
+    const scale = Math.min((w / 2 - pad) / b.halfX, (h - pad * 2) / (b.maxY - b.minY))
+    const oy = h / 2 - scale * (b.minY + b.maxY) / 2
     const ca = Math.cos(angle)
     const sa = Math.sin(angle)
-    const proj = shape.value.map(([x, z]) => {
-        const rx = x * ca - z * sa
-        const rz = x * sa + z * ca
-        const f = CAMERA / (CAMERA - rz * cos)
-        return { x: w / 2 + rx * f * scale, y: oy + rz * sin * f * scale, depth: rz }
+    const proj = shape.value.map((p) => {
+        const q = place(p, ca, sa)
+        return { x: w / 2 + q.x * scale, y: oy + q.y * scale, depth: q.depth }
     })
     ctx.clearRect(0, 0, w, h)
     ctx.strokeStyle = props.color

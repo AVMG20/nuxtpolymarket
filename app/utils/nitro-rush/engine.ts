@@ -4,7 +4,7 @@ import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
 import { buildPlayerCar, disposeModelShared, type PlayerCar } from './models'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
 import { RushPost } from './post'
-import { findTrack, formatLapTime, LapTimer, Track, TRACKS, wrapAngle, type LapEvent } from '#shared/utils/nitro-rush/track'
+import { findTrack, formatLapTime, LapTimer, Track, TRACKS, wrapAngle, type LapEvent, type TrackPoint } from '#shared/utils/nitro-rush/track'
 import { buildCityEnvironment, World } from './world'
 import type { NitroAudio } from './audio'
 
@@ -96,6 +96,7 @@ export class NitroRushEngine {
     private readonly lampPos = new THREE.Vector3()
     private readonly resizeObserver: ResizeObserver
     private readonly tmpV = new THREE.Vector3()
+    private readonly tmpP: TrackPoint = { x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 }
     private readonly chasePos = new THREE.Vector3()
     private readonly chaseLook = new THREE.Vector3()
     private readonly orbitPos = new THREE.Vector3()
@@ -119,7 +120,7 @@ export class NitroRushEngine {
 
     // Car, physics and race
     private state: CarState
-    private readonly prev = { x: 0, z: 0, heading: 0 }
+    private readonly prev = { x: 0, z: 0, y: 0, s: 0, heading: 0 }
     private accumulator = 0
     private timer: LapTimer | null = null
     private record: TrackRecord = { bestLap: null, bestSplits: null }
@@ -178,6 +179,8 @@ export class NitroRushEngine {
 
         const p = PAINTS.find(x => x.id === paint) ?? PAINTS[0]
         this.car = buildPlayerCar(p.color)
+        // Yaw first, then the road's slope in the car's own frame.
+        this.car.group.rotation.order = 'YXZ'
         this.scene.add(this.car.group)
         for (const w of this.car.wheels) w.parent!.userData.baseYaw = w.parent!.rotation.y
         this.frontWheels = this.car.wheels.map(w => w.parent!).filter(w => w.position.z < 0)
@@ -276,7 +279,7 @@ export class NitroRushEngine {
         this.audio.nitroStart()
         this.aberrationPulse = 1
         this.flash.setRGB(0.1, 0.2, 0.45)
-        this.shock.fire(this.state.x, 0.1, this.state.z, new THREE.Color(0x4d7cff), 9, 0.5)
+        this.shock.fire(this.state.x, this.state.proj.y + 0.1, this.state.z, new THREE.Color(0x4d7cff), 9, 0.5)
         this.events.popup({ text: 'NITRO!', tone: 'nitro' })
         this.nitroReadyAnnounced = false
     }
@@ -401,16 +404,28 @@ export class NitroRushEngine {
         this.camCut = true
     }
 
+    /** Tilts the car to lie on the road: pitched by the slope ahead of its nose, rolled by the slope across it. */
+    private poseOnSlope(heading: number) {
+        const p = this.state.proj
+        const gx = p.grade * p.tx
+        const gz = p.grade * p.tz
+        const sin = Math.sin(heading)
+        const cos = Math.cos(heading)
+        this.car.group.rotation.set(Math.atan(-gx * sin - gz * cos), heading, Math.atan(gx * cos - gz * sin))
+    }
+
     /** Snaps the model and the interpolation history to the physics state. */
     private placeCar() {
         const s = this.state
         this.prev.x = s.x
         this.prev.z = s.z
         this.prev.heading = s.heading
+        this.prev.y = s.proj.y
+        this.prev.s = s.proj.s
         this.lastTravel = s.travel
         this.lastSpeed = s.speed
-        this.car.group.position.set(s.x, 0, s.z)
-        this.car.group.rotation.set(0, s.heading, 0)
+        this.car.group.position.set(s.x, s.proj.y, s.z)
+        this.poseOnSlope(s.heading)
         for (let i = 0; i < 2; i++) {
             this.car.body.localToWorld(this.tmpV.copy(this.car.tailPoints[i]!))
             this.trails[i]!.reset(this.tmpV)
@@ -471,6 +486,8 @@ export class NitroRushEngine {
                 this.prev.x = this.state.x
                 this.prev.z = this.state.z
                 this.prev.heading = this.state.heading
+                this.prev.y = this.state.proj.y
+                this.prev.s = this.state.proj.s
                 const racing = this.phase === 'racing'
                 const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
                 if (racing) this.onStep(ev)
@@ -506,15 +523,14 @@ export class NitroRushEngine {
         this.updateTyres(dt)
 
         this.world.update(dt, this.camera)
-        this.world.nearestLamp(s.x, s.z, this.lampPos)
+        const lampDist = this.world.nearestLamp(s.x, s.proj.y, s.z, this.lampPos)
         this.lampLight.position.copy(this.lampPos)
         this.lampLight.color.copy(this.world.lampColor)
-        const lampDist = Math.hypot(this.lampPos.x - s.x, this.lampPos.z - s.z)
         this.lampLight.intensity = 160 * Math.max(0, 1 - lampDist / 16)
 
         if (s.nitroTime > 0) {
             const p = this.car.group.position
-            this.sparks.emit(p.x, 0.15, p.z, 3, { color: NITRO_SPARK, speed: 4, up: 2, life: 0.35, size: 0.16, gravity: 10 })
+            this.sparks.emit(p.x, p.y + 0.15, p.z, 3, { color: NITRO_SPARK, speed: 4, up: 2, life: 0.35, size: 0.16, gravity: 10 })
         }
         this.sparks.update(dt)
         this.smoke.update(dt)
@@ -537,14 +553,14 @@ export class NitroRushEngine {
             const side = Math.sign(s.proj.lateral)
             const cx = s.x - s.proj.tz * side * 1.1
             const cz = s.z + s.proj.tx * side * 1.1
-            this.sparks.emit(cx, 0.4, cz, Math.round(10 + k * 50), {
+            this.sparks.emit(cx, s.proj.y + 0.4, cz, Math.round(10 + k * 50), {
                 color: new THREE.Color(0xffb050), speed: 8 + k * 10, up: 2, life: 0.5, size: 0.13, gravity: 16,
                 vx: -Math.sin(s.travel) * s.speed * 0.6, vz: -Math.cos(s.travel) * s.speed * 0.6
             })
             if (ev.wallImpact > 6) {
                 this.audio.bump()
                 this.aberrationPulse = Math.max(this.aberrationPulse, 0.5)
-                this.shock.fire(cx, 0.1, cz, new THREE.Color(0xffc070), 4, 0.35)
+                this.shock.fire(cx, s.proj.y + 0.1, cz, new THREE.Color(0xffc070), 4, 0.35)
             } else {
                 this.audio.scrape()
             }
@@ -607,9 +623,10 @@ export class NitroRushEngine {
             // The model's local frame turned by the heading.
             const x = s.x + w.x * cos + w.y * sin
             const z = s.z - w.x * sin + w.y * cos
-            this.skids.add(i, this.tmpV.set(x, 0, z), 0.35 + amount * 0.65)
+            const y = s.proj.y + s.proj.grade * ((x - s.x) * s.proj.tx + (z - s.z) * s.proj.tz)
+            this.skids.add(i, this.tmpV.set(x, y, z), 0.35 + amount * 0.65)
             if (Math.random() < amount * dt * 60) {
-                this.smoke.emit(x, 0.35, z, 1 + Math.round(amount * 2), {
+                this.smoke.emit(x, y + 0.35, z, 1 + Math.round(amount * 2), {
                     color: TYRE_SMOKE, speed: 1.2, up: 1.2, spread: 0.5, life: 1.6, size: 0.9, gravity: -0.8, drag: 1.4, grow: 3.2, jitter: 0.08,
                     vx: -Math.sin(s.travel) * s.speed * 0.25, vz: -Math.cos(s.travel) * s.speed * 0.25
                 })
@@ -631,9 +648,14 @@ export class NitroRushEngine {
         const x = this.prev.x + (s.x - this.prev.x) * a
         const z = this.prev.z + (s.z - this.prev.z) * a
         const heading = this.prev.heading + wrapAngle(s.heading - this.prev.heading) * a
+        const y = this.prev.y + (s.proj.y - this.prev.y) * a
+        let ds = s.proj.s - this.prev.s
+        // A loop's s jumps by its length at the start line.
+        if (this.track.closed && Math.abs(ds) > this.track.length / 2) ds -= Math.sign(ds) * this.track.length
+        const along = this.prev.s + ds * a
         const car = this.car
-        car.group.position.set(x, 0, z)
-        car.group.rotation.y = heading
+        car.group.position.set(x, y, z)
+        this.poseOnSlope(heading)
         // The body leans out of bends and squats or dives with the throttle and brakes.
         this.roll += (THREE.MathUtils.clamp(-this.latAcc * 0.0035, -0.085, 0.085) - this.roll) * Math.min(1, dt * 10)
         this.pitch += (THREE.MathUtils.clamp(this.longAcc * 0.0022, -0.05, 0.04) - this.pitch) * Math.min(1, dt * 8)
@@ -655,11 +677,14 @@ export class NitroRushEngine {
         const fx = -Math.sin(this.camYaw)
         const fz = -Math.cos(this.camYaw)
         const back = 6.6 + speedK * 1.3 + this.nitroK * 0.6
-        const chasePos = this.chasePos.set(x - fx * back, 2.4 + speedK * 0.2, z - fz * back)
-        const chaseLook = this.chaseLook.set(x + fx * 9, 1.1, z + fz * 9)
+        // Heights from the road behind and ahead, so the camera tips up a climb and down a drop.
+        const roadBehind = this.track.pointAt(along - back, this.tmpP).y
+        const roadAhead = this.track.pointAt(along + 9, this.tmpP).y
+        const chasePos = this.chasePos.set(x - fx * back, roadBehind + 2.4 + speedK * 0.2, z - fz * back)
+        const chaseLook = this.chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
         const orbitA = this.time * 0.22
-        const orbitPos = this.orbitPos.set(x + Math.sin(orbitA) * 9.5, 2.3 + Math.sin(this.time * 0.3) * 0.5, z + Math.cos(orbitA) * 9.5)
-        const orbitLook = this.orbitLook.set(x, 0.9, z)
+        const orbitPos = this.orbitPos.set(x + Math.sin(orbitA) * 9.5, y + 2.3 + Math.sin(this.time * 0.3) * 0.5, z + Math.cos(orbitA) * 9.5)
+        const orbitLook = this.orbitLook.set(x, y + 0.9, z)
 
         let target: number
         if (this.phase === 'countdown') target = ease(THREE.MathUtils.clamp(1 - this.countdown / COUNTDOWN_SECONDS, 0, 1))
@@ -702,7 +727,7 @@ export class NitroRushEngine {
         }
 
         // Speed lines sit around the camera, streaming back along its heading.
-        this.speedLines.mesh.position.set(this.camera.position.x, 0, this.camera.position.z)
+        this.speedLines.mesh.position.set(this.camera.position.x, y, this.camera.position.z)
         this.speedLines.mesh.rotation.y = this.camYaw
         const lineIntensity = this.camBlend * (Math.max(0, speedK - 0.45) * 0.7 + this.nitroK * 0.45)
         const minWidth = 1.6 / (this.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2))) * 8

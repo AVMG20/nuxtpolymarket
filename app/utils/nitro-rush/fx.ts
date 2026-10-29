@@ -403,10 +403,11 @@ export class SkidMarks {
         const nz = dx / len * width
         const i = this.cursor
         this.cursor = (this.cursor + 1) % this.max
-        const y = 0.03
+        const y0 = last.y + 0.03
+        const y1 = at.y + 0.03
         this.positions.set([
-            last.x + nx, y, last.z + nz, last.x - nx, y, last.z - nz,
-            at.x + nx, y, at.z + nz, at.x - nx, y, at.z - nz
+            last.x + nx, y0, last.z + nz, last.x - nx, y0, last.z - nz,
+            at.x + nx, y1, at.z + nz, at.x - nx, y1, at.z - nz
         ], i * 12)
         const a = Math.min(1, Math.max(0, strength))
         this.alpha.set([a, a, a, a], i * 4)

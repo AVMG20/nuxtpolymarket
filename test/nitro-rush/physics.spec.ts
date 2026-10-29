@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botInput, createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
-import { buildTrack, POLYTOWN_OVAL } from '#shared/utils/nitro-rush/layout'
+import { buildTrack, corner, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, ramp, start, straight } from '#shared/utils/nitro-rush/layout'
 import { LapTimer, Track, TRACKS, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 const track = new Track(buildTrack(POLYTOWN_OVAL))
@@ -177,10 +177,16 @@ describe('registered tracks', () => {
         const timer = new LapTimer(t.lapLength, t.closed, -14, t.checkpointDistances)
         const events: LapEvent[] = []
         let hits = 0
-        for (let i = 0; i < PHYSICS_HZ * 90 && timer.lap < 2; i++) {
+        let lastY = car.proj.y
+        let levelJumps = 0
+        for (let i = 0; i < PHYSICS_HZ * 150 && timer.lap < 2; i++) {
             if (stepCar(car, botInput(car, t), t, DT).wallImpact > 0) hits++
             events.push(...timer.update(t.closed ? car.proj.s : car.proj.s - t.startS, DT))
+            // Where the road stacks, the car stays on its own level.
+            if (Math.abs(car.proj.y - lastY) > 0.2) levelJumps++
+            lastY = car.proj.y
         }
+        expect(levelJumps).toBe(0)
         // Past an open course's finish the bot brakes; let it pull up before the end barrier.
         for (let i = 0; !t.closed && i < PHYSICS_HZ * 10; i++) stepCar(car, botInput(car, t), t, DT)
         expect(hits).toBe(0)
@@ -191,6 +197,36 @@ describe('registered tracks', () => {
             expect(car.speed).toBeLessThan(1)
             expect(car.proj.s).toBeLessThan(t.length)
         }
+    })
+})
+
+describe('slopes', () => {
+    /** A rounded square: a long flat straight, then a ramp up one side and down the next. */
+    const hill = new Track(buildTrack({
+        id: 'hill', name: 'Hill', group: 'circuits', halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 },
+        pieces: [start, straight(280), corner('right', 50), ramp(300, 24), corner('right', 50), ramp(300, -24), corner('right', 50), straight(300), corner('right', 50)]
+    }))
+    const flatS = LINE_BLOCK_LENGTH / 2 + 60
+    const upS = LINE_BLOCK_LENGTH / 2 + 280 + Math.PI * 25 + 100
+    const downS = upS + 300 + Math.PI * 25
+    /** Speed after coasting from 30 m/s for two seconds. */
+    const coast = (s: number) => {
+        const car = createCar(hill, s)
+        car.speed = 30
+        for (let i = 0; i < PHYSICS_HZ * 2; i++) stepCar(car, input(), hill, DT)
+        return car.speed
+    }
+
+    it('slows a coasting car climbing and speeds it going down', () => {
+        const flat = coast(flatS)
+        expect(coast(upS)).toBeLessThan(flat - 1)
+        expect(coast(downS)).toBeGreaterThan(flat + 1)
+    })
+
+    it('holds a car parked on the slope', () => {
+        const car = createCar(hill, upS)
+        for (let i = 0; i < PHYSICS_HZ * 2; i++) stepCar(car, input(), hill, DT)
+        expect(car.speed).toBe(0)
     })
 })
 
