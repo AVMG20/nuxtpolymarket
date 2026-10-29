@@ -4,7 +4,7 @@ import { Pass } from 'three/examples/jsm/postprocessing/Pass.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { dfAdaptivePixelRatio, dfPixelRatioBounds } from './resolution'
+import { dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from './resolution'
 
 // Renderer + post chain:
 //   world RenderPass -> viewmodel pass (same buffer, depth cleared) -> bloom
@@ -204,13 +204,12 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     let pr = 1
     let width = 1
     let height = 1
-    let frameAvg = 16.7
-    let evalTimer = 0
-    let goodTime = 0
-    let lockUntil = 0
     let clock = 0
     let sized = false
-    let lastUpAt = -100
+    /** Adaptive resolution: rare, hysteretic steps (each one reallocates the post chain). */
+    const governor = dfNewPrGovernor(pr)
+    let prBounds = { min: 1, max: 1 }
+    let boundsAt = 0
 
     function bounds() {
         return dfPixelRatioBounds(window.devicePixelRatio || 1, width, height, quality)
@@ -231,8 +230,10 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         width = w
         height = h
         const b = bounds()
+        prBounds = b
         pr = Math.min(b.max, Math.max(b.min, sized ? pr : b.max))
         sized = true
+        governor.pr = pr
         apply()
     }
 
@@ -263,23 +264,15 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         render(dt, time, g) {
             clock += dt
             // adaptive resolution: back off when frames run long, creep back when they don't
-            const ms = Math.min(100, dt * 1000)
-            frameAvg += (ms - frameAvg) * 0.08
-            evalTimer += dt
-            if (evalTimer >= 0.5) {
-                evalTimer = 0
-                const b = bounds()
-                if (frameAvg <= 17.6) goodTime += 0.5
-                else goodTime = 0
-                const next = dfAdaptivePixelRatio(pr, frameAvg, b, goodTime, clock < lockUntil)
-                if (next !== pr) {
-                    // backing off soon after stepping up: hold the ceiling for a while
-                    if (next < pr && clock - lastUpAt < 8) lockUntil = clock + 30
-                    if (next > pr) lastUpAt = clock
-                    pr = next
-                    goodTime = 0
-                    apply()
-                }
+            // (the bounds follow the screen: a window dragged to another display changes the dpr)
+            if (clock >= boundsAt) {
+                boundsAt = clock + 0.5
+                prBounds = bounds()
+            }
+            const next = dfStepPrGovernor(governor, dt, clock, prBounds)
+            if (next !== pr) {
+                pr = next
+                apply()
             }
             gu.uTime.value = time % 1000
             gu.uLowHealth.value = g.lowHealth
