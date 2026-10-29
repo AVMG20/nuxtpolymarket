@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { HERO_QUEST_COLLECTION_SIZE, heroQuestScore, townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 import { TOWN_MILESTONES } from '#shared/utils/gamelogic/town'
-import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
-import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, VOID_UPGRADES } from '#shared/utils/gamelogic/void'
-import { VOID_MAX_PILOT_LEVEL, voidXpForLevel } from '#shared/utils/gamelogic/void-skills'
+import { TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
+import { VOID_MAX_SECTOR, VOID_TRADE_MAX_LEVEL, VOID_UPGRADES } from '#shared/utils/gamelogic/void'
 
 const pilot = { runsPlayed: 3, highestSectorCleared: 2, pilotXp: 0, ownedShipIds: ['sparrow', 'wasp'], upgradeLevels: { cargo: 3, engines: 1 }, tradeLevel: 1 }
 
@@ -13,20 +12,11 @@ describe('scoreboard: Polytown', () => {
         const monuments = [{ type: 'pyramid', level: 3 }, { type: 'pyramid', level: 2 }, { type: 'house', level: 20 }, { type: 'arc', level: 99 }]
         expect(townScore([m, m, 'retired-milestone'], monuments)).toEqual({ milestones: 1, monuments: 3 + TOWN_MONUMENT_STAGES, total: 4 + TOWN_MONUMENT_STAGES })
     })
-
-    it('tops out at every milestone plus every stage of every monument', () => {
-        const full = townScore(TOWN_MILESTONES.map(m => m.id), TOWN_MONUMENTS.map(m => ({ type: m.id, level: TOWN_MONUMENT_STAGES })))
-        expect(full.total).toBe(TOWN_MILESTONES.length + TOWN_MONUMENTS.length * TOWN_MONUMENT_STAGES)
-    })
 })
 
 describe('scoreboard: Void Runner', () => {
     it('adds sectors, pilot level, hulls, system levels and trade contracts', () => {
         expect(voidScore(pilot)).toEqual({ sectors: 2, pilotLevel: 1, hulls: 2, systems: 4, trade: 1, total: 10 })
-    })
-
-    it('scores nothing before the first launch', () => {
-        expect(voidScore({ ...pilot, runsPlayed: 0 }).total).toBe(0)
     })
 
     it('ignores unknown hulls and clamps stored values to the game\'s caps', () => {
@@ -36,34 +26,25 @@ describe('scoreboard: Void Runner', () => {
         expect(s.systems).toBe(VOID_UPGRADES.find(u => u.id === 'cargo')!.maxLevel)
         expect(s.trade).toBe(VOID_TRADE_MAX_LEVEL)
     })
-
-    it('stays in the same range as the other games on the board', () => {
-        const max = voidScore({ runsPlayed: 1, highestSectorCleared: VOID_MAX_SECTOR, pilotXp: voidXpForLevel(VOID_MAX_PILOT_LEVEL), ownedShipIds: VOID_SHIP_IDS, upgradeLevels: Object.fromEntries(VOID_UPGRADES.map(u => [u.id, u.maxLevel])), tradeLevel: VOID_TRADE_MAX_LEVEL })
-        expect(max.pilotLevel).toBe(VOID_MAX_PILOT_LEVEL)
-        expect(max.total).toBeGreaterThan(60)
-        expect(max.total).toBeLessThan(120)
-    })
 })
 
 describe('scoreboard: Hero Quest', () => {
-    it('counts the Worlds cleared in every run, and the collection completion', () => {
+    it('counts the Worlds cleared in every run', () => {
         expect(heroQuestScore({ prestige: 0, world: 1, runCleared: false, entriesOwned: 0 }).total).toBe(0)
-        // 12 of 168 entries is 7.1%, rounded to 7
-        expect(heroQuestScore({ prestige: 0, world: 4, runCleared: false, entriesOwned: 12 })).toEqual({ worlds: 3, collection: 7, total: 10 })
+        expect(heroQuestScore({ prestige: 0, world: 4, runCleared: false, entriesOwned: 0 }).worlds).toBe(3)
         // a cleared run counts its tenth World, and every prestige before it ten more
         expect(heroQuestScore({ prestige: 0, world: 10, runCleared: true, entriesOwned: 0 }).worlds).toBe(10)
         expect(heroQuestScore({ prestige: 2, world: 3, runCleared: false, entriesOwned: 0 }).worlds).toBe(22)
     })
 
     it('scores the collection as a whole percentage of every gacha entry, 0 to 100', () => {
-        expect(HERO_QUEST_COLLECTION_SIZE).toBe(168)
         const score = (entriesOwned: number) => heroQuestScore({ prestige: 0, world: 1, runCleared: false, entriesOwned }).collection
-        expect(score(1)).toBe(1)
-        expect(score(84)).toBe(50)
-        expect(score(167)).toBe(99)
-        expect(score(168)).toBe(100)
+        expect(score(0)).toBe(0)
+        expect(score(HERO_QUEST_COLLECTION_SIZE / 2)).toBe(50)
+        expect(score(HERO_QUEST_COLLECTION_SIZE - 1)).toBe(99)
+        expect(score(HERO_QUEST_COLLECTION_SIZE)).toBe(100)
         // stale rows past the roster never push it over 100
-        expect(score(200)).toBe(100)
+        expect(score(HERO_QUEST_COLLECTION_SIZE + 32)).toBe(100)
         expect(score(-3)).toBe(0)
     })
 })

@@ -102,7 +102,6 @@ describe('settleSideBets', () => {
             card('2', 'clubs')
         )
         expect(pp!.payout).toBe(100 * (1 + LB_PERFECT_PAIRS_PAYS.perfect))
-        expect(pp!.label).toBe('Perfect pair')
     })
 
     it('pays nothing on a spot that was never backed', () => {

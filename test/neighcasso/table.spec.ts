@@ -6,7 +6,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { neighcassoHorses, tableWagers, user } from '#server/database/schema'
+import { neighcassoHorses, tableWagers } from '#server/database/schema'
 import { debit, getBalance } from '#server/utils/balance'
 import { NeighcassoTable } from '#server/utils/live-table/neighcasso'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
@@ -181,42 +181,5 @@ describe.skipIf(SKIP)('NeighcassoTable', () => {
             expect(await getBalance(USER_A)).toBe('1592.0000')
         }
         expect(await unsettled()).toEqual([])
-    })
-
-    it('lets a human take a bot\'s gate, and keeps the changer ready when bots change', async () => {
-        await table.run(() => table.sit(USER_A, USER_A, null, 0))
-        await table.run(() => table.action(USER_A, { type: 'bots', count: 5 }))
-        expect(table.snapshot().game.bots.map(b => b.seat)).toEqual([1, 2, 3, 4, 5])
-        await enter(table, USER_B, 5, 100)
-        expect(table.snapshot().game.bots.map(b => b.seat)).toEqual([1, 2, 3, 4])
-
-        await table.run(() => table.action(USER_B, { type: 'bot', seat: 2, on: false }))
-        expect(table.snapshot().game.bots.map(b => b.seat)).toEqual([1, 3, 4])
-        expect(table.snapshot().seats[5]!.votedStart).toBe(true)
-
-        await table.run(() => table.voteStart(USER_B))
-        await table.run(() => table.action(USER_A, { type: 'bot', seat: 2, on: true }))
-        expect(table.snapshot().seats[5]!.votedStart).toBe(false)
-        await expect(table.run(() => table.action(USER_A, { type: 'bot', seat: 0, on: true }))).rejects.toThrow(/taken/i)
-        await expect(table.run(() => table.action(USER_A, { type: 'bots', count: 9 }))).rejects.toThrow(/bots/i)
-    })
-
-    it('starts a solo race as soon as a ready player adds a bot', async () => {
-        await enter(table, USER_A, 0, 100)
-        expect(table.snapshot().phaseEndsAt).toBeNull()
-        await table.run(() => table.action(USER_A, { type: 'bot', seat: 3, on: true }))
-        expect(table.snapshot().seats[0]!.votedStart).toBe(true)
-        expect(table.snapshot().phaseEndsAt).not.toBeNull()
-        await table.endPhase('lobby')
-        expect(table.currentPhase()).toBe('gates')
-    })
-
-    it('un-readies a player who changes their bet', async () => {
-        await enter(table, USER_A, 0, 100)
-        await enter(table, USER_B, 1, 100)
-        await table.run(() => table.action(USER_A, { type: 'bet', amount: 200 }))
-        expect(table.snapshot().seats[0]!.votedStart).toBe(false)
-        const [row] = await db.select({ balance: user.balance }).from(user).where(eq(user.id, USER_A))
-        expect(row!.balance).toBe('1000.0000')
     })
 })

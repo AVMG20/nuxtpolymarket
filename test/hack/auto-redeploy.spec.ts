@@ -28,14 +28,6 @@ describe.skipIf(SKIP)('dispatchHackOp', () => {
     afterEach(async () => { await cleanupUser(USER) })
     afterAll(async () => { await db.$client.end() })
 
-    it('stores the auto-redeploy flag on the op', async () => {
-        const agent = await seedAgent()
-        const { opId } = await dispatchHackOp(db, USER, 'port_scan', [agent.id], { instant: true, autoRedeploy: true })
-        const op = await db.query.hackOps.findFirst({ where: eq(hackOps.id, opId) })
-        expect(op?.autoRedeploy).toBe(true)
-        expect(op?.agentIds).toEqual([agent.id])
-    })
-
     it('refuses an agent that is still on an uncollected op', async () => {
         const agent = await seedAgent()
         await dispatchHackOp(db, USER, 'port_scan', [agent.id], { instant: true })

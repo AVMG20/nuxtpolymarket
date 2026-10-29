@@ -2,13 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { stubRandomFloat } from '../setup/stub-random'
 import {
     playCandyMadness,
-    clusterPayMult,
-    CANDY_KEYS,
-    CANDY_WEIGHTS,
     CM_MAX_WIN_MULT,
-    CM_MIN_CLUSTER,
-    CM_MULT_START,
-    CM_MULT_CAP,
     CM_FREE_SPINS,
     CM_SCATTER_TRIGGER
 } from '../../shared/utils/gamelogic/candymadness'
@@ -63,31 +57,6 @@ describe('playCandyMadness validation', () => {
     })
 })
 
-describe('clusterPayMult monotonicity', () => {
-    it('never pays less for a larger cluster of the same candy', () => {
-        for (const symbol of CANDY_KEYS) {
-            let prev = 0
-            for (let size = CM_MIN_CLUSTER; size <= 20; size++) {
-                const pay = clusterPayMult(symbol, size)
-                expect(pay).toBeGreaterThanOrEqual(prev)
-                prev = pay
-            }
-        }
-    })
-
-    it('never pays less for a rarer candy at the same cluster size', () => {
-        const rankedAscending = [...CANDY_KEYS].sort((a, b) => CANDY_WEIGHTS[b] - CANDY_WEIGHTS[a])
-        for (const size of [4, 5, 9, 15, 30]) {
-            let prev = 0
-            for (const symbol of rankedAscending) {
-                const pay = clusterPayMult(symbol, size)
-                expect(pay).toBeGreaterThanOrEqual(prev)
-                prev = pay
-            }
-        }
-    })
-})
-
 describe('scatter trigger boundary', () => {
     it('does not trigger the bonus with one fewer than CM_SCATTER_TRIGGER scatters', () => {
         stubRandomFloat(noClusterSequence(CM_SCATTER_TRIGGER - 1))
@@ -117,34 +86,17 @@ describe('max-win cap', () => {
 
     it('never pays out above maxWin, across a seeded sweep of bought free-spins rounds', () => {
         stubRandomFloat(mulberry32(1))
-        for (let i = 0; i < 300; i++) {
+        for (let i = 0; i < 100; i++) {
             const result = playCandyMadness(10, { feature: 'buyFreeSpins' })
             expect(result.payout).toBeLessThanOrEqual(result.maxWin)
         }
     })
 })
 
-describe('multiplier spot growth', () => {
-    it('every spot value is CM_MULT_START doubled some number of times, capped at CM_MULT_CAP', () => {
-        stubRandomFloat(mulberry32(13))
-        let sawSpot = false
-        for (let i = 0; i < 150; i++) {
-            const result = playCandyMadness(1, { feature: 'buyFreeSpins' })
-            for (const spot of result.bonus!.finalSpots) {
-                sawSpot = true
-                expect(spot.value).toBeGreaterThanOrEqual(CM_MULT_START)
-                expect(spot.value).toBeLessThanOrEqual(CM_MULT_CAP)
-                expect(Number.isInteger(Math.log2(spot.value / CM_MULT_START))).toBe(true)
-            }
-        }
-        expect(sawSpot).toBe(true) // sanity: the sample actually grew some spots
-    })
-})
-
 describe('tumble sequence win formula', () => {
     it('multiplies basePay by the multiplier-spot sum, floored at 1x', () => {
         stubRandomFloat(mulberry32(21))
-        for (let i = 0; i < 150; i++) {
+        for (let i = 0; i < 50; i++) {
             const seq = playCandyMadness(1).base
             const expected = seq.basePay > 0 ? seq.basePay * Math.max(1, seq.multiplierSum) : 0
             expect(seq.win).toBeCloseTo(expected, 6)

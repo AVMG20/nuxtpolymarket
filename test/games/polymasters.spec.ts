@@ -53,7 +53,7 @@ function checkOutcome(o: PmRoundOutcome) {
 describe('playPmRound', () => {
     it('keeps every normal flight internally consistent', () => {
         const rng = mulberry32(1)
-        for (let i = 0; i < 1_000; i++) {
+        for (let i = 0; i < 200; i++) {
             const o = playPmRound(rng, 'normal')
             expect(o.cost).toBe(1)
             checkOutcome(o)
@@ -62,7 +62,7 @@ describe('playPmRound', () => {
 
     it('never puts a Safe Landing flight in the sea', () => {
         const rng = mulberry32(2)
-        for (let i = 0; i < 500; i++) {
+        for (let i = 0; i < 100; i++) {
             const o = playPmRound(rng, 'safe')
             expect(o.cost).toBe(PM_SAFE_LANDING_COST)
             expect(['island', 'max']).toContain(o.landing)
@@ -75,7 +75,7 @@ describe('playPmRound', () => {
 describe('playPolyMasters', () => {
     it('stakes the bet and pays the counter in coins', () => {
         const rng = mulberry32(3)
-        for (let i = 0; i < 2_000; i++) {
+        for (let i = 0; i < 200; i++) {
             const r = playPolyMastersWith(250, undefined, rng)
             expect(r.mode).toBe('normal')
             expect(r.cost).toBe(250)

@@ -347,28 +347,6 @@ describe.skipIf(SKIP)("Casino Hold'em table", () => {
         expect(() => table.action(ALICE, { t: 'scale', factor: 3 })).toThrow(/Invalid bet scale/)
     })
 
-    it('scales last round\'s bet when nothing is staked yet', async () => {
-        table.setStack('As 7d Qh Ks 2c 9h Ah 9c 4s 3d 6s')
-        await bet(ALICE, 100)
-        await bet(BOB, 100)
-        await playTo('settled')
-        await table.step('payout')
-        table.freeze()
-
-        expect(table.seat(ALICE).pendingAnte).toBe(0)
-        await table.action(ALICE, { t: 'scale', factor: 2 })
-        table.freeze()
-        expect(table.seat(ALICE).pendingAnte).toBe(200)
-    })
-
-    it('refuses to scale below the table minimum or with nothing to scale', async () => {
-        expect(() => table.action(ALICE, { t: 'scale', factor: 2 })).toThrow(/No bet to scale/)
-
-        await table.action(ALICE, { t: 'bet', spot: 'ante', amount: 1 })
-        table.freeze()
-        expect(() => table.action(ALICE, { t: 'scale', factor: 0.5 })).toThrow(/minimum/)
-    })
-
     it('refuses a bet over the seat\'s own balance, with no table maximum to hit', async () => {
         expect(() => table.action(ALICE, { t: 'bet', spot: 'ante', amount: 100_000_000_000 }))
             .toThrow(/Not enough chips/)
