@@ -1,4 +1,4 @@
-FROM oven/bun:1.3.10-alpine AS builder
+FROM oven/bun:1.4.4-alpine AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ ENV NODE_OPTIONS=--max-old-space-size=6072
 RUN node node_modules/nuxt/bin/nuxt.mjs build
 
 
-FROM oven/bun:1.3.10-alpine
+FROM oven/bun:1.4.4-alpine
 
 WORKDIR /app
 
