@@ -4,6 +4,7 @@ import { checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadT
 import { mirrorStrip, ribbon, roadBelow, sweep, WALL_BASE_HALF } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
+import { headingOf } from '#shared/utils/nitro-rush/track'
 
 /** Kerbs only go where the line turns tighter than this (radians per metre). */
 const KERB_MIN_CURVATURE = 0.004
@@ -179,7 +180,7 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
                 if (roadBelow(track, x, z, wall + 0.5, p.y - MIN_CLEARANCE / 2)) continue
                 spots.push(new THREE.Matrix4().compose(
                     new THREE.Vector3(x, 0, z),
-                    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-p.tx, -p.tz)),
+                    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingOf(p.tx, p.tz)),
                     new THREE.Vector3(1, top, 1)
                 ))
             }
@@ -201,7 +202,7 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
             const out = end === 0 ? -1 : 1
             const g = new THREE.Group()
             g.position.set(p.x + p.tx * out * WALL_BASE_HALF, p.y, p.z + p.tz * out * WALL_BASE_HALF)
-            g.rotation.y = Math.atan2(-p.tx, -p.tz)
+            g.rotation.y = headingOf(p.tx, p.tz)
             g.add(new THREE.Mesh(barrierGeo, wallMat))
             const band = new THREE.Mesh(bandGeo, bandMat)
             band.position.set(0, 0.6, out * (WALL_BASE_HALF + 0.02))

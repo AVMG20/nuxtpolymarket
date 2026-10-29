@@ -76,6 +76,9 @@ const SPEED_CEILING = 110
 
 export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU)
 
+/** The heading that faces along (dx, dz); heading 0 faces -z. */
+export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
+
 export const newProjection = (): Projection => ({ seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 })
 export const newTrackPoint = (): TrackPoint => ({ x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 })
 

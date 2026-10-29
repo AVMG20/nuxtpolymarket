@@ -6,6 +6,7 @@ import { radialTexture } from './textures'
 import { roadAbove, WALL_BASE_HALF } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
+import { headingOf } from '#shared/utils/nitro-rush/track'
 
 /** The race venue round the road: floodlights, gantries, the grandstand and billboards. */
 
@@ -77,7 +78,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
         const p = track.pointAt(at)
         const g = new THREE.Group()
         g.position.set(p.x, p.y, p.z)
-        g.rotation.y = Math.atan2(-p.tx, -p.tz)
+        g.rotation.y = headingOf(p.tx, p.tz)
         for (const side of [-1, 1]) {
             const post = new THREE.Mesh(postGeo, steel)
             post.position.x = side * (wall + 1.2)
@@ -192,7 +193,7 @@ export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Ma
         const g = new THREE.Group()
         g.position.set(bx, 0, bz)
         // Face the oncoming cars, angled a little toward the track.
-        g.rotation.y = Math.atan2(-p.tx, -p.tz) + 0.5
+        g.rotation.y = headingOf(p.tx, p.tz) + 0.5
         const b = new THREE.Mesh(boardGeo, boardMats[i % boardMats.length]!)
         b.position.y = 9
         g.add(b)

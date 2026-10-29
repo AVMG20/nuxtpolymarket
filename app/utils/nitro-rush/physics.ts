@@ -4,7 +4,7 @@ import {
     HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
     ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
-import { newProjection, wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
+import { headingOf, newProjection, wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -65,7 +65,7 @@ const moveTowards = (v: number, target: number, maxDelta: number) =>
 
 export function createCar(track: Track, s: number, lateral = 0): CarState {
     const p = track.pointAt(s)
-    const heading = Math.atan2(-p.tx, -p.tz)
+    const heading = headingOf(p.tx, p.tz)
     const x = p.x - p.tz * lateral
     const z = p.z + p.tx * lateral
     const car: CarState = {
@@ -84,7 +84,7 @@ export function slipAngle(car: CarState) {
 
 /** The body's angle to the track, not the slip: a bounce turns the travel but not the car. */
 function bodyAngle(car: CarState) {
-    return wrapAngle(car.heading - Math.atan2(-car.proj.tx, -car.proj.tz))
+    return wrapAngle(car.heading - headingOf(car.proj.tx, car.proj.tz))
 }
 
 /** The widest the car can sit off the centreline before its corner touches the wall; angled bodies reach further. */
@@ -226,7 +226,7 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     const speed = Math.hypot(vx, vz)
     const forward = car.speed >= 0
     car.speed = forward ? speed : -speed
-    if (speed > 0.01) car.travel = forward ? Math.atan2(-vx, -vz) : Math.atan2(vx, vz)
+    if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
     if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
 }
 
@@ -248,7 +248,7 @@ function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
 export function botInput(car: CarState, track: Track, pace = 1): CarInput {
     const v = Math.max(0, car.speed)
     const ahead = track.pointAt(car.proj.s + 8 + v * 0.45)
-    const want = Math.atan2(-(ahead.x - car.x), -(ahead.z - car.z))
+    const want = headingOf(ahead.x - car.x, ahead.z - car.z)
     const err = wrapAngle(want - car.travel)
     const steer = Math.max(-1, Math.min(1, -err * 4))
     // The fastest the car may be going now so it can still slow for every bend in braking range.

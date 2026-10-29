@@ -9,7 +9,7 @@ import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type
 import { RushPost } from './post'
 import { AdaptiveResolution } from './resolution'
 import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
-import { Track, wrapAngle } from '#shared/utils/nitro-rush/track'
+import { headingOf, Track, wrapAngle } from '#shared/utils/nitro-rush/track'
 import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
 import { World } from './world'
 import type { NitroAudio } from './audio'
@@ -370,7 +370,7 @@ export class NitroRushEngine {
 
         if (this.phase === 'racing') {
             // Going the wrong way for a while gets a warning.
-            const along = Math.cos(s.travel - Math.atan2(-s.proj.tx, -s.proj.tz)) * s.speed
+            const along = Math.cos(s.travel - headingOf(s.proj.tx, s.proj.tz)) * s.speed
             this.wrongWayTime = along < -3 ? this.wrongWayTime + dt : 0
             if (s.nitro >= 1 && !this.nitroReadyAnnounced && s.nitroTime <= 0) {
                 this.nitroReadyAnnounced = true
