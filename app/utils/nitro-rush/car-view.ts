@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { buildPlayerCar, type PlayerCar } from './models'
 import type { CarState } from './physics'
-import type { Projection } from '#shared/utils/nitro-rush/track'
 
 /** The player's car model, posed on the road and animated from the physics state. */
 export class CarView {
@@ -14,8 +13,6 @@ export class CarView {
     constructor(color: number) {
         this.car = buildPlayerCar(color)
         this.group = this.car.group
-        // Yaw first, then the road's slope in the car's own frame.
-        this.group.rotation.order = 'YXZ'
         for (const w of this.car.wheels) w.parent!.userData.baseYaw = w.parent!.rotation.y
         this.frontWheels = this.car.wheels.map(w => w.parent!).filter(w => w.position.z < 0)
         const headlight = new THREE.SpotLight(0xe8f2ff, 40, 70, 0.42, 0.6, 1.2)
@@ -28,14 +25,10 @@ export class CarView {
         this.car.paint.color.setHex(color)
     }
 
-    /** Places the car, pitched by the slope ahead of its nose and rolled by the slope across it. */
-    place(x: number, y: number, z: number, heading: number, road: Projection) {
-        const gx = road.grade * road.tx
-        const gz = road.grade * road.tz
-        const sin = Math.sin(heading)
-        const cos = Math.cos(heading)
-        this.group.position.set(x, y, z)
-        this.group.rotation.set(Math.atan(-gx * sin - gz * cos), heading, Math.atan(gx * cos - gz * sin))
+    /** Places the car; `poseCar` works out where and which way up. */
+    place(pos: THREE.Vector3, quat: THREE.Quaternion) {
+        this.group.position.copy(pos)
+        this.group.quaternion.copy(quat)
     }
 
     /** Body lean, steering, spinning wheels and exhaust flames for one frame. */

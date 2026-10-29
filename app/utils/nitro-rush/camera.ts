@@ -3,6 +3,7 @@ import { COUNTDOWN_SECONDS } from './config'
 import { newTrackPoint, wrapAngle, type Track } from '#shared/utils/nitro-rush/track'
 import type { Phase } from './types'
 
+const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const ease = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 
 /** The car this frame, interpolated between physics steps, and how hard it is moving. */
@@ -21,6 +22,11 @@ export interface CameraSubject {
     /** 0 to 1, eased in and out with the nitro burn. */
     nitroK: number
     latAcc: number
+    /** The car model's pose, for following it round a looping or corkscrew. */
+    pos: THREE.Vector3
+    quat: THREE.Quaternion
+    onRail: boolean
+    airborne: boolean
 }
 
 /** How far toward the chase view (1) from the orbit (0) a phase wants, and whether to jump there. */
@@ -52,6 +58,9 @@ export class ChaseCamera {
     private readonly orbitPos = new THREE.Vector3()
     private readonly orbitLook = new THREE.Vector3()
     private readonly tmpP = newTrackPoint()
+    private readonly carFwd = new THREE.Vector3()
+    private readonly carUp = new THREE.Vector3()
+    private readonly wantUp = new THREE.Vector3()
 
     constructor(track: Track) {
         this.track = track
@@ -85,11 +94,21 @@ export class ChaseCamera {
         const fx = -Math.sin(this.yaw)
         const fz = -Math.cos(this.yaw)
         const back = 6.6 + car.speedK * 1.3 + car.nitroK * 0.6
-        // Heights from the road behind and ahead, so the camera tips up a climb and down a drop.
-        const roadBehind = this.track.pointAt(car.along - back, this.tmpP).y
-        const roadAhead = this.track.pointAt(car.along + 9, this.tmpP).y
-        const chasePos = this.chasePos.set(x - fx * back, roadBehind + 2.4 + car.speedK * 0.2, z - fz * back)
-        const chaseLook = this.chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
+        const chasePos = this.chasePos
+        const chaseLook = this.chaseLook
+        if (car.onRail) {
+            // On rails the chase sits behind and above the car in its own frame, rolling with it.
+            const f = this.carFwd.set(0, 0, -1).applyQuaternion(car.quat)
+            const u = this.carUp.set(0, 1, 0).applyQuaternion(car.quat)
+            chasePos.copy(car.pos).addScaledVector(f, -back).addScaledVector(u, 2.4 + car.speedK * 0.2)
+            chaseLook.copy(car.pos).addScaledVector(f, 9).addScaledVector(u, 1.1)
+        } else {
+            // Heights from the road behind and ahead, so the camera tips up a climb and down a drop; in the air, from the car.
+            const roadBehind = car.airborne ? y : this.track.pointAt(car.along - back, this.tmpP).y
+            const roadAhead = car.airborne ? y : this.track.pointAt(car.along + 9, this.tmpP).y
+            chasePos.set(x - fx * back, roadBehind + 2.4 + car.speedK * 0.2, z - fz * back)
+            chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
+        }
         const orbitA = time * 0.22
         const orbitPos = this.orbitPos.set(x + Math.sin(orbitA) * 9.5, y + 2.3 + Math.sin(time * 0.3) * 0.5, z + Math.cos(orbitA) * 9.5)
         const orbitLook = this.orbitLook.set(x, y + 0.9, z)
@@ -111,6 +130,9 @@ export class ChaseCamera {
         const shake = this.trauma * this.trauma
         const t = time * 40
         const camera = this.camera
+        // The horizon rolls with the car through a looping, and settles back level after.
+        const wantUp = car.onRail ? this.wantUp.copy(WORLD_UP).lerp(this.carUp, this.blend) : WORLD_UP
+        camera.up.lerp(wantUp, 1 - Math.exp(-dt * 10)).normalize()
         camera.position.set(this.pos.x + Math.sin(t * 1.1) * shake * 0.4, this.pos.y + Math.sin(t * 1.7 + 1) * shake * 0.3, this.pos.z)
         camera.lookAt(this.look)
         camera.rotateZ(car.latAcc * 0.0012 * this.blend + Math.sin(t * 0.9) * shake * 0.03)

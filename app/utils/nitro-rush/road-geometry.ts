@@ -1,9 +1,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { ROAD_TILE_LENGTH } from './textures'
-import type { Track } from '#shared/utils/nitro-rush/track'
+import { newTrackFrame, type Track } from '#shared/utils/nitro-rush/track'
 
-/** Strips, sweeps and clearance checks built from the track's centreline. */
+/**
+ * Strips, sweeps and clearance checks built from the track's centreline. Offsets
+ * run along each point's right and up, so they follow banks, loopings and
+ * corkscrews; on plain road that's the plan's right and straight up. Nothing is
+ * laid over a jump's gap.
+ */
 
 /** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
 export const WALL_BASE_HALF = 0.32
@@ -17,13 +22,13 @@ const MIRROR_FADE = 18
  * world scale. `y` lifts it off the road surface.
  */
 export function ribbon(track: Track, from: number, to: number, latA: number, latB: number, y: number, vScale: number) {
-    const samples: { s: number, x: number, y: number, z: number, tx: number, tz: number }[] = []
+    const samples: { s: number, x: number, y: number, z: number, r: Vec, u: Vec }[] = []
     const push = (s: number, i?: number) => {
         if (i === undefined) {
-            const p = track.pointAt(s)
-            samples.push({ s, ...p })
+            const f = track.frameAt(s, newTrackFrame())
+            samples.push({ s, x: f.x, y: f.y, z: f.z, r: [f.rx, f.ry, f.rz], u: [f.ux, f.uy, f.uz] })
         } else {
-            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, tx: track.txs[i]!, tz: track.tzs[i]! })
+            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, r: vecAt(track.right, i), u: vecAt(track.up, i) })
         }
     }
     push(from)
@@ -40,10 +45,9 @@ export function ribbon(track: Track, from: number, to: number, latA: number, lat
     const uv: number[] = []
     const index: number[] = []
     samples.forEach((p, i) => {
-        // Right of the driving direction is (-tz, tx).
-        pos.push(p.x - p.tz * latA, p.y + y, p.z + p.tx * latA, p.x - p.tz * latB, p.y + y, p.z + p.tx * latB)
+        pos.push(...offset(p, p.r, p.u, latA, y), ...offset(p, p.r, p.u, latB, y))
         uv.push(0, p.s / vScale, 1, p.s / vScale)
-        if (i > 0) {
+        if (i > 0 && !track.gapAt((samples[i - 1]!.s + p.s) / 2)) {
             const a = (i - 1) * 2
             index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
         }
@@ -57,7 +61,7 @@ export function ribbon(track: Track, from: number, to: number, latA: number, lat
 }
 
 /** A profile swept down the whole course, `profile` as [toward-the-track, height] pairs from the outer foot. */
-export function sweep(track: Track, side: number, offset: number, profile: [number, number][]) {
+export function sweep(track: Track, side: number, from: number, profile: [number, number][]) {
     const pos: number[] = []
     const uv: number[] = []
     const index: number[] = []
@@ -72,12 +76,12 @@ export function sweep(track: Track, side: number, offset: number, profile: [numb
         for (let i = 0; i <= (track.closed ? n : n - 1); i++) {
             const k = i % n
             const s = i === n ? track.length : track.cum[k]!
-            for (const [a, y] of [[a0, y0], [a1, y1]] as const) {
-                const lat = side * (offset - a)
-                pos.push(track.xs[k]! - track.tzs[k]! * lat, track.ys[k]! + y, track.zs[k]! + track.txs[k]! * lat)
-            }
+            const p = { x: track.xs[k]!, y: track.ys[k]!, z: track.zs[k]! }
+            const r = vecAt(track.right, k)
+            const u = vecAt(track.up, k)
+            for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, r, u, side * (from - a), y))
             uv.push(u0, s / 4, u0 + edge, s / 4)
-            if (i > 0) {
+            if (i > 0 && !track.gapAt(s - 0.5)) {
                 const b = start + (i - 1) * 2
                 index.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
             }
@@ -98,9 +102,13 @@ export function sweep(track: Track, side: number, offset: number, profile: [numb
  */
 export function mirrorStrip(track: Track, hw: number) {
     const L = track.length
-    const flat = (i: number) => track.ys[i % track.n]! < 0.01 && track.ys[(i + 1) % track.n]! < 0.01
+    // A planar mirror only fits road lying flat on the ground: not a bank, a looping or a gap.
+    const level = (k: number) => track.ys[k]! < 0.01 && track.plainAt(k)
+    const flat = (i: number) => level(i % track.n) && level((i + 1) % track.n) && !track.gapAt(sAtIndex(track, i) + 0.5)
     const runs: [number, number][] = []
-    if (!track.elevated) {
+    let allFlat = !track.elevated && track.gaps.length === 0
+    for (let k = 0; allFlat && k < track.n; k++) allFlat = track.plainAt(k)
+    if (allFlat) {
         runs.push([0, L])
     } else {
         // On a loop, start the scan just past a raised segment so no run is split at the seam.
@@ -122,8 +130,8 @@ export function mirrorStrip(track: Track, hw: number) {
         const uv = g.getAttribute('uv')
         const fade = new Float32Array(uv.count)
         // Only an end that meets a ramp fades; an open course's ends and a flat loop stay bright.
-        const fadeIn = track.elevated && (track.closed || from > 0)
-        const fadeOut = track.elevated && (track.closed || to < L)
+        const fadeIn = !allFlat && (track.closed || from > 0)
+        const fadeOut = !allFlat && (track.closed || to < L)
         for (let i = 0; i < uv.count; i++) {
             const s = uv.getY(i) * ROAD_TILE_LENGTH
             fade[i] = Math.max(0, Math.min(1, fadeIn ? (s - from) / MIRROR_FADE : 1, fadeOut ? (to - s) / MIRROR_FADE : 1))
@@ -140,6 +148,12 @@ export function mirrorStrip(track: Track, hw: number) {
     if (geos.length > 1) for (const g of geos) g.dispose()
     return merged
 }
+
+type Vec = [number, number, number]
+const vecAt = (arr: Float64Array, i: number): Vec => [arr[i * 3]!, arr[i * 3 + 1]!, arr[i * 3 + 2]!]
+/** The point `lat` across and `lift` up from a spot on the centreline, in the road's own frame. */
+const offset = (p: { x: number, y: number, z: number }, r: Vec, u: Vec, lat: number, lift: number): Vec =>
+    [p.x + r[0] * lat + u[0] * lift, p.y + r[1] * lat + u[1] * lift, p.z + r[2] * lat + u[2] * lift]
 
 /** Distance along the line at point index `k`, counting on past the seam of a loop. */
 function sAtIndex(track: Track, k: number) {

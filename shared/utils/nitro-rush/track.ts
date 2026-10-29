@@ -18,6 +18,12 @@
  * The road can climb: each point has a height, and the road is level across.
  * `s` stays a distance over the ground plan, which the gentle grades keep
  * within a fraction of a percent of the distance driven.
+ *
+ * Stunt pieces add a full frame per point: banks tip the road's up, and on
+ * rails (loopings, corkscrews) the plan overlaps itself or the road turns on
+ * its side, so there `s` is the distance along the road itself and the car is
+ * driven by distance and offset instead of by its spot on the plan. Gaps are
+ * stretches with no road: a jump's.
  */
 
 export type TrackGroup = 'circuits' | 'sprints'
@@ -40,6 +46,12 @@ export interface TrackDef {
     runOff?: number
     /** Distance along the line of each checkpoint, in driving order; each one closes a sector. */
     checkpoints?: number[]
+    /** The road's up at each point, where any of it isn't straight up: banks, loopings, corkscrews. */
+    ups?: [number, number, number][]
+    /** Point ranges, [from, to), driven on rails. */
+    rails?: [number, number][]
+    /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
+    gaps?: [number, number][]
 }
 
 export interface Projection {
@@ -53,6 +65,22 @@ export interface Projection {
     y: number
     /** Rise per metre in the driving direction. */
     grade: number
+}
+
+/** The road at a distance: its centre, and the unit tangent, right and up of its surface. */
+export interface TrackFrame {
+    x: number
+    y: number
+    z: number
+    tx: number
+    ty: number
+    tz: number
+    rx: number
+    ry: number
+    rz: number
+    ux: number
+    uy: number
+    uz: number
 }
 
 export interface TrackPoint {
@@ -81,6 +109,11 @@ export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 
 export const newProjection = (): Projection => ({ seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 })
 export const newTrackPoint = (): TrackPoint => ({ x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 })
+export const newTrackFrame = (): TrackFrame => ({ x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: -1, rx: 1, ry: 0, rz: 0, ux: 0, uy: 1, uz: 0 })
+
+/** Ranges in point indices to ranges in distance. */
+const toDistance = (cum: Float64Array, ranges: readonly [number, number][] | undefined) => (ranges ?? []).map(([a, b]) => [cum[a]!, cum[b]!] as const)
+const within = (ranges: readonly (readonly [number, number])[], s: number) => ranges.some(([a, b]) => s >= a && s < b)
 
 export class Track {
     readonly def: TrackDef
@@ -103,6 +136,15 @@ export class Track {
     readonly curvature: Float64Array
     /** Where each checkpoint line sits along the line, in driving order. */
     readonly checkpoints: readonly number[]
+    /** Per point: the road's unit tangent in 3D, and the right and up of its surface. */
+    readonly t3: Float64Array
+    readonly right: Float64Array
+    readonly up: Float64Array
+    /** Distance ranges driven on rails, and with no road. */
+    readonly rails: readonly (readonly [number, number])[]
+    readonly gaps: readonly (readonly [number, number])[]
+    /** Per point: true on rails. */
+    readonly railed: Uint8Array
 
     constructor(def: TrackDef) {
         this.def = def
@@ -118,12 +160,17 @@ export class Track {
             this.zs[i] = z
             this.ys[i] = def.heights?.[i] ?? 0
         })
+        this.railed = new Uint8Array(n)
+        for (const [a, b] of def.rails ?? []) this.railed.fill(1, a, b)
         this.cum = new Float64Array(n + 1)
         for (let i = 0; i < n; i++) {
             const j = (i + 1) % n
-            const seg = i < this.segments ? Math.hypot(this.xs[j]! - this.xs[i]!, this.zs[j]! - this.zs[i]!) : 0
+            const dy = this.railed[i] ? this.ys[j]! - this.ys[i]! : 0
+            const seg = i < this.segments ? Math.hypot(this.xs[j]! - this.xs[i]!, this.zs[j]! - this.zs[i]!, dy) : 0
             this.cum[i + 1] = this.cum[i]! + seg
         }
+        this.rails = toDistance(this.cum, def.rails)
+        this.gaps = toDistance(this.cum, def.gaps)
         this.length = this.cum[n]!
         this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
         this.txs = new Float64Array(n)
@@ -146,9 +193,113 @@ export class Track {
             this.txs[i] = tx / lt
             this.tzs[i] = tz / lt
             const turn = la && lb ? Math.abs(wrapAngle(Math.atan2(bx, bz) - Math.atan2(ax, az))) : 0
-            this.curvature[i] = turn / ((la + lb) / 2 || 1)
+            // On rails the plan doubles back on itself; the road there runs straight in its own frame.
+            this.curvature[i] = this.railed[i] ? 0 : turn / ((la + lb) / 2 || 1)
             this.grades[i] = (this.ys[j]! - this.ys[p]!) / (la + lb || 1)
         }
+        this.t3 = new Float64Array(n * 3)
+        this.right = new Float64Array(n * 3)
+        this.up = new Float64Array(n * 3)
+        for (let i = 0; i < n; i++) this.frameOf(i, def.ups?.[i])
+    }
+
+    /** Point `i`'s frame. Plain road keeps the plan's own right and straight up, exactly as before stunts. */
+    private frameOf(i: number, given: readonly number[] | undefined) {
+        const n = this.n
+        const k = i * 3
+        const plain = !this.railed[i] && (!given || (given[0] === 0 && given[1] === 1 && given[2] === 0))
+        if (plain) {
+            const tx = this.txs[i]!
+            const tz = this.tzs[i]!
+            const g = this.grades[i]!
+            const len = Math.sqrt(1 + g * g)
+            this.t3.set([tx / len, g / len, tz / len], k)
+            this.right.set([-tz, 0, tx], k)
+            this.up.set([0, 1, 0], k)
+            return
+        }
+        const p = this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)
+        const j = this.closed ? (i + 1) % n : Math.min(n - 1, i + 1)
+        let tx = this.xs[j]! - this.xs[p]!
+        let ty = this.ys[j]! - this.ys[p]!
+        let tz = this.zs[j]! - this.zs[p]!
+        const tl = Math.hypot(tx, ty, tz) || 1
+        tx /= tl
+        ty /= tl
+        tz /= tl
+        const ux = given?.[0] ?? 0
+        const uy = given?.[1] ?? 1
+        const uz = given?.[2] ?? 0
+        // Right is the tangent crossed with up; up is then squared to both.
+        let rx = ty * uz - tz * uy
+        let ry = tz * ux - tx * uz
+        let rz = tx * uy - ty * ux
+        const rl = Math.hypot(rx, ry, rz) || 1
+        rx /= rl
+        ry /= rl
+        rz /= rl
+        this.t3.set([tx, ty, tz], k)
+        this.right.set([rx, ry, rz], k)
+        this.up.set([ry * tz - rz * ty, rz * tx - rx * tz, rx * ty - ry * tx], k)
+        if (this.railed[i]) this.grades[i] = ty / Math.max(0.05, Math.hypot(tx, tz))
+    }
+
+    /** True on a looping or corkscrew. */
+    railAt(s: number) {
+        return this.rails.length > 0 && within(this.rails, this.wrapS(s))
+    }
+
+    /** Point `i` lies flat across, on the plan: not on rails and not banked. */
+    plainAt(i: number) {
+        return !this.railed[i] && this.right[i * 3 + 1] === 0
+    }
+
+    /** Plain road at `s`: no rails, gap or bank, so scenery can stand beside it as on any other road. */
+    plainRoadAt(s: number) {
+        const i = this.segmentAt(s)
+        return this.plainAt(i) && this.plainAt((i + 1) % this.n) && !this.gapAt(s)
+    }
+
+    /** True over a jump's gap, where there's no road. */
+    gapAt(s: number) {
+        return this.gaps.length > 0 && within(this.gaps, this.wrapS(s))
+    }
+
+    /** The road's frame at distance `s`, blended between the points either side. */
+    frameAt(s: number, out: TrackFrame = newTrackFrame()): TrackFrame {
+        const w = this.wrapS(s)
+        const i = this.segmentAt(w)
+        const j = (i + 1) % this.n
+        const len = this.cum[i + 1]! - this.cum[i]!
+        const t = len > 0 ? Math.min(1, (w - this.cum[i]!) / len) : 0
+        out.x = this.xs[i]! + (this.xs[j]! - this.xs[i]!) * t
+        out.y = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
+        out.z = this.zs[i]! + (this.zs[j]! - this.zs[i]!) * t
+        const a = i * 3
+        const b = j * 3
+        const blend = (arr: Float64Array, c: number) => arr[a + c]! + (arr[b + c]! - arr[a + c]!) * t
+        let x = blend(this.t3, 0)
+        let y = blend(this.t3, 1)
+        let z = blend(this.t3, 2)
+        let l = Math.hypot(x, y, z) || 1
+        out.tx = x / l
+        out.ty = y / l
+        out.tz = z / l
+        x = blend(this.right, 0)
+        y = blend(this.right, 1)
+        z = blend(this.right, 2)
+        l = Math.hypot(x, y, z) || 1
+        out.rx = x / l
+        out.ry = y / l
+        out.rz = z / l
+        x = blend(this.up, 0)
+        y = blend(this.up, 1)
+        z = blend(this.up, 2)
+        l = Math.hypot(x, y, z) || 1
+        out.ux = x / l
+        out.uy = y / l
+        out.uz = z / l
+        return out
     }
 
     get halfWidth() {

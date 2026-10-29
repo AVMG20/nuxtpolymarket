@@ -4,7 +4,7 @@ import {
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
-import { headingOf, newProjection, wrapAngle, type Projection, type Track } from '#shared/utils/nitro-rush/track'
+import { headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -14,6 +14,12 @@ import { headingOf, newProjection, wrapAngle, type Projection, type Track } from
  * Angles grow turning left. Heading `h` faces (-sin h, -cos h), which is
  * where the car model's nose points at rotation.y = h. `travel` is the
  * direction the car is actually moving; the gap between them is the slip.
+ *
+ * On a looping or corkscrew the car rides on rails: the road's plan overlaps
+ * itself there, so the car moves by distance along the road (`proj.s`) and
+ * offset across it (`proj.lateral`), steering by `rel`, its angle to the road.
+ * Off a jump's kicker the car flies: `y` and `vy` carry it until it lands, or
+ * it drops into the gap and `fell` tells the engine to put it back.
  */
 export interface CarState {
     x: number
@@ -34,6 +40,15 @@ export interface CarState {
     nitroTime: number
     /** Last projection onto the track; `seg` is the search hint for the next. */
     proj: Projection
+    /** Height of the car's wheels: on the road, except in the air. */
+    y: number
+    /** Climb rate, metres per second. */
+    vy: number
+    airborne: boolean
+    /** On a looping or corkscrew. */
+    onRail: boolean
+    /** On rails: the angle from the road's direction to the car's, + to the left. */
+    rel: number
 }
 
 export interface CarInput {
@@ -53,6 +68,11 @@ export interface StepEvents {
     driftEnded: number
     /** Nitro banked by the drift that just ended. */
     nitroEarned: number
+    tookOff: boolean
+    /** Falling speed on the step the car touched down, else 0. */
+    landed: number
+    /** Dropped into a gap: the engine puts the car back on the road. */
+    fell: boolean
 }
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
@@ -60,6 +80,12 @@ const CAR_HALF_LENGTH = 2.25
 /** Wheel the drift button needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
 const GRAVITY = 9.81
+/** Below the gap's deck by this much, a car that missed the landing has fallen. */
+const FALL_DEPTH = 6
+/** Speed kept when a car on rails grazes a wall, per unit of the hit. */
+const RAIL_WALL_BOUNCE = 0.3
+const railFrame = newTrackFrame()
+const railEntry = newTrackPoint()
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
@@ -72,11 +98,42 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0,
-        proj: newProjection()
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.project(x, z, track.segmentAt(s), car.proj)
+    if (track.railAt(s)) {
+        car.onRail = true
+        placeOnRail(car, track, s, lateral)
+    }
     return car
+}
+
+/** Puts a car on rails at distance `s` and offset `lateral`, from the road's own frame. */
+function placeOnRail(car: CarState, track: Track, s: number, lateral: number) {
+    const f = track.frameAt(s, railFrame)
+    const p = car.proj
+    p.s = track.wrapS(s)
+    p.seg = track.segmentAt(p.s)
+    p.lateral = lateral
+    p.y = f.y
+    p.grade = f.ty / Math.max(0.05, Math.hypot(f.tx, f.tz))
+    // A looping's plan turns back on itself; the car keeps the bearing it came in on, so nothing reads it as a spin.
+    const rail = track.rails.find(([a, b]) => p.s >= a && p.s < b)
+    const bearing = track.pointAt(rail ? rail[0] : p.s, railEntry)
+    p.tx = bearing.tx
+    p.tz = bearing.tz
+    car.x = f.x + f.rx * lateral
+    car.z = f.z + f.rz * lateral
+    car.y = f.y + f.ry * lateral
+    car.vy = 0
+    car.airborne = false
+    car.heading = car.travel = wrapAngle(headingOf(p.tx, p.tz) + car.rel)
+}
+
+/** The road's frame under a car on rails; valid until the next physics step. */
+export function railFrameOf(car: CarState, track: Track): TrackFrame {
+    return track.frameAt(car.proj.s, railFrame)
 }
 
 export function slipAngle(car: CarState) {
@@ -103,7 +160,7 @@ export function fireNitro(car: CarState) {
 }
 
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, driftStarted: false, driftEnded: 0, nitroEarned: 0 }
+    const ev: StepEvents = { wallImpact: 0, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false }
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -118,20 +175,30 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     const top = ENGINE_TOP_SPEED * (nitro ? NITRO_TOP_SPEED_MULT : 1)
     const pull = Math.max(0, 1 - v / top)
     let drive = 0
-    if (input.throttle > 0 && v >= -0.5) drive += ENGINE_ACCEL * input.throttle * pull
+    // In the air the wheels have nothing to push on or brake against.
+    const grounded = !car.airborne
+    if (grounded && input.throttle > 0 && v >= -0.5) drive += ENGINE_ACCEL * input.throttle * pull
     if (nitro) drive += NITRO_ACCEL * pull
     // The brakes are off mid-drift, because the touch pedal is the drift button too.
-    const brake = car.drifting ? 0 : input.brake
+    const brake = car.drifting || !grounded ? 0 : input.brake
     if (brake > 0 && v <= 0.5 && v > -REVERSE_MAX) drive -= REVERSE_ACCEL * brake
-    let resist = ROLLING_DRAG + AERO_DRAG * v * v
+    let resist = (grounded ? ROLLING_DRAG : 0) + AERO_DRAG * v * v
     if (brake > 0 && v > 0.5) resist += BRAKE_DECEL * brake
-    if (input.throttle > 0 && v < -0.5) resist += BRAKE_DECEL * input.throttle
+    if (grounded && input.throttle > 0 && v < -0.5) resist += BRAKE_DECEL * input.throttle
     if (car.drifting) resist += DRIFT_SCRUB * Math.abs(Math.sin(slipAngle(car)))
-    drive -= GRAVITY * slopeAlong(car)
+    // On rails gravity pulls along the road itself: a car too slow for a looping rolls back down it.
+    if (car.onRail) drive -= GRAVITY * railFrameOf(car, track).ty * Math.cos(car.rel)
+    else if (grounded) drive -= GRAVITY * slopeAlong(car)
     car.speed = moveTowards(v + drive * dt, 0, resist * dt)
 
+    if (car.onRail) {
+        stepRail(car, left, track, dt, ev)
+        if (!input.drift) car.driftSpent = false
+        return ev
+    }
+
     // ── Drift entry: the drift button held with the wheel turned, at speed ──
-    if (!car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD) {
+    if (grounded && !car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD) {
         car.drifting = true
         car.driftDir = Math.sign(left)
         car.driftTime = 0
@@ -151,12 +218,8 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         car.heading = wrapAngle(car.travel + slip)
         car.driftTime += dt
         if (!input.drift || car.speed < DRIFT_MIN_SPEED * 0.6) endDrift(car, ev, true)
-    } else {
-        const angle = MAX_STEER_ANGLE / (1 + Math.abs(car.speed) / STEER_FALLOFF_SPEED) * left
-        const cap = GRIP_LATERAL / Math.max(Math.abs(car.speed), 1)
-        // Past the tyres' limit the path can't bend any tighter: the car washes wide.
-        const turn = Math.max(-cap, Math.min(cap, car.speed * Math.tan(angle) / WHEELBASE))
-        car.travel = wrapAngle(car.travel + turn * dt)
+    } else if (grounded) {
+        car.travel = wrapAngle(car.travel + gripTurn(car.speed, left) * dt)
         const slip = slipAngle(car) * Math.exp(-GRIP_ALIGN * dt)
         car.heading = wrapAngle(car.travel + slip)
     }
@@ -165,7 +228,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     car.z += car.speed * -Math.cos(car.travel) * dt
 
     // ── Walls ──
-    const p = track.project(car.x, car.z, car.proj.seg, car.proj, car.proj.y)
+    const p = track.project(car.x, car.z, car.proj.seg, car.proj, car.y)
     const limit = wallLimit(track, car)
     if (Math.abs(p.lateral) > limit) {
         const side = Math.sign(p.lateral)
@@ -184,9 +247,79 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
             p.s = track.length - reach
         }
     }
+    stepHeight(car, track, dt, ev)
+    // Onto a looping or corkscrew: the rails take over from here.
+    if (!car.airborne && track.railAt(p.s)) {
+        if (car.drifting) endDrift(car, ev, true)
+        car.onRail = true
+        car.rel = wrapAngle(car.travel - headingOf(p.tx, p.tz))
+        placeOnRail(car, track, p.s, p.lateral)
+    }
     // Cleared last, after any drift this step ended, so a one-step release is enough to drift again.
     if (!input.drift) car.driftSpent = false
     return ev
+}
+
+/** How fast the grip steering turns the car's path, in radians per second, `left` -1 to 1. */
+function gripTurn(speed: number, left: number) {
+    const angle = MAX_STEER_ANGLE / (1 + Math.abs(speed) / STEER_FALLOFF_SPEED) * left
+    const cap = GRIP_LATERAL / Math.max(Math.abs(speed), 1)
+    // Past the tyres' limit the path can't bend any tighter: the car washes wide.
+    return Math.max(-cap, Math.min(cap, speed * Math.tan(angle) / WHEELBASE))
+}
+
+/**
+ * The car's height: held to the road, except off the lip of a gap, where it flies
+ * until the road comes back up under it. Crests never throw it, so the courses
+ * from before jumps drive as they always did.
+ */
+function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
+    const p = car.proj
+    const gap = track.gapAt(p.s)
+    if (!car.airborne) {
+        if (!gap) {
+            car.vy = (p.y - car.y) / dt
+            car.y = p.y
+            return
+        }
+        car.airborne = true
+        ev.tookOff = true
+        if (car.drifting) endDrift(car, ev, true)
+    }
+    car.vy -= GRAVITY * dt
+    car.y += car.vy * dt
+    if (!gap && car.y <= p.y) {
+        ev.landed = Math.max(0, -car.vy)
+        car.y = p.y
+        car.vy = 0
+        car.airborne = false
+    } else if (gap && car.y < p.y - FALL_DEPTH) {
+        ev.fell = true
+    }
+}
+
+/** A step on rails: the car moves along and across the road itself, held inside its walls. */
+function stepRail(car: CarState, left: number, track: Track, dt: number, ev: StepEvents) {
+    const p = car.proj
+    car.rel = wrapAngle(car.rel + gripTurn(car.speed, left) * dt)
+    const s = p.s + car.speed * Math.cos(car.rel) * dt
+    // + rel turns the nose left, which is toward - lateral.
+    let lateral = p.lateral - car.speed * Math.sin(car.rel) * dt
+    const reach = CAR_HALF_WIDTH * Math.abs(Math.cos(car.rel)) + CAR_HALF_LENGTH * Math.abs(Math.sin(car.rel))
+    const limit = track.wallOffset - reach
+    if (Math.abs(lateral) > limit) {
+        const into = Math.abs(car.speed * Math.sin(car.rel))
+        ev.wallImpact = Math.max(ev.wallImpact, into)
+        lateral = Math.sign(lateral) * limit
+        car.rel = -car.rel * RAIL_WALL_BOUNCE
+        car.speed *= Math.max(0, 1 - WALL_FRICTION * into / Math.max(Math.abs(car.speed), 1))
+    }
+    // Off either end of the rails, back onto the plan.
+    const leaving = !track.railAt(s) && (track.closed || (s > 0 && s < track.length))
+    placeOnRail(car, track, s, lateral)
+    if (!leaving) return
+    car.onRail = false
+    track.project(car.x, car.z, track.segmentAt(p.s), p, car.y)
 }
 
 /** Sine of the road's slope along the direction of travel: + climbing. */
@@ -247,8 +380,17 @@ function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
  * point down the centreline and brakes for the tightest bend ahead.
  */
 export function botInput(car: CarState, track: Track, pace = 1): CarInput {
+    // On rails it floors it and holds the middle of the road.
+    if (car.onRail) return { throttle: 1, brake: 0, steer: Math.max(-1, Math.min(1, car.rel * 3 - car.proj.lateral * 0.15)), drift: false }
     const v = Math.max(0, car.speed)
-    const ahead = track.pointAt(car.proj.s + 8 + v * 0.45)
+    const aheadS = car.proj.s + 8 + v * 0.45
+    // A looping's plan doubles back, so past a rail's entry it aims straight on along the entry.
+    const rail = track.rails.find(([a, b]) => aheadS >= a && aheadS < b && car.proj.s < a)
+    const ahead = track.pointAt(rail ? rail[0] : aheadS)
+    if (rail) {
+        ahead.x += ahead.tx * (aheadS - rail[0])
+        ahead.z += ahead.tz * (aheadS - rail[0])
+    }
     const want = headingOf(ahead.x - car.x, ahead.z - car.z)
     const err = wrapAngle(want - car.travel)
     const steer = Math.max(-1, Math.min(1, -err * 4))

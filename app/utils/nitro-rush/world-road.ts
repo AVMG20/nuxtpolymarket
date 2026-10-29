@@ -171,7 +171,8 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
         for (let s = PILLAR_SPACING / 2; s < L; s += PILLAR_SPACING) {
             track.pointAt(s, p)
             const top = p.y - DECK_DEPTH
-            if (top < 0.3) continue
+            // Loopings, corkscrews, banks and gaps carry themselves.
+            if (top < 0.3 || !track.plainRoadAt(s)) continue
             for (const side of [-1, 1]) {
                 const lat = side * (edge + PILLAR_SIZE / 2)
                 const x = p.x - p.tz * lat

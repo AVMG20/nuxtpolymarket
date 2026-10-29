@@ -43,6 +43,8 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
             const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
             const p = track.pointAt(s)
             const lat = side * (wall + WALL_BASE_HALF)
+            // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank or over a gap.
+            if (!track.plainRoadAt(s)) continue
             // Under another level the pole would run through its deck.
             if (track.elevated && roadAbove(track, p.x, p.y, p.z, wall + 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
             // Local -x is the arm; turn it to point across the track.
@@ -185,6 +187,7 @@ export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Ma
     for (let i = 0; i < 8; i++) {
         const s = (i + 0.25) / 8 * L
         const p = track.pointAt(s)
+        if (!track.plainRoadAt(s)) continue
         const lat = -(wall + 14)
         const bx = p.x - p.tz * lat
         const bz = p.z + p.tx * lat
