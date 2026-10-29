@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, ENGINE_TOP_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
-import { botInput, createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
+import { botInput, createCar, fireNitro, slipAngle, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
 import { buildTrack, corner, LINE_BLOCK_LENGTH, POLYTOWN_OVAL, ramp, start, straight } from '#shared/utils/nitro-rush/layout'
-import { LapTimer, Track, TRACKS, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { LapTimer, Track, TRACKS, wrapAngle, type LapEvent, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 const track = new Track(buildTrack(POLYTOWN_OVAL))
 const DT = 1 / PHYSICS_HZ
@@ -78,22 +78,32 @@ describe('car physics', () => {
         expect(car.nitro).toBeCloseTo(earned)
     })
 
-    it('straightens out of a drift soon after the wheel is let go', () => {
+    it('lets a drift fade over a couple of seconds with the wheel let go, and ends it quickly on countersteer', () => {
         const track = new Track({ ...buildTrack(POLYTOWN_OVAL), wallOffset: 400 })
-        const car = createCar(track, 0)
-        car.speed = 45
-        for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
-        for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ throttle: 1, steer: -1 }), track, DT)
-        expect(car.drifting).toBe(true)
-        let t = 0
-        let earned = 0
-        while (car.drifting && t < 2) {
-            earned = stepCar(car, input({ throttle: 1 }), track, DT).nitroEarned
-            t += DT
+        const drifting = () => {
+            const car = createCar(track, 0)
+            car.speed = 45
+            for (let i = 0; i < PHYSICS_HZ && !car.drifting; i++) stepCar(car, input({ brake: 1, steer: -1 }), track, DT)
+            for (let i = 0; i < PHYSICS_HZ; i++) stepCar(car, input({ throttle: 1, steer: -1 }), track, DT)
+            expect(car.drifting).toBe(true)
+            return car
         }
-        expect(car.drifting).toBe(false)
-        expect(t).toBeLessThan(0.6)
-        expect(earned).toBeGreaterThan(0)
+        const timeToEnd = (steer: number) => {
+            const car = drifting()
+            let t = 0
+            let earned = 0
+            while (car.drifting && t < 5) {
+                earned = stepCar(car, input({ throttle: 1, steer }), track, DT).nitroEarned
+                t += DT
+            }
+            expect(car.drifting).toBe(false)
+            expect(earned).toBeGreaterThan(0)
+            return t
+        }
+        const letGo = timeToEnd(0)
+        expect(letGo).toBeGreaterThan(1.5)
+        expect(letGo).toBeLessThan(3)
+        expect(timeToEnd(1)).toBeLessThan(0.6)
     })
 
     it('holds a drift while the wheel is kept or tapped into it', () => {
@@ -197,6 +207,51 @@ describe('registered tracks', () => {
             expect(car.speed).toBeLessThan(1)
             expect(car.proj.s).toBeLessThan(t.length)
         }
+    })
+})
+
+describe('a keyboard drift round a spiral', () => {
+    const helix = new Track(TRACKS.find(d => d.id === 'twin-helix')!)
+    // The first spiral is the first long stretch of constant tight curvature.
+    const from = helix.cum[helix.curvature.findIndex(k => Math.abs(k - 1 / 36) < 0.004)]!
+    const length = Math.PI / 2 * 36 * 5
+
+    it('holds one drift all the way round by tapping in and letting go, a few times a second at most', () => {
+        const car = createCar(helix, from - 60)
+        car.speed = 30
+        let key = 0
+        let since = Infinity
+        let hits = 0
+        let started = false
+        for (let i = 0; i < PHYSICS_HZ * 20 && car.proj.s < from + length; i++) {
+            const tan = Math.atan2(-car.proj.tx, -car.proj.tz)
+            let steer: number
+            let throttle = 1
+            if (car.proj.s < from - 4) {
+                steer = Math.max(-1, Math.min(1, -(wrapAngle(tan - car.travel) - car.proj.lateral * 0.04) * 3))
+                throttle = car.speed < 30 ? 1 : 0
+            } else if (!started) {
+                started = stepCar(car, input({ throttle: 1, brake: 1, steer: 1 }), helix, DT).driftStarted
+                continue
+            } else {
+                // Tap in while the slide is too shallow for the line, tap out when far too deep, otherwise let go; keys change at most every 0.3 s.
+                const want = Math.max(0, car.speed / 36 + 2 * wrapAngle(car.travel - tan) - 0.025 * car.proj.lateral) / 1.5
+                const slip = Math.abs(slipAngle(car))
+                const next = slip < want - 0.02 ? 1 : slip > want + 0.15 ? -1 : 0
+                since += DT
+                if (next !== key && since >= 0.3) {
+                    key = next
+                    since = 0
+                }
+                steer = key
+                expect(car.drifting).toBe(true)
+            }
+            if (stepCar(car, input({ throttle, steer }), helix, DT).wallImpact > 0) hits++
+        }
+        expect(started).toBe(true)
+        expect(car.proj.s).toBeGreaterThan(from + length)
+        expect(car.drifting).toBe(true)
+        expect(hits).toBe(0)
     })
 })
 

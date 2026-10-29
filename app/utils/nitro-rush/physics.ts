@@ -1,6 +1,6 @@
 import {
     AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_EXIT_SLIP, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_MIN_TIME, DRIFT_SCRUB,
-    DRIFT_SLIP_COUNTER, DRIFT_SLIP_IN, DRIFT_SLIP_RECOVER, DRIFT_SLIP_RESPONSE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL,
+    DRIFT_SLIP_COUNTER, DRIFT_SLIP_FADE, DRIFT_SLIP_IN, DRIFT_SLIP_RECOVER, DRIFT_SLIP_RESPONSE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL,
     HANDBRAKE_DECEL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION, NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX,
     ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE, WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
@@ -145,9 +145,10 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         // The path bends toward the nose, as hard as the sliding tyres allow.
         const turn = Math.sign(slip) * Math.min(Math.abs(slip) * DRIFT_ALIGN, DRIFT_LATERAL / Math.max(car.speed, 1))
         car.travel = wrapAngle(car.travel + turn * dt)
-        // Only a centred or countered wheel straightens up quickly and ends the drift, so tapping the key into it holds a shallow slide.
+        // Steering in swings the car out, countersteer straightens it up; anything else, a let-go wheel included, only lets the slip fade.
         const letGo = into < DRIFT_LET_GO
-        slip += (target * d - slip) * (1 - Math.exp(-(letGo ? DRIFT_SLIP_RECOVER : DRIFT_SLIP_RESPONSE) * dt))
+        const rate = into <= -DRIFT_LET_GO ? DRIFT_SLIP_RECOVER : !letGo && target > Math.abs(slip) ? DRIFT_SLIP_RESPONSE : DRIFT_SLIP_FADE
+        slip += (target * d - slip) * (1 - Math.exp(-rate * dt))
         car.heading = wrapAngle(car.travel + slip)
         car.driftTime += dt
         const settled = car.driftTime > DRIFT_MIN_TIME && letGo && (Math.abs(slip) < DRIFT_EXIT_SLIP || Math.sign(slip) !== d)
