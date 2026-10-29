@@ -7,7 +7,7 @@ export const DF_TICK_HZ = 20
 export const DF_SNAPSHOT_HZ = 20
 /** Client interpolation delay for remote entities, in ms. */
 export const DF_INTERP_DELAY_MS = 100
-export const DF_MAX_PLAYERS = 4
+export const DF_MAX_PLAYERS = 5
 export const DF_MAX_PERKS = 4
 export const DF_MAX_ALIVE_ZOMBIES = 24
 export const DF_INTERMISSION_SECONDS = 10

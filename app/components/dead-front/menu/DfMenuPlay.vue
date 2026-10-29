@@ -73,7 +73,7 @@
                 <div>
                     <p class="df-eyebrow">Roll of the squad · Sainte-Croix</p>
                     <h2 class="df-h mt-1 text-3xl">Your squad</h2>
-                    <p class="df-type mt-1 text-xs text-[var(--df-ink-2)]">{{ lobby.members.length }}/4 soldiers · the C.O. gives the order</p>
+                    <p class="df-type mt-1 text-xs text-[var(--df-ink-2)]">{{ lobby.members.length }}/{{ DF_MAX_PLAYERS }} soldiers · the C.O. gives the order</p>
                 </div>
                 <DfButton tone="ghost" icon="leave" @click="emit('send', { t: 'leave' })">Leave</DfButton>
             </header>
@@ -163,6 +163,7 @@
 </template>
 
 <script setup lang="ts">
+import { DF_MAX_PLAYERS } from '#shared/utils/dead-front/constants'
 import type { DfClientMsg, DfLobbyState, DfLobbySummary } from '#shared/utils/dead-front/protocol'
 import DfButton from '~/components/dead-front/ui/DfButton.vue'
 import DfIcon from '~/components/dead-front/ui/DfIcon.vue'

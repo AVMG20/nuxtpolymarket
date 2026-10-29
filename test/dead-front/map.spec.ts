@@ -3,7 +3,7 @@ import { DF_MAP, DF_UPPER_Y, dfInteractables } from '../../shared/utils/dead-fro
 import type { DfNavNode } from '../../shared/utils/dead-front/map'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight, dfMoveBody, dfRaycast } from '../../shared/utils/dead-front/physics'
 import { DF_PERK_IDS } from '../../shared/utils/dead-front/perks'
-import { DF_PLAYER } from '../../shared/utils/dead-front/constants'
+import { DF_MAX_PLAYERS, DF_PLAYER } from '../../shared/utils/dead-front/constants'
 import type { Vec3 } from '../../shared/utils/dead-front/types'
 
 const map = DF_MAP
@@ -126,7 +126,7 @@ describe('Sainte-Croix layout', () => {
     })
 
     it('spawns players in the start zone and risers in every zone', () => {
-        expect(map.playerSpawns.length).toBe(4)
+        expect(map.playerSpawns.length).toBe(DF_MAX_PLAYERS)
         for (const p of map.playerSpawns) {
             expect(dfBodyFits(closedWorld, p, { radius: DF_PLAYER.radius, height: DF_PLAYER.height })).toBe(true)
             expect(dfGroundHeight(closedWorld, p.x, p.z, p.y + 0.1)).toBeCloseTo(p.y, 3)

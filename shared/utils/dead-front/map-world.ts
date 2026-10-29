@@ -745,7 +745,7 @@ function buildWorld(): DfMapWorld {
         { id: 'riser-ramparts-1', pos: v(27, 0, -3), yaw: 1.4, zone: 'ramparts' },
         { id: 'riser-ramparts-2', pos: v(28, 0, 20), yaw: -1.9, zone: 'ramparts' }
     ]
-    const playerSpawns: Vec3[] = [v(2, 0, 30), v(4, 0, 30), v(2, 0, 32), v(4, 0, 32)]
+    const playerSpawns: Vec3[] = [v(2, 0, 30), v(4, 0, 30), v(2, 0, 32), v(4, 0, 32), v(3, 0, 31)]
 
     const LAMP = '#ffb766'
     const CANDLE = '#ff9a45'
