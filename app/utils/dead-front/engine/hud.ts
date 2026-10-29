@@ -122,6 +122,8 @@ export interface DfHudState {
     }
     hitmarker: { key: number, kind: 'hit' | 'kill' | 'head' }
     killKey: number
+    /** The last kill was a headshot (the kill skull's colour; the hitmarker kind moves on with the next hit). */
+    killHead: boolean
     damage: DfHudDamage[]
     scoreboard: boolean
     ping: number
@@ -312,6 +314,7 @@ export function dfCreateHudState(): DfHudState {
         objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, rods: null, rodTimer: null, label: '', distance: 0, hasTarget: false },
         hitmarker: { key: 0, kind: 'hit' },
         killKey: 0,
+        killHead: false,
         damage: [],
         scoreboard: false,
         ping: 0,

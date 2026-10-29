@@ -339,8 +339,10 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 if (a.launcher !== launcher) a.launcher = launcher
                 if (a.equip !== mine.equip) a.equip = mine.equip
                 if (a.kit !== mine.kit) a.kit = mine.kit
-                const sk = mine.support.join(',')
-                if (a.support.map(r => r.id).join(',') !== sk) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
+                // compared in place: no per-frame strings or arrays
+                let same = a.support.length === mine.support.length
+                for (let i = 0; same && i < mine.support.length; i++) same = a.support[i]!.id === mine.support[i]
+                if (!same) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
             }
             // the shop while it is open (Esc drops the pointer lock, and that closes it too)
             if (shop && (!meP || !input.locked)) closeShop()

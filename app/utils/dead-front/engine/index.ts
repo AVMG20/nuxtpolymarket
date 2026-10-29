@@ -221,8 +221,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let useCooldown = 0
     let useRepeatAt = 0
     let reviveTarget: number | null = null
+    /** When the revive request last went out: it repeats while F is held (the server may have been out of reach). */
+    let reviveSentAt = -10
     let shotCount = 0
     let predictedHitAt = -10
+    /** The last predicted hit that already played the headshot ding (render clock). */
+    let predictedHeadAt = -10
     /** Zombies this client just hit (render clock): their flinch played locally, so the server's echo is skipped. */
     const predictedFlinch = new Map<number, number>()
     const localHits: { z: number, zone: DfHitZone, pos: Vec3 }[] = []
@@ -299,6 +303,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let popupId = 0
     /** World anchor per hit-pop slot (the hit point the number rises from). */
     const hitPopAt = Array.from({ length: DF_HUD_HIT_POPS }, () => new THREE.Vector3())
+    /** Per-slot CSS variable names, built once (no per-frame strings), and the last written position per slot. */
+    const HIT_POP_VARS = Array.from({ length: DF_HUD_HIT_POPS }, (_, i) => [`--df-hp${i}-x`, `--df-hp${i}-y`, `--df-hp${i}-on`] as const)
+    const MARK_VARS = Array.from({ length: DF_HUD_MARKERS }, (_, i) => [`--df-mk${i}-x`, `--df-mk${i}-y`, `--df-mk${i}-on`, `--df-mk${i}-ang`] as const)
+    const lastHitPopKeys = new Float64Array(DF_HUD_HIT_POPS).fill(NaN)
     let hitPopSeq = 0
     let damageId = 0
     let chatId = 0
@@ -494,6 +502,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                     player.downed = true
                     player.wantsCrouch = false
                     safe('setDowned', () => viewmodel.setDowned(true), undefined)
+                    // the hands drop the reload too (a pistol in hand stays in hand, so no re-equip resets them)
+                    if (gun.reloading) safe('vm cancel', () => viewmodel.cancelReload(), undefined)
                     gun.cancelReload()
                 } else if (life === 'alive') {
                     player.downed = false
@@ -714,6 +724,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
     function killFeedback(head: boolean): void {
         hud.hitmarker = { key: hud.hitmarker.key + 1, kind: head ? 'head' : 'kill' }
+        hud.killHead = head
         hud.killKey++
         killPunch = head ? 1 : 0.6
         fx.shake(head ? 0.07 : 0.045)
@@ -768,7 +779,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 if (time - predictedHitAt > 0.3 && time - (predictedFlinch.get(ev.z) ?? -10) > 1.5) {
                     hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
                     audio.play(ev.zone === 'head' ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
-                } else if (ev.zone === 'head' && hud.hitmarker.kind === 'hit') {
+                } else if (ev.zone === 'head' && hud.hitmarker.kind === 'hit' && time - predictedHeadAt > 0.3) {
+                    // we predicted a body hit and the server called it a headshot
                     audio.play(DF_SND.head, { volume: 0.5 })
                 }
                 break
@@ -1121,6 +1133,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             if (!killed) {
                 hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
                 audio.play(head ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
+                if (head) predictedHeadAt = time
             }
         }
         if (gun.mag <= 0) reloadEmptyPending = true
@@ -1215,7 +1228,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const shot = ++shotSeq
         const r = predictHit(best, DF_MELEE.damage * effects.meleeMult, zone, shot, true)
         predictPoints(shot, scalePoints(r.points))
-        hitPop({ x: best.pos.x, y: best.pos.y + 1.3, z: best.pos.z }, scalePoints(r.points), r.kill ? 'kill' : 'hit')
+        hitPop({ x: best.pos.x, y: best.pos.y + 1.3, z: best.pos.z }, scalePoints(r.points), r.kill ? (zone === 'head' ? 'head' : 'kill') : 'hit')
         net.send({ t: 'melee', z: best.id, zone, shot, kill: r.kill || undefined })
         predictedHitAt = time
         if (!r.kill) {
@@ -1337,8 +1350,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const held = input.has('KeyF')
         // revive is hold-to-act
         if (p?.action === 'revive' && held) {
-            if (reviveTarget !== p.pid) {
+            // walking up with F held can land the first request just out of the server's reach: keep asking
+            if (reviveTarget !== p.pid || now - reviveSentAt > 0.3) {
                 reviveTarget = p.pid ?? null
+                reviveSentAt = now
                 net.send({ t: 'revive', pid: reviveTarget })
             }
         } else if (reviveTarget !== null) {
@@ -1478,7 +1493,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (walk && input.pressed('Space')) player.queueJump(now)
         if (walk && input.pressed('Space') && player.crouched) player.wantsCrouch = false
         // a fresh sprint press over a held ADS lowers the sights so the sprint can start
-        const sprintWins = input.has('ShiftLeft') && !adsOverSprint && !player.tired && now >= sprintLockUntil && intent.fwd > 0
+        const sprintWins = life === 'alive' && input.has('ShiftLeft') && !adsOverSprint && !player.tired && now >= sprintLockUntil && intent.fwd > 0
         const wantsAds = walk && adsHeld && !player.sprinting && !sprintWins
         intent.ads = viewmodel.adsBlend
 
@@ -1656,7 +1671,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // send input at 20 Hz
         sendTimer += dt
         if (sendTimer >= 1 / SEND_HZ && spawned) {
-            sendTimer = 0
+            // keep the remainder: zeroing it sent every 3rd or 4th frame at 60 fps (~17 Hz, uneven)
+            sendTimer = Math.min(sendTimer - 1 / SEND_HZ, 0.5 / SEND_HZ)
             seq++
             let flags = 0
             if (player.crouched) flags |= DF_FLAG.crouch
@@ -2294,19 +2310,28 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const k = screenKey(screenPt)
             if (k === lastMarkKeys[i]) continue
             lastMarkKeys[i] = k
-            root.style.setProperty(`--df-mk${i}-x`, `${screenPt.x.toFixed(1)}px`)
-            root.style.setProperty(`--df-mk${i}-y`, `${screenPt.y.toFixed(1)}px`)
-            root.style.setProperty(`--df-mk${i}-on`, screenPt.onScreen ? '1' : '0')
-            root.style.setProperty(`--df-mk${i}-ang`, screenPt.angle.toFixed(3))
+            const mv = MARK_VARS[i]
+            if (!mv) continue
+            root.style.setProperty(mv[0], `${screenPt.x.toFixed(1)}px`)
+            root.style.setProperty(mv[1], `${screenPt.y.toFixed(1)}px`)
+            root.style.setProperty(mv[2], screenPt.onScreen ? '1' : '0')
+            root.style.setProperty(mv[3], screenPt.angle.toFixed(3))
         }
-        // hit points float over the zombie they came from
+        // hit points float over the zombie they came from (written only when they move a tenth of a pixel)
         for (const pop of hud.hitPops) {
+            const hv = HIT_POP_VARS[pop.slot]
+            if (!hv) continue
             tmpV.copy(hitPopAt[pop.slot]!).applyMatrix4(camera.matrixWorldInverse)
             const front = tmpV.z < -0.05
             const iz = front ? 1 / -tmpV.z : 0
-            root.style.setProperty(`--df-hp${pop.slot}-x`, `${((tmpV.x * PM[0]! * iz * 0.5 + 0.5) * cssW).toFixed(1)}px`)
-            root.style.setProperty(`--df-hp${pop.slot}-y`, `${((-tmpV.y * PM[5]! * iz * 0.5 + 0.5) * cssH).toFixed(1)}px`)
-            root.style.setProperty(`--df-hp${pop.slot}-on`, front ? '1' : '0')
+            const x = Math.round((tmpV.x * PM[0]! * iz * 0.5 + 0.5) * cssW * 10)
+            const y = Math.round((-tmpV.y * PM[5]! * iz * 0.5 + 0.5) * cssH * 10)
+            const k = (x * 100003 + y) * 2 + (front ? 1 : 0)
+            if (k === lastHitPopKeys[pop.slot]) continue
+            lastHitPopKeys[pop.slot] = k
+            root.style.setProperty(hv[0], `${(x / 10).toFixed(1)}px`)
+            root.style.setProperty(hv[1], `${(y / 10).toFixed(1)}px`)
+            root.style.setProperty(hv[2], front ? '1' : '0')
         }
         // waypoint
         if (wpHas) {
@@ -2335,7 +2360,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     input.onLockChange = (locked) => {
         // Escape at the workbench closes it: the browser drops the pointer lock on Escape, but that is no pause
         // (leaving the window, alt-tab, still pauses)
-        hud.benchEscaped = !locked && document.hasFocus() && (arsenal.shopOpen || hud.benchEscaped)
+        // Escape out of the chat box is no pause either
+        hud.benchEscaped = !locked && document.hasFocus() && (arsenal.shopOpen || hud.benchEscaped || input.typedJustNow)
         hud.locked = locked
         wasLocked = locked
         // solo: the pause menu (Escape) or a lost pointer lock (alt-tab) pauses the match; co-op keeps running

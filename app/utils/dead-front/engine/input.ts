@@ -26,6 +26,8 @@ export class DfInput {
     locked = false
     /** The chat box has the keyboard: keys are not game input. */
     typing = false
+    /** When the chat box last let go of the keyboard (ms). */
+    private typingEndedAt = -Infinity
     /** Keys and mouse look play on without the pointer lock (Escape closed the workbench): see `setPlaysUnlocked`. */
     private unlockedPlay = false
     private unlockedAt = 0
@@ -76,7 +78,8 @@ export class DfInput {
         })
         on(window, 'mousedown', (e: MouseEvent) => {
             this.onGesture?.()
-            if (!this.locked) return
+            // a click while typing only closes the chat box: it doesn't shoot
+            if (!this.locked || this.typing) return
             const code = `Mouse${e.button}`
             const fresh = !this.down.has(code)
             if (fresh) this.pressedSet.add(code)
@@ -89,7 +92,7 @@ export class DfInput {
             this.down.delete(code)
         })
         on(window, 'wheel', (e: WheelEvent) => {
-            if (!this.locked || Math.abs(e.deltaY) < 1) return
+            if (!this.locked || this.typing || Math.abs(e.deltaY) < 1) return
             // a notch with smooth scrolling, or a trackpad flick and its inertia, fires a burst
             // of events: count the burst once so it moves one weapon, not back and forth
             const fresh = e.timeStamp - this.wheelAt > WHEEL_GESTURE_GAP_MS
@@ -219,8 +222,14 @@ export class DfInput {
     }
 
     setTyping(on: boolean): void {
+        if (!on && this.typing) this.typingEndedAt = performance.now()
         this.typing = on
         if (on) this.clear()
+    }
+
+    /** The chat box has the keyboard, or just let go of it (Escape drops the box and the pointer lock together). */
+    get typedJustNow(): boolean {
+        return this.typing || performance.now() - this.typingEndedAt < 400
     }
 
     unlock(): void {

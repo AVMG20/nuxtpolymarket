@@ -116,7 +116,10 @@ function tick() {
     if (Math.round(t * 10) % 7 === 0) {
         const kill = Math.round(t * 10) % 21 === 0
         hud.hitmarker = { key: hud.hitmarker.key + 1, kind: kill ? (Math.round(t) % 2 ? 'head' : 'kill') : 'hit' }
-        if (kill) hud.killKey++
+        if (kill) {
+            hud.killHead = hud.hitmarker.kind === 'head'
+            hud.killKey++
+        }
         hud.popups.push({ id: ++popId, pid: 0, amount: kill ? 100 : 10, gold: false, dx: Math.random() * 2 - 1, born: t })
         hud.players[0]!.points += kill ? 100 : 10
     }

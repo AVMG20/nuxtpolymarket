@@ -52,7 +52,7 @@
             <Transition name="df-fade">
                 <div v-if="hud.ammoHint && hud.life !== 'dead' && !shopOpen" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
             </Transition>
-            <div v-if="hud.killKey > 0 && !shopOpen" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.hitmarker.kind === 'head' }">
+            <div v-if="hud.killKey > 0 && !shopOpen" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.killHead }">
                 <svg viewBox="0 0 7 7" width="21" height="21" shape-rendering="crispEdges" aria-hidden="true">
                     <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
                 </svg>
