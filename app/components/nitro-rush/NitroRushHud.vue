@@ -6,6 +6,8 @@ const props = defineProps<{
     hud: HudState
     /** The player's place on this track's leaderboard, once they have one. */
     rank: { rank: number, entries: number } | null
+    /** Other players driving this course right now, shown as live ghosts. */
+    racers?: number
     isTouch: boolean
 }>()
 defineEmits<{ pause: [], nitro: [] }>()
@@ -31,6 +33,7 @@ const nitroFull = computed(() => !props.hud.nitroActive && props.hud.nitro >= 1)
         <div class="nr-label">SESSION BEST</div>
         <div class="nr-total tabular-nums">{{ lapTimeOrBlank(hud.sessionBest) }}</div>
         <div v-if="rank" class="nr-label tabular-nums">RANK <span class="nr-mono">#{{ rank.rank }}<span class="text-white/50"> / {{ rank.entries }}</span></span></div>
+        <div v-if="racers" class="nr-label tabular-nums"><span class="nr-mono">{{ racers }}</span> RACING</div>
       </div>
     </div>
 

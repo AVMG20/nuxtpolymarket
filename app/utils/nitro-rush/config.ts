@@ -95,16 +95,4 @@ export const NIGHT: Theme = {
     fog: 0x0d0e16, fogDensity: 0.0022, lamp: 0xffd2a0, hemiSky: 0x4a5070, hemiGround: 0x0c0a0a, hemi: 0.4, sun: 0x9fb4ff, sunIntensity: 0.35, sunHeight: 60, env: 1.7, wet: 0.8
 }
 
-export const PAINTS = [
-    { id: 'hotpink', label: 'Rosso', color: 0xc40a2c },
-    { id: 'cyan', label: 'Estoril Blue', color: 0x0b5fc4 },
-    { id: 'lime', label: 'Verde Mantis', color: 0x6fb80c },
-    { id: 'gold', label: 'Giallo', color: 0xf0a800 },
-    { id: 'violet', label: 'Viola', color: 0x4e2380 },
-    { id: 'white', label: 'Bianco', color: 0xeeeeee }
-] as const
-
-export type PaintId = typeof PAINTS[number]['id']
-
-/** An unknown id (a stale stored choice) falls back to the first paint. */
-export const findPaint = (id: string) => PAINTS.find(p => p.id === id) ?? PAINTS[0]
+export { findPaint, PAINTS, type PaintId } from '#shared/utils/nitro-rush/paints'
