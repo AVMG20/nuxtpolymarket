@@ -127,6 +127,8 @@ export interface DfHudState {
     ping: number
     connection: 'ok' | 'reconnecting' | 'lost'
     locked: boolean
+    /** Escape closed the workbench: the browser dropped the pointer lock, but that is no pause (a click plays on). */
+    benchEscaped: boolean
     started: boolean
     spectating: string | null
     chat: { id: number, name: string, text: string, born: number }[]
@@ -315,6 +317,7 @@ export function dfCreateHudState(): DfHudState {
         ping: 0,
         connection: 'ok',
         locked: false,
+        benchEscaped: false,
         started: false,
         spectating: null,
         chat: [],

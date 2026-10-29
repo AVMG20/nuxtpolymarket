@@ -5,6 +5,10 @@
 const WHEEL_GESTURE_GAP_MS = 140
 /** Scroll distance (px) per shop step: a wheel notch, or a stretch of trackpad scroll. */
 const SCROLL_STEP_PX = 100
+/** Chrome refuses a new pointer lock this long (ms) after the user escaped one (1250 ms, plus a margin). */
+const ESCAPE_COOLDOWN_MS = 1300
+/** Gap (ms) between attempts to take the pointer back during unlocked play. */
+const RELOCK_RETRY_MS = 400
 
 export class DfInput {
     readonly down = new Set<string>()
@@ -22,12 +26,12 @@ export class DfInput {
     locked = false
     /** The chat box has the keyboard: keys are not game input. */
     typing = false
+    /** Keys and mouse look play on without the pointer lock (Escape closed the workbench): see `setPlaysUnlocked`. */
+    private unlockedPlay = false
+    private unlockedAt = 0
+    private relockTriedAt = -Infinity
+    private relockTimer: ReturnType<typeof setTimeout> | null = null
     onLockChange: ((locked: boolean) => void) | null = null
-    /**
-     * The pointer was let go for a menu (the workbench shop) so Escape reaches
-     * the page instead of the browser eating it: the game still counts as locked.
-     */
-    private freed = false
     /** Development hook: a faked lock ignores real pointer-lock changes. */
     private devLocked = false
     /** Fired on every user gesture (audio unlock). */
@@ -49,7 +53,9 @@ export class DfInput {
         }
         on(window, 'keydown', (e: KeyboardEvent) => {
             this.onGesture?.()
-            if (!this.locked || this.typing) return
+            if ((!this.locked && !this.unlockedPlay) || this.typing) return
+            // a key press is a user gesture: the moment to take the pointer back
+            if (this.unlockedPlay && !this.locked && e.code !== 'Escape') this.relock()
             // keep the browser from scrolling / opening find etc. while playing
             if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'Quote' || e.code === 'Slash' || (e.ctrlKey && e.code === 'KeyW')) e.preventDefault()
             if (e.repeat) return
@@ -61,7 +67,8 @@ export class DfInput {
             this.down.delete(e.code)
         })
         on(window, 'mousemove', (e: MouseEvent) => {
-            if (!this.locked || this.freed) return
+            // unlocked play turns with the (hidden) cursor's movement until the lock is back
+            if (!this.locked && !this.unlockedPlay) return
             // ignore the occasional huge spike some browsers report on lock
             if (Math.abs(e.movementX) > 600 || Math.abs(e.movementY) > 600) return
             this.mouseX += e.movementX
@@ -100,25 +107,18 @@ export class DfInput {
         on(window, 'contextmenu', (e: Event) => {
             if (this.locked) e.preventDefault()
         })
-        on(window, 'blur', () => {
-            if (this.freed) this.drop()
-            this.clear()
-        })
+        on(window, 'blur', () => this.clear())
         on(document, 'pointerlockchange', () => {
             if (this.devLocked) return
             const locked = document.pointerLockElement === this.el
-            if (this.freed) {
-                if (locked) this.freed = false
-                return
-            }
             if (locked === this.locked) return
             this.locked = locked
-            if (!locked) this.clear()
             this.onLockChange?.(locked)
+            // keys held through an Escape that keeps them playing stay down
+            if (!locked) this.clear(this.unlockedPlay)
         })
         on(document, 'pointerlockerror', () => {
-            if (this.freed) this.drop()
-            else this.onLockChange?.(false)
+            this.onLockChange?.(false)
         })
     }
 
@@ -183,34 +183,48 @@ export class DfInput {
         this.mouseY += dy
     }
 
+    get playsUnlocked(): boolean {
+        return this.unlockedPlay
+    }
+
+    /**
+     * Keys and mouse look play on without the pointer lock (Escape closed the
+     * workbench, and the browser takes Escape to drop the lock). The lock comes
+     * back by itself as soon as the browser allows it: past its Escape cooldown,
+     * with a recent key press or click (the browser asks for a user gesture).
+     */
+    setPlaysUnlocked(on: boolean): void {
+        if (on === this.unlockedPlay) return
+        this.unlockedPlay = on
+        if (this.relockTimer) clearTimeout(this.relockTimer)
+        this.relockTimer = null
+        if (!on) return
+        this.unlockedAt = performance.now()
+        const tick = () => {
+            this.relockTimer = null
+            if (!this.unlockedPlay || this.locked) return
+            this.relock()
+            this.relockTimer = setTimeout(tick, RELOCK_RETRY_MS)
+        }
+        this.relockTimer = setTimeout(tick, ESCAPE_COOLDOWN_MS)
+    }
+
+    /** One attempt to take the pointer back during unlocked play, when the browser would allow it. */
+    private relock(): void {
+        const now = performance.now()
+        if (now - this.unlockedAt < ESCAPE_COOLDOWN_MS || now - this.relockTriedAt < RELOCK_RETRY_MS) return
+        if (navigator.userActivation && !navigator.userActivation.isActive) return
+        this.relockTriedAt = now
+        this.lock()
+    }
+
     setTyping(on: boolean): void {
         this.typing = on
         if (on) this.clear()
     }
 
     unlock(): void {
-        if (this.freed) this.drop()
         if (document.pointerLockElement === this.el) document.exitPointerLock()
-    }
-
-    /** Lets the pointer go for a menu without counting as unlocked (no pause), so Escape arrives as a key. */
-    release(): void {
-        if (this.freed || document.pointerLockElement !== this.el) return
-        this.freed = true
-        document.exitPointerLock()
-    }
-
-    /** Takes the pointer back after `release()`; the browser allows it without a click, and a refusal unlocks as usual. */
-    retake(): void {
-        if (this.freed) this.lock()
-    }
-
-    /** A released pointer that won't come back: unlocked after all. */
-    private drop(): void {
-        this.freed = false
-        this.locked = false
-        this.clear()
-        this.onLockChange?.(false)
     }
 
     has(code: string): boolean {
@@ -244,12 +258,17 @@ export class DfInput {
         this.scroll = 0
     }
 
-    clear(): void {
-        for (const c of this.down) this.releasedSet.add(c)
-        this.down.clear()
+    /** Lets go of every held key and button (only the buttons with `buttonsOnly`). */
+    clear(buttonsOnly = false): void {
+        for (const c of this.down) {
+            if (buttonsOnly && !c.startsWith('Mouse')) continue
+            this.releasedSet.add(c)
+            this.down.delete(c)
+        }
     }
 
     dispose(): void {
+        this.setPlaysUnlocked(false)
         for (const f of this.off) f()
         this.off.length = 0
         this.unlock()

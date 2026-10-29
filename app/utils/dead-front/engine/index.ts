@@ -71,6 +71,8 @@ export interface DfEngine {
     /** Request pointer lock (from a click). */
     lock(): void
     unlock(): void
+    /** Escape after Escape closed the workbench: now it is the pause. */
+    pause(): void
     /** Chat box open: the keyboard types instead of playing (held keys are let go). */
     setTyping(on: boolean): void
     applySettings(s: DfSettings): void
@@ -1382,7 +1384,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** Turns the mouse movement gathered so far into yaw / pitch (no smoothing, no acceleration). */
     function applyLook(): void {
         input.takeLook(lookIn)
-        if (!input.locked || (lookIn.x === 0 && lookIn.y === 0)) return
+        if ((!input.locked && !input.playsUnlocked) || (lookIn.x === 0 && lookIn.y === 0)) return
         // the view holds still while the workbench shop is open
         if (arsenal.shopOpen) return
         frameLook.x += lookIn.x
@@ -1444,14 +1446,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             wasLocked = locked
             hud.locked = locked
         }
+        // after Escape closed the workbench the game plays on until the pointer lock is back
+        const playing = locked || input.playsUnlocked
         // look: raw, unsmoothed, applied this frame
         applyLook()
-        vmInput.look.x = locked ? frameLook.x : 0
-        vmInput.look.y = locked ? frameLook.y : 0
-        hud.scoreboard = locked && input.has('Tab')
+        vmInput.look.x = playing ? frameLook.x : 0
+        vmInput.look.y = playing ? frameLook.y : 0
+        hud.scoreboard = playing && input.has('Tab')
 
         const alive = life !== 'dead'
-        const canAct = locked && alive && spawned
+        const canAct = playing && alive && spawned
         // the open workbench shop holds the player still (WASD browse it)
         const shop = arsenal.shopOpen
         const walk = canAct && !shop
@@ -2329,10 +2333,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     input.onGesture = () => audio.unlock()
     input.onPress = onTriggerEvent
     input.onLockChange = (locked) => {
+        // Escape at the workbench closes it: the browser drops the pointer lock on Escape, but that is no pause
+        // (leaving the window, alt-tab, still pauses)
+        hud.benchEscaped = !locked && document.hasFocus() && (arsenal.shopOpen || hud.benchEscaped)
         hud.locked = locked
         wasLocked = locked
         // solo: the pause menu (Escape) or a lost pointer lock (alt-tab) pauses the match; co-op keeps running
-        if (solo && spawned) sendPause(!locked)
+        input.setPlaysUnlocked(hud.benchEscaped)
+        if (solo && spawned && !hud.benchEscaped) sendPause(!locked)
         if (locked) audio.unlock()
         if (!locked && reviveTarget !== null) {
             reviveTarget = null
@@ -2588,6 +2596,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         lock() {
             audio.unlock()
             input.lock()
+        },
+        pause() {
+            hud.benchEscaped = false
+            input.setPlaysUnlocked(false)
+            input.clear()
+            if (solo && spawned) sendPause(true)
         },
         unlock() {
             input.unlock()

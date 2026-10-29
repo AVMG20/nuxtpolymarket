@@ -169,7 +169,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
     const callout = (title: string, sub: string, tone: 'gold' | 'red' | 'pale' = 'gold') => o.announce(title, sub, tone)
 
     function closeShop(): void {
-        if (shop) input.retake()
         shop = false
         benchAt = null
         holdProgress = 0
@@ -204,7 +203,6 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 if (!shop) {
                     if (input.pressed('KeyF')) {
                         shop = true
-                        input.release()
                         ctx.audio.play(DF_SND.reviveTick, { volume: 0.8, rate: 0.9 })
                     }
                 } else if (SHOP_LEAVE.some(k => input.pressed(k))) {
@@ -344,7 +342,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 const sk = mine.support.join(',')
                 if (a.support.map(r => r.id).join(',') !== sk) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
             }
-            // the shop while it is open (losing the pointer lock, say to alt-tab, closes it too)
+            // the shop while it is open (Esc drops the pointer lock, and that closes it too)
             if (shop && (!meP || !input.locked)) closeShop()
             if (shop && meP && world && lastBench) {
                 const items = dfBenchList({ world: world!, me: meP! }, pick)
