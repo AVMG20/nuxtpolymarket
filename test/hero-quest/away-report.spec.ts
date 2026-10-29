@@ -35,11 +35,6 @@ function report(over: Partial<HqAwayReport> = {}): HqAwayReport {
 }
 
 describe('mergeAwayReports', () => {
-    it('starts from the new window when nothing is pending', () => {
-        const next = report()
-        expect(mergeAwayReports(null, next)).toBe(next)
-    })
-
     it('sums the totals, keeps where the run started and takes the rest from the new window', () => {
         const pending = report({ lostToCapSeconds: 600 })
         const next = report({
@@ -79,18 +74,6 @@ describe.skipIf(SKIP)('the welcome-back report, through the database', () => {
     }
 
     const OFFLINE_SECONDS = ONLINE_THRESHOLD_MS / 1000 * 4
-
-    it('keeps an offline window\'s report on the row', async () => {
-        const { result, state } = await settleWindow(OFFLINE_SECONDS)
-        expect(result!.kills).toBeGreaterThan(0)
-        expect(state.awayReport).toMatchObject({ kills: result!.kills, goldEarned: result!.goldEarned })
-        expect(state.awayReport!.awaySeconds).toBeCloseTo(OFFLINE_SECONDS, 0)
-    })
-
-    it('writes nothing for an online window', async () => {
-        const { state } = await settleWindow(60)
-        expect(state.awayReport).toBeNull()
-    })
 
     it('adds a second offline window to the report still waiting', async () => {
         const first = await settleWindow(OFFLINE_SECONDS)

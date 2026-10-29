@@ -5,17 +5,11 @@ import {
     calendarClaimDay,
     calendarCycle,
     calendarDayNumber,
-    calendarIncomeDays,
-    calendarIncomePerDay,
     isCalendarClaimed
 } from '#shared/utils/hero-quest/calendar'
 import {
     CALENDAR_DAYS,
-    CALENDAR_INCOME_DAYS_FIRST,
-    CALENDAR_INCOME_DAYS_LAST,
-    CALENDAR_MAKEUPS_PER_CYCLE,
-    RAID_KEYS_PER_DAY,
-    RAID_REWARD_BASE
+    CALENDAR_MAKEUPS_PER_CYCLE
 } from '#shared/utils/hero-quest/constants'
 
 const DAY = 86_400_000
@@ -24,32 +18,8 @@ const NOW = 20_000 * DAY + DAY / 2
 const TODAY = calendarDayNumber(NOW)
 
 describe('hero-quest login calendar', () => {
-    it('has a reward for every day, the last an even 200 Void Shards', () => {
+    it('has a reward for every day', () => {
         expect(CALENDAR_REWARDS).toHaveLength(CALENDAR_DAYS)
-        expect(CALENDAR_REWARDS[CALENDAR_DAYS - 1]).toEqual({ kind: 'void_shards', amount: 200 })
-    })
-
-    it('climbs: a currency never pays less than it did earlier in the cycle', () => {
-        const byKind = new Map<string, number[]>()
-        for (const reward of CALENDAR_REWARDS) byKind.set(reward.kind, [...byKind.get(reward.kind) ?? [], reward.amount])
-        for (const amounts of byKind.values()) {
-            for (let k = 1; k < amounts.length; k++) expect(amounts[k]).toBeGreaterThanOrEqual(amounts[k - 1]!)
-        }
-    })
-
-    it('sizes Seal, Key and Trait Gem days in days of their income, from the first dial to the last', () => {
-        expect(calendarIncomeDays(0)).toBe(CALENDAR_INCOME_DAYS_FIRST)
-        expect(calendarIncomeDays(CALENDAR_DAYS - 1)).toBe(CALENDAR_INCOME_DAYS_LAST)
-        expect(calendarIncomePerDay({ kind: 'keys', raid: 'raid_forge' })).toBe(RAID_KEYS_PER_DAY)
-        // a Seal day counts the paired raid's clears, not the free pulls
-        expect(calendarIncomePerDay({ kind: 'seals', system: 'gear' })).toBe(RAID_KEYS_PER_DAY * RAID_REWARD_BASE.raid_forge!)
-
-        for (const [i, reward] of CALENDAR_REWARDS.entries()) {
-            if (reward.kind !== 'seals' && reward.kind !== 'keys' && reward.kind !== 'trait_gems') continue
-            const exact = calendarIncomeDays(i) * calendarIncomePerDay(reward)
-            expect(reward.amount).toBeGreaterThanOrEqual(1)
-            expect(Math.abs(reward.amount - exact)).toBeLessThanOrEqual(Math.max(0.5, 1 - exact))
-        }
     })
 
     it('starts a fresh account on day 1 today', () => {

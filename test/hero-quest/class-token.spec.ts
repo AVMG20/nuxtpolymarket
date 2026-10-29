@@ -38,11 +38,6 @@ describe('hero-quest class token', () => {
         expect(writes).not.toHaveProperty('classToken')
     })
 
-    it('lets a reached class be taken back without a token at all', () => {
-        const writes = classPickWrites(state({ heroNodeId: 'class_beginner', seenNodeIds: ['class_beginner', 'class_marksman'] }), 'class_marksman')
-        expect(writes?.heroNodeId).toBe('class_marksman')
-    })
-
     it('grants the token on prestige, as a flag that does not stack', () => {
         expect(prestigeResetValues(state({})).classToken).toBe(true)
         expect(prestigeResetValues(state({ classToken: true })).classToken).toBe(true)

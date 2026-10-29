@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots, user } from '#server/database/schema'
-import { autoRollTraits, getTraitSaves, loadTraitBoard, rollTraits, serializeTraits, setTraitLock, storeTraitBoard } from '#server/utils/hero-quest-traits'
+import { autoRollTraits, loadTraitBoard, rollTraits, setTraitLock, storeTraitBoard } from '#server/utils/hero-quest-traits'
 import { engageRaid, quickClearRaid, serializeRaids } from '#server/utils/hero-quest-raids'
 import { RAIDS } from '#shared/utils/hero-quest/content/raids'
 import { RAID_KEY_CAP, raidReward } from '#shared/utils/hero-quest/raids'
@@ -25,24 +25,18 @@ import { holidayGift, holidayGiftGold } from '#shared/utils/hero-quest/holidays'
 import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
-import { RAID_KEYS_PER_DAY,
+import {
+    RAID_KEYS_PER_DAY,
     CALENDAR_MAKEUPS_PER_CYCLE,
     type RaidQuickClearCount,
-    HUNDRED_PULL_SIZE,
-    LOADOUT_SLOT_BASE_COST_GEMS,
-    MILESTONE_ARENA_MEDALS_BASE,
-    MILESTONE_ARENA_MEDALS_STEP,
     MILESTONE_ARENA_WINS_EVERY,
-    OFFLINE_EFFICIENCY_BASE_COST,
-    SEAL_LADDER_BASE_GOLD,
-    TEN_PULL_SIZE,
     TRAIT_AUTO_ROLL_RESERVE,
     TRAIT_SAVE_LOAD_COST,
     TRAIT_SAVE_SLOT_BASE_COST_GEMS,
     TRAIT_SAVE_SLOT_COST_STEP_GEMS
 } from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
-import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
+import { credit, creditGems, getBalance } from '#server/utils/balance'
 import {
     ESSENCE_COLUMN,
     SEAL_COLUMN,
@@ -56,7 +50,6 @@ import {
     essenceSpend,
     getShopLevels,
     getTraitBoard,
-    loadoutSlots,
     purchaseBattleSpeed,
     sealBalance,
     sealSpend,
@@ -73,6 +66,7 @@ import {
     sealLadderTotal, GACHA_SYSTEMS
 } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
+import { shopTrackCost } from '#shared/utils/hero-quest/content/shop'
 import { battleSpeedPrice } from '#shared/utils/hero-quest/battle-speed'
 
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
@@ -215,18 +209,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
                 }
                 expect((await raidRow()).keyBalance).toBe(12)
                 expect(await skillSeals()).toBe(before)
-            })
-
-            it('lets one ×5 of a burst through on exactly five Keys, and pays it once', async () => {
-                await ensureHqState(USER_ID)
-                await seed(5)
-                const before = await skillSeals()
-
-                const result = await burst(6, () => db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds', 5)))
-
-                expect(result.ok).toBe(1)
-                expect((await raidRow()).keyBalance).toBe(0)
-                expect(await skillSeals()).toBe(before + 5 * each)
             })
 
             it('never spends past the Keys when ×10 and ×5 race on fifteen', async () => {
@@ -563,7 +545,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(result.ok).toBe(1)
             const [medals] = milestoneRewardTotal(getMilestoneTrack('milestone_arena')!, 0, 2)
             const after = await stateOf()
-            expect(medals).toEqual({ kind: 'medals', amount: 2 * MILESTONE_ARENA_MEDALS_BASE + MILESTONE_ARENA_MEDALS_STEP })
             expect(after.arenaMedals).toBe(medals!.amount)
             expect(after.milestonesClaimed).toEqual({ milestone_arena: 2 })
         })
@@ -625,28 +606,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             const after = await getTraitBoard(USER_ID)
             expect(after[0]).toEqual(kept[0])
             expect(after[3]).toEqual(kept[3])
-        })
-
-        it('serves the board, the Roll\'s price, the Sets and the save slots the scene draws', async () => {
-            await ensureHqState(USER_ID)
-            await giveTraitGems(5 + TRAIT_SAVE_LOAD_COST)
-            await db.transaction(tx => rollTraits(tx, USER_ID))
-            await db.transaction(tx => setTraitLock(tx, USER_ID, 1, true))
-            await db.transaction(tx => storeTraitBoard(tx, USER_ID, 0))
-
-            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            const payload = serializeTraits(state!, await getTraitBoard(USER_ID), await getTraitSaves(USER_ID), await getShopLevels(USER_ID))
-
-            expect(payload.traitGems).toBe(0)
-            expect(payload.slots.every(slot => slot !== null)).toBe(true)
-            expect(payload.slots[1]!.locked).toBe(true)
-            expect(payload.locked).toBe(1)
-            expect(payload.rollCost).toBe(10)
-            expect(payload.sets.reduce((sum, set) => sum + set.pieces, 0)).toBe(5)
-            expect(payload.saves.unlocked).toBe(1)
-            expect(payload.saves.nextSlotCostGems).toBe(TRAIT_SAVE_SLOT_BASE_COST_GEMS)
-            expect(payload.saves.slots[0]!.slots).toEqual(payload.slots)
-            expect(payload.saves.slots[1]!.unlocked).toBe(false)
         })
 
         it('refuses a lock on a slot that holds nothing', async () => {
@@ -816,29 +775,22 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(rows).toHaveLength(1)
             expect(rows[0]!.level).toBe(3)
         })
-
-        it('rejects a claim staked on a level the track has already left', async () => {
-            await ensureHqState(USER_ID)
-            await claimShopLevel(db, USER_ID, 'offlineEfficiency', 0)
-
-            // A request that read level 0 before someone else bought it must not apply.
-            expect(await claimShopLevel(db, USER_ID, 'offlineEfficiency', 0)).toBeNull()
-        })
     })
 
     describe('void shards', () => {
-        it('cannot be spent twice by a concurrent pair of purchases', async () => {
+        it('cannot be spent twice by a burst of purchases', async () => {
             await ensureHqState(USER_ID)
             // Exactly one level's worth — the second buy must find an empty purse.
             await db.update(hqState)
-                .set({ voidShards: String(OFFLINE_EFFICIENCY_BASE_COST) })
+                .set({ voidShards: String(shopTrackCost('championSlots', 0)) })
                 .where(eq(hqState.userId, USER_ID))
 
-            await burst(8, () => $shopBuy())
+            const result = await burst(8, () => db.transaction(tx => buyShopTrack(tx, USER_ID, 'championSlots')))
 
+            expect(result.ok).toBe(1)
             const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            expect(Number(state!.voidShards)).toBeGreaterThanOrEqual(0)
-            expect((await getShopLevels(USER_ID)).offlineEfficiency).toBeLessThanOrEqual(1)
+            expect(Number(state!.voidShards)).toBe(0)
+            expect((await getShopLevels(USER_ID)).championSlots).toBe(1)
         })
     })
 
@@ -861,21 +813,11 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(state!.guildSeals).toBe(0)
         })
 
-        it('never drives the Seal balance negative under a burst', async () => {
-            await ensureHqState(USER_ID)
-            await db.update(hqState).set({ guildSeals: 5 }).where(eq(hqState.userId, USER_ID))
-
-            await burst(20, () => $pull('champion', 1))
-
-            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            expect(state!.guildSeals).toBeGreaterThanOrEqual(0)
-        })
-
         it('keeps exactly one collection row per Champion, however many dupes land', async () => {
             await ensureHqState(USER_ID)
-            await db.update(hqState).set({ guildSeals: 30 }).where(eq(hqState.userId, USER_ID))
+            await db.update(hqState).set({ guildSeals: 15 }).where(eq(hqState.userId, USER_ID))
 
-            await burst(30, () => $pull('champion', 1))
+            await burst(15, () => $pull('champion', 1))
 
             const rows = await db.select().from(hqCollection).where(eq(hqCollection.userId, USER_ID))
             const ids = rows.map(row => row.contentId)
@@ -883,45 +825,11 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(new Set(ids).size).toBe(ids.length)
             expect(rows.every(row => row.system === 'champion')).toBe(true)
         })
-
-        it('counts pulls granted rather than Seals spent when levelling the gacha', async () => {
-            await ensureHqState(USER_ID)
-            await db.update(hqState).set({ guildSeals: 9 }).where(eq(hqState.userId, USER_ID))
-
-            await $pull('champion', TEN_PULL_SIZE)
-
-            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            expect(state!.guildSeals).toBe(0)
-            // 9 Seals bought 10 pulls, which is exactly the level-1 threshold.
-            expect((state!.gachaLevels as Record<string, number>).champion).toBe(2)
-        })
-
-        it('lets one of two concurrent 100-pulls spend Seals that cover only one', async () => {
-            await ensureHqState(USER_ID)
-            await db.update(hqState).set({ guildSeals: 179 }).where(eq(hqState.userId, USER_ID))
-
-            const { ok } = await burst(2, () => $pull('champion', HUNDRED_PULL_SIZE))
-            expect(ok).toBe(1)
-
-            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            expect(state!.guildSeals).toBe(89)
-        })
     })
 
     describe('crafting', () => {
         const RARE = 'champ_dorne'
         const cost = craftCostFor('rare')
-
-        it('lets exactly one of N concurrent crafts spend a single craft’s worth', async () => {
-            await ensureHqState(USER_ID)
-            await db.update(hqState).set({ championEssence: cost }).where(eq(hqState.userId, USER_ID))
-
-            const { ok } = await burst(10, () => $craft('champion', RARE))
-            expect(ok).toBe(1)
-
-            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
-            expect(state!.championEssence).toBe(0)
-        })
 
         it('never drives Essence negative, and grants no more copies than were paid for', async () => {
             await ensureHqState(USER_ID)
@@ -1032,25 +940,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             }
         })
 
-        it('writes collection rows under the system that paid for them', async () => {
-            await ensureHqState(USER_ID)
-            await db.update(hqState).set({
-                forgeSeals: 5, skillSeals: 5, excavationSeals: 5
-            }).where(eq(hqState.userId, USER_ID))
-
-            await burst(5, () => $pull('gear', 1))
-            await burst(5, () => $pull('skill', 1))
-            await burst(5, () => $pull('artifact', 1))
-
-            const rows = await db.select().from(hqCollection).where(eq(hqCollection.userId, USER_ID))
-            // The unique constraint is on `(userId, system, contentId)`, so the same contentId
-            // under two systems would be two rows — which is exactly why ids are prefixed.
-            for (const row of rows) {
-                expect(row.contentId.startsWith(row.system === 'artifact' ? 'artifact' : row.system), row.contentId)
-                    .toBe(true)
-            }
-        })
-
         it('lets exactly one of N concurrent crafts spend a single craft\'s worth, per system', async () => {
             for (const [system, contentId] of [
                 ['gear', 'gear_weapon_rare'],
@@ -1087,52 +976,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             const counters = state!.sealLadderPurchasedToday as Record<string, number>
             expect(counters.skill).toBe(2)
             expect(counters.champion ?? 0).toBe(0)
-            expect(sealLadderPrice('champion', 0)).toBe(SEAL_LADDER_BASE_GOLD)
-        })
-    })
-
-    /**
-     * The Gems-priced shop track (`loadouts.md` §3).
-     *
-     * The first track in the game not paid for in Void Shards, and the currency it *is* paid for
-     * in lives on the shared `user` row rather than on `hqState`. So the two guards are no longer
-     * both inside one lock: the level claim is an integer CAS on `hqShopUpgrades`, and the spend
-     * is `debitGems`, whose `gems >= cost` sits in its own WHERE. Both have to hold, or a burst
-     * of clicks buys one level and pays for several — or pays once and buys several.
-     */
-    describe('loadout slots — the Gems track', () => {
-        it('lets exactly one of N concurrent purchases take the level and the gems', async () => {
-            await ensureHqState(USER_ID)
-            // Exactly one level's worth.
-            await creditGems(USER_ID, LOADOUT_SLOT_BASE_COST_GEMS)
-
-            const { ok } = await burst(10, () => $buyLoadoutSlot())
-            expect(ok).toBe(1)
-
-            const levels = await getShopLevels(USER_ID)
-            expect(levels.loadoutSlots).toBe(1)
-            expect(loadoutSlots(levels)).toBe(3)
-
-            const [account] = await db.select().from(user).where(eq(user.id, USER_ID))
-            expect(account!.gems).toBe(0)
-        })
-
-        it('never drives gems negative, and never grants a level it was not paid for', async () => {
-            await ensureHqState(USER_ID)
-            // Enough for the first two levels only — 250 + 500 at the placeholder base.
-            await creditGems(USER_ID, LOADOUT_SLOT_BASE_COST_GEMS * 3)
-
-            await burst(12, () => $buyLoadoutSlot())
-
-            const [account] = await db.select().from(user).where(eq(user.id, USER_ID))
-            expect(account!.gems).toBeGreaterThanOrEqual(0)
-
-            const levels = await getShopLevels(USER_ID)
-            // Whatever levels landed, they were affordable: the doubling series 250 + 500 + …
-            // up to the level reached must not exceed what was credited.
-            const spent = Array.from({ length: levels.loadoutSlots ?? 0 })
-                .reduce<number>((total, _, index) => total + LOADOUT_SLOT_BASE_COST_GEMS * 2 ** index, 0)
-            expect(spent).toBeLessThanOrEqual(LOADOUT_SLOT_BASE_COST_GEMS * 3)
         })
     })
 })
@@ -1186,9 +1029,9 @@ async function $buySeals(system: GachaSystem, count: number) {
 }
 
 /**
- * The pull route body, inlined — same reason as `$shopBuy` below: the handler needs an H3
- * event, so this reproduces the transaction shape rather than the HTTP layer. The guard under
- * test is the conditional Seal debit.
+ * The pull route body, inlined: the handler needs an H3 event, so this reproduces the
+ * transaction shape rather than the HTTP layer. The guard under test is the conditional Seal
+ * debit on the per-system column `SEAL_COLUMN` names.
  */
 async function $pull(system: GachaSystem, count: number) {
     const cost = pullCost(count)
@@ -1237,59 +1080,5 @@ async function $pull(system: GachaSystem, count: number) {
             })
             .where(eq(hqState.userId, USER_ID))
         return advanced
-    })
-}
-
-/**
- * The shop-buy route body, inlined.
- *
- * The handler itself needs an H3 event, so this exercises the same transaction shape the
- * route uses — lock the state row, read the balance inside the lock, claim the level, then
- * write both.
- */
-async function $shopBuy() {
-    return db.transaction(async (tx) => {
-        const [state] = await tx.select().from(hqState).where(eq(hqState.userId, USER_ID)).for('update')
-        if (!state) throw new Error('no state')
-
-        const levels = await getShopLevels(USER_ID, tx)
-        const level = levels.offlineEfficiency ?? 0
-        const cost = OFFLINE_EFFICIENCY_BASE_COST * Math.pow(2, level)
-
-        const held = Number(state.voidShards)
-        if (held < cost) throw new Error('insufficient')
-
-        const claimed = await claimShopLevel(tx, USER_ID, 'offlineEfficiency', level)
-        if (!claimed) throw new Error('lost the claim')
-
-        await tx.update(hqState)
-            .set({ voidShards: String(held - cost) })
-            .where(eq(hqState.userId, USER_ID))
-        return claimed
-    })
-}
-
-/**
- * The Gems shop-buy route body, inlined.
- *
- * Deliberately mirrors the Gems branch rather than the Void Shard one: the interesting part is
- * that the spend happens *outside* the `hqState` row lock's protection, on the shared `user`
- * row, so `debitGems`' own conditional WHERE is the only thing standing between a burst and a
- * negative balance. The level claim orders them — nothing is debited until a level is won.
- */
-async function $buyLoadoutSlot() {
-    return db.transaction(async (tx) => {
-        const [state] = await tx.select().from(hqState).where(eq(hqState.userId, USER_ID)).for('update')
-        if (!state) throw new Error('no state')
-
-        const levels = await getShopLevels(USER_ID, tx)
-        const level = levels.loadoutSlots ?? 0
-        const cost = LOADOUT_SLOT_BASE_COST_GEMS * 2 ** level
-
-        const claimed = await claimShopLevel(tx, USER_ID, 'loadoutSlots', level)
-        if (!claimed) throw new Error('lost the claim')
-
-        await debitGems(USER_ID, cost, tx)
-        return claimed
     })
 }

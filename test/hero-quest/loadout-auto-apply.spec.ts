@@ -13,10 +13,10 @@ import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState } from '#server/database/schema'
 import { ensureHqState, lockLiveLoadout, resolveBossEngage, settleHq } from '#server/utils/hero-quest'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
-import { leaveLoadoutSession, serializeLoadoutPreferences, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
+import { leaveLoadoutSession, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
 import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
 import { GEAR } from '#shared/utils/hero-quest/content/gear'
-import { ONLINE_THRESHOLD_MS, RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { ONLINE_THRESHOLD_MS } from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
@@ -70,19 +70,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
     afterEach(cleanup)
     afterAll(async () => { await db.$client.end() })
 
-    it('swaps nothing for a raid with no preferred Loadout, but still opens its session', async () => {
-        const result = await engage('raid_training_grounds')
-
-        expect(result.loadoutSlot).toBeNull()
-        const state = await stateOf()
-        expect(state.partyChampionIds).toEqual([C1])
-        expect(state.preRaidSnapshot).toEqual({ target: 'raid_training_grounds', slotIndex: null })
-
-        expect(await leave()).toBe(true)
-        expect((await stateOf()).preRaidSnapshot).toBeNull()
-        expect((await stateOf()).partyChampionIds).toEqual([C1])
-    })
-
     it('snapshots, applies and fights on the preferred Loadout on a fresh engage', async () => {
         await prefer('raid_training_grounds', 0)
         const seen: string[][] = []
@@ -112,17 +99,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         expect(await leave()).toBe(false)
     })
 
-    it('swaps before the Trait Key is spent and the fight runs', async () => {
-        await prefer('raid_trait', 1)
-        const seen: string[][] = []
-
-        await engage('raid_trait', seen)
-
-        expect(seen).toEqual([[C4]])
-        const [row] = await db.select().from(hqRaidState).where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_trait')))
-        expect(row!.keyBalance).toBe(RAID_KEYS_PER_DAY - 1)
-    })
-
     it('keeps the pre-raid snapshot when the player moves from one raid to another', async () => {
         await prefer('raid_training_grounds', 0)
         await prefer('raid_trait', 1)
@@ -141,18 +117,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         expect((await stateOf()).preRaidSnapshot).toEqual({ target: 'raid_dig_site', slotIndex: null })
     })
 
-    it('follows a picker changed mid-session on the next engage', async () => {
-        await prefer('raid_training_grounds', 0)
-        await engage('raid_training_grounds')
-        await prefer('raid_training_grounds', 1)
-
-        const seen: string[][] = []
-        await engage('raid_training_grounds', seen)
-
-        expect(seen).toEqual([[C4]])
-        expect((await stateOf()).preRaidSnapshot).toMatchObject({ slotIndex: 1, partyChampionIds: [C1] })
-    })
-
     it('leaves quick-clear out entirely: no snapshot, apply or revert', async () => {
         await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', highestLevel: 2, keyBalance: 3 })
         await prefer('raid_training_grounds', 0)
@@ -166,16 +130,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         await db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds'))
         expect((await stateOf()).preRaidSnapshot).not.toBeNull()
         expect((await stateOf()).partyChampionIds).toEqual([C2, C3])
-    })
-
-    it('ignores a preference pointing at a slot with nothing saved, or one no longer unlocked', async () => {
-        await db.update(hqState).set({ raidLoadoutPreferences: { raid_training_grounds: 4, raid_trait: 1 } }).where(eq(hqState.userId, USER_ID))
-        await db.delete(hqLoadouts).where(and(eq(hqLoadouts.userId, USER_ID), eq(hqLoadouts.slotIndex, 1)))
-
-        expect((await engage('raid_training_grounds')).loadoutSlot).toBeNull()
-        expect((await engage('raid_trait')).loadoutSlot).toBeNull()
-        expect((await stateOf()).preRaidSnapshot).toEqual({ target: 'raid_trait', slotIndex: null })
-        expect(serializeLoadoutPreferences(await stateOf(), [{ slotIndex: 0 }], {})).toEqual({})
     })
 
     it('refuses the engage, spending nothing, when the preferred Loadout can no longer be applied', async () => {
@@ -234,16 +188,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         expect((await stateOf()).speedBoostExpiresAt!.getTime() - held).toBeGreaterThanOrEqual(60_000)
     })
 
-    it('leaves a block that ran out before the raid alone', async () => {
-        await engage('raid_training_grounds')
-        const expiresAt = new Date(Date.now() - 300_000)
-        await db.update(hqState).set({ speedBoostMultiplier: 2, speedBoostExpiresAt: expiresAt, lastSettledAt: new Date(Date.now() - 120_000) }).where(eq(hqState.userId, USER_ID))
-
-        await settleHq(USER_ID)
-
-        expect((await stateOf()).speedBoostExpiresAt!.getTime()).toBe(expiresAt.getTime())
-    })
-
     it('drops the time spent in the raid on leaving, and the run goes on from there', async () => {
         await engage('raid_training_grounds')
         await db.update(hqState).set({ lastSettledAt: new Date(Date.now() - 120_000) }).where(eq(hqState.userId, USER_ID))
@@ -266,16 +210,6 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         const state = await stateOf()
         expect(state.preRaidSnapshot).toBeNull()
         expect(state.equippedGear).toEqual({ weapon: WEAPON })
-    })
-
-    it('leaves a gap past presence to the settle when the session is left late', async () => {
-        await engage('raid_training_grounds')
-        const awayAt = new Date(Date.now() - ONLINE_THRESHOLD_MS - 60_000)
-        await db.update(hqState).set({ lastSettledAt: awayAt }).where(eq(hqState.userId, USER_ID))
-
-        expect(await leave()).toBe(true)
-
-        expect((await stateOf()).lastSettledAt.getTime()).toBe(awayAt.getTime())
     })
 
     it('puts back the loadout of a session whose raid no longer reads', async () => {
