@@ -12,7 +12,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
-    "typecheck": "nuxt typecheck",
+    "typecheck": "NODE_ENV=production nuxt prepare && bun check --no-script -b -p tsconfig.check.json && vue-tsc -p .nuxt/tsconfig.app.json --noEmit",
     "test": "bun --bun vitest run"
   },
   "dependencies": {
