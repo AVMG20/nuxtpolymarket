@@ -17,6 +17,8 @@ import {
   type HackerzTurretId, type HackerzUpgradeId, type HackerzWeaponId
 } from '#shared/utils/gamelogic/hackerz'
 
+import { claimHackerzVictory, hackerzSaveOutcome, type HackerzSaveOutcome } from '~/utils/hackerz-victory'
+
 type Phase = 'loading' | 'lobby' | 'wave' | 'shop' | 'over' | 'won'
 
 const { user, fetchSession } = useAuth()
@@ -171,9 +173,10 @@ const savedAt = ref<Date | null>(null)
 /**
  * Freezes the run. Only ever called from the uplink, which is the one moment the
  * game has no wave in flight and is therefore the one moment worth storing.
+ * Says what became of the save (see `hackerzSaveOutcome`).
  */
-async function saveRun() {
-  if (phase.value !== 'shop' || !game) return
+async function saveRun(): Promise<HackerzSaveOutcome> {
+  if (phase.value !== 'shop' || !game) return 'rejected'
   saveState.value = 'saving'
   const save: HackerzRunSave = {
     version: HACKERZ_SAVE_VERSION,
@@ -194,9 +197,12 @@ async function saveRun() {
     revision.value = result.revision
     savedAt.value = new Date(result.updatedAt)
     saveState.value = 'saved'
-  } catch {
+    return 'saved'
+  } catch (error) {
     saveState.value = 'error'
-    pushNotice('Could not reach the uplink — progress is not saved.', 'bad')
+    const reason = (error as { statusMessage?: string }).statusMessage ?? 'Could not reach the uplink'
+    pushNotice(`${reason} — progress is not saved.`, 'bad')
+    return hackerzSaveOutcome(error)
   }
 }
 
@@ -755,8 +761,58 @@ async function onWaveEnd(summary: HackerzWaveSummary) {
   // save, so accumulating here is what keeps the two in step across a resume.
   totalKills.value += summary.kills
   phase.value = 'shop'
+  if (summary.victory) {
+    victoryPending.value = true
+    await claimVictory()
+    return
+  }
   await saveRun()
-  if (summary.victory) await settleRun('victory')
+}
+
+/** The last wave is won, but not banked until its save reaches the server. */
+const victoryPending = ref(false)
+
+/** Why a won run could not be banked, by how the claim ended. */
+const VICTORY_LOST: Record<'ended' | 'conflict' | 'rejected', string> = {
+  ended: 'This run was already settled, in another tab or session.',
+  conflict: 'The run was saved from another tab or session in the meantime. Resume it from the lobby.',
+  rejected: 'The uplink refused the final save.'
+}
+
+/**
+ * Banks a won run: saves it, and only then settles it (see
+ * `claimHackerzVictory`). A save the uplink never answered leaves the run at
+ * the uplink, where Claim victory tries again; one it can never accept ends
+ * the claim, and the lobby shows the run as the server holds it.
+ */
+async function claimVictory() {
+  const result = await claimHackerzVictory({
+    save: saveRun,
+    stored: async () => {
+      await refreshState()
+      const run = account.value?.activeRun
+      return run?.save && run.revision !== null ? { wave: run.save.wave, revision: run.revision } : null
+    },
+    adopt: (stored) => { revision.value = stored },
+    settle: () => settleRun('victory'),
+    wait: sleep
+  }, HACKERZ_MAX_WAVE)
+  if (result === 'settled') {
+    victoryPending.value = false
+    return
+  }
+  if (result === 'pending') {
+    toast.add({
+      title: 'Victory not banked yet',
+      description: 'The final save did not reach the server. Claim the victory from the uplink once you are back online.',
+      color: 'warning'
+    })
+    return
+  }
+  victoryPending.value = false
+  toast.add({ title: 'Could not bank the victory', description: VICTORY_LOST[result], color: 'error' })
+  await refreshState()
+  phase.value = 'lobby'
 }
 
 /**
@@ -1609,6 +1665,17 @@ async function toggleFullscreen() {
               {{ Math.round(missingHp) }} HP · {{ repairCost }}
             </UButton>
             <UButton
+              v-if="victoryPending"
+              size="lg"
+              color="primary"
+              icon="i-lucide-trophy"
+              :loading="busy || saveState === 'saving'"
+              @click="claimVictory"
+            >
+              Claim victory
+            </UButton>
+            <UButton
+              v-else
               size="lg"
               :color="isFinalWave || nextIsBoss ? 'error' : 'primary'"
               trailing-icon="i-lucide-chevron-right"

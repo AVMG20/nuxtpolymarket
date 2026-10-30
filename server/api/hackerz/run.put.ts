@@ -55,7 +55,15 @@ export default defineEventHandler(async (event) => {
         ))
         .returning({ revision: hackerzRuns.revision, updatedAt: hackerzRuns.updatedAt })
     if (!saved) {
-        throw createError({ statusCode: 409, statusMessage: 'The Hackerz save changed in another session' })
+        // Two ways to miss: another session saved first (the row has moved on: a
+        // conflict the client can resolve against the stored save), or the run was
+        // settled in the meantime (the row is gone: nothing left to save to). The
+        // read only picks the answer; nothing is written on it.
+        const [current] = await db.select({ revision: hackerzRuns.revision })
+            .from(hackerzRuns).where(eq(hackerzRuns.userId, userId))
+        throw current
+            ? createError({ statusCode: 409, statusMessage: 'The Hackerz save changed in another session' })
+            : createError({ statusCode: 410, statusMessage: 'This Hackerz run has already ended' })
     }
     return saved
 })
