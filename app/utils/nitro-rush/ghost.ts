@@ -126,6 +126,27 @@ export function ghostPose(g: Ghost, t: number, out: CarPose): CarPose {
     return arrayToPose(scratch, 0, out)
 }
 
+/** Lap time `t` on a ghost that ends at `end`: one that carries on into its lap again from the line, rather than waiting there. */
+export function ghostTime(t: number, end: number, carriesOn: boolean) {
+    return carriesOn && end > 0 && t > end ? t % end : t
+}
+
+/** The ghost a course keeps: its lap's time, and whether that lap began from the grid. */
+export interface KeptGhost {
+    end: number
+    standing: boolean
+}
+
+/**
+ * Whether a lap's ghost takes over from the kept one: only a faster lap does, over every attempt.
+ * A loop's standing first lap only stands in until a flying lap is driven, since it starts from the grid.
+ */
+export function replacesGhost(kept: KeptGhost | null, lap: { time: number, standing: boolean }) {
+    if (!kept) return true
+    if (lap.standing !== kept.standing) return kept.standing
+    return lap.time < kept.end
+}
+
 // ─── Recording ─────────────────────────────────────────────────────────────
 
 /**

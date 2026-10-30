@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeGhost, encodeGhost, ghostPose, ghostSampleCount, GhostRecorder, type Ghost } from '../../app/utils/nitro-rush/ghost'
+import { decodeGhost, encodeGhost, ghostPose, ghostSampleCount, GhostRecorder, ghostTime, replacesGhost, type Ghost } from '../../app/utils/nitro-rush/ghost'
 import type { CarPose } from '../../app/utils/nitro-rush/types'
 
 const blank = (): CarPose => ({ x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 })
@@ -174,5 +174,38 @@ describe('ghost recording', () => {
         expect(r.lap(10)).not.toBeNull()
         r.reset()
         expect(r.lap(10)).toBeNull()
+    })
+})
+
+describe('which ghost a course keeps', () => {
+    const flying = { end: 60, standing: false }
+    const grid = { end: 64, standing: true }
+    const lap = (time: number, standing = false) => ({ time, standing })
+
+    it('keeps the fastest lap over every attempt', () => {
+        expect(replacesGhost(null, lap(70))).toBe(true)
+        expect(replacesGhost(flying, lap(59))).toBe(true)
+        expect(replacesGhost(flying, lap(61))).toBe(false)
+    })
+
+    it('races a loop\'s flying lap, a standing one only until there is one', () => {
+        expect(replacesGhost(null, lap(64, true))).toBe(true)
+        // Any flying lap beats a standing one: it's the pace a lap runs at once under way.
+        expect(replacesGhost(grid, lap(66))).toBe(true)
+        expect(replacesGhost(flying, lap(58, true))).toBe(false)
+        expect(replacesGhost(grid, lap(63, true))).toBe(true)
+        expect(replacesGhost(grid, lap(65, true))).toBe(false)
+    })
+})
+
+describe('ghost lap time', () => {
+    it('carries a flying ghost on into its lap again past the line', () => {
+        expect(ghostTime(12, 60, true)).toBe(12)
+        expect(ghostTime(65, 60, true)).toBeCloseTo(5)
+        expect(ghostTime(125, 60, true)).toBeCloseTo(5)
+    })
+
+    it('holds a ghost that does not carry on at its lap time', () => {
+        expect(ghostTime(65, 60, false)).toBe(65)
     })
 })

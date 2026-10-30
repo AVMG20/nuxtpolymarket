@@ -68,9 +68,11 @@ function pushPopup(p: Popup) {
 }
 
 function onRecord(id: string, r: TrackRecord) {
+    const was = records.value[id]?.bestLap ?? null
     records.value = { ...records.value, [id]: r }
     writeStorage(STORAGE_KEYS.records, records.value)
-    if (r.bestLap !== null) submitLap(id, r.bestLap)
+    // A faster ghost alone, below a best from another device, is no new time for the board.
+    if (r.bestLap !== null && r.bestLap !== was) submitLap(id, r.bestLap)
 }
 
 function forgetRecord(id: string) {

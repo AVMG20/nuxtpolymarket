@@ -48,8 +48,10 @@ export interface MapGhost {
 export interface TrackRecord {
     bestLap: number | null
     bestSplits: number[] | null
-    /** The best lap's ghost, kept in this browser only; records from before ghosts have none. */
+    /** The ghost to race, kept in this browser only: the fastest lap driven here (on a loop, flying); records from before ghosts have none. */
     ghost?: StoredGhost
+    /** The ghost is a loop's standing first lap, kept only until a flying lap is driven. */
+    ghostStanding?: true
 }
 
 export const EMPTY_RECORD: Readonly<TrackRecord> = { bestLap: null, bestSplits: null }
@@ -67,7 +69,7 @@ export interface EngineEvents {
     hud: (h: HudState) => void
     popup: (p: Popup) => void
     phase: (p: Phase) => void
-    /** A new personal best lap; the component persists it and sends it to the leaderboard. */
+    /** A new personal best lap or ghost; the component persists it and sends a new best to the leaderboard. */
     record: (trackId: string, r: TrackRecord) => void
 }
 

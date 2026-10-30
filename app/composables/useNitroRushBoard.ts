@@ -39,7 +39,7 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
             const server = b.me ? b.me.lapMs / 1000 : null
             const local = records.value[trackId]?.bestLap ?? null
             if (server !== null && (local === null || server < local - 0.0005)) {
-                records.value = { ...records.value, [trackId]: { bestLap: server, bestSplits: null, ghost: records.value[trackId]?.ghost } }
+                records.value = { ...records.value, [trackId]: { ...records.value[trackId], bestLap: server, bestSplits: null } }
                 onServerBest(trackId)
             }
         } catch {

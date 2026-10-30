@@ -7,7 +7,7 @@ import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
-import { decodeGhost, encodeGhost, ghostPose, GhostRecorder, type Ghost } from './ghost'
+import { decodeGhost, encodeGhost, ghostPose, GhostRecorder, ghostTime, replacesGhost, type Ghost } from './ghost'
 import { GhostView } from './ghost-view'
 import { carInput } from './input'
 import { RushPost } from './post'
@@ -86,7 +86,7 @@ export class NitroRushEngine {
     private latAcc = 0
     private longAcc = 0
 
-    // Ghosts: the best lap's replay and any others registered, all drawn by one view.
+    // Ghosts: the kept lap's replay and any others registered, all drawn by one view.
     private readonly ghosts: GhostView
     private readonly ghostSources = new Set<GhostSource>()
     private readonly ghostFrames: GhostFrame[] = []
@@ -163,7 +163,7 @@ export class NitroRushEngine {
         this.bestGhost = decodeGhost(r.ghost)
     }
 
-    /** Shows or hides the best lap's ghost; other ghost sources are not affected. */
+    /** Shows or hides the kept lap's ghost; other ghost sources are not affected. */
     setBestGhost(on: boolean) {
         this.bestGhostOn = on
     }
@@ -547,14 +547,22 @@ export class NitroRushEngine {
             const sub = rec.bestLap === null ? label : `${label} · ${formatLapTime(e.time - rec.bestLap, true)}`
             this.recentLaps = [{ lap: this.lapNumber(e.lap), time: e.time }, ...this.recentLaps].slice(0, RECENT_LAPS)
             const lapGhost = this.recorder.lap(e.time)
-            if (isBest) {
-                // The new best's ghost; a lap that couldn't record one keeps the old ghost, which is still a real lap.
-                const ghost = (lapGhost && encodeGhost(lapGhost)) ?? rec.ghost
-                if (ghost !== rec.ghost) this.bestGhost = decodeGhost(ghost)
-                this.record = { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time], ghost }
+            const standing = this.track.closed && e.lap === 0
+            const kept = this.bestGhost && { end: this.bestGhost.end, standing: !!rec.ghostStanding }
+            // A lap that couldn't record a ghost keeps the old one, which is still a real lap.
+            const stored = lapGhost && replacesGhost(kept, { time: e.time, standing }) ? encodeGhost(lapGhost) : null
+            if (isBest || stored) {
+                const next: TrackRecord = isBest ? { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time] } : { ...rec }
+                if (stored) {
+                    next.ghost = stored
+                    if (standing) next.ghostStanding = true
+                    else delete next.ghostStanding
+                    this.bestGhost = decodeGhost(stored)
+                }
+                this.record = next
                 this.events.record(this.track.def.id, this.record)
-                this.flash.setRGB(0.25, 0.2, 0.05)
             }
+            if (isBest) this.flash.setRGB(0.25, 0.2, 0.05)
             this.audio.lap(isBest)
             this.events.popup({ text: formatLapTime(e.time), sub: isBest ? `${sub} · BEST LAP` : sub, tone: isBest ? 'best' : 'lap', big: true })
             if (!this.track.closed) {
@@ -581,10 +589,11 @@ export class NitroRushEngine {
         return Math.max(0, timer.clock - STEP + this.accumulator) - timer.lapStart
     }
 
-    /** The best lap, replayed against the lap clock. */
+    /** The kept ghost, replayed against the lap clock; on a loop a flying one carries on past the line until the car crosses it. */
     private readonly bestGhostSource: GhostSource = (_now, lapTime) => {
-        if (!this.bestGhostOn || !this.bestGhost || lapTime === null) return []
-        ghostPose(this.bestGhost, lapTime, this.bestGhostFrame.pose)
+        const g = this.bestGhost
+        if (!this.bestGhostOn || !g || lapTime === null) return []
+        ghostPose(g, ghostTime(lapTime, g.end, this.track.closed && !this.record.ghostStanding), this.bestGhostFrame.pose)
         return [this.bestGhostFrame]
     }
 
