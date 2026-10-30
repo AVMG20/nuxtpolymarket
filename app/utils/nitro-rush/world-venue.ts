@@ -2,18 +2,26 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { BILLBOARD_ADS, bannerTexture, billboardTexture } from './signs'
+import { NEON_PINK } from './config'
 import { radialTexture } from './textures'
-import { roadAbove, WALL_BASE_HALF } from './road-geometry'
+import { DECK_DEPTH, roadAbove, WALL_BASE_HALF } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf } from '#shared/utils/nitro-rush/track'
 
-/** The race venue round the road: floodlights, gantries, the grandstand and billboards. */
+/** The race venue round the road: floodlights, the arches over the lines, the grandstand and billboards. */
 
 const LAMP_SPACING = 34
 const START_LIGHTS = 5
 /** Floodlight pole height; a pole with road above it inside this is left out. */
 export const LAMP_HEIGHT = 11.5
+const ARCH_TUBE = 0.35
+/** The arch's crown, kept under a bridge's deck at the closest a road may pass over, so any road can cross a line. */
+const ARCH_HEIGHT = MIN_CLEARANCE - DECK_DEPTH - ARCH_TUBE - 0.15
+const BANNER_WIDTH = 3.6
+const BOARD_HEIGHT = BANNER_WIDTH / 4 + 0.2
+/** The banner board hangs flush under the crown, its bottom still clear of the chase camera. */
+const BANNER_Y = ARCH_HEIGHT - ARCH_TUBE - BOARD_HEIGHT / 2
 
 /** Floodlights on the walls, arms out over the track; returns their lens and pool materials and head positions. */
 export function buildLamps({ track, own, instanced }: WorldKit) {
@@ -67,42 +75,48 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
     return { lens, poolMat, heads }
 }
 
-/** Gantries over the line: posts, beam, banners, and on the start one the five lights. */
+/** A low arch over each line, from foot to foot outside the walls, with a banner under its crown; the start one carries the five lights. */
 export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Material) {
-    const wall = track.wallOffset
+    const span = track.wallOffset + 1.2
     const startLights: THREE.MeshStandardMaterial[] = []
-    const postGeo = own(new THREE.BoxGeometry(0.6, 9, 0.6).translate(0, 4.5, 0))
-    const beamGeo = own(new THREE.BoxGeometry((wall + 1.2) * 2 + 0.6, 2.6, 0.8))
-    const bannerGeo = own(new THREE.PlaneGeometry(10, 2.5))
-    const lightGeo = own(new THREE.CylinderGeometry(0.32, 0.32, 0.15, 20).rotateX(Math.PI / 2))
+    const archAt = (t: number) => new THREE.Vector3(Math.cos(t) * span, Math.sin(t) * ARCH_HEIGHT, 0)
+    const curve = new THREE.CatmullRomCurve3(Array.from({ length: 25 }, (_, i) => archAt(Math.PI * i / 24)))
+    const archGeo = own(new THREE.TubeGeometry(curve, 64, ARCH_TUBE, 10))
+    const neonGeo = own(new THREE.TubeGeometry(curve, 64, 0.07, 6))
+    const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
+    const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
+    const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
+    const lightGeo = own(new THREE.CylinderGeometry(0.3, 0.3, 0.15, 20).rotateX(Math.PI / 2))
     const name = track.def.name.toUpperCase()
     const buildGantry = (at: number, sub: string, lights: boolean) => {
         const p = track.pointAt(at)
         const g = new THREE.Group()
         g.position.set(p.x, p.y, p.z)
         g.rotation.y = headingOf(p.tx, p.tz)
-        for (const side of [-1, 1]) {
-            const post = new THREE.Mesh(postGeo, steel)
-            post.position.x = side * (wall + 1.2)
-            g.add(post)
+        g.add(new THREE.Mesh(archGeo, steel))
+        for (const face of [1, -1]) {
+            const neon = new THREE.Mesh(neonGeo, neonMat)
+            neon.position.z = face * ARCH_TUBE
+            g.add(neon)
         }
-        const beam = new THREE.Mesh(beamGeo, steel)
-        beam.position.y = 8.2
-        g.add(beam)
+        const board = new THREE.Mesh(boardGeo, steel)
+        board.position.y = BANNER_Y
+        g.add(board)
         const banner = own(bannerTexture('NITRO RUSH', `${name} · ${sub}`))
         const bannerMat = own(new THREE.MeshStandardMaterial({ map: banner, emissiveMap: banner, emissive: 0xffffff, emissiveIntensity: 1.2, roughness: 0.5 }))
         for (const face of [1, -1]) {
             const b = new THREE.Mesh(bannerGeo, bannerMat)
-            b.position.set(face * (lights ? -3.5 : 0), 8.2, face * 0.41)
+            b.position.set(0, BANNER_Y, face * 0.31)
             if (face < 0) b.rotation.y = Math.PI
             g.add(b)
         }
         if (lights) {
+            // Up the right-hand leg, facing the grid.
             for (let i = 0; i < START_LIGHTS; i++) {
                 const mat = own(new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff1a1a, emissiveIntensity: 0 }))
                 startLights.push(mat)
                 const l = new THREE.Mesh(lightGeo, mat)
-                l.position.set(3 + i * 0.95, 8.2, 0.45)
+                l.position.copy(archAt(Math.PI * (0.16 + i * 0.045))).setZ(ARCH_TUBE + 0.1)
                 g.add(l)
             }
         }

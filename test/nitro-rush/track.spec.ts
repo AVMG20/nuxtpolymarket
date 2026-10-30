@@ -249,6 +249,16 @@ describe('ramps and spirals', () => {
         expect(t.project(p.x, p.z, t.segmentAt(into + 10)).s).toBeCloseTo(into + 10, 1)
     })
 
+    it('lets a road pass over a line block with the clearance any other road gets', () => {
+        // The spiral's top level runs back over the checkpoint just before it, under 11 m up.
+        const t = new Track(buildTrack(sprint([straight(30), start, straight(100), checkpoint, spiral('right', 40, 360, 8), straight(100), finish, straight(100)])))
+        const line = t.checkpoints[0]!
+        const at = t.pointAt(line)
+        const over = t.project(at.x, at.z, -1, undefined, 8)
+        expect(Math.abs(over.s - line)).toBeGreaterThan(100)
+        expect(t.pointAt(over.s).y - at.y).toBeGreaterThan(MIN_CLEARANCE)
+    })
+
     it('rejects heights a road cannot be built with', () => {
         expect(() => buildTrack(helix(6))).toThrow(/passes .* m from another stretch/)
         expect(() => buildTrack(loop([...hill.slice(0, 5), straight(100), ...hill.slice(6)]))).toThrow(/off the ground/)

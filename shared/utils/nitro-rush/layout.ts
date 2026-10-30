@@ -61,10 +61,8 @@ const MIN_RUN_OFF = 60
 const CLOSE_TOLERANCE = 0.01
 /** Metres a ramp or spiral takes to ease into its slope and back out of it. */
 const EASE_LENGTH = 30
-/** Road to road where one passes over another: the deck, the car and the chase camera fit between. */
-export const MIN_CLEARANCE = 6.5
-/** Open sky a line block needs above it for its gantry. */
-const GANTRY_CLEARANCE = 11
+/** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between. */
+export const MIN_CLEARANCE = 6
 /** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
 export const GRID = 10
 /** Steepest grade of a jump's kicker, at its lip; the kicker is as long as that takes, in whole grid steps. */
@@ -330,7 +328,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const startAt = lines.find(l => l.type === 'start')!.at
     // The grandstand stands on the ground beside the start line.
     if (Math.abs(ys[startAt]!) > CLOSE_TOLERANCE) fail('the start line must sit on the ground')
-    checkClearance(pts, ys, closed, lines.map(l => l.at), layout.wallOffset, fail)
+    checkClearance(pts, ys, closed, layout.wallOffset, fail)
 
     // A loop is rotated to begin at the start line, where its lap clock reads zero.
     const shift = closed ? startAt : 0
@@ -368,17 +366,13 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     return def
 }
 
-/**
- * Wherever two stretches of road far apart along the course cover the same ground, one must
- * pass over the other with room to drive under, and no gantry may have road just above it.
- */
-function checkClearance(pts: [number, number][], ys: number[], closed: boolean, lineAt: number[], wallOffset: number, fail: (why: string) => never) {
+/** Wherever two stretches of road far apart along the course cover the same ground, one must pass over the other with room to drive under. */
+function checkClearance(pts: [number, number][], ys: number[], closed: boolean, wallOffset: number, fail: (why: string) => never) {
     const n = pts.length
     // Deck edge to deck edge, with the wall's footprint on both.
     const reach = (wallOffset + 1) * 2
     // Closer than this along the road, two points are the same stretch bending (a hairpin), not a crossing.
     const apart = Math.ceil(reach * 3 / STEP)
-    const lineSet = new Set(lineAt)
     // Points bucketed in cells `reach` wide, so each one is only checked against its own cell and the eight round it.
     const cellOf = (i: number) => [Math.floor(pts[i]![0] / reach), Math.floor(pts[i]![1] / reach)] as const
     const cells = new Map<string, number[]>()
@@ -403,9 +397,7 @@ function checkClearance(pts: [number, number][], ys: number[], closed: boolean, 
             const dz = pts[i]![1] - pts[j]![1]
             if (dx * dx + dz * dz >= reach * reach) continue
             const dy = Math.abs(ys[i]! - ys[j]!)
-            if (dy < MIN_CLEARANCE) fail(`the road at (${pts[i]![0].toFixed(0)}, ${pts[i]![1].toFixed(0)}) passes ${dy.toFixed(1)} m from another stretch; it needs ${MIN_CLEARANCE} m`)
-            const low = ys[i]! < ys[j]! ? i : j
-            if (lineSet.has(low) && dy < GANTRY_CLEARANCE) fail('a line block needs open sky above it for its gantry')
+            if (dy < MIN_CLEARANCE - CLOSE_TOLERANCE) fail(`the road at (${pts[i]![0].toFixed(0)}, ${pts[i]![1].toFixed(0)}) passes ${dy.toFixed(1)} m from another stretch; it needs ${MIN_CLEARANCE} m`)
         }
     }
 }

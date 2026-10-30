@@ -2,15 +2,13 @@ import * as THREE from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { NEON_PINK } from './config'
 import { checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
-import { mirrorStrip, ribbon, roadBelow, sweep, WALL_BASE_HALF } from './road-geometry'
+import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, sweep, WALL_BASE_HALF } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf } from '#shared/utils/nitro-rush/track'
 
 /** Kerbs only go where the line turns tighter than this (radians per metre). */
 const KERB_MIN_CURVATURE = 0.004
-/** The elevated road's slab, below the surface. */
-const DECK_DEPTH = 0.8
 const PILLAR_SPACING = 16
 const PILLAR_SIZE = 0.8
 

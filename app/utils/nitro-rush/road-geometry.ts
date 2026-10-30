@@ -12,6 +12,8 @@ import { newTrackFrame, type Track } from '#shared/utils/nitro-rush/track'
 
 /** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
 export const WALL_BASE_HALF = 0.32
+/** The elevated road's slab, below the surface. */
+export const DECK_DEPTH = 0.8
 /** Over this stretch the wet mirror fades out where the road leaves the ground. */
 const MIRROR_FADE = 18
 
