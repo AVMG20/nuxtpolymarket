@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { BILLBOARD_ADS, bannerTexture, billboardTexture } from './signs'
 import { NEON_PINK } from './config'
 import { radialTexture } from './textures'
@@ -9,7 +8,7 @@ import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf } from '#shared/utils/nitro-rush/track'
 
-/** The race venue round the road: floodlights, the arches over the lines, the grandstand and billboards. */
+/** The race venue round the road: floodlights, the arches over the lines and billboards. */
 
 const LAMP_SPACING = 34
 const START_LIGHTS = 5
@@ -75,7 +74,7 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
     return { lens, poolMat, heads }
 }
 
-/** A low arch over each line, from foot to foot outside the walls, with a banner under its crown; the start one carries the five lights. */
+/** A low arch over each line, from foot to foot outside the walls, with a banner under its crown; the start one carries the five lights, which it returns. */
 export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Material) {
     const span = track.wallOffset + 1.2
     const startLights: THREE.MeshStandardMaterial[] = []
@@ -121,71 +120,11 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
             }
         }
         group.add(g)
-        return g
     }
-    const gantry = buildGantry(track.startS, track.closed ? 'START / FINISH' : 'START', true)
+    buildGantry(track.startS, track.closed ? 'START / FINISH' : 'START', true)
     if (!track.closed) buildGantry(track.finishS, 'FINISH', false)
     for (const at of track.checkpoints) buildGantry(at, 'CHECKPOINT', false)
-    return { start: gantry, startLights }
-}
-
-/** A grandstand with a crowd beside `start`; returns a test for ground it covers, to keep the city off it. */
-export function buildGrandstand({ track, group, own }: WorldKit, start: THREE.Object3D, concrete: THREE.Texture, steel: THREE.Material) {
-    const wall = track.wallOffset
-    const stand = new THREE.Group()
-    stand.position.copy(start.position)
-    stand.rotation.y = start.rotation.y
-    const standLen = 220
-    // On a sprint it runs from just behind the start line forward, never out past the start barrier.
-    if (!track.closed) stand.translateZ(-(standLen / 2 - track.startS + 6))
-    const rows = 10
-    const standMat = own(new THREE.MeshStandardMaterial({ map: concrete, color: 0x7a7874, roughness: 0.9 }))
-    const stepGeos: THREE.BufferGeometry[] = []
-    for (let r = 0; r < rows; r++) {
-        const h = 1.2 + r * 0.6
-        stepGeos.push(new THREE.BoxGeometry(1.2, h, standLen).translate(wall + 5 + r * 1.2, h / 2, 0))
-    }
-    stand.add(new THREE.Mesh(own(mergeGeometries(stepGeos)!), standMat))
-    for (const g of stepGeos) g.dispose()
-    const crowd = new THREE.InstancedMesh(own(new THREE.BoxGeometry(0.42, 0.75, 0.32)), own(new THREE.MeshStandardMaterial({ roughness: 0.8 })), rows * Math.floor(standLen / 0.75))
-    own(crowd)
-    const shirts = [0xff2bd6, 0x3df2ff, 0xffd23d, 0xffffff, 0x2a2a30, 0xff5a3a, 0x5b8cff, 0xa6ff4d]
-    const c = new THREE.Color()
-    const dummy = new THREE.Object3D()
-    let ci = 0
-    for (let r = 0; r < rows; r++) {
-        for (let z = -standLen / 2 + 0.5; z < standLen / 2 - 0.5 && ci < crowd.count; z += 0.75) {
-            if (Math.random() < 0.18) continue
-            dummy.position.set(wall + 5 + r * 1.2 + (Math.random() - 0.5) * 0.3, 1.2 + r * 0.6 + 0.37, z + (Math.random() - 0.5) * 0.2)
-            dummy.rotation.set(0, (Math.random() - 0.5) * 0.4, 0)
-            dummy.updateMatrix()
-            crowd.setMatrixAt(ci, dummy.matrix)
-            crowd.setColorAt(ci, c.setHex(shirts[Math.floor(Math.random() * shirts.length)]!).multiplyScalar(0.6 + Math.random() * 0.4))
-            ci++
-        }
-    }
-    crowd.count = ci
-    stand.add(crowd)
-    const roof = new THREE.Mesh(own(new THREE.BoxGeometry(rows * 1.2 + 6, 0.4, standLen)), steel)
-    roof.position.set(wall + 4 + rows * 0.6, 14, 0)
-    roof.rotation.z = -0.08
-    const roofLight = new THREE.Mesh(own(new THREE.BoxGeometry(0.2, 0.08, standLen - 4)), own(new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xfff2dc, emissiveIntensity: 3 })))
-    roofLight.position.set(wall + 4, 13.4, 0)
-    stand.add(roof, roofLight)
-    const colGeo = own(new THREE.CylinderGeometry(0.25, 0.25, 14, 8).translate(0, 7, 0))
-    for (let z = -standLen / 2 + 10; z <= standLen / 2 - 10; z += 25) {
-        const col = new THREE.Mesh(colGeo, steel)
-        col.position.set(wall + 5 + rows * 1.2, 0, z)
-        stand.add(col)
-    }
-    group.add(stand)
-    const standBox = { x: wall + 3, len: standLen / 2 + 6 }
-    const toStand = new THREE.Matrix4().makeRotationY(stand.rotation.y).setPosition(stand.position).invert()
-    const local = new THREE.Vector3()
-    return (x: number, z: number) => {
-        local.set(x, 0, z).applyMatrix4(toStand)
-        return local.x > 0 && local.x < standBox.x + 40 && Math.abs(local.z) < standBox.len + 20
-    }
+    return startLights
 }
 
 /** Billboards round the infield, facing the track. */

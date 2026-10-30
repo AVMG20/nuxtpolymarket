@@ -5,13 +5,13 @@ import { concreteTexture } from './textures'
 import { buildCity } from './city'
 import { buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
 import { buildSky } from './world-sky'
-import { buildBillboards, buildGantries, buildGrandstand, buildLamps, LAMP_HEIGHT } from './world-venue'
+import { buildBillboards, buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
 import { worldKit } from './world-kit'
 import type { Track } from '#shared/utils/nitro-rush/track'
 
 /**
  * The circuit and everything around it, built once from the track's centreline by the part builders.
- * Randomness here is cosmetic (building sizes, crowd colours), so it uses Math.random.
+ * Randomness here is cosmetic (building sizes and spots), so it uses Math.random.
  */
 export class World {
     readonly group = new THREE.Group()
@@ -47,21 +47,19 @@ export class World {
         this.reflector = road.reflector
         this.wetUniforms = road.wetUniforms
         buildTrackside(kit)
-        // Shared by the walls and the grandstand, and the steel by every structure.
         const concrete = own(concreteTexture(150))
         concrete.repeat.set(0.5, 0.5)
-        const steel = own(new THREE.MeshStandardMaterial({ color: 0x80848c, roughness: 0.4, metalness: 0.85 }))
         buildBarriers(kit, concrete)
+        // Shared by every structure.
+        const steel = own(new THREE.MeshStandardMaterial({ color: 0x80848c, roughness: 0.4, metalness: 0.85 }))
 
         const lamps = buildLamps(kit)
         this.lampLens = lamps.lens
         this.lampPoolMat = lamps.poolMat
         this.lampHeads = lamps.heads
-        const gantries = buildGantries(kit, steel)
-        this.startLights = gantries.startLights
-        const standCovers = buildGrandstand(kit, gantries.start, concrete, steel)
+        this.startLights = buildGantries(kit, steel)
         buildBillboards(kit, steel)
-        this.beacons = buildCity(kit, standCovers)
+        this.beacons = buildCity(kit)
 
         const sky = buildSky(kit)
         this.sky = sky.sky
