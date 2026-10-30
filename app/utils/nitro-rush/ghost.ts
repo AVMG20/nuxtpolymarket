@@ -90,6 +90,11 @@ export function ghostTime(t: number, end: number, carriesOn: boolean) {
     return carriesOn && end > 0 && t > end ? t % end : t
 }
 
+/** Ghost `g` at lap time `t`, into `out`: on a loop a flying lap carries on past the line until the car crosses it. */
+export function replayGhost(g: Ghost, standing: boolean, closed: boolean, t: number, out: CarPose) {
+    return ghostPose(g, ghostTime(t, g.end, closed && !standing), out)
+}
+
 // ─── Recording ─────────────────────────────────────────────────────────────
 
 /**

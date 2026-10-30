@@ -11,6 +11,8 @@ const props = defineProps<{
     record: { name: string, lapMs: number } | null
     /** The player's best lap, in seconds. */
     best: number | null
+    /** Who built it, for another player's course. */
+    author?: string
 }>()
 defineEmits<{ select: [] }>()
 
@@ -25,6 +27,7 @@ const km = computed(() => new Track(props.track).lapLength / 1000)
         <span class="nr-track-name">{{ track.name }}</span>
         <span class="shrink-0 text-[11px] text-white/50 tabular-nums">{{ km.toFixed(2) }} KM</span>
       </div>
+      <div v-if="author" class="nr-track-holder">by {{ author }}</div>
       <dl class="nr-track-times tabular-nums">
         <template v-if="hasBoard">
           <dt>RECORD</dt>

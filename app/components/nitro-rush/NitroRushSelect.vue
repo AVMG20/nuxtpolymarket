@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { findPaint, PAINTS, type PaintId } from '~/utils/nitro-rush/config'
-import type { CustomTrackEntry, TrackRecord } from '~/utils/nitro-rush/types'
-import { TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { bestLap } from '~/utils/nitro-rush/record'
+import type { CommunityTrackEntry, CustomTrackEntry, TrackRecord } from '~/utils/nitro-rush/types'
+import { findTrack } from '#shared/utils/nitro-rush/tracks'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
 
 const props = defineProps<{
@@ -15,21 +16,23 @@ const props = defineProps<{
     summaries: Record<string, NrTrackSummary>
     /** The player's own courses, finished or not. */
     customTracks: CustomTrackEntry[]
+    /** Other players' published courses. */
+    communityTracks: CommunityTrackEntry[]
+    /** The own course being published or taken down. */
+    busy: string | null
 }>()
-defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string] }>()
+defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string] }>()
 
-const trackGroups = TRACK_GROUPS
-    .map(g => ({ ...g, tracks: TRACKS.filter(t => t.group === g.id) }))
-    .filter(g => g.tracks.length)
+type Tab = 'tracks' | 'community' | 'mine'
+const TABS: readonly { id: Tab, label: string }[] = [
+    { id: 'tracks', label: 'TRACKS' },
+    { id: 'community', label: 'COMMUNITY' },
+    { id: 'mine', label: 'MY TRACKS' }
+]
+/** Opens on the tab holding the course on the engine. */
+const tab = ref<Tab>(findTrack(props.trackId) ? 'tracks' : props.communityTracks.some(c => c.track.id === props.trackId) ? 'community' : 'mine')
 const paintLabel = computed(() => findPaint(props.paint).label)
-
-/** Quickest of this browser's best and the server's, which may have been set on another device. */
-function myBest(id: string) {
-    const local = props.records[id]?.bestLap ?? null
-    const server = props.summaries[id]?.myLapMs ?? null
-    if (server === null) return local
-    return local === null ? server / 1000 : Math.min(local, server / 1000)
-}
+const best = (id: string) => bestLap(props.records[id], props.summaries[id])
 </script>
 
 <template>
@@ -42,59 +45,36 @@ function myBest(id: string) {
     </div>
 
     <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row lg:items-start lg:justify-between">
-      <div class="nr-card w-full text-left lg:max-h-full lg:max-w-2xl lg:overflow-y-auto">
-        <section v-for="g in trackGroups" :key="g.id" class="mt-5 first:mt-0">
-          <div class="mb-1.5 flex items-baseline justify-between gap-3">
-            <h3 class="nr-group">{{ g.name.toUpperCase() }}</h3>
-            <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ g.blurb }}</span>
-          </div>
-          <div class="nr-track-grid">
-            <NitroRushTrackCard
-              v-for="t in g.tracks"
-              :key="t.id"
-              :track="t"
-              :active="t.id === trackId"
-              has-board
-              :record="summaries[t.id]?.record ?? null"
-              :best="myBest(t.id)"
-              @select="$emit('select', t.id)"
-            />
-          </div>
-        </section>
-
-        <section class="mt-5">
-          <div class="mb-1.5 flex items-baseline justify-between gap-3">
-            <h3 class="nr-group">MY TRACKS</h3>
-            <span class="truncate text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">Build your own from track sections</span>
-          </div>
-          <div class="nr-track-grid">
-            <button class="nr-track nr-track-new" @click="$emit('build')">
-              <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-plus" class="size-7" /></span>
-              <span class="nr-track-name">TRACK BUILDER</span>
-            </button>
-            <div v-for="c in customTracks" :key="c.track.id" class="relative">
-              <NitroRushTrackCard
-                v-if="c.def"
-                :track="c.def"
-                :active="c.track.id === trackId"
-                :has-board="false"
-                :record="null"
-                :best="records[c.track.id]?.bestLap ?? null"
-                @select="$emit('select', c.track.id)"
-              />
-              <button v-else class="nr-track" @click="$emit('build', c.track.id)">
-                <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-construction" class="size-7" /></span>
-                <span class="min-w-0 flex-1">
-                  <span class="nr-track-name block">{{ c.track.name }}</span>
-                  <span class="nr-track-holder block">UNFINISHED</span>
-                </span>
-              </button>
-              <button v-if="c.def" class="nr-icon-btn nr-track-edit" :aria-label="`Edit ${c.track.name}`" title="Edit in the track builder" @click="$emit('build', c.track.id)">
-                <UIcon name="i-lucide-pencil" class="size-4" />
-              </button>
-            </div>
-          </div>
-        </section>
+      <div class="nr-card flex w-full flex-col text-left lg:max-h-full lg:max-w-2xl">
+        <div class="nr-tabs" role="tablist">
+          <button
+            v-for="t in TABS"
+            :key="t.id"
+            class="nr-tab"
+            :class="{ 'is-active': tab === t.id }"
+            role="tab"
+            :aria-selected="tab === t.id"
+            @click="tab = t.id"
+          >
+            {{ t.label }}
+          </button>
+        </div>
+        <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
+          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :best="best" @select="$emit('select', $event)" />
+          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :best="best" @select="$emit('select', $event)" />
+          <NitroRushMyTracks
+            v-else
+            :track-id="trackId"
+            :tracks="customTracks"
+            :summaries="summaries"
+            :best="best"
+            :busy="busy"
+            @select="$emit('select', $event)"
+            @build="$emit('build', $event)"
+            @publish="$emit('publish', $event)"
+            @unpublish="$emit('unpublish', $event)"
+          />
+        </div>
       </div>
 
       <div class="nr-card flex w-full flex-col gap-4 text-left lg:w-72 lg:shrink-0">

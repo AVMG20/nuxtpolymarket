@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
-import { nrGhost, nrLeaderboard, nrTrackSummaries, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
+import { nrGhost, nrLeaderboard, nrRecordGhost, nrTrackSummaries, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
+import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
 const tag = Date.now().toString(36)
 const A = `nr-a-${tag}`
@@ -11,12 +12,12 @@ const TRACK = `nr-test-${tag}`
 
 describe('lap validation', () => {
     it('accepts a real lap and refuses unknown courses, odd values and impossible times', () => {
-        expect(validLap('polytown-oval', 22_400)).toEqual({ trackId: 'polytown-oval', lapMs: 22_400 })
-        expect(validLap('nowhere', 22_400)).toBeNull()
-        expect(validLap('polytown-oval', 22.4)).toBeNull()
-        expect(validLap('polytown-oval', '22400')).toBeNull()
-        expect(validLap('polytown-oval', 5_000)).toBeNull()
-        expect(validLap('polytown-oval', 31 * 60 * 1000)).toBeNull()
+        expect(validLap(findTrack('polytown-oval'), 22_400)).toEqual({ trackId: 'polytown-oval', lapMs: 22_400 })
+        expect(validLap(findTrack('nowhere'), 22_400)).toBeNull()
+        expect(validLap(findTrack('polytown-oval'), 22.4)).toBeNull()
+        expect(validLap(findTrack('polytown-oval'), '22400')).toBeNull()
+        expect(validLap(findTrack('polytown-oval'), 5_000)).toBeNull()
+        expect(validLap(findTrack('polytown-oval'), 31 * 60 * 1000)).toBeNull()
     })
 })
 
@@ -34,17 +35,17 @@ function ghostOf(seconds: number): StoredGhost {
 describe('ghost validation', () => {
     it('accepts a real ghost and refuses unknown courses, damaged ghosts and impossible laps', () => {
         const ghost = ghostOf(25)
-        expect(validGhost('polytown-oval', ghost, false)).toEqual({ trackId: 'polytown-oval', ghost, standing: false })
-        expect(validGhost('polytown-oval', ghost, true)?.standing).toBe(true)
-        expect(validGhost('nowhere', ghost, false)).toBeNull()
-        expect(validGhost('polytown-oval', ghost, 'yes')).toBeNull()
-        expect(validGhost('polytown-oval', { ...ghost, d: 'not a ghost' }, false)).toBeNull()
-        expect(validGhost('polytown-oval', ghostOf(3), false)).toBeNull()
+        expect(validGhost(findTrack('polytown-oval'), ghost, false)).toEqual({ trackId: 'polytown-oval', ghost, standing: false })
+        expect(validGhost(findTrack('polytown-oval'), ghost, true)?.standing).toBe(true)
+        expect(validGhost(findTrack('nowhere'), ghost, false)).toBeNull()
+        expect(validGhost(findTrack('polytown-oval'), ghost, 'yes')).toBeNull()
+        expect(validGhost(findTrack('polytown-oval'), { ...ghost, d: 'not a ghost' }, false)).toBeNull()
+        expect(validGhost(findTrack('polytown-oval'), ghostOf(3), false)).toBeNull()
     })
 
     it('keeps only a ghost\'s own fields, and no standing lap on a sprint', () => {
-        expect(validGhost('polytown-oval', { ...ghostOf(25), extra: 'x'.repeat(100) }, false)?.ghost).not.toHaveProperty('extra')
-        expect(validGhost('s-bend-sprint', ghostOf(40), true)).toBeNull()
+        expect(validGhost(findTrack('polytown-oval'), { ...ghostOf(25), extra: 'x'.repeat(100) }, false)?.ghost).not.toHaveProperty('extra')
+        expect(validGhost(findTrack('s-bend-sprint'), ghostOf(40), true)).toBeNull()
     })
 })
 
@@ -108,5 +109,17 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
         expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(34), standing: false })).toBe(false)
         expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(30), standing: false })).toBe(true)
         expect(await nrGhost(A, LOOP)).toEqual({ ghost: ghostOf(30), standing: false })
+    })
+
+    it('hands the record holder\'s ghost to everyone but the holder, and skips a record with no ghost', async () => {
+        const REC = `${TRACK}-record`
+        await submitNrLap(A, REC, 25_000)
+        await submitNrLap(B, REC, 26_000)
+        expect(await nrRecordGhost(REC, B)).toBeNull()
+        await saveNrGhost(B, REC, { ghost: ghostOf(26), standing: false })
+        expect((await nrRecordGhost(REC, A))?.lapMs).toBe(26_000)
+        await saveNrGhost(A, REC, { ghost: ghostOf(25), standing: false })
+        expect(await nrRecordGhost(REC, B)).toMatchObject({ lapMs: 25_000, ghost: ghostOf(25), standing: false })
+        expect(await nrRecordGhost(REC, A)).toBeNull()
     })
 })

@@ -2,8 +2,8 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushGhosts, nitroRushLaps } from '#server/database/schema'
 import { decodeGhost, replacesGhost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
-import { Track } from '#shared/utils/nitro-rush/track'
-import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 export const NR_LEADERBOARD_TOP = 20
 /** Longer than any honest lap, so a stray clock can't land on the board. */
@@ -39,34 +39,36 @@ export interface NrGhost {
     standing: boolean
 }
 
-/** A lap the server will accept: a known course and a time the car could physically set. */
-export function validLap(trackId: unknown, lapMs: unknown): { trackId: string, lapMs: number } | null {
-    if (typeof trackId !== 'string' || typeof lapMs !== 'number' || !Number.isInteger(lapMs)) return null
-    if (!findTrack(trackId)) return null
-    if (lapMs < nrMinLapMs(trackId) || lapMs > MAX_LAP_MS) return null
-    return { trackId, lapMs }
+/** A lap the server will accept: on a known course (`def`, from `nrTrackDef`) and a time the car could physically set. */
+export function validLap(def: TrackDef | null, lapMs: unknown): { trackId: string, lapMs: number } | null {
+    if (!def || typeof lapMs !== 'number' || !Number.isInteger(lapMs)) return null
+    if (lapMs < nrMinLapMs(def) || lapMs > MAX_LAP_MS) return null
+    return { trackId: def.id, lapMs }
 }
 
 const minLapCache = new Map<string, number>()
+/** Published courses come and go; past this many the cache starts over. */
+const MIN_LAP_CACHE_LIMIT = 500
 
-function nrMinLapMs(trackId: string) {
-    let ms = minLapCache.get(trackId)
+// A course id never changes road (a published one gets a new id), so its minimum holds.
+function nrMinLapMs(def: TrackDef) {
+    let ms = minLapCache.get(def.id)
     if (ms === undefined) {
-        ms = Math.ceil(new Track(findTrack(trackId)!).minLapSeconds * 1000)
-        minLapCache.set(trackId, ms)
+        ms = Math.ceil(new Track(def).minLapSeconds * 1000)
+        if (minLapCache.size >= MIN_LAP_CACHE_LIMIT) minLapCache.clear()
+        minLapCache.set(def.id, ms)
     }
     return ms
 }
 
-/** A ghost the server will keep: a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. */
-export function validGhost(trackId: unknown, ghost: unknown, standing: unknown): NrGhost & { trackId: string } | null {
-    if (typeof trackId !== 'string' || typeof standing !== 'boolean') return null
-    const def = findTrack(trackId)
-    if (!def || (standing && def.closed === false) || !decodeGhost(ghost)) return null
+/** A ghost the server will keep: on a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. */
+export function validGhost(def: TrackDef | null, ghost: unknown, standing: unknown): NrGhost & { trackId: string } | null {
+    if (!def || typeof standing !== 'boolean') return null
+    if ((standing && def.closed === false) || !decodeGhost(ghost)) return null
     // Only the fields a ghost has, so nothing else rides into the row.
     const { v, hz, end, o, d } = ghost as StoredGhost
-    if (end < nrMinLapMs(trackId)) return null
-    return { trackId, ghost: { v, hz, end, o, d }, standing }
+    if (end < nrMinLapMs(def)) return null
+    return { trackId: def.id, ghost: { v, hz, end, o, d }, standing }
 }
 
 /** Keeps a ghost unless the player's is already the one to race; the row lock settles parallel saves on that one. */
@@ -92,6 +94,27 @@ export async function nrGhost(userId: string, trackId: string): Promise<NrGhost 
         .from(nitroRushGhosts)
         .where(and(eq(nitroRushGhosts.userId, userId), eq(nitroRushGhosts.trackId, trackId)))
     return row ?? null
+}
+
+/** The course record's ghost: the fastest player with one to race; null when that's the viewer, who races their own. */
+export interface NrRecordGhost extends NrGhost {
+    name: string
+    lapMs: number
+}
+
+export async function nrRecordGhost(trackId: string, userId: string): Promise<NrRecordGhost | null> {
+    const result = await db.execute(sql`
+        select l.user_id, u.name, l.lap_ms, g.ghost, g.standing
+        from nitro_rush_laps l
+        join "user" u on u.id = l.user_id
+        join nitro_rush_ghosts g on g.user_id = l.user_id and g.track_id = l.track_id
+        where l.track_id = ${trackId}
+        order by l.lap_ms asc, l.set_at asc, l.user_id collate "C"
+        limit 1
+    `)
+    const row = result.rows[0] as { user_id: string, name: string, lap_ms: number, ghost: StoredGhost, standing: boolean } | undefined
+    if (!row || row.user_id === userId) return null
+    return { name: row.name, lapMs: Number(row.lap_ms), ghost: row.ghost, standing: row.standing }
 }
 
 /** Records a lap; it only replaces the player's entry when quicker, so parallel submits keep the best. */

@@ -13,6 +13,8 @@ interface LiveOptions {
     phase: Ref<Phase>
     paused: Ref<boolean>
     paint: Ref<string>
+    /** Whether the others are drawn; the player's own car is still sent either way. */
+    show: Ref<boolean>
 }
 
 /** About 10 poses a second while driving. */
@@ -42,7 +44,7 @@ export function useNitroRushLive(opts: LiveOptions) {
     let full = false
     let unregister: (() => void) | null = null
 
-    const source: GhostSource = now => ghosts.frames(now)
+    const source: GhostSource = now => opts.show.value ? ghosts.frames(now) : []
 
     function send(msg: object) {
         if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))

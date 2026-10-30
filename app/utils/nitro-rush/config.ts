@@ -66,6 +66,8 @@ export const KMH_PER_SPEED = 3.6
 
 /** The player's own ghost, unless a source gives a colour. */
 export const GHOST_COLOR = 0x8fd8ff
+/** The course record holder's ghost. */
+export const RECORD_GHOST_COLOR = 0xffc83d
 /** The neon pink of the walls, arches and the builder's highlights. */
 export const NEON_PINK = 0xff2bd6
 

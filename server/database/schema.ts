@@ -19,6 +19,7 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
+import type { SectionId } from '#shared/utils/nitro-rush/custom'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2679,8 +2680,23 @@ export const nitroRushLaps = pgTable('nitro_rush_laps', {
   index('nitro_rush_laps_track_lap_idx').on(t.trackId, t.lapMs)
 ])
 
+// Nitro Rush: courses players built and published for everyone to race. `sourceId` is
+// the author's own copy; a changed road is published under a new `id`.
+export const nitroRushTracks = pgTable('nitro_rush_tracks', {
+  id: text('id').primaryKey(),
+  authorId: text('author_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull(),
+  name: text('name').notNull(),
+  closed: boolean('closed').notNull(),
+  sections: jsonb('sections').$type<SectionId[]>().notNull(),
+  publishedAt: timestamp('published_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_tracks_author_source_idx').on(t.authorId, t.sourceId),
+  index('nitro_rush_tracks_published_idx').on(t.publishedAt)
+])
+
 // Nitro Rush: the ghost each player races on a course, so it follows them to any
-// device. Only its owner ever reads it; a faster one replaces it.
+// device. The course record's holder's is raced by everyone; a faster one replaces it.
 export const nitroRushGhosts = pgTable('nitro_rush_ghosts', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),

@@ -6,7 +6,7 @@ import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 /**
  * The Nitro Rush leaderboard: the open track's board, a summary per track for the menu, and
  * lap submission. A faster best from another device replaces this browser's record.
- * A player's own courses have no board: their times stay in this browser.
+ * A player's unpublished courses have no board: their times stay in this browser.
  */
 export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onServerBest: (trackId: string) => void) {
     const toast = useToast()
@@ -47,10 +47,14 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
         }
     }
 
+    /** Summaries from a menu list; a board loaded since stays, being fresher. */
+    function addSummaries(list: NrTrackSummary[]) {
+        summaries.value = { ...summaries.value, ...Object.fromEntries(list.filter(t => t.trackId !== boardTrack || !board.value).map(t => [t.trackId, t])) }
+    }
+
     async function loadSummaries() {
         try {
-            const list = await apiFetch<NrTrackSummary[]>('/api/nitro-rush/tracks')
-            summaries.value = { ...Object.fromEntries(list.map(t => [t.trackId, t])), ...summaries.value }
+            addSummaries(await apiFetch<NrTrackSummary[]>('/api/nitro-rush/tracks'))
         } catch {
             // The cards fall back to this browser's own times.
         }
@@ -67,5 +71,5 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
         }
     }
 
-    return { board, summaries, loadBoard, loadSummaries, submitLap }
+    return { board, summaries, loadBoard, loadSummaries, addSummaries, submitLap }
 }

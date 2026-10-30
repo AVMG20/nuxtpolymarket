@@ -56,6 +56,8 @@ describe('live message validation', () => {
     it('takes built-in tracks and bounded custom ids only', () => {
         expect(nrLiveTrackId(TRACK)).toBe(TRACK)
         expect(nrLiveTrackId('custom-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11')).toBe('custom-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11')
+        expect(nrLiveTrackId('pub-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11')).toBe('pub-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11')
+        expect(nrLiveTrackId('pub-<script>')).toBeNull()
         expect(nrLiveTrackId('nowhere')).toBeNull()
         expect(nrLiveTrackId(`custom-${'a'.repeat(80)}`)).toBeNull()
         expect(nrLiveTrackId('custom-<script>')).toBeNull()

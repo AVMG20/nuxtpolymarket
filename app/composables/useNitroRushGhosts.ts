@@ -7,7 +7,7 @@ import { replacesGhost } from '#shared/utils/nitro-rush/ghost'
 
 /**
  * Keeps each course's ghost on the server as well as in this browser, so it follows the player to
- * any device: whichever of the two the keep rule prefers wins. A player's own courses stay in this browser.
+ * any device: whichever of the two the keep rule prefers wins. A player's unpublished courses stay in this browser.
  */
 export function useNitroRushGhosts(records: Ref<Record<string, TrackRecord>>, onServerGhost: (trackId: string) => void) {
     async function loadGhost(trackId: string) {

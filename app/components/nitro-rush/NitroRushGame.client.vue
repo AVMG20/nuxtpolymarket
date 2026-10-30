@@ -4,7 +4,7 @@ import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { EMPTY_RECORD, type Control, type CustomTrackEntry, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
+import { EMPTY_RECORD, type Control, type GhostToggles, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
 import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
@@ -31,8 +31,6 @@ const trackDef = shallowRef<TrackDef | null>(null)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
-/** Whether the best lap's ghost races along. */
-const ghostOn = ref(true)
 const isTouch = ref(false)
 watch(isTouch, t => engine?.setTouch(t))
 const isFullscreen = ref(false)
@@ -44,18 +42,21 @@ let lastActive = Date.now()
 let awayTimer: ReturnType<typeof setInterval> | undefined
 
 const custom = useNitroRushCustomTracks()
-const customEntries = computed<CustomTrackEntry[]>(() => custom.tracks.value.map(t => ({ track: t, def: custom.compile(t).def })))
+const { toggles: ghosts, load: loadGhostToggles, toggle: toggleGhostKind } = useNitroRushGhostToggles()
 
 /** A record changed from the server: the engine races it if that course is open. */
 function onServerRecord(id: string) {
     if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
 }
 
-const { board, summaries, loadBoard, loadSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
+const { board, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
 const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
+const community = useNitroRushCommunity(custom, addSummaries)
+const ownEntries = community.entries
 
 /** Other players on this course, as live ghost cars. */
-const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint })
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
+const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
 const inRace = computed(() => phase.value === 'racing' || phase.value === 'countdown')
@@ -76,8 +77,14 @@ function onRecord(id: string, r: TrackRecord) {
     records.value = { ...records.value, [id]: r }
     writeStorage(STORAGE_KEYS.records, records.value)
     // A faster ghost alone, below a best from another device, is no new time for the board.
-    if (r.bestLap !== null && r.bestLap !== (was?.bestLap ?? null)) submitLap(id, r.bestLap)
-    if (r.ghost !== was?.ghost) submitGhost(id, r)
+    const lap = r.bestLap !== null && r.bestLap !== (was?.bestLap ?? null) ? submitLap(id, r.bestLap) : null
+    const ghost = r.ghost !== was?.ghost ? submitGhost(id, r) : null
+    // The lap may have taken the record, or given the holder a ghost to race.
+    if (lap || ghost) {
+        Promise.all([lap, ghost]).then(() => {
+            if (engine?.trackDef.id === id) recordGhost.load(engine.trackDef)
+        })
+    }
 }
 
 function forgetRecord(id: string) {
@@ -86,9 +93,14 @@ function forgetRecord(id: string) {
     writeStorage(STORAGE_KEYS.records, rest)
 }
 
-/** A built-in course, or one of the player's finished ones. */
+/** A built-in course, one of the player's finished ones, or a published one. */
 function resolveTrack(id: string): TrackDef | null {
-    return findTrack(id) ?? custom.trackDef(id)
+    return findTrack(id) ?? custom.trackDef(id) ?? community.trackDef(id)
+}
+
+/** The id a course of the player's is driven under: its published copy's while that matches. */
+function playIdOf(sourceId: string) {
+    return ownEntries.value.find(e => e.track.id === sourceId)?.playId ?? sourceId
 }
 
 /** Mirrors the course on the engine, and its record, into the UI. */
@@ -107,6 +119,7 @@ function loadTrack(def: TrackDef) {
     writeStorage(STORAGE_KEYS.track, { id: def.id })
     loadBoard(def.id)
     loadGhost(def.id)
+    recordGhost.load(engine.trackDef)
 }
 
 function selectTrack(id: string) {
@@ -118,7 +131,7 @@ function selectTrack(id: string) {
 
 function openBuilder(id?: string) {
     audio.ui()
-    building.value = (id ? custom.find(id) : null) ?? newCustomTrack()
+    building.value = (id ? ownEntries.value.find(e => e.track.id === id)?.track : null) ?? newCustomTrack()
     screen.value = 'builder'
 }
 
@@ -143,7 +156,7 @@ function onBuilderDrive(t: CustomTrack) {
     if (t !== building.value) commitCustom(t)
     building.value = null
     screen.value = 'select'
-    selectTrack(t.id)
+    selectTrack(playIdOf(t.id))
     play()
 }
 
@@ -154,6 +167,27 @@ function onBuilderDelete(id: string) {
     if (id === trackId.value) loadTrack(TRACKS[0]!)
     building.value = null
     screen.value = 'select'
+}
+
+/** Publishes the player's course, or updates its published copy; a changed road starts a fresh board under a new id. */
+async function publishCustom(sourceId: string) {
+    const entry = ownEntries.value.find(e => e.track.id === sourceId)
+    if (!entry) return
+    audio.ui()
+    const old = entry.published?.id
+    const id = await community.publish(entry.track)
+    if (!id) return
+    if (old && old !== id) forgetRecord(old)
+    // On the engine under its old id, or as the local course that now has a board: drive the published copy.
+    if (trackId.value === old || trackId.value === sourceId) loadTrack(resolveTrack(id) ?? entry.def ?? TRACKS[0]!)
+}
+
+async function unpublishCustom(sourceId: string) {
+    const old = ownEntries.value.find(e => e.track.id === sourceId)?.published?.id
+    audio.ui()
+    if (!old || !(await community.unpublish(sourceId))) return
+    forgetRecord(old)
+    if (trackId.value === old) loadTrack(resolveTrack(sourceId) ?? TRACKS[0]!)
 }
 
 /** Clears a pause and any held controls before the run restarts or ends. */
@@ -183,6 +217,7 @@ function openSelect() {
     audio.unlock()
     audio.ui()
     screen.value = 'select'
+    community.load()
 }
 
 /** Back to the title, ending any run in progress. */
@@ -240,10 +275,9 @@ function saveAudio() {
     writeStorage(STORAGE_KEYS.audio, { music: musicOn.value, sfx: sfxOn.value })
 }
 
-function toggleGhost() {
-    ghostOn.value = !ghostOn.value
-    engine?.setBestGhost(ghostOn.value)
-    writeStorage(STORAGE_KEYS.ghost, { on: ghostOn.value })
+function toggleGhost(kind: keyof GhostToggles) {
+    toggleGhostKind(kind)
+    engine?.setBestGhost(ghosts.value.best)
 }
 
 async function toggleFullscreen() {
@@ -335,7 +369,8 @@ onMounted(() => {
     audio.setSfx(a.sfx)
     isTouch.value = window.matchMedia('(pointer: coarse)').matches
     custom.load()
-    const storedTrack = resolveTrack(readStorage<{ id: string }>(STORAGE_KEYS.track, { id: '' }).id) ?? TRACKS[0]!
+    const storedId = readStorage<{ id: string }>(STORAGE_KEYS.track, { id: '' }).id
+    const storedTrack = resolveTrack(storedId) ?? TRACKS[0]!
 
     engine = new NitroRushEngine(stage.value!, {
         hud: (h) => {
@@ -351,11 +386,17 @@ onMounted(() => {
     }, audio, paint.value, storedTrack)
     syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)
-    ghostOn.value = readStorage(STORAGE_KEYS.ghost, { on: true }).on !== false
-    engine.setBestGhost(ghostOn.value)
+    loadGhostToggles()
+    engine.setBestGhost(ghosts.value.best)
     loadBoard(trackId.value)
     loadGhost(trackId.value)
+    recordGhost.load(engine.trackDef)
     loadSummaries()
+    community.load().then(() => {
+        // A published course resolves only once the list is in; until then the fallback stands in.
+        const def = storedId !== storedTrack.id && trackId.value === storedTrack.id ? resolveTrack(storedId) : null
+        if (def && phase.value === 'attract') loadTrack(def)
+    })
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -405,12 +446,16 @@ onBeforeUnmount(() => {
         :is-touch="isTouch"
         :records="records"
         :summaries="summaries"
-        :custom-tracks="customEntries"
+        :custom-tracks="ownEntries"
+        :community-tracks="community.communityEntries.value"
+        :busy="community.busy.value"
         @back="backToTitle"
         @select="selectTrack"
         @paint="setPaint"
         @start="play"
         @build="openBuilder"
+        @publish="publishCustom"
+        @unpublish="unpublishCustom"
       />
     </Transition>
     <Transition name="nr-fade">
@@ -429,7 +474,7 @@ onBeforeUnmount(() => {
       v-if="!inSession || paused"
       :music-on="musicOn"
       :sfx-on="sfxOn"
-      :ghost-on="ghostOn"
+      :ghosts="ghosts"
       :is-fullscreen="isFullscreen"
       @music="toggleMusic"
       @sfx="toggleSfx"

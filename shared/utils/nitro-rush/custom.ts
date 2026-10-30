@@ -116,6 +116,13 @@ export const MAX_SECTIONS = 80
 
 export const isCustomTrackId = (id: string) => id.startsWith(ID_PREFIX)
 
+/** A published course's id: a fresh one each time its road changes, so old times never carry over. */
+const PUBLISHED_PREFIX = 'pub-'
+export const isPublishedTrackId = (id: string) => id.startsWith(PUBLISHED_PREFIX)
+export const newPublishedTrackId = () => `${PUBLISHED_PREFIX}${crypto.randomUUID()}`
+/** How many courses one player may have published at a time. */
+export const MAX_PUBLISHED_TRACKS = 20
+
 /** A fresh course: a loop is just its start line; a sprint has room for the grid behind it. */
 export function newCustomTrack(closed = true): CustomTrack {
     return { id: `${ID_PREFIX}${crypto.randomUUID()}`, name: 'My Track', closed, sections: closed ? ['start'] : ['straight-20', 'start'] }

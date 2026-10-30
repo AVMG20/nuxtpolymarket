@@ -7,7 +7,7 @@ import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
-import { ghostPose, GhostRecorder, ghostTime } from './ghost'
+import { GhostRecorder, replayGhost } from './ghost'
 import { GhostView } from './ghost-view'
 import { withGhost } from './record'
 import { carInput } from './input'
@@ -590,7 +590,7 @@ export class NitroRushEngine {
     private readonly bestGhostSource: GhostSource = (_now, lapTime) => {
         const g = this.bestGhost
         if (!this.bestGhostOn || !g || lapTime === null) return []
-        ghostPose(g, ghostTime(lapTime, g.end, this.track.closed && !this.record.ghostStanding), this.bestGhostFrame.pose)
+        replayGhost(g, !!this.record.ghostStanding, this.track.closed, lapTime, this.bestGhostFrame.pose)
         return [this.bestGhostFrame]
     }
 

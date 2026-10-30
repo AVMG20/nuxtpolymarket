@@ -1,4 +1,4 @@
-import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
+import { isCustomTrackId, isPublishedTrackId } from '#shared/utils/nitro-rush/custom'
 import { isPaintId } from '#shared/utils/nitro-rush/paints'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
@@ -71,10 +71,10 @@ export interface NrLiveSocket {
     close: (code?: number, reason?: string) => void
 }
 
-/** A built-in course, or a player's own one (`custom-…`, bounded length and charset). */
+/** A built-in course, or a player's own or published one (bounded length and charset). */
 export function nrLiveTrackId(id: unknown): string | null {
     if (typeof id !== 'string' || id.length === 0 || id.length > MAX_TRACK_ID) return null
-    if (isCustomTrackId(id)) return CUSTOM_ID_RE.test(id) ? id : null
+    if (isCustomTrackId(id) || isPublishedTrackId(id)) return CUSTOM_ID_RE.test(id) ? id : null
     return findTrack(id) ? id : null
 }
 

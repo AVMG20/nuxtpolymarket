@@ -3,6 +3,7 @@
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
+import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
 
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'
@@ -84,7 +85,7 @@ export interface CarPose {
     qw: number
 }
 
-/** A ghost car to draw this frame: the player's best lap, or another player live on the same course. */
+/** A ghost car to draw this frame: the player's best lap, the course record, or another player live on the same course. */
 export interface GhostFrame {
     /** Stable per ghost, so its model is reused frame to frame. */
     id: string
@@ -93,6 +94,13 @@ export interface GhostFrame {
     label?: string
     /** Body colour, as a hex number. */
     color?: number
+}
+
+/** Which ghosts race along: the player's best lap, the course record, and other players live. */
+export interface GhostToggles {
+    best: boolean
+    record: boolean
+    live: boolean
 }
 
 /**
@@ -105,4 +113,16 @@ export type GhostSource = (now: number, lapTime: number | null) => GhostFrame[]
 export interface CustomTrackEntry {
     track: CustomTrack
     def: TrackDef | null
+    /** Its copy on the community list, if it's published. */
+    published: NrPublishedTrack | null
+    /** What publishing it now would do; a replace clears its times. Null when there's nothing to publish. */
+    change: 'new' | 'rename' | 'replace' | null
+    /** The id it's driven under: its published copy's while that still has the same road, so the times go on the board. */
+    playId: string
+}
+
+/** Another player's published course, with its drivable form. */
+export interface CommunityTrackEntry {
+    track: NrPublishedTrack
+    def: TrackDef
 }
