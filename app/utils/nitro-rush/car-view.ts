@@ -1,5 +1,7 @@
 import * as THREE from 'three'
+import { modelShared } from './car-kit'
 import { buildPlayerCar, type PlayerCar } from './models'
+import { marksCar } from './stencil'
 import type { CarState } from './physics'
 
 /** The player's car model, posed on the road and animated from the physics state. */
@@ -19,6 +21,11 @@ export class CarView {
         headlight.position.set(0, 1.0, -1.8)
         headlight.target.position.set(0, 0, -30)
         this.group.add(headlight, headlight.target)
+        // The shared materials carry the mark; only ghosts test it. The shadow and flames are left for ghosts to cover.
+        const unmarked = new Set<THREE.Material>([modelShared().shadow, this.car.flameMat])
+        this.group.traverse((o) => {
+            if (o instanceof THREE.Mesh && !Array.isArray(o.material) && !unmarked.has(o.material)) marksCar(o.material)
+        })
     }
 
     setPaint(color: number) {

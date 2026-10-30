@@ -4,6 +4,7 @@ import { canvas, finish } from './canvas'
 import { GHOST_COLOR } from './config'
 import { modelShared } from './car-kit'
 import { buildPlayerCar } from './models'
+import { avoidsCar } from './stencil'
 import type { GhostFrame } from './types'
 
 const OPACITY = 0.34
@@ -16,6 +17,10 @@ const FORGET_MS = 10_000
 const TAG_LIFT = 2.1
 const TAG_HEIGHT = 0.55
 const TAG_MIN_PX = 15
+/** After the car and its glass: each ghost's depth first, so only its outer skin shows, then its colour, then its tag. */
+const DEPTH_ORDER = 1
+const COLOR_ORDER = 2
+const TAG_ORDER = 3
 
 type Part = 'shell' | 'tail' | 'head'
 
@@ -85,7 +90,7 @@ class GhostModel {
     private color = -1
     lastSeen = 0
 
-    constructor(template: Map<Part, THREE.BufferGeometry>) {
+    constructor(template: Map<Part, THREE.BufferGeometry>, depth: THREE.Material) {
         this.shell = new THREE.MeshStandardMaterial({
             transparent: true, depthWrite: false, roughness: 0.3, metalness: 0.5, emissiveIntensity: 0.45
         })
@@ -93,7 +98,14 @@ class GhostModel {
         const head = new THREE.MeshBasicMaterial({ color: 0xf4f8ff, transparent: true, depthWrite: false })
         this.lamps = [tail, head]
         const mats: Record<Part, THREE.Material> = { shell: this.shell, tail, head }
-        for (const [part, geo] of template) this.group.add(new THREE.Mesh(geo, mats[part]))
+        for (const m of [this.shell, tail, head]) avoidsCar(m)
+        for (const [part, geo] of template) {
+            const skin = new THREE.Mesh(geo, depth)
+            skin.renderOrder = DEPTH_ORDER
+            const color = new THREE.Mesh(geo, mats[part])
+            color.renderOrder = COLOR_ORDER
+            this.group.add(skin, color)
+        }
     }
 
     set(frame: GhostFrame, opacity: number) {
@@ -118,9 +130,11 @@ class GhostModel {
         this.disposeTag()
         if (!text) return
         const map = tagTexture(text)
-        this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, fog: false, toneMapped: false }))
+        const mat = new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, fog: false, toneMapped: false })
+        avoidsCar(mat)
+        this.tag = new THREE.Sprite(mat)
         this.tag.position.set(0, TAG_LIFT, 0)
-        this.tag.renderOrder = 3
+        this.tag.renderOrder = TAG_ORDER
         this.group.add(this.tag)
     }
 
@@ -151,17 +165,20 @@ class GhostModel {
 
 /**
  * Draws ghost cars: the player's best lap and other players on the course. Each
- * ghost is a see-through copy of the player car that writes no depth, so it never
- * hides the real car, and is keyed by its frame's id so its model lives on.
+ * ghost is a see-through copy of the player car that never draws over the real
+ * car, and is keyed by its frame's id so its model lives on.
  */
 export class GhostView {
     readonly group = new THREE.Group()
     private template: Map<Part, THREE.BufferGeometry> | null = null
+    /** Depth only, in the transparent pass so it lands after the car's glass. */
+    private readonly depth = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true })
     private readonly models = new Map<string, GhostModel>()
     private readonly tmp = new THREE.Vector3()
 
     constructor(scene: THREE.Scene) {
         scene.add(this.group)
+        avoidsCar(this.depth)
     }
 
     /** Shows exactly `frames`; `viewHeight` is the canvas height in CSS px. */
@@ -171,7 +188,7 @@ export class GhostView {
             let m = this.models.get(f.id)
             if (!m) {
                 this.template ??= buildTemplate()
-                m = new GhostModel(this.template)
+                m = new GhostModel(this.template, this.depth)
                 this.models.set(f.id, m)
                 this.group.add(m.group)
             }
@@ -195,6 +212,7 @@ export class GhostView {
         this.models.clear()
         if (this.template) for (const g of this.template.values()) g.dispose()
         this.template = null
+        this.depth.dispose()
         this.group.removeFromParent()
     }
 }

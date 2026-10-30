@@ -84,8 +84,8 @@ export class RushPost {
     readonly rush: ShaderPass
 
     constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
-        // Multisampled, half-float target: smooth edges on the cars, HDR headroom for bloom.
-        const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 })
+        // Multisampled, half-float target: smooth edges on the cars, HDR headroom for bloom; the stencil keeps ghosts off the car.
+        const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, stencilBuffer: true })
         this.composer = new EffectComposer(renderer, target)
         this.composer.addPass(new RenderPass(scene, camera))
         this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.9)
