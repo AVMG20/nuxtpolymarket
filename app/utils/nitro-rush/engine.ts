@@ -5,7 +5,7 @@ import { disposeModelShared } from './car-kit'
 import { poseCar, type PoseSample } from './car-pose'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
-import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
+import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
 import { decodeGhost, encodeGhost, ghostPose, GhostRecorder, type Ghost } from './ghost'
 import { GhostView } from './ghost-view'
@@ -16,7 +16,7 @@ import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush
 import { headingOf, Track, wrapAngle, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { World } from './world'
 import type { NitroAudio } from './audio'
-import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostFrame, type GhostSource, type Phase, type TrackRecord } from './types'
+import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostFrame, type GhostSource, type LapEntry, type MapGhost, type Phase, type TrackRecord } from './types'
 
 /** The grid slot, this far behind the start line. */
 const GRID_OFFSET = -14
@@ -29,6 +29,8 @@ const RESPAWN_BACK = 120
 const HARD_LANDING = 8
 /** Attract-mode demo laps run a touch off the limit. */
 const DEMO_PACE = 0.85
+/** Laps the HUD lists. */
+const RECENT_LAPS = 3
 
 export class NitroRushEngine {
     private readonly host: HTMLElement
@@ -71,14 +73,14 @@ export class NitroRushEngine {
     private accumulator = 0
     private timer: LapTimer | null = null
     private record: TrackRecord = { ...EMPTY_RECORD }
-    private sessionBest: number | null = null
+    /** Newest first; replaced, never mutated, so each HUD frame holds a stable list. */
+    private recentLaps: readonly LapEntry[] = []
     /** Runs started this session, for the sprint HUD. */
     private runs = 0
     private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false }
     private touch = false
     private nitroReadyAnnounced = false
     private wrongWayTime = 0
-    private lastLap: number | null = null
     private lastTravel = 0
     private lastSpeed = 0
     private latAcc = 0
@@ -148,12 +150,8 @@ export class NitroRushEngine {
 
     // ─── Public API ────────────────────────────────────────────────────────
 
-    get trackId() {
-        return this.track.def.id
-    }
-
-    get trackName() {
-        return this.track.def.name
+    get trackDef() {
+        return this.track.def
     }
 
     setPaint(id: PaintId) {
@@ -206,7 +204,6 @@ export class NitroRushEngine {
         this.sizeWorld()
         this.record = { ...EMPTY_RECORD }
         this.bestGhost = null
-        this.sessionBest = null
         this.toMenu()
         this.lineUpDemo()
     }
@@ -248,6 +245,8 @@ export class NitroRushEngine {
     start() {
         this.resetRace()
         this.runs++
+        // A loop's restart is a new attempt; a sprint's runs are its laps, so they stay listed.
+        if (this.track.closed) this.recentLaps = []
         this.phase = 'countdown'
         this.countdown = COUNTDOWN_SECONDS
         this.countdownShown = COUNTDOWN_SECONDS + 1
@@ -259,8 +258,7 @@ export class NitroRushEngine {
     toMenu() {
         this.timer = null
         this.recorder.reset()
-        this.sessionBest = null
-        this.lastLap = null
+        this.recentLaps = []
         this.runs = 0
         this.phase = 'attract'
         this.audio.skid(0)
@@ -547,8 +545,7 @@ export class NitroRushEngine {
             const isBest = rec.bestLap === null || e.time < rec.bestLap
             const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
             const sub = rec.bestLap === null ? label : `${label} · ${formatLapTime(e.time - rec.bestLap, true)}`
-            this.lastLap = e.time
-            if (this.sessionBest === null || e.time < this.sessionBest) this.sessionBest = e.time
+            this.recentLaps = [{ lap: this.lapNumber(e.lap), time: e.time }, ...this.recentLaps].slice(0, RECENT_LAPS)
             const lapGhost = this.recorder.lap(e.time)
             if (isBest) {
                 // The new best's ghost; a lap that couldn't record one keeps the old ghost, which is still a real lap.
@@ -659,17 +656,27 @@ export class NitroRushEngine {
 
         const timer = this.timer
         this.events.hud({
-            lap: !this.track.closed ? this.runs : timer ? timer.lap + 1 : 1,
+            lap: this.lapNumber(),
             closed: this.track.closed,
             lapTime: timer ? (timer.finished ? (this.lastLap ?? 0) : timer.lapTime) : 0,
-            lastLap: this.lastLap,
-            sessionBest: this.sessionBest,
+            recentLaps: this.recentLaps,
             bestLap: this.record.bestLap,
             speedKmh: Math.round(Math.abs(s.speed) * KMH_PER_SPEED),
             nitro: nitro ? s.nitroTime / NITRO_DURATION : s.nitro,
             nitroActive: nitro,
             drifting: s.drifting,
-            wrongWay: this.wrongWayTime > 1.2
+            wrongWay: this.wrongWayTime > 1.2,
+            car: { x: this.drawnPos.x, z: this.drawnPos.z, heading: this.drawn.heading },
+            ghosts: this.ghostFrames.map((f): MapGhost => ({ x: f.pose.x, z: f.pose.z, color: f.color ?? GHOST_COLOR }))
         })
+    }
+
+    private get lastLap() {
+        return this.recentLaps[0]?.time ?? null
+    }
+
+    /** 1-based number of the timer's 0-based `lap`, or of the run on an open course. */
+    private lapNumber(lap = this.timer?.lap ?? 0) {
+        return this.track.closed ? lap + 1 : this.runs
     }
 }

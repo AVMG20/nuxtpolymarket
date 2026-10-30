@@ -1,0 +1,267 @@
+/* The race HUD over the scene: lap panel, minimap, speed dial and nitro; the palette and labels come from nitro-rush.css. */
+.nr-root .nr-lap {
+    font-family: 'Tilt Neon', system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    color: #fff;
+    text-shadow: 0 0 14px var(--nr-pink);
+}
+
+.nr-root .nr-lap span {
+    font-size: 15px;
+    color: rgb(255 255 255 / 0.6);
+}
+
+.nr-root .nr-time {
+    font-size: clamp(30px, 5.4vw, 50px);
+    line-height: 1;
+    font-style: italic;
+    text-shadow: 0 0 18px var(--nr-pink), 0 2px 0 rgb(0 0 0 / 0.5);
+}
+
+.nr-root .nr-mono {
+    margin-left: 4px;
+    font-family: 'Tilt Neon', system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: #fff;
+}
+
+.nr-root .nr-best { color: var(--nr-violet); text-shadow: 0 0 10px var(--nr-violet); }
+
+.nr-root .nr-laps {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+}
+
+.nr-root .nr-laps .nr-time { margin-bottom: 4px; }
+
+.nr-root .nr-laps-row {
+    display: grid;
+    grid-template-columns: auto auto 4.5em;
+    align-items: baseline;
+    justify-items: end;
+    column-gap: 8px;
+}
+
+.nr-root .nr-laps-best .nr-mono { font-size: 19px; }
+
+.nr-root .nr-laps-recent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    margin-top: 2px;
+}
+
+.nr-root .nr-laps-recent .nr-label { font-size: 10px; color: rgb(255 255 255 / 0.55); }
+
+.nr-root .nr-laps-recent .nr-mono { color: rgb(255 255 255 / 0.85); }
+
+.nr-root .nr-laps-delta {
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--nr-red);
+    text-shadow: 0 1px 6px rgb(0 0 0 / 0.6);
+}
+
+.nr-root .nr-wrong {
+    display: inline-block;
+    padding: 4px 18px;
+    border-radius: 10px;
+    font-size: clamp(28px, 6vw, 54px);
+    font-style: italic;
+    background: rgb(120 0 20 / 0.55);
+    color: #fff;
+    text-shadow: 0 0 18px var(--nr-red);
+    animation: nr-blink 0.5s steps(2) infinite;
+}
+
+.nr-root .nr-minimap {
+    flex-shrink: 0;
+    width: clamp(96px, 16vw, 170px);
+    aspect-ratio: 1;
+    overflow: visible;
+    border-radius: 16px;
+    background: radial-gradient(circle, rgb(5 5 20 / 0.55), rgb(5 5 20 / 0.25) 70%, transparent);
+}
+
+.nr-root .nr-minimap-edge,
+.nr-root .nr-minimap-road {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.nr-root .nr-minimap-edge { stroke: rgb(0 0 0 / 0.55); stroke-width: 7; }
+
+.nr-root .nr-minimap-road {
+    stroke: var(--nr-cyan);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 2px var(--nr-cyan));
+}
+
+.nr-root .nr-minimap-line { stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
+
+.nr-root .nr-minimap-line.is-finish { stroke: var(--nr-gold); }
+
+.nr-root .nr-minimap-ghost { opacity: 0.8; stroke: rgb(0 0 0 / 0.5); stroke-width: 0.8; }
+
+.nr-root .nr-minimap-car {
+    fill: var(--nr-pink);
+    stroke: #fff;
+    stroke-width: 1;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 3px var(--nr-pink));
+}
+
+.nr-root .nr-dial {
+    position: relative;
+    flex-shrink: 0;
+    width: clamp(116px, 18vw, 190px);
+    aspect-ratio: 1;
+}
+
+.nr-root .nr-dial svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+.nr-root .nr-dial-face { fill: rgb(5 5 20 / 0.55); stroke: rgb(255 255 255 / 0.12); stroke-width: 1; }
+
+.nr-root .nr-dial-track,
+.nr-root .nr-dial-zone,
+.nr-root .nr-dial-fill {
+    fill: none;
+    stroke-width: 3.5;
+    stroke-linecap: round;
+}
+
+.nr-root .nr-dial-track { stroke: rgb(255 255 255 / 0.12); }
+
+.nr-root .nr-dial-zone { stroke: rgb(91 140 255 / 0.45); }
+
+.nr-root .nr-dial-fill {
+    stroke: var(--nr-cyan);
+    filter: drop-shadow(0 0 2.5px var(--nr-cyan));
+}
+
+.nr-root .nr-dial.is-nitro .nr-dial-fill {
+    stroke: #cfe0ff;
+    filter: drop-shadow(0 0 4px var(--nr-blue));
+}
+
+.nr-root .nr-dial-tick { stroke: rgb(255 255 255 / 0.4); stroke-width: 1; }
+
+.nr-root .nr-dial-tick.is-major { stroke: #fff; stroke-width: 1.8; }
+
+.nr-root .nr-dial-num {
+    fill: rgb(255 255 255 / 0.7);
+    font-family: system-ui, sans-serif;
+    font-size: 7px;
+    font-weight: 800;
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
+.nr-root .nr-dial-needle {
+    fill: var(--nr-pink);
+    filter: drop-shadow(0 0 2px var(--nr-pink));
+}
+
+.nr-root .nr-dial-hub { fill: #fff; }
+
+.nr-root .nr-dial-readout {
+    position: absolute;
+    inset: 60% 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1;
+}
+
+.nr-root .nr-dial-speed {
+    font-size: clamp(20px, 3vw, 32px);
+    font-style: italic;
+    text-shadow: 0 0 16px var(--nr-cyan);
+}
+
+.nr-root .nr-dial.is-nitro .nr-dial-speed {
+    color: #cfe0ff;
+    text-shadow: 0 0 22px var(--nr-blue), 0 0 40px var(--nr-blue);
+}
+
+.nr-root .nr-dial-readout .nr-label { font-size: 9px; }
+
+.nr-root .nr-drift {
+    font-size: 15px;
+    font-style: italic;
+    letter-spacing: 0.2em;
+    color: var(--nr-orange);
+    text-shadow: 0 0 12px var(--nr-orange);
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.nr-root .nr-drift.is-on {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.nr-root .nr-nitro-bar {
+    position: relative;
+    width: min(420px, 100%);
+    height: 26px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgb(5 5 20 / 0.6);
+    border: 2px solid rgb(120 160 255 / 0.5);
+    box-shadow: inset 0 0 12px rgb(0 0 0 / 0.6);
+    cursor: pointer;
+}
+
+.nr-root .nr-nitro-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, #2d4dff, var(--nr-blue), var(--nr-cyan));
+    box-shadow: 0 0 18px var(--nr-blue);
+    transition: width 0.12s linear;
+}
+
+.nr-root .nr-nitro-bar.is-full {
+    border-color: #fff;
+    animation: nr-ready 0.6s ease-in-out infinite alternate;
+}
+
+.nr-root .nr-nitro-bar.is-active .nr-nitro-fill {
+    background: linear-gradient(90deg, #fff, var(--nr-cyan), var(--nr-blue));
+}
+
+.nr-root .nr-nitro-text {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    font-family: system-ui, sans-serif;
+    font-weight: 900;
+    text-shadow: 0 1px 4px rgb(0 0 0 / 0.8);
+}
+
+@keyframes nr-blink {
+    0% { opacity: 1; }
+    100% { opacity: 0.35; }
+}
+
+@keyframes nr-ready {
+    from { box-shadow: 0 0 10px var(--nr-blue); }
+    to { box-shadow: 0 0 30px var(--nr-cyan), 0 0 50px var(--nr-blue); }
+}

@@ -1,12 +1,11 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { canvas, finish } from './canvas'
+import { GHOST_COLOR } from './config'
 import { modelShared } from './car-kit'
 import { buildPlayerCar } from './models'
 import type { GhostFrame } from './types'
 
-/** The player's own ghost, unless a source gives a colour. */
-const DEFAULT_COLOR = 0x8fd8ff
 const OPACITY = 0.34
 /** Ghosts fade out as the camera closes in, so one sitting on the lens doesn't fill the screen. */
 const FADE_NEAR = 2
@@ -101,7 +100,7 @@ class GhostModel {
         const p = frame.pose
         this.group.position.set(p.x, p.y, p.z)
         this.group.quaternion.set(p.qx, p.qy, p.qz, p.qw)
-        const color = frame.color ?? DEFAULT_COLOR
+        const color = frame.color ?? GHOST_COLOR
         if (color !== this.color) {
             this.color = color
             this.shell.color.setHex(color)

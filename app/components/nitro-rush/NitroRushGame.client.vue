@@ -26,6 +26,8 @@ const popups = ref<(Popup & { id: number })[]>([])
 const records = ref<Record<string, TrackRecord>>({})
 const trackId = ref('')
 const trackName = ref('')
+/** The course on the engine, for the minimap. */
+const trackDef = shallowRef<TrackDef | null>(null)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
@@ -45,7 +47,7 @@ const custom = useNitroRushCustomTracks()
 const customEntries = computed<CustomTrackEntry[]>(() => custom.tracks.value.map(t => ({ track: t, def: custom.compile(t).def })))
 
 const { board, summaries, loadBoard, loadSummaries, submitLap } = useNitroRushBoard(records, (id) => {
-    if (engine?.trackId === id) engine.setRecord(records.value[id]!)
+    if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
 })
 
 /** Other players on this course, as live ghost cars. */
@@ -82,13 +84,19 @@ function resolveTrack(id: string): TrackDef | null {
     return findTrack(id) ?? custom.trackDef(id)
 }
 
+/** Mirrors the course on the engine, and its record, into the UI. */
+function syncTrack(def: TrackDef) {
+    trackDef.value = def
+    trackId.value = def.id
+    trackName.value = def.name
+    engine?.setRecord(record.value)
+}
+
 /** Puts a course on the engine, also a rebuilt version of the one already on it. */
 function loadTrack(def: TrackDef) {
     if (!engine) return
     engine.setTrack(def)
-    trackId.value = engine.trackId
-    trackName.value = engine.trackName
-    engine.setRecord(record.value)
+    syncTrack(engine.trackDef)
     writeStorage(STORAGE_KEYS.track, { id: def.id })
     loadBoard(def.id)
 }
@@ -333,13 +341,11 @@ onMounted(() => {
         },
         record: onRecord
     }, audio, paint.value, storedTrack)
-    trackId.value = engine.trackId
-    trackName.value = engine.trackName
-    engine.setRecord(record.value)
+    syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)
     ghostOn.value = readStorage(STORAGE_KEYS.ghost, { on: true }).on !== false
     engine.setBestGhost(ghostOn.value)
-    loadBoard(engine.trackId)
+    loadBoard(trackId.value)
     loadSummaries()
 
     window.addEventListener('keydown', onKeyDown)
@@ -374,7 +380,7 @@ onBeforeUnmount(() => {
   >
     <div ref="stage" class="absolute inset-0" />
 
-    <NitroRushHud v-if="hud && inSession" :hud="hud" :rank="rank" :racers="racers" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
+    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
     <NitroRushTouchPads v-if="isTouch && inSession && !paused" @control="touchControl" />
     <NitroRushPopups :popups="popups" />
 

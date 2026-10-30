@@ -64,6 +64,9 @@ export const COUNTDOWN_SECONDS = 3
 /** Displayed km/h per m/s. */
 export const KMH_PER_SPEED = 3.6
 
+/** The player's own ghost, unless a source gives a colour. */
+export const GHOST_COLOR = 0x8fd8ff
+
 export interface Theme {
     skyTop: number
     skyHorizon: number

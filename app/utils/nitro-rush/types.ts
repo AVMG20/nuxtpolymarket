@@ -15,9 +15,8 @@ export interface HudState {
     /** False on an open course, where each run is one lap. */
     closed: boolean
     lapTime: number
-    lastLap: number | null
-    /** Quickest lap of this session. */
-    sessionBest: number | null
+    /** This session's last few laps, newest first. */
+    recentLaps: readonly LapEntry[]
     /** The personal best on this track. */
     bestLap: number | null
     speedKmh: number
@@ -26,6 +25,23 @@ export interface HudState {
     nitroActive: boolean
     drifting: boolean
     wrongWay: boolean
+    /** The car on the plan, for the minimap; heading as `headingOf` gives it. */
+    car: { x: number, z: number, heading: number }
+    /** Every ghost drawn this frame, on the plan. */
+    ghosts: readonly MapGhost[]
+}
+
+export interface LapEntry {
+    /** The lap's number, or the run's on an open course. */
+    lap: number
+    time: number
+}
+
+export interface MapGhost {
+    x: number
+    z: number
+    /** Body colour, as a hex number. */
+    color: number
 }
 
 /** The best lap on a track and its sector splits (lap time last), for live deltas. */
