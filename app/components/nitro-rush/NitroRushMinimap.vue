@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { cssColor } from '~/utils/nitro-rush/config'
 import { markerRotation, MINIMAP_VIEW, minimapPlan, toMap } from '~/utils/nitro-rush/minimap'
 import type { HudState, MapGhost } from '~/utils/nitro-rush/types'
 
@@ -12,7 +13,7 @@ const props = defineProps<{
 
 const plan = computed(() => minimapPlan(new Track(props.track)))
 const car = computed(() => toMap(plan.value.fit, props.car.x, props.car.z))
-const ghosts = computed(() => props.ghosts.map(g => ({ at: toMap(plan.value.fit, g.x, g.z), fill: `#${g.color.toString(16).padStart(6, '0')}` })))
+const ghosts = computed(() => props.ghosts.map(g => ({ at: toMap(plan.value.fit, g.x, g.z), fill: cssColor(g.color) })))
 </script>
 
 <template>

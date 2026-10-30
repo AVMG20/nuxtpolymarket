@@ -156,6 +156,20 @@ export function roadTextures(halfWidth: number) {
     return { map, normal, rough: roughMap, wet: wetMask }
 }
 
+/** One cell of a faint ground grid, repeated; mipmapped, so far cells fade instead of flickering as thin lines would. */
+export function gridTexture() {
+    const [c, ctx] = canvas(128, 128)
+    ctx.fillStyle = '#0d0a22'
+    ctx.fillRect(0, 0, 128, 128)
+    ctx.fillStyle = 'rgba(120, 140, 255, 0.28)'
+    ctx.fillRect(0, 0, 128, 3)
+    ctx.fillRect(0, 0, 3, 128)
+    const t = finish(c)
+    t.wrapS = THREE.RepeatWrapping
+    t.wrapT = THREE.RepeatWrapping
+    return t
+}
+
 /** Broom-finished concrete for barriers and pavements. */
 export function concreteTexture(tone = 120) {
     const [c, ctx] = canvas(256, 256)

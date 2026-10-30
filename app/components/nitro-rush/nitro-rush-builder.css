@@ -1,0 +1,171 @@
+/* The track builder: its palette, piece list, map card and status. Loaded by NitroRushBuilder. */
+
+.nr-root .nr-card-tight { padding: 14px; }
+
+.nr-root .nr-card-map {
+    padding: 0;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at 50% 50%, rgb(61 242 255 / 0.06), transparent 70%),
+        linear-gradient(180deg, rgb(20 6 40 / 0.95), rgb(6 3 18 / 0.97));
+}
+
+.nr-root .nr-input {
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: rgb(5 5 20 / 0.6);
+    border: 1px solid rgb(255 255 255 / 0.2);
+    color: #fff;
+    font-size: 17px;
+    outline: none;
+}
+
+.nr-root .nr-input:focus { border-color: var(--nr-cyan); box-shadow: 0 0 12px rgb(61 242 255 / 0.35); }
+
+.nr-root .nr-section:disabled,
+.nr-root .nr-piece-tool:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    animation: none;
+    transform: none;
+}
+
+/* Builder palette, piece list and status: system type, since they're dense tool UI. */
+.nr-root .nr-section,
+.nr-root .nr-piece {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 8px;
+    text-align: left;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: rgb(255 255 255 / 0.05);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    cursor: pointer;
+}
+
+.nr-root .nr-section:hover:not(:disabled),
+.nr-root .nr-piece:hover { background: rgb(61 242 255 / 0.12); border-color: rgb(61 242 255 / 0.4); }
+
+.nr-root .nr-piece.is-active {
+    background: rgb(255 43 214 / 0.18);
+    border-color: var(--nr-pink);
+}
+
+.nr-root .nr-piece-index {
+    width: 1.6em;
+    flex-shrink: 0;
+    text-align: right;
+    color: rgb(255 255 255 / 0.45);
+}
+
+.nr-root .nr-piece-grip {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 18px;
+    height: 28px;
+    border-radius: 6px;
+    color: rgb(255 255 255 / 0.4);
+    cursor: grab;
+    touch-action: none;
+}
+
+.nr-root .nr-piece-grip:hover { color: #fff; background: rgb(255 255 255 / 0.08); }
+
+.nr-root .is-dragging,
+.nr-root .is-dragging .nr-piece-grip { cursor: grabbing; }
+
+.nr-root .nr-piece-row { position: relative; }
+
+.nr-root .nr-piece-row.is-lifted { opacity: 0.45; }
+
+.nr-root .nr-piece-row.is-drop-before::before,
+.nr-root .nr-piece-row.is-drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--nr-pink);
+    box-shadow: 0 0 8px var(--nr-pink);
+    pointer-events: none;
+}
+
+.nr-root .nr-piece-row.is-drop-before::before { top: -3px; }
+
+.nr-root .nr-piece-row.is-drop-after::after { bottom: -3px; }
+
+.nr-root .nr-piece-tool {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    color: #fff;
+    background: rgb(255 255 255 / 0.06);
+    border: 1px solid rgb(255 255 255 / 0.15);
+    cursor: pointer;
+}
+
+.nr-root .nr-piece-tool:hover:not(:disabled) { background: rgb(255 255 255 / 0.16); }
+.nr-root .nr-piece-tool.is-danger:hover { background: rgb(255 59 92 / 0.35); border-color: var(--nr-red); }
+
+.nr-root .nr-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgb(5 5 20 / 0.6);
+}
+
+.nr-root .nr-toggle button {
+    padding: 6px;
+    border-radius: 9px;
+    font-size: 16px;
+    color: rgb(255 255 255 / 0.6);
+    cursor: pointer;
+}
+
+.nr-root .nr-toggle.is-small button {
+    padding: 4px 12px;
+    font-size: 13px;
+}
+
+.nr-root .nr-toggle button.is-active {
+    color: #fff;
+    background: rgb(255 43 214 / 0.3);
+    box-shadow: 0 0 12px rgb(255 43 214 / 0.4);
+}
+
+.nr-root .nr-build-status {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--nr-gold);
+    background: rgb(5 5 20 / 0.75);
+    border: 1px solid rgb(255 210 61 / 0.35);
+    pointer-events: none;
+}
+
+.nr-root .nr-build-status.is-ok {
+    color: var(--nr-green);
+    border-color: rgb(77 255 138 / 0.4);
+}

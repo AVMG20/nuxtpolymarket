@@ -66,6 +66,14 @@ export const KMH_PER_SPEED = 3.6
 
 /** The player's own ghost, unless a source gives a colour. */
 export const GHOST_COLOR = 0x8fd8ff
+/** The neon pink of the walls, arches and the builder's highlights. */
+export const NEON_PINK = 0xff2bd6
+
+/** How the builder marks each line block, on the map and in the 3D preview. */
+export const LINE_COLORS = { start: 0xffffff, checkpoint: 0x3df2ff, finish: 0xffd23d } as const
+
+/** A hex colour number as CSS reads it. */
+export const cssColor = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`
 
 export interface Theme {
     skyTop: number

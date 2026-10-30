@@ -22,7 +22,10 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         canUndo.value = false
     })
 
-    const walk = computed(() => walkCustomTrack(draft.value))
+    // Read through these, a rename leaves the walk, and the map and preview drawn from it, alone.
+    const sections = computed(() => draft.value.sections)
+    const closed = computed(() => draft.value.closed)
+    const walk = computed(() => walkCustomTrack({ ...initial.value, sections: sections.value, closed: closed.value }))
     const compiled = computed(() => compileCustomTrack(draft.value))
     const gap = computed(() => draft.value.closed ? loopGap(walk.value) : null)
     const full = computed(() => draft.value.sections.length >= MAX_SECTIONS)
@@ -54,13 +57,12 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         edit({ sections: draft.value.sections.filter((_, k) => k !== i) }, i - 1)
     }
 
-    /** Swaps a section with its neighbour, `by` -1 (earlier) or 1 (later). */
-    function move(i: number, by: -1 | 1) {
-        const j = i + by
+    /** Takes the section at `from` out and puts it back in at `to`, counted after it's out; it stays selected. */
+    function moveTo(from: number, to: number) {
         const sections = [...draft.value.sections]
-        if (j < 0 || j >= sections.length) return
-        ;[sections[i], sections[j]] = [sections[j]!, sections[i]!]
-        edit({ sections }, j)
+        if (from === to || from < 0 || from >= sections.length || to < 0 || to >= sections.length) return
+        sections.splice(to, 0, ...sections.splice(from, 1))
+        edit({ sections }, to)
     }
 
     function setClosed(closed: boolean) {
@@ -83,5 +85,5 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         canUndo.value = history.length > 0
     }
 
-    return { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, move, setClosed, setName, select, undo }
+    return { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, moveTo, setClosed, setName, select, undo }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { isTyping } from '~/utils/nitro-rush/input'
+import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
 import { MAX_NAME_LENGTH, MAX_SECTIONS, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { ROAD } from '#shared/utils/nitro-rush/tracks'
 
@@ -16,7 +17,13 @@ const emit = defineEmits<{
     delete: [id: string]
 }>()
 
-const { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, move, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+const { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, moveTo, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+
+/** The top-down map, or the course in 3D; remembered in this browser. */
+const view = ref<'map' | '3d'>(readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: 'map' }).view === '3d' ? '3d' : 'map')
+watch(view, v => writeStorage(STORAGE_KEYS.builderView, { view: v }))
+/** A loop whose road already meets its start line. */
+const closes = computed(() => draft.value.closed && !!compiled.value.def)
 
 const dirty = computed(() => draft.value !== props.track)
 const confirmingDelete = ref(false)
@@ -110,7 +117,17 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="nr-card nr-card-map relative min-h-80 lg:min-h-0">
+        <NitroRushBuilderPreview
+          v-if="view === '3d'"
+          class="absolute inset-0"
+          :walk="walk"
+          :closes="closes"
+          :loop="draft.closed"
+          :selected="cursor >= 0 ? cursor : null"
+          @pick="select"
+        />
         <NitroRushBuilderMap
+          v-else
           class="absolute inset-0"
           :walk="walk"
           :closed="draft.closed"
@@ -118,6 +135,10 @@ onBeforeUnmount(() => {
           :selected="cursor >= 0 ? cursor : null"
           @pick="select"
         />
+        <div class="nr-toggle is-small absolute right-2.5 top-2.5" role="radiogroup" aria-label="Builder view">
+          <button role="radio" :aria-checked="view === 'map'" :class="{ 'is-active': view === 'map' }" @click="view = 'map'">MAP</button>
+          <button role="radio" :aria-checked="view === '3d'" :class="{ 'is-active': view === '3d' }" @click="view = '3d'">3D</button>
+        </div>
         <div class="nr-build-status" :class="{ 'is-ok': status.ok }">
           <UIcon :name="status.ok ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'" class="size-4 shrink-0" />
           <span>{{ status.text }}</span>
@@ -131,10 +152,10 @@ onBeforeUnmount(() => {
         </div>
         <p class="text-[11px] font-semibold text-white/55 [font-family:system-ui,sans-serif]">
           {{ draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
-          New sections go in after the highlighted one.
+          New sections go in after the highlighted one; drag a section's grip to move it.
         </p>
         <div class="max-h-64 min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-          <NitroRushBuilderPieces :sections="draft.sections" :cursor="cursor" @select="select" @move="move" @remove="removeAt" />
+          <NitroRushBuilderPieces :sections="draft.sections" :cursor="cursor" @select="select" @move="moveTo" @remove="removeAt" />
         </div>
         <div class="flex items-baseline justify-between text-[11px] text-white/60 tabular-nums">
           <span>{{ (length / 1000).toFixed(2) }} KM</span>
@@ -151,3 +172,5 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style src="./nitro-rush-builder.css"></style>

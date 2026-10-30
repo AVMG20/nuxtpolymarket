@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, pieceAt, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { walkLayout } from '#shared/utils/nitro-rush/layout'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
@@ -118,6 +118,54 @@ describe('walkCustomTrack', () => {
     it('still throws for a malformed piece', () => {
         const layout = { id: 'bad', name: 'Bad', group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 }, pieces: [{ type: 'straight' as const, length: 0 }] }
         expect(() => walkLayout(layout)).toThrow(/positive length/)
+    })
+})
+
+describe('pieceAt', () => {
+    it('finds the piece holding each walk point', () => {
+        const walk = walkCustomTrack(loop(RECTANGLE))
+        const starts = walk.pieceStarts
+        for (let k = 0; k < starts.length; k++) {
+            const last = (starts[k + 1] ?? walk.pts.length) - 1
+            expect(pieceAt(walk, starts[k]!)).toBe(k)
+            expect(pieceAt(walk, last)).toBe(k)
+        }
+    })
+})
+
+describe('draftTrackDef', () => {
+    it('draws a half-built course on to where its road ends', () => {
+        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-100', 'ramp-up']))
+        const def = draftTrackDef(walk, false)!
+        expect(def.closed).toBe(false)
+        expect(def.points).toHaveLength(walk.pts.length + 1)
+        expect(def.points.at(-1)).toEqual([walk.end.x, walk.end.z])
+        expect(def.heights!.at(-1)).toBeCloseTo(walk.end.y)
+        const t = new Track(def)
+        expect(t.closed).toBe(false)
+        expect(t.length).toBeGreaterThan(200)
+    })
+
+    it('draws a loop that meets its start as a closed road', () => {
+        const c = loop(RECTANGLE)
+        const def = draftTrackDef(walkCustomTrack(c), true)!
+        expect(def.closed).toBeUndefined()
+        expect(def.heights).toBeUndefined()
+        expect(def.ups).toBeUndefined()
+        expect(new Track(def).length).toBeCloseTo(new Track(compileCustomTrack(c).def!).length, 0)
+    })
+
+    it('keeps the jump gaps and the rails of loopings', () => {
+        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-100', 'jump', 'straight-100', 'looping-left', 'straight-100']))
+        const def = draftTrackDef(walk, false)!
+        expect(def.gaps).toEqual(walk.gaps)
+        expect(def.rails).toEqual(walk.rails)
+        expect(def.ups).toHaveLength(def.points.length)
+        expect(() => new Track(def)).not.toThrow()
+    })
+
+    it('has nothing to draw under two points', () => {
+        expect(draftTrackDef(walkCustomTrack(loop([])), true)).toBeNull()
     })
 })
 

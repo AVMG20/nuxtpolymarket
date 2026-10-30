@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 
 /** The track builder's top-down map: the course as laid so far, where the next section attaches and where a loop has to close. */
@@ -23,7 +24,6 @@ const GROUND = [61, 242, 255] as const
 const HIGH = [255, 210, 61] as const
 const PINK = '#ff2bd6'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
-const LINE_COLORS = { start: '#ffffff', checkpoint: '#3df2ff', finish: '#ffd23d' } as const
 /** Grid steps in metres, the finest whose cells are at least this many CSS px wide. */
 const GRID_STEPS = [10, 50, 250, 1000]
 const GRID_MIN_PX = 14
@@ -172,7 +172,7 @@ function draw() {
             const reach = road / 2 + dpr
             const nx = -dz / len * reach
             const ny = dx / len * reach
-            ctx.strokeStyle = LINE_COLORS[line.type]
+            ctx.strokeStyle = cssColor(LINE_COLORS[line.type])
             ctx.beginPath()
             ctx.moveTo(sx(px) - nx, sy(pz) - ny)
             ctx.lineTo(sx(px) + nx, sy(pz) + ny)

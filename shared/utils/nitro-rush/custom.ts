@@ -135,6 +135,42 @@ export function loopGap(walk: LayoutWalk) {
     return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y }
 }
 
+/** The index of the piece holding walk point `i`. */
+export function pieceAt(walk: LayoutWalk, i: number) {
+    const starts = walk.pieceStarts
+    let lo = 0
+    let hi = starts.length - 1
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1
+        if (starts[mid]! <= i) lo = mid
+        else hi = mid - 1
+    }
+    return lo
+}
+
+/**
+ * The road laid so far as a course to draw, finished or not: open, running on to where the last
+ * piece ends, unless `closes` says the loop meets its start. Null before there's any road.
+ */
+export function draftTrackDef(walk: LayoutWalk, closes: boolean): TrackDef | null {
+    const points = walk.pts.map(([x, z]): [number, number] => [x, z])
+    const heights = [...walk.ys]
+    const ups = [...walk.ups]
+    if (!closes) {
+        points.push([walk.end.x, walk.end.z])
+        heights.push(walk.end.y)
+        ups.push(ups[ups.length - 1] ?? [0, 1, 0])
+    }
+    if (points.length < 2) return null
+    const def: TrackDef = { id: 'draft', name: 'Draft', group: closes ? 'circuits' : 'sprints', points, ...ROAD }
+    if (heights.some(y => y !== 0)) def.heights = heights.map(y => Math.max(0, y))
+    if (ups.some(u => u[0] !== 0 || u[1] !== 1 || u[2] !== 0)) def.ups = ups
+    if (walk.rails.length) def.rails = walk.rails
+    if (walk.gaps.length) def.gaps = walk.gaps
+    if (!closes) def.closed = false
+    return def
+}
+
 export type CompiledCustomTrack = { def: TrackDef, error: null } | { def: null, error: string }
 
 /** The drivable course, or why it isn't one yet. */

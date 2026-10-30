@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
+import { NEON_PINK } from './config'
 import { checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
 import { mirrorStrip, ribbon, roadBelow, sweep, WALL_BASE_HALF } from './road-geometry'
 import type { WorldKit } from './world-kit'
@@ -161,7 +162,7 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
     for (const side of [-1, 1]) add(sweep(track, side, edge, jersey), wallMat)
     // A flat sweep stood just off the sloped face; outside is pink, inside cyan.
     for (const side of [-1, 1]) {
-        add(sweep(track, side, wall + 0.16, [[0, 0.46], [-0.03, 0.72]]),own(new THREE.MeshBasicMaterial({ color: side > 0 ? 0xff2bd6 : 0x3df2ff, side: THREE.DoubleSide })))
+        add(sweep(track, side, wall + 0.16, [[0, 0.46], [-0.03, 0.72]]),own(new THREE.MeshBasicMaterial({ color: side > 0 ? NEON_PINK : 0x3df2ff, side: THREE.DoubleSide })))
     }
     // ── Where the road leaves the ground: the slab's sides and underside, on pillars just outside its edges ──
     if (track.elevated) {
