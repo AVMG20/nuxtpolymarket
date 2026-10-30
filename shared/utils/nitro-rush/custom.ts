@@ -41,18 +41,20 @@ const bend = (turn: Turn, name: string, radius: number, angle = 90, bank = 0): S
 })
 const stunt = (label: string, icon: string, piece: TrackPiece): Section => ({ label, category: 'stunts', icon, piece })
 const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
-/** A full turn climbs 12 m and leaves right over where it came in; a half or quarter climbs its share at the same grade, so they add up to one. */
+/** On a grid multiple, so a half or quarter spiral ends on the grid and a loop can still close. */
+const SPIRAL_RADIUS = 40
+/** A full turn climbs 12 m and leaves right over where it came in; a half or quarter climbs its share, so they add up to one. */
 const helix = (turn: Turn, rise: number, share: keyof typeof SPIRAL_SHARE = 1): Section => ({
     label: `${SIDE[turn]} ${SPIRAL_SHARE[share]}spiral ${rise > 0 ? 'up' : 'down'}`,
     category: 'climbs',
     icon: ICONS[turn].spiral,
-    piece: spiral(turn, 36, 360 * share, rise * share)
+    piece: spiral(turn, SPIRAL_RADIUS, 360 * share, rise * share)
 })
 
-/** Every section a player can lay, in palette order within each category. Ids are stored: never rename one. */
+/** Every section a player can lay, in palette order within each category. Ids are stored: never rename one; a replaced one goes in REPLACED. */
 export const SECTIONS = {
     'straight-20': run(20),
-    'straight-50': run(50),
+    'straight-60': run(60),
     'straight-100': run(100),
     'straight-200': run(200),
     'left-tight': bend('left', 'tight', 40),
@@ -95,6 +97,9 @@ export const SECTIONS = {
 export type SectionId = keyof typeof SECTIONS
 
 export const isSectionId = (id: unknown): id is SectionId => typeof id === 'string' && Object.hasOwn(SECTIONS, id)
+
+/** Sections since replaced, and what a saved course lays in their place. */
+const REPLACED: Record<string, SectionId> = { 'straight-50': 'straight-60' }
 
 export interface CustomTrack {
     id: string
@@ -198,6 +203,8 @@ export function sanitizeCustomTrack(raw: unknown): CustomTrack | null {
     if (!raw || typeof raw !== 'object') return null
     const { id, name, closed, sections } = raw as Record<string, unknown>
     if (typeof id !== 'string' || !isCustomTrackId(id) || typeof name !== 'string' || typeof closed !== 'boolean') return null
-    if (!Array.isArray(sections) || sections.length > MAX_SECTIONS || !sections.every(isSectionId)) return null
-    return { id, name: name.slice(0, MAX_NAME_LENGTH), closed, sections: [...sections] }
+    if (!Array.isArray(sections) || sections.length > MAX_SECTIONS) return null
+    const ids = sections.map(s => typeof s === 'string' && Object.hasOwn(REPLACED, s) ? REPLACED[s] : s)
+    if (!ids.every(isSectionId)) return null
+    return { id, name: name.slice(0, MAX_NAME_LENGTH), closed, sections: ids }
 }

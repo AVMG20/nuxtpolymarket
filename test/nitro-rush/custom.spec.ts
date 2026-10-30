@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, pieceAt, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
-import { walkLayout } from '#shared/utils/nitro-rush/layout'
+import { GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 
@@ -18,11 +18,11 @@ describe('custom track sections', () => {
         loop(['start', 'straight-100', 'right-hairpin', 'straight-100', 'straight-20', 'right-hairpin']),
         loop(['start', 'straight-100', 'left-hairpin', 'straight-100', 'straight-20', 'left-hairpin']),
         sprint(['straight-20', 'start', 'straight-100', 'left-spiral-up', 'straight-100', 'left-wide', 'ramp-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'right-spiral-up', 'straight-100', 'right-wide', 'ramp-down', 'checkpoint', 'left-eighth', 'straight-50', 'right-eighth', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'right-spiral-up', 'straight-100', 'right-wide', 'ramp-down', 'checkpoint', 'left-eighth', 'straight-60', 'right-eighth', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'ramp-up', 'straight-100', 'left-spiral-down', 'straight-100', 'left-tight', 'straight-100', 'ramp-up', 'straight-100', 'right-spiral-down', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-100', 'looping-left', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-50', 'left-quarter-spiral-up', 'straight-50', 'left-quarter-spiral-down', 'straight-50', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-50', 'right-quarter-spiral-up', 'straight-50', 'right-quarter-spiral-down', 'straight-50', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-down', 'straight-60', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-down', 'straight-60', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200'])
     ]
 
@@ -36,6 +36,22 @@ describe('custom track sections', () => {
             const t = new Track(def!)
             expect(t.closed).toBe(c.closed)
         }
+    })
+
+    it('ends every section that leaves along an axis on the builder grid', () => {
+        const off: string[] = []
+        for (const id of Object.keys(SECTIONS) as SectionId[]) {
+            const { x, z, heading } = walkCustomTrack(sprint([id])).end
+            if (Math.abs(Math.sin(2 * heading)) > 1e-9) continue
+            const miss = (v: number) => Math.abs(v / GRID - Math.round(v / GRID)) * GRID
+            if (miss(x) > 1e-6 || miss(z) > 1e-6) off.push(`${id} ends at (${x.toFixed(2)}, ${z.toFixed(2)})`)
+        }
+        expect(off).toEqual([])
+    })
+
+    it('closes a figure eight of half and quarter spirals', () => {
+        const eight: SectionId[] = ['start', 'left-half-spiral-up', 'left-quarter-spiral-up', 'straight-20', 'straight-20', 'straight-20', 'straight-20', 'right-half-spiral-down', 'right-quarter-spiral-down', 'straight-20', 'straight-20', 'straight-20']
+        expect(compileCustomTrack(loop(eight)).error).toBeNull()
     })
 
     it('lays half and quarter spirals that add up to a full one', () => {
@@ -138,7 +154,7 @@ describe('walkCustomTrack', () => {
         const unclosed = loop(['start', 'straight-100', 'right-tight', 'ramp-up'])
         expect(() => walkCustomTrack(unclosed)).not.toThrow()
         expect(walkCustomTrack(unclosed).pieceStarts).toHaveLength(4)
-        expect(() => walkCustomTrack(loop(['straight-50', 'left-hairpin']))).not.toThrow()
+        expect(() => walkCustomTrack(loop(['straight-60', 'left-hairpin']))).not.toThrow()
         expect(walkCustomTrack(loop([])).pts).toEqual([])
     })
 
@@ -204,6 +220,10 @@ describe('sanitizeCustomTrack', () => {
         expect(t).toEqual(valid)
         expect(t!.sections).not.toBe(valid.sections)
         expect(sanitizeCustomTrack(newCustomTrack(false))).not.toBeNull()
+    })
+
+    it('lays a replaced section\'s successor in a saved course', () => {
+        expect(sanitizeCustomTrack({ ...valid, sections: ['start', 'straight-50'] })?.sections).toEqual(['start', 'straight-60'])
     })
 
     it('rejects anything that is not an object', () => {
