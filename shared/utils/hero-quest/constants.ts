@@ -1566,8 +1566,8 @@ export const MILESTONE_WORLD_SEALS_PER_RUN = 1 // locked 2026-10-11, the user's 
 /** Every prestige is a step. All four Seal types, the old prestige batch, and Gems. */
 export const MILESTONE_PRESTIGE_SEALS_BASE = 10 // locked 2026-10-11, the user's call
 export const MILESTONE_PRESTIGE_SEALS_STEP = 2 // locked 2026-10-11, the user's call
-export const MILESTONE_PRESTIGE_GEMS_BASE = 50 // locked 2026-10-11, the user's call
-export const MILESTONE_PRESTIGE_GEMS_STEP = 25 // locked 2026-10-11, the user's call
+export const MILESTONE_PRESTIGE_GEMS_BASE = 5 // cut tenfold 2026-10-30, the user's call
+export const MILESTONE_PRESTIGE_GEMS_STEP = 2.5 // cut tenfold 2026-10-30, the user's call
 
 /** A raid's levels at every multiple of this are its steps (`idea-backlog.md` item 11). */
 export const MILESTONE_RAID_LEVEL_EVERY = 5
