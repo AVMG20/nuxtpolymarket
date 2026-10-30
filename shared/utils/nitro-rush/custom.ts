@@ -40,12 +40,13 @@ const bend = (turn: Turn, name: string, radius: number, angle = 90, bank = 0): S
     piece: corner(turn, radius, angle, bank)
 })
 const stunt = (label: string, icon: string, piece: TrackPiece): Section => ({ label, category: 'stunts', icon, piece })
-/** One full turn, 12 m up or down: the road leaves right over (or under) where it came in. */
-const helix = (turn: Turn, rise: number): Section => ({
-    label: `${SIDE[turn]} spiral ${rise > 0 ? 'up' : 'down'}`,
+const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
+/** A full turn climbs 12 m and leaves right over where it came in; a half or quarter climbs its share at the same grade, so they add up to one. */
+const helix = (turn: Turn, rise: number, share: keyof typeof SPIRAL_SHARE = 1): Section => ({
+    label: `${SIDE[turn]} ${SPIRAL_SHARE[share]}spiral ${rise > 0 ? 'up' : 'down'}`,
     category: 'climbs',
     icon: ICONS[turn].spiral,
-    piece: spiral(turn, 36, 360, rise)
+    piece: spiral(turn, 36, 360 * share, rise * share)
 })
 
 /** Every section a player can lay, in palette order within each category. Ids are stored: never rename one. */
@@ -72,6 +73,14 @@ export const SECTIONS = {
     'left-spiral-down': helix('left', -12),
     'right-spiral-up': helix('right', 12),
     'right-spiral-down': helix('right', -12),
+    'left-half-spiral-up': helix('left', 12, 0.5),
+    'left-half-spiral-down': helix('left', -12, 0.5),
+    'right-half-spiral-up': helix('right', 12, 0.5),
+    'right-half-spiral-down': helix('right', -12, 0.5),
+    'left-quarter-spiral-up': helix('left', 12, 0.25),
+    'left-quarter-spiral-down': helix('left', -12, 0.25),
+    'right-quarter-spiral-up': helix('right', 12, 0.25),
+    'right-quarter-spiral-down': helix('right', -12, 0.25),
     'jump': stunt('Jump', 'i-lucide-rocket', jump(4, 30)),
     'big-jump': stunt('Big jump', 'i-lucide-rocket', jump(6, 60)),
     'looping-left': stunt('Looping, out left', 'i-lucide-repeat', looping('left', 22)),

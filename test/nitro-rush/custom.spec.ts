@@ -21,6 +21,8 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'straight-100', 'right-spiral-up', 'straight-100', 'right-wide', 'ramp-down', 'checkpoint', 'left-eighth', 'straight-50', 'right-eighth', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'ramp-up', 'straight-100', 'left-spiral-down', 'straight-100', 'left-tight', 'straight-100', 'ramp-up', 'straight-100', 'right-spiral-down', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-100', 'looping-left', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-50', 'left-quarter-spiral-up', 'straight-50', 'left-quarter-spiral-down', 'straight-50', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-50', 'right-quarter-spiral-up', 'straight-50', 'right-quarter-spiral-down', 'straight-50', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200'])
     ]
 
@@ -34,6 +36,31 @@ describe('custom track sections', () => {
             const t = new Track(def!)
             expect(t.closed).toBe(c.closed)
         }
+    })
+
+    it('lays half and quarter spirals that add up to a full one', () => {
+        const end = (sections: SectionId[]) => walkCustomTrack(sprint(sections)).end
+        const full = end(['left-spiral-up'])
+        for (const parts of [['left-half-spiral-up', 'left-half-spiral-up'], ['left-quarter-spiral-up', 'left-quarter-spiral-up', 'left-quarter-spiral-up', 'left-quarter-spiral-up']] as SectionId[][]) {
+            const e = end(parts)
+            expect(e.x).toBeCloseTo(full.x, 3)
+            expect(e.z).toBeCloseTo(full.z, 3)
+            expect(e.y).toBeCloseTo(full.y, 3)
+        }
+        expect(end(['right-half-spiral-down']).y).toBeCloseTo(-6, 3)
+        expect(end(['right-quarter-spiral-up']).y).toBeCloseTo(3, 3)
+    })
+
+    it('climbs a half spiral high enough to cross back over the road below', () => {
+        const c = sprint(['straight-20', 'start', 'straight-200', 'right-half-spiral-up', 'straight-100', 'right-tight', 'straight-200', 'finish', 'straight-100'])
+        const { def, error } = compileCustomTrack(c)
+        expect(error).toBeNull()
+        const t = new Track(def!)
+        // The last straight runs west over the first one, which leaves the start heading north.
+        const below = t.pointAt(t.startS + 60)
+        const over = t.project(below.x, below.z, -1, undefined, below.y + 6)
+        expect(Math.abs(over.s - t.startS - 60)).toBeGreaterThan(200)
+        expect(t.pointAt(over.s).y - below.y).toBeCloseTo(6, 2)
     })
 
     it('recognises only catalogue ids as sections', () => {

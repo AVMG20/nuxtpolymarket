@@ -61,7 +61,7 @@ const MIN_RUN_OFF = 60
 const CLOSE_TOLERANCE = 0.01
 /** Metres a ramp or spiral takes to ease into its slope and back out of it. */
 const EASE_LENGTH = 30
-/** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between. */
+/** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between; a half spiral climbs it. */
 export const MIN_CLEARANCE = 6
 /** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
 export const GRID = 10
