@@ -326,8 +326,6 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     }
     if (ys.some(v => v < -CLOSE_TOLERANCE)) fail('the road dips below the ground')
     const startAt = lines.find(l => l.type === 'start')!.at
-    // The grandstand stands on the ground beside the start line.
-    if (Math.abs(ys[startAt]!) > CLOSE_TOLERANCE) fail('the start line must sit on the ground')
     checkClearance(pts, ys, closed, layout.wallOffset, fail)
 
     // A loop is rotated to begin at the start line, where its lap clock reads zero.

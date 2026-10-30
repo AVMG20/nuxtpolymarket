@@ -220,6 +220,11 @@ describe('ramps and spirals', () => {
         expect(down.grade).toBeLessThan(-0.08)
     })
 
+    it('starts a course up on a raised road', () => {
+        const t = new Track(buildTrack(sprint([ramp(100, 5), start, straight(100), finish, straight(100)])))
+        expect(t.pointAt(t.startS).y).toBeCloseTo(5, 6)
+    })
+
     it('leaves a flat course without heights', () => {
         expect(buildTrack(POLYTOWN_OVAL).heights).toBeUndefined()
         expect(oval.elevated).toBe(false)
@@ -263,7 +268,6 @@ describe('ramps and spirals', () => {
         expect(() => buildTrack(helix(6))).toThrow(/passes .* m from another stretch/)
         expect(() => buildTrack(loop([...hill.slice(0, 5), straight(100), ...hill.slice(6)]))).toThrow(/off the ground/)
         expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/below the ground/)
-        expect(() => buildTrack(sprint([ramp(100, 5), start, straight(100), finish, straight(100)]))).toThrow(/start line must sit on the ground/)
         expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(50, 8), straight(50), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/longer than/)
         expect(() => buildTrack(sprint([straight(30), start, straight(100), spiral('right', 40, 100, 4), straight(100), finish, straight(100)]))).toThrow(/steps of 45/)
     })
