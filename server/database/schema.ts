@@ -18,6 +18,7 @@ import type {
   TcgCondition
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
+import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2676,4 +2677,20 @@ export const nitroRushLaps = pgTable('nitro_rush_laps', {
 }, t => [
   uniqueIndex('nitro_rush_laps_user_track_idx').on(t.userId, t.trackId),
   index('nitro_rush_laps_track_lap_idx').on(t.trackId, t.lapMs)
+])
+
+// Nitro Rush: the ghost each player races on a course, so it follows them to any
+// device. Only its owner ever reads it; a faster one replaces it.
+export const nitroRushGhosts = pgTable('nitro_rush_ghosts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull(),
+  /** The ghost's lap time, the same as its `end`. */
+  lapMs: integer('lap_ms').notNull(),
+  /** A loop's first lap from the grid, kept only until a flying lap is driven. */
+  standing: boolean('standing').notNull().default(false),
+  ghost: jsonb('ghost').$type<StoredGhost>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_ghosts_user_track_idx').on(t.userId, t.trackId)
 ])

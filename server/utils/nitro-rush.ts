@@ -1,6 +1,7 @@
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { nitroRushLaps } from '#server/database/schema'
+import { nitroRushGhosts, nitroRushLaps } from '#server/database/schema'
+import { decodeGhost, replacesGhost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
@@ -32,6 +33,12 @@ export interface NrTrackSummary {
     myLapMs: number | null
 }
 
+/** The ghost a player races on a course. */
+export interface NrGhost {
+    ghost: StoredGhost
+    standing: boolean
+}
+
 /** A lap the server will accept: a known course and a time the car could physically set. */
 export function validLap(trackId: unknown, lapMs: unknown): { trackId: string, lapMs: number } | null {
     if (typeof trackId !== 'string' || typeof lapMs !== 'number' || !Number.isInteger(lapMs)) return null
@@ -49,6 +56,42 @@ function nrMinLapMs(trackId: string) {
         minLapCache.set(trackId, ms)
     }
     return ms
+}
+
+/** A ghost the server will keep: a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. */
+export function validGhost(trackId: unknown, ghost: unknown, standing: unknown): NrGhost & { trackId: string } | null {
+    if (typeof trackId !== 'string' || typeof standing !== 'boolean') return null
+    const def = findTrack(trackId)
+    if (!def || (standing && def.closed === false) || !decodeGhost(ghost)) return null
+    // Only the fields a ghost has, so nothing else rides into the row.
+    const { v, hz, end, o, d } = ghost as StoredGhost
+    if (end < nrMinLapMs(trackId)) return null
+    return { trackId, ghost: { v, hz, end, o, d }, standing }
+}
+
+/** Keeps a ghost unless the player's is already the one to race; the row lock settles parallel saves on that one. */
+export async function saveNrGhost(userId: string, trackId: string, { ghost, standing }: NrGhost) {
+    return db.transaction(async (tx) => {
+        const now = new Date()
+        const [created] = await tx.insert(nitroRushGhosts)
+            .values({ userId, trackId, lapMs: ghost.end, standing, ghost, updatedAt: now })
+            .onConflictDoNothing()
+            .returning({ id: nitroRushGhosts.id })
+        if (created) return true
+        const mine = and(eq(nitroRushGhosts.userId, userId), eq(nitroRushGhosts.trackId, trackId))
+        const [kept] = await tx.select({ lapMs: nitroRushGhosts.lapMs, standing: nitroRushGhosts.standing })
+            .from(nitroRushGhosts).where(mine).for('update')
+        if (!kept || !replacesGhost({ end: kept.lapMs, standing: kept.standing }, { time: ghost.end, standing })) return false
+        await tx.update(nitroRushGhosts).set({ lapMs: ghost.end, standing, ghost, updatedAt: now }).where(mine)
+        return true
+    })
+}
+
+export async function nrGhost(userId: string, trackId: string): Promise<NrGhost | null> {
+    const [row] = await db.select({ ghost: nitroRushGhosts.ghost, standing: nitroRushGhosts.standing })
+        .from(nitroRushGhosts)
+        .where(and(eq(nitroRushGhosts.userId, userId), eq(nitroRushGhosts.trackId, trackId)))
+    return row ?? null
 }
 
 /** Records a lap; it only replaces the player's entry when quicker, so parallel submits keep the best. */

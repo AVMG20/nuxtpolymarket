@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
-import { nrLeaderboard, nrTrackSummaries, submitNrLap, validLap } from '#server/utils/nitro-rush'
+import { nrGhost, nrLeaderboard, nrTrackSummaries, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
+import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 
 const tag = Date.now().toString(36)
 const A = `nr-a-${tag}`
@@ -16,6 +17,34 @@ describe('lap validation', () => {
         expect(validLap('polytown-oval', '22400')).toBeNull()
         expect(validLap('polytown-oval', 5_000)).toBeNull()
         expect(validLap('polytown-oval', 31 * 60 * 1000)).toBeNull()
+    })
+})
+
+/** A ghost of a `seconds` lap, driving along x. */
+function ghostOf(seconds: number): StoredGhost {
+    const n = ghostSampleCount(seconds, GHOST_HZ)
+    const data = new Float32Array(n * GHOST_POSE)
+    for (let k = 0; k < n; k++) {
+        data[k * GHOST_POSE] = k
+        data[k * GHOST_POSE + 6] = 1
+    }
+    return encodeGhost({ hz: GHOST_HZ, end: seconds, data })!
+}
+
+describe('ghost validation', () => {
+    it('accepts a real ghost and refuses unknown courses, damaged ghosts and impossible laps', () => {
+        const ghost = ghostOf(25)
+        expect(validGhost('polytown-oval', ghost, false)).toEqual({ trackId: 'polytown-oval', ghost, standing: false })
+        expect(validGhost('polytown-oval', ghost, true)?.standing).toBe(true)
+        expect(validGhost('nowhere', ghost, false)).toBeNull()
+        expect(validGhost('polytown-oval', ghost, 'yes')).toBeNull()
+        expect(validGhost('polytown-oval', { ...ghost, d: 'not a ghost' }, false)).toBeNull()
+        expect(validGhost('polytown-oval', ghostOf(3), false)).toBeNull()
+    })
+
+    it('keeps only a ghost\'s own fields, and no standing lap on a sprint', () => {
+        expect(validGhost('polytown-oval', { ...ghostOf(25), extra: 'x'.repeat(100) }, false)?.ghost).not.toHaveProperty('extra')
+        expect(validGhost('s-bend-sprint', ghostOf(40), true)).toBeNull()
     })
 })
 
@@ -60,5 +89,24 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
         expect(track).toEqual({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000 }, myLapMs: 26_900 })
         expect(empty).toEqual({ trackId: EMPTY, entries: 0, record: null, myLapMs: null })
         expect((await nrTrackSummaries(B, [TRACK]))[0]!.myLapMs).toBe(25_000)
+    })
+
+    it('settles a burst of parallel ghosts on the fastest', async () => {
+        const GHOSTS = `${TRACK}-ghosts`
+        const times = [30.5, 28.25, 29.9, 27.125, 31, 27.8]
+        await Promise.all(times.map(t => saveNrGhost(A, GHOSTS, { ghost: ghostOf(t), standing: false })))
+        expect((await nrGhost(A, GHOSTS))?.ghost.end).toBe(27_125)
+        expect(await nrGhost(B, GHOSTS)).toBeNull()
+    })
+
+    it('keeps a standing lap only until a flying one, then only a faster flying one', async () => {
+        const LOOP = `${TRACK}-standing`
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(32), standing: true })).toBe(true)
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(31), standing: true })).toBe(true)
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(33), standing: false })).toBe(true)
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(20), standing: true })).toBe(false)
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(34), standing: false })).toBe(false)
+        expect(await saveNrGhost(A, LOOP, { ghost: ghostOf(30), standing: false })).toBe(true)
+        expect(await nrGhost(A, LOOP)).toEqual({ ghost: ghostOf(30), standing: false })
     })
 })

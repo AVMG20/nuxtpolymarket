@@ -2,7 +2,7 @@
 
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
-import type { StoredGhost } from './ghost'
+import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
 
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'

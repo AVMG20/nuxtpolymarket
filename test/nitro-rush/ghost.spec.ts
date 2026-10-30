@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { decodeGhost, encodeGhost, ghostPose, ghostSampleCount, GhostRecorder, ghostTime, replacesGhost, type Ghost } from '../../app/utils/nitro-rush/ghost'
+import { ghostPose, GhostRecorder, ghostTime } from '../../app/utils/nitro-rush/ghost'
+import { decodeGhost, encodeGhost, ghostSampleCount, replacesGhost, type Ghost } from '#shared/utils/nitro-rush/ghost'
 import type { CarPose } from '../../app/utils/nitro-rush/types'
+import { keptGhost, withGhost } from '../../app/utils/nitro-rush/record'
 
 const blank = (): CarPose => ({ x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 })
 
@@ -207,5 +209,17 @@ describe('ghost lap time', () => {
 
     it('holds a ghost that does not carry on at its lap time', () => {
         expect(ghostTime(65, 60, false)).toBe(65)
+    })
+})
+
+describe('a record\'s ghost', () => {
+    const stored = { v: 1 as const, hz: 15, end: 61_000, o: [0, 0, 0, 0, 0, 0, 16383], d: '' }
+
+    it('marks a standing lap, and drops the mark for a flying one', () => {
+        const standing = withGhost({ bestLap: 60, bestSplits: null }, stored, true)
+        expect(standing).toEqual({ bestLap: 60, bestSplits: null, ghost: stored, ghostStanding: true })
+        expect(withGhost(standing, stored, false)).not.toHaveProperty('ghostStanding')
+        expect(keptGhost(standing)).toEqual({ end: 61_000, standing: true })
+        expect(keptGhost(undefined)).toBeNull()
     })
 })

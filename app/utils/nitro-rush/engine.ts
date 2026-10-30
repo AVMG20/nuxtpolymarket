@@ -7,11 +7,13 @@ import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
 import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState, type StepEvents } from './physics'
-import { decodeGhost, encodeGhost, ghostPose, GhostRecorder, ghostTime, replacesGhost, type Ghost } from './ghost'
+import { ghostPose, GhostRecorder, ghostTime } from './ghost'
 import { GhostView } from './ghost-view'
+import { withGhost } from './record'
 import { carInput } from './input'
 import { RushPost } from './post'
 import { AdaptiveResolution } from './resolution'
+import { decodeGhost, encodeGhost, replacesGhost, type Ghost } from '#shared/utils/nitro-rush/ghost'
 import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
 import { headingOf, Track, wrapAngle, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { World } from './world'
@@ -553,13 +555,8 @@ export class NitroRushEngine {
             const stored = lapGhost && replacesGhost(kept, { time: e.time, standing }) ? encodeGhost(lapGhost) : null
             if (isBest || stored) {
                 const next: TrackRecord = isBest ? { ...rec, bestLap: e.time, bestSplits: [...e.splits, e.time] } : { ...rec }
-                if (stored) {
-                    next.ghost = stored
-                    if (standing) next.ghostStanding = true
-                    else delete next.ghostStanding
-                    this.bestGhost = decodeGhost(stored)
-                }
-                this.record = next
+                this.record = stored ? withGhost(next, stored, standing) : next
+                if (stored) this.bestGhost = decodeGhost(stored)
                 this.events.record(this.track.def.id, this.record)
             }
             if (isBest) this.flash.setRGB(0.25, 0.2, 0.05)

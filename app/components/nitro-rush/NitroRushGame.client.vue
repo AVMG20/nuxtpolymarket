@@ -46,9 +46,13 @@ let awayTimer: ReturnType<typeof setInterval> | undefined
 const custom = useNitroRushCustomTracks()
 const customEntries = computed<CustomTrackEntry[]>(() => custom.tracks.value.map(t => ({ track: t, def: custom.compile(t).def })))
 
-const { board, summaries, loadBoard, loadSummaries, submitLap } = useNitroRushBoard(records, (id) => {
+/** A record changed from the server: the engine races it if that course is open. */
+function onServerRecord(id: string) {
     if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
-})
+}
+
+const { board, summaries, loadBoard, loadSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
+const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
 
 /** Other players on this course, as live ghost cars. */
 const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint })
@@ -68,11 +72,12 @@ function pushPopup(p: Popup) {
 }
 
 function onRecord(id: string, r: TrackRecord) {
-    const was = records.value[id]?.bestLap ?? null
+    const was = records.value[id]
     records.value = { ...records.value, [id]: r }
     writeStorage(STORAGE_KEYS.records, records.value)
     // A faster ghost alone, below a best from another device, is no new time for the board.
-    if (r.bestLap !== null && r.bestLap !== was) submitLap(id, r.bestLap)
+    if (r.bestLap !== null && r.bestLap !== (was?.bestLap ?? null)) submitLap(id, r.bestLap)
+    if (r.ghost !== was?.ghost) submitGhost(id, r)
 }
 
 function forgetRecord(id: string) {
@@ -101,6 +106,7 @@ function loadTrack(def: TrackDef) {
     syncTrack(engine.trackDef)
     writeStorage(STORAGE_KEYS.track, { id: def.id })
     loadBoard(def.id)
+    loadGhost(def.id)
 }
 
 function selectTrack(id: string) {
@@ -348,6 +354,7 @@ onMounted(() => {
     ghostOn.value = readStorage(STORAGE_KEYS.ghost, { on: true }).on !== false
     engine.setBestGhost(ghostOn.value)
     loadBoard(trackId.value)
+    loadGhost(trackId.value)
     loadSummaries()
 
     window.addEventListener('keydown', onKeyDown)
