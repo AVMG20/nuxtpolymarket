@@ -21,6 +21,10 @@ const BANNER_WIDTH = 3.6
 const BOARD_HEIGHT = BANNER_WIDTH / 4 + 0.2
 /** The banner board hangs flush under the crown, its bottom still clear of the chase camera. */
 const BANNER_Y = ARCH_HEIGHT - ARCH_TUBE - BOARD_HEIGHT / 2
+const LIGHT_SPACING = 0.9
+/** The start lights' panel, across the front of the crown just over the banner. */
+const LIGHTS_Y = ARCH_HEIGHT - 0.05
+const LIGHTS_Z = ARCH_TUBE + 0.1
 
 /** Floodlights on the walls, arms out over the track; returns their lens and pool materials and head positions. */
 export function buildLamps({ track, own, instanced }: WorldKit) {
@@ -86,6 +90,8 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
     const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
     const lightGeo = own(new THREE.CylinderGeometry(0.3, 0.3, 0.15, 20).rotateX(Math.PI / 2))
+    const panelGeo = own(new THREE.BoxGeometry(START_LIGHTS * LIGHT_SPACING + 0.3, 0.8, 0.2))
+    const panelMat = own(new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.6, metalness: 0.4 }))
     const name = track.def.name.toUpperCase()
     const buildGantry = (at: number, sub: string, lights: boolean) => {
         const p = track.pointAt(at)
@@ -110,12 +116,15 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
             g.add(b)
         }
         if (lights) {
-            // Up the right-hand leg, facing the grid.
+            // Centred over the banner, facing the grid, as on a race gantry.
+            const panel = new THREE.Mesh(panelGeo, panelMat)
+            panel.position.set(0, LIGHTS_Y, LIGHTS_Z)
+            g.add(panel)
             for (let i = 0; i < START_LIGHTS; i++) {
                 const mat = own(new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xff1a1a, emissiveIntensity: 0 }))
                 startLights.push(mat)
                 const l = new THREE.Mesh(lightGeo, mat)
-                l.position.copy(archAt(Math.PI * (0.16 + i * 0.045))).setZ(ARCH_TUBE + 0.1)
+                l.position.set((i - (START_LIGHTS - 1) / 2) * LIGHT_SPACING, LIGHTS_Y, LIGHTS_Z + 0.12)
                 g.add(l)
             }
         }
