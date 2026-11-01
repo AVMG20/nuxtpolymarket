@@ -1643,7 +1643,6 @@ function onGuideNext() {
     if (view.page < view.pages.length - 1) guidePage.value++
     else closeTutorial()
 }
-const engaging = ref(false)
 
 /** How far the stage has played the fight, and whether its result is up. */
 const fightProgress = ref({ time: 0, done: false })
@@ -1684,7 +1683,13 @@ const battleCanvas = ref<{ skipFight: () => void, closeIris: () => Promise<HqInt
 const holdGate = ref(false)
 const prestiging = ref(false)
 const crossing = ref(false)
-const wantGate = computed(() => ((liveRun.value?.runCleared ?? false) && !fight.value) || holdGate.value)
+const engaging = ref(false)
+const wantGate = computed(() => prestigeGateWanted({
+    runCleared: liveRun.value?.runCleared ?? false,
+    engaging: engaging.value,
+    fightOpen: fight.value !== null,
+    holdGate: holdGate.value
+}))
 const showGate = ref(wantGate.value)
 
 watch(wantGate, async (want) => {

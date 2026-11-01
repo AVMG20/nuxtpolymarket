@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+    prestigeGateWanted,
     shouldAutoEngage,
     type AutoEngageInput
 } from '../../app/utils/hero-quest-auto-boss'
@@ -26,6 +27,21 @@ const ready: AutoEngageInput = {
     lostHere: false
 }
 const decide = (over: Partial<AutoEngageInput> = {}) => shouldAutoEngage({ ...ready, ...over })
+
+describe('the prestige bridge', () => {
+    const cleared = { runCleared: true, engaging: false, fightOpen: false, holdGate: false }
+
+    it('waits while the fight that cleared the run is still on its way, then while it plays', () => {
+        expect(prestigeGateWanted({ ...cleared, engaging: true })).toBe(false)
+        expect(prestigeGateWanted({ ...cleared, fightOpen: true })).toBe(false)
+    })
+
+    it('comes up once the fight is put away, and stays up through a prestige', () => {
+        expect(prestigeGateWanted(cleared)).toBe(true)
+        expect(prestigeGateWanted({ ...cleared, runCleared: false })).toBe(false)
+        expect(prestigeGateWanted({ ...cleared, runCleared: false, holdGate: true })).toBe(true)
+    })
+})
 
 describe('the rule', () => {
     it('engages a boss the player is sitting in front of', () => {
