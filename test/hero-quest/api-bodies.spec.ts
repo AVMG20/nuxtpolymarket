@@ -66,6 +66,8 @@ describe('hero-quest request bodies', () => {
         expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
         expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
         expect(validateHqBody({ system: 'champion', count: 100 }, PULL_BODY)).toEqual({ system: 'champion', count: 100, free: false })
+        expect(validateHqBody({ system: 'champion', count: 10_000 }, PULL_BODY)).toEqual({ system: 'champion', count: 10_000, free: false })
+        expect(validateHqBody({ system: 'champion', count: 1_500 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
     })
 
     it('takes a quick-clear as 1, 5 or 10 at a time, 1 when left out, and nothing else', () => {

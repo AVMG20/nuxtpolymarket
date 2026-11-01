@@ -1739,6 +1739,10 @@ export const TEN_PULL_COST = 9
 /** A 100-pull is ten 10-pulls in one press, offered once a banner holds its Seals (the user's call, 2026-10-22). */
 export const HUNDRED_PULL_SIZE = 100
 export const HUNDRED_PULL_COST = HUNDRED_PULL_SIZE / TEN_PULL_SIZE * TEN_PULL_COST
+/** From this size a pull comes back as a count per rarity, not a card per pull. */
+export const PULL_TALLY_SIZE = 1_000
+/** The top of the tenfold sizes: the next one's cost could never fit the integer Seal column. */
+export const MAX_PULL_SIZE = 1_000_000_000
 
 /**
  * dupesToLevelUp(star, level) = round(min((star × 10 + level) × DUPE_LEVEL_FACTOR, DUPE_LEVEL_CAP))
