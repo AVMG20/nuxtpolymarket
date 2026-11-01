@@ -26,7 +26,7 @@ import type { ArenaDefenseLoadout, ArenaShopItem } from '#shared/utils/hero-ques
 import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import type { CalendarDayState } from '#shared/utils/hero-quest/calendar'
-import { ARENA_SHOP_MAX_QUANTITY, HUNDRED_PULL_SIZE, MAX_TRAIT_SAVE_SLOTS, RAID_QUICK_CLEAR_COUNTS, TEN_PULL_SIZE, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
+import { ARENA_SHOP_MAX_QUANTITY, MAX_TRAIT_SAVE_SLOTS, RAID_QUICK_CLEAR_COUNTS, TRAIT_SLOT_COUNT, type CalendarReward, type HqFeature, type RaidQuickClearCount } from '#shared/utils/hero-quest/constants'
 import { isHolidayId, type HolidayId } from '#shared/utils/hero-quest/content/holidays'
 import type { PassivePath } from '#shared/utils/hero-quest/content/passive-tree'
 import { isRaidId, type RaidId } from '#shared/utils/hero-quest/content/raids'
@@ -34,7 +34,7 @@ import { isRaidQuickClearCount } from '#shared/utils/hero-quest/raids'
 import { isShopTrackId, type ShopCurrency, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { isTraitGrade } from '#shared/utils/hero-quest/content/traits'
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
-import { isGachaSystem, type GachaSystem } from '#shared/utils/hero-quest/gacha'
+import { isGachaSystem, isPullSize, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import { isLoadoutTarget, type LoadoutPreferences, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
 import type { MilestoneReward, MilestoneRow } from '#shared/utils/hero-quest/milestones'
 import type { PassiveBuyBlock } from '#shared/utils/hero-quest/passive-tree'
@@ -187,8 +187,8 @@ export const CRAFT_BODY: BodySchema<HqCraftRequest> = {
 
 export interface HqPullRequest {
     system: GachaSystem
-    /** 10 for a 10-pull, 100 for a 100-pull; anything else is a single. A free pull is always ten and ignores it. */
-    count?: 1 | 10 | 100
+    /** 1 or a power of ten (`isPullSize`); anything else is a single. A free pull is always ten and ignores it. */
+    count?: number
     /** Spend one of the day's free 10-pulls instead of Seals; only `true` does. */
     free?: boolean
     /** Buy the Seals the pull is short off the day's Gold ladder, at no more than `maxGold`: the price the button showed. */
@@ -197,9 +197,9 @@ export interface HqPullRequest {
 export const PULL_BODY: BodySchema<HqPullRequest> = {
     system: { check: isGacha, message: 'Unknown gacha' },
     count: {
-        read: value => value === TEN_PULL_SIZE || value === HUNDRED_PULL_SIZE ? value : 1,
-        check: (value): value is 1 | 10 | 100 => value === 1 || value === TEN_PULL_SIZE || value === HUNDRED_PULL_SIZE,
-        message: 'Pull one, ten or a hundred at a time',
+        read: value => isPullSize(value) ? value : 1,
+        check: isPullSize,
+        message: 'Pull one, or a power of ten, at a time',
         optional: true
     },
     free: { read: asFlag, check: isBoolean, message: 'Say whether the pull is free', optional: true },
@@ -1109,10 +1109,21 @@ export interface HqPullRecord {
     essence: number
 }
 
+/** A pull too big to list, counted instead. */
+export interface HqPullTally {
+    pulls: number
+    rarities: Record<Rarity, number>
+    /** Items obtained for the first time. */
+    newItems: number
+}
+
 /** `POST gacha/pull`. */
 export interface HqPullResponse {
     system: GachaSystem
+    /** One record per pull, or empty when `tally` is set. */
     pulls: HqPullRecord[]
+    /** Set from `PULL_TALLY_SIZE` up, where listing every pull would be megabytes nobody reads. */
+    tally: HqPullTally | null
     /** True when it came out of the daily entitlement rather than the Seal balance. */
     free: boolean
     sealsSpent: number
