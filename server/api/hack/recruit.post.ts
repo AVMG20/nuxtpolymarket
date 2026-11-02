@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
   if (tier.currency === 'cash') {
     await debit(userId, cost.toFixed(4), 'HackOps')
   } else {
-    await debitGems(userId, cost)
+    await debitGems(userId, cost, 'hackops:recruit')
   }
 
   const takenNames = currentAgents.map(a => a.name)

@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
         const cost = shapezzHeadStartCost(level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Head start is already active' })
 
-        await debitGems(userId, cost, tx)
+        await debitGems(userId, cost, 'shapezz:head-start', tx)
         await tx.update(shapezzState).set({ headStartLevel: level + 1 }).where(eq(shapezzState.userId, userId))
 
         return { level: level + 1, cost }

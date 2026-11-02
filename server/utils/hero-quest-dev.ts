@@ -249,7 +249,7 @@ function positiveInt(value: unknown, field: string): number {
  */
 export async function devGrant(userId: string, grant: DevGrant) {
     if (grant.gold) await credit(userId, positiveInt(grant.gold, 'gold').toFixed(4), 'hero-quest-dev')
-    if (grant.gems) await creditGems(userId, positiveInt(grant.gems, 'gems'))
+    if (grant.gems) await creditGems(userId, positiveInt(grant.gems, 'gems'), 'hero-quest-dev:grant')
 
     const seals = grant.seals ? positiveInt(grant.seals, 'seals') : 0
     const essence = grant.essence ? positiveInt(grant.essence, 'essence') : 0

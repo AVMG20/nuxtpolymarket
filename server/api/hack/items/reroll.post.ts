@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
 
   const cost = rerollCost(mods.length, locked.length)
 
-  await debitGems(userId, cost)
+  await debitGems(userId, cost, 'hackops:reroll')
 
   const newMods = rerollItemMods(mods, locked)
   const [updated] = await db.update(hackItems).set({ mods: newMods }).where(eq(hackItems.id, itemId)).returning()

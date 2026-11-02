@@ -3,6 +3,7 @@ import { db, type DbExecutor } from '../database'
 import { user, transactions } from '../database/schema'
 import { applyBankGarnish } from './bank'
 import { RAKEBACK_RATE } from '../../shared/utils/profile'
+import type { Currency } from '../../shared/utils/currency'
 
 // Postgres numeric accepts 'NaN', which would silently poison a balance forever.
 function assertAmount(amount: string) {
@@ -70,19 +71,56 @@ export async function debit(userId: string, amount: string, category?: string, t
   return db.transaction(t => applyDebit(t, userId, amount, category))
 }
 
-// Atomically spend gems. The `gte` guard lives in the WHERE clause so the check and
-// the decrement are a single statement — two concurrent spends can never both pass and
-// push the balance negative (the read-then-write pattern this replaces could). Throws a
-// 400 when the user can't afford `cost` and returns the remaining gem balance otherwise.
-export async function debitGems(userId: string, cost: number, tx: DbExecutor = db) {
-  if (!Number.isInteger(cost) || cost < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
+function assertGemCount(count: number) {
+    if (!Number.isInteger(count) || count < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
+}
 
-  const [updated] = await tx.update(user)
-    .set({ gems: sql`${user.gems} - ${cost}` })
-    .where(and(eq(user.id, userId), gte(user.gems, cost)))
-    .returning({ gems: user.gems })
-  if (!updated) throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
-  return updated.gems
+// Gem rows share the coin ledger, told apart by `currency`. The amount is the
+// whole gem count, so audit sums read the same way for both currencies.
+async function logGems(ex: DbExecutor, userId: string, count: number, type: 'credit' | 'debit', category: string) {
+    await ex.insert(transactions).values({ userId, amount: String(count), type, category, currency: 'gems' })
+}
+
+// The `gte` guard lives in the WHERE clause so the check and the decrement are
+// one statement: two concurrent spends can never both pass and push the
+// balance negative. Throws 400 when the user can't afford `cost`, returns the
+// remaining gem balance otherwise.
+async function applyDebitGems(ex: DbExecutor, userId: string, cost: number, category: string) {
+    const [updated] = await ex.update(user)
+        .set({ gems: sql`${user.gems} - ${cost}` })
+        .where(and(eq(user.id, userId), gte(user.gems, cost)))
+        .returning({ gems: user.gems })
+    if (!updated) throw createError({ statusCode: 400, statusMessage: 'Not enough gems' })
+    if (cost > 0) await logGems(ex, userId, cost, 'debit', category)
+    return updated.gems
+}
+
+async function applyCreditGems(ex: DbExecutor, userId: string, count: number, category: string) {
+    const [updated] = await ex.update(user)
+        .set({ gems: sql`${user.gems} + ${count}` })
+        .where(eq(user.id, userId))
+        .returning({ gems: user.gems })
+    await logGems(ex, userId, count, 'credit', category)
+    return updated?.gems
+}
+
+/**
+ * Spend gems and log a `currency: 'gems'` ledger row under `category`, which
+ * uses the same `game:detail` naming as the coin categories so the audit files
+ * both under one game. Inside a locked `db.transaction()`, pass `tx`.
+ */
+export async function debitGems(userId: string, cost: number, category: string, tx?: DbExecutor) {
+    assertGemCount(cost)
+    if (tx) return applyDebitGems(tx, userId, cost, category)
+    return db.transaction(t => applyDebitGems(t, userId, cost, category))
+}
+
+/** Grant gems and log the ledger row. A zero grant writes nothing. */
+export async function creditGems(userId: string, count: number, category: string, tx?: DbExecutor) {
+    assertGemCount(count)
+    if (count === 0) return
+    if (tx) return applyCreditGems(tx, userId, count, category)
+    return db.transaction(t => applyCreditGems(t, userId, count, category))
 }
 
 // Same shape as debitGems: the `gte` guard is part of the UPDATE, so the check
@@ -98,15 +136,6 @@ export async function debitPrestigeTokens(userId: string, cost: number, tx: DbEx
     .returning({ prestigeTokens: user.prestigeTokens })
   if (!updated) throw createError({ statusCode: 400, statusMessage: 'Not enough prestige tokens' })
   return updated.prestigeTokens
-}
-
-export async function creditGems(userId: string, count: number, tx: DbExecutor = db) {
-  if (!Number.isInteger(count) || count < 0) throw createError({ statusCode: 400, statusMessage: 'Invalid gem amount' })
-  if (count === 0) return
-
-  await tx.update(user)
-    .set({ gems: sql`${user.gems} + ${count}` })
-    .where(eq(user.id, userId))
 }
 
 export async function accumulateRake(userId: string, wagerAmount: number, tx: DbExecutor = db) {
@@ -135,15 +164,16 @@ export async function getDailyNet(userId: string, categoryPrefix: string) {
     .from(transactions)
     .where(and(
       eq(transactions.userId, userId),
+      eq(transactions.currency, 'coins'),
       like(transactions.category, `${categoryPrefix}%`),
       sql`${transactions.createdAt} >= date_trunc('day', localtimestamp)`
     ))
   return Number(row?.net ?? 0)
 }
 
-export async function getHistory(userId: string, limit = 50) {
+export async function getHistory(userId: string, limit = 50, currency: Currency = 'coins') {
   return db.query.transactions.findMany({
-    where: eq(transactions.userId, userId),
+    where: and(eq(transactions.userId, userId), eq(transactions.currency, currency)),
     orderBy: desc(transactions.createdAt),
     limit,
   })

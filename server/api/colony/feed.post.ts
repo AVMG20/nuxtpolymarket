@@ -1,9 +1,9 @@
-import { and, eq, gte, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { colonyState, user } from '#server/database/schema'
+import { colonyState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { settleColony, getUpgradeLevels, getUserGems } from '#server/utils/colony'
-import { debit } from '#server/utils/balance'
+import { debit, debitGems } from '#server/utils/balance'
 import { deriveNutritionMax, FEED_COST_PER_POINT, gemFeedCost } from '#shared/utils/colony'
 
 /**
@@ -34,13 +34,9 @@ export default defineEventHandler(async (event) => {
 
     if (method === 'gems') {
       const cost = gemFeedCost(missing, max)
-      const [paid] = await tx.update(user)
-        .set({ gems: sql`${user.gems} - ${cost}` })
-        .where(and(eq(user.id, userId), gte(user.gems, cost)))
-        .returning({ gems: user.gems })
-      if (!paid) throw createError({ statusCode: 400, statusMessage: `Not enough gems (need ${cost})` })
+      const gems = await debitGems(userId, cost, 'colony:feed', tx)
       await tx.update(colonyState).set({ gemNutrition: state.gemNutrition + missing }).where(eq(colonyState.userId, userId))
-      return { ok: true, method, cost, nutrition: state.nutrition, gemNutrition: state.gemNutrition + missing, gems: paid.gems }
+      return { ok: true, method, cost, nutrition: state.nutrition, gemNutrition: state.gemNutrition + missing, gems }
     }
 
     const cost = missing * FEED_COST_PER_POINT

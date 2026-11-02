@@ -29,6 +29,7 @@ export default defineEventHandler(async (event) => {
 
     const todayWhere = and(
         eq(transactions.userId, userId),
+        eq(transactions.currency, 'coins'),
         gte(transactions.createdAt, todayStart),
         categoryFilter
     )
@@ -45,6 +46,7 @@ export default defineEventHandler(async (event) => {
             .from(transactions)
             .where(and(
                 eq(transactions.userId, userId),
+                eq(transactions.currency, 'coins'),
                 gte(transactions.createdAt, threeDaysAgo)
             ))
             .groupBy(sql`DATE(${transactions.createdAt})`, transactions.type)
@@ -62,6 +64,7 @@ export default defineEventHandler(async (event) => {
             .from(transactions)
             .where(and(
                 eq(transactions.userId, userId),
+                eq(transactions.currency, 'coins'),
                 gte(transactions.createdAt, todayStart)
             ))
             .groupBy(transactions.category, transactions.type),

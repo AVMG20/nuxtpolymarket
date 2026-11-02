@@ -1,0 +1,2 @@
+ALTER TABLE "transactions" ADD COLUMN "currency" text DEFAULT 'coins' NOT NULL;--> statement-breakpoint
+CREATE INDEX "transactions_currency_createdAt_idx" ON "transactions" USING btree ("currency","created_at");

@@ -22,7 +22,7 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
     // their OAuth link and locks them out of their own account permanently.
     'session',
     'account',
-    // The coin ledger is an audit trail, not progress — it has to keep showing
+    // The coin and gem ledger is an audit trail, not progress — it has to keep showing
     // what happened before the reset (including the prestige debit itself).
     'transactions',
     // Emblems are cosmetic and predate the run being reset. Losing your drawing
@@ -263,14 +263,23 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
             .returning({ prestige: user.prestige, prestigeTokens: user.prestigeTokens })
         if (!updated) throw createError({ statusCode: 409, statusMessage: 'Prestige already in progress' })
 
-        // The ledger has to account for the whole balance, not just the tier
-        // price, or the transaction history stops reconciling with the wallet.
+        // The ledger has to account for the whole balance and every gem, not
+        // just the tier price, or the history stops reconciling with the wallet.
         if (parseFloat(locked.balance) > 0) {
             await tx.insert(transactions).values({
                 userId,
                 amount: locked.balance,
                 type: 'debit',
                 category: `prestige:${tier.level}`
+            })
+        }
+        if (locked.gems > 0) {
+            await tx.insert(transactions).values({
+                userId,
+                amount: String(locked.gems),
+                type: 'debit',
+                category: `prestige:${tier.level}`,
+                currency: 'gems'
             })
         }
 

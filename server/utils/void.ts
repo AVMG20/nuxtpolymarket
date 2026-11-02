@@ -104,7 +104,7 @@ export async function voidCharge(tx: DbExecutor, userId: string, stores: Record<
     const held = voidCleanBundle(stores)
     if (!voidCanAfford(held, price.resources)) throw createError({ statusCode: 400, statusMessage: 'Not enough materials' })
     if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'game:void', tx)
-    if (price.gems > 0) await debitGems(userId, price.gems, tx)
+    if (price.gems > 0) await debitGems(userId, price.gems, 'game:void', tx)
     return voidSubtractBundle(held, price.resources)
 }
 

@@ -408,7 +408,7 @@ export async function purchaseBattleSpeed(tx: DbExecutor, userId: string, speed:
     }
 
     const cost = battleSpeedPrice(speed, minutes)
-    const gems = await debitGems(userId, cost, tx)
+    const gems = await debitGems(userId, cost, 'hero-quest:battle-speed', tx)
     const [updated] = await tx.update(hqState)
         .set({ speedBoostMultiplier: next.multiplier, speedBoostExpiresAt: next.expiresAt })
         .where(eq(hqState.userId, userId))
@@ -2059,7 +2059,7 @@ export async function buyShopTrack(tx: DbExecutor, userId: string, upgradeId: Sh
         // check and the spend are one statement. The tx is threaded because this transaction
         // already holds the `hqState` lock — without it the write goes out on a second pool
         // connection and deadlocks against a lock this request is holding.
-        await debitGems(userId, Math.round(cost), tx)
+        await debitGems(userId, Math.round(cost), 'hero-quest:shop', tx)
     }
 
     return {

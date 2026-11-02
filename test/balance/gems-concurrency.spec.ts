@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, transactions } from '#server/database/schema'
 import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
@@ -20,7 +20,7 @@ describe.skipIf(SKIP)('gems concurrency', () => {
     it('lets only one of N concurrent full-balance gem spends through', async () => {
         await seedUser(USER_ID, { gems: 100 })
 
-        const result = await burst(10, () => debitGems(USER_ID, 100))
+        const result = await burst(10, () => debitGems(USER_ID, 100, 'test'))
 
         expect(result).toEqual({ ok: 1, rejected: 9 })
         expect(await getGems()).toBe(0)
@@ -29,21 +29,37 @@ describe.skipIf(SKIP)('gems concurrency', () => {
     it('rejects a non-integer cost without touching the balance', async () => {
         await seedUser(USER_ID, { gems: 100 })
 
-        await expect(debitGems(USER_ID, 1.5)).rejects.toThrow()
+        await expect(debitGems(USER_ID, 1.5, 'test')).rejects.toThrow()
         expect(await getGems()).toBe(100)
     })
 
     it('rejects a negative cost without touching the balance', async () => {
         await seedUser(USER_ID, { gems: 100 })
 
-        await expect(debitGems(USER_ID, -10)).rejects.toThrow()
+        await expect(debitGems(USER_ID, -10, 'test')).rejects.toThrow()
         expect(await getGems()).toBe(100)
+    })
+
+    it('logs one gems ledger row per spend and credit, and none for a rejected spend', async () => {
+        await seedUser(USER_ID, { gems: 10 })
+
+        await creditGems(USER_ID, 5, 'test:credit')
+        await debitGems(USER_ID, 12, 'test:debit')
+        await expect(debitGems(USER_ID, 50, 'test:debit')).rejects.toThrow()
+
+        const rows = await db.select().from(transactions)
+            .where(and(eq(transactions.userId, USER_ID), eq(transactions.currency, 'gems')))
+        expect(rows.map(r => [r.type, Number(r.amount), r.category]).sort()).toEqual([
+            ['credit', 5, 'test:credit'],
+            ['debit', 12, 'test:debit']
+        ])
+        expect(await getGems()).toBe(3)
     })
 
     it('applies every concurrent gem credit', async () => {
         await seedUser(USER_ID, { gems: 0 })
 
-        const result = await burst(10, () => creditGems(USER_ID, 5))
+        const result = await burst(10, () => creditGems(USER_ID, 5, 'test'))
 
         expect(result).toEqual({ ok: 10, rejected: 0 })
         expect(await getGems()).toBe(50)
@@ -52,8 +68,8 @@ describe.skipIf(SKIP)('gems concurrency', () => {
     it('rejects a non-integer or negative gem credit without touching the balance', async () => {
         await seedUser(USER_ID, { gems: 25 })
 
-        await expect(creditGems(USER_ID, 1.5)).rejects.toThrow()
-        await expect(creditGems(USER_ID, -5)).rejects.toThrow()
+        await expect(creditGems(USER_ID, 1.5, 'test')).rejects.toThrow()
+        await expect(creditGems(USER_ID, -5, 'test')).rejects.toThrow()
         expect(await getGems()).toBe(25)
     })
 

@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
         if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'Your ship isn\'t under repair' })
 
         const gemCost = pirateRepairRushGemCost(remainingMs)
-        const gems = await debitGems(userId, gemCost, tx)
+        const gems = await debitGems(userId, gemCost, 'pirates:repair-rush', tx)
         await tx.update(pirateState)
             .set({ hullRepairUntil: null, hullRepairTotalMs: 0 })
             .where(eq(pirateState.userId, userId))

@@ -108,7 +108,7 @@ export async function placeGemOrder(
         if (side === 'buy') {
             await debit(userId, gemOrderTotal(price, quantity).toFixed(4), 'gem exchange', tx)
         } else {
-            await debitGems(userId, quantity, tx)
+            await debitGems(userId, quantity, 'gem exchange:escrow', tx)
         }
 
         const opposite = side === 'buy' ? 'sell' : 'buy'
@@ -192,12 +192,12 @@ async function applyFill(
     if (takerSide === 'buy') {
         const change = gemOrderTotal(takerLimitPrice, fill.quantity) - fillTotal
         if (change > 0) await credit(takerId, change.toFixed(4), 'gem exchange', tx)
-        await creditGems(takerId, fill.quantity, tx)
+        await creditGems(takerId, fill.quantity, 'gem exchange:fill', tx)
         await credit(fill.userId, fillTotal.toFixed(4), 'gem exchange', tx)
     } else {
         // Resting buyer escrowed exactly fill.price per gem — no change due.
         await credit(takerId, fillTotal.toFixed(4), 'gem exchange', tx)
-        await creditGems(fill.userId, fill.quantity, tx)
+        await creditGems(fill.userId, fill.quantity, 'gem exchange:fill', tx)
     }
 
     await tx.insert(gemTrades).values({
@@ -229,7 +229,7 @@ export async function cancelGemOrder(userId: string, orderId: string) {
             if (order.side === 'buy') {
                 await credit(userId, gemOrderTotal(parseFloat(order.price), remaining).toFixed(4), 'gem exchange', tx)
             } else {
-                await creditGems(userId, remaining, tx)
+                await creditGems(userId, remaining, 'gem exchange:refund', tx)
             }
         }
 

@@ -372,7 +372,7 @@ export async function settleColony(userId: string) {
     for (const [itemTypeId, qty] of lootByItem) {
       await addLoot(userId, itemTypeId, qty, tx)
     }
-    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned), tx)
+    if (gemsEarned > 0) await creditGems(userId, Math.floor(gemsEarned), 'colony:settle', tx)
   }
 
   const [updated] = await tx.update(colonyState)
@@ -431,7 +431,7 @@ export async function creditPartialTick(userId: string, bug: { typeId: string, y
   if (fraction <= 0) return
 
   if (type.producesGems) {
-    await creditGems(userId, Math.floor(effectiveGemsPerDay(bug, mods.yieldLevelBonus, mods.speedBonusPct) * fraction))
+    await creditGems(userId, Math.floor(effectiveGemsPerDay(bug, mods.yieldLevelBonus, mods.speedBonusPct) * fraction), 'colony:partial-tick')
   } else {
     const qty = Math.round(avgTickYield(bug.yield + mods.yieldLevelBonus) * fraction)
     await addLoot(userId, type.itemId, qty)

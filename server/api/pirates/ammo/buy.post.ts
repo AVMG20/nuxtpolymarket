@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
         const shots = Math.min(room, affordableBundles * PIRATE_GEM_AMMO_BUNDLE_SIZE)
         const gemCost = affordableBundles * PIRATE_GEM_AMMO_BUNDLE_PRICE_GEMS
 
-        await debitGems(userId, gemCost)
+        await debitGems(userId, gemCost, 'pirates:ammo')
         await db.update(pirateState).set({ gemAmmoCount: s.gemAmmoCount + shots }).where(eq(pirateState.userId, userId))
 
         return { bought: shots, cost: gemCost, currency: 'gems' as const, ammoCount: s.gemAmmoCount + shots }

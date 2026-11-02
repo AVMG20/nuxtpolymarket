@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
       .returning({ id: user.id })
     if (!unlocked) throw createError({ statusCode: 400, statusMessage: 'Already unlocked' })
 
-    await debitGems(userId, RAKEBACK_UNLOCK_COST, tx)
+    await debitGems(userId, RAKEBACK_UNLOCK_COST, 'rakeback:unlock', tx)
   })
 
   return { unlocked: true, gemsSpent: RAKEBACK_UNLOCK_COST }

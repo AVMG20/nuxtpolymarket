@@ -45,7 +45,13 @@ async function countRows() {
         db.select().from(chatMessages).where(eq(chatMessages.userId, USER_ID)),
         db.select().from(transactions).where(eq(transactions.userId, USER_ID))
     ])
-    return { miner: miner.length, bank: bank.length, orders: orders.length, chat: chat.length, ledger: ledger.length }
+    return {
+        miner: miner.length,
+        bank: bank.length,
+        orders: orders.length,
+        chat: chat.length,
+        ledger: ledger.map(row => [row.currency, row.type, Number(row.amount)])
+    }
 }
 
 async function cleanup() {
@@ -79,9 +85,12 @@ describe.skipIf(SKIP)('prestigeUser', () => {
         expect(rows.bank).toBe(0)
         expect(rows.orders).toBe(0)
         // Chat is on the preserve list, and the wipe writes one ledger row for
-        // the coins it burned.
+        // the coins it burned and one for the gems.
         expect(rows.chat).toBe(1)
-        expect(rows.ledger).toBe(1)
+        expect(rows.ledger.sort()).toEqual([
+            ['coins', 'debit', TIER_1.coinCost],
+            ['gems', 'debit', TIER_1.gemCost]
+        ])
     })
 
     /**

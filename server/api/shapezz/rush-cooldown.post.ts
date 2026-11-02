@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
         if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'The arena is already ready' })
 
         const cost = shapezzCooldownRushCost(remainingMs)
-        const gems = await debitGems(userId, cost, tx)
+        const gems = await debitGems(userId, cost, 'shapezz:rush', tx)
         await tx.update(shapezzState)
             .set({ lastRunFinishedAt: null })
             .where(eq(shapezzState.userId, userId))

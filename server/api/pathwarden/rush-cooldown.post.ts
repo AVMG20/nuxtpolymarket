@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
         if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'The wardens are already ready' })
 
         const cost = pathwardenCooldownRushCost(remainingMs)
-        const gems = debugMode ? null : await debitGems(userId, cost, tx)
+        const gems = debugMode ? null : await debitGems(userId, cost, 'pathwarden:rush', tx)
         await tx.update(pathwardenState)
             .set({ lastRunFinishedAt: null })
             .where(eq(pathwardenState.userId, userId))

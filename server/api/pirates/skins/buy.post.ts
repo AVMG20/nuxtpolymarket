@@ -1,7 +1,8 @@
-import { and, eq, gte, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { pirateState, user } from '#server/database/schema'
+import { pirateState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { debitGems } from '#server/utils/balance'
 import { PIRATE_SHIP_SKINS } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -20,16 +21,12 @@ export default defineEventHandler(async (event) => {
         const ownedSkinIds = Array.from(new Set(['starter', ...(state.ownedSkinIds ?? [])]))
         if (ownedSkinIds.includes(skin.id)) throw createError({ statusCode: 400, statusMessage: 'Skin already owned' })
 
-        const [updatedUser] = await tx.update(user)
-            .set({ gems: sql`${user.gems} - ${skin.cost}` })
-            .where(and(eq(user.id, userId), gte(user.gems, skin.cost)))
-            .returning({ gems: user.gems })
-        if (!updatedUser) throw createError({ statusCode: 400, statusMessage: `Need ${skin.cost} gems` })
+        const gems = await debitGems(userId, skin.cost, 'pirates:skin', tx)
 
         await tx.update(pirateState)
             .set({ ownedSkinIds: [...ownedSkinIds, skin.id], equippedSkinId: skin.id })
             .where(eq(pirateState.userId, userId))
 
-        return { skinId: skin.id, equipped: true, gems: updatedUser.gems }
+        return { skinId: skin.id, equipped: true, gems }
     })
 })

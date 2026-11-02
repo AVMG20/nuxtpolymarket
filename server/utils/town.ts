@@ -1455,7 +1455,7 @@ export async function rushBuilding(userId: string, buildingId: string) {
             throw createError({ statusCode: 400, statusMessage: 'Nothing to rush' })
         }
         const gems = townRushGemCost(remainingMs)
-        await debitGems(userId, gems, tx)
+        await debitGems(userId, gems, 'polytown:rush', tx)
 
         // Safe without a CAS: the town_state lock held by settleTownState
         // serializes every mutation of this player's buildings.
@@ -1634,7 +1634,7 @@ export async function claimMilestone(userId: string, milestoneId: string) {
             .returning({ id: townState.id })
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already claimed' })
         if (def.reward > 0) await credit(userId, def.reward.toFixed(4), CATEGORY, tx)
-        if (def.gems) await creditGems(userId, def.gems, tx)
+        if (def.gems) await creditGems(userId, def.gems, 'polytown:milestone', tx)
         return { id: def.id, reward: def.reward, gems: def.gems ?? 0, title: def.title }
     })
 }
@@ -2216,7 +2216,7 @@ export async function convertJewels(userId: string, gems: number) {
         await settleTownState(tx, userId)
         const jewels = townJewelsFor(gems)
         await takeInventory(tx, userId, 'jewels', jewels)
-        await creditGems(userId, gems, tx)
+        await creditGems(userId, gems, 'polytown:jewel-exchange', tx)
         return { gems, jewels }
     })
 }
@@ -2245,7 +2245,7 @@ export async function hireTownBuilder(userId: string) {
         const { state } = await settleTownState(tx, userId)
         const gems = townBuilderGemCost(state.builders)
         if (gems === null) throw createError({ statusCode: 400, statusMessage: `You already have ${TOWN_MAX_BUILDERS} builders` })
-        await debitGems(userId, gems, tx)
+        await debitGems(userId, gems, 'polytown:builder', tx)
         const [updated] = await tx.update(townState)
             .set({ builders: state.builders + 1 })
             .where(and(eq(townState.id, state.id), eq(townState.builders, state.builders)))
