@@ -11,6 +11,7 @@ import {
     topPlayersForLabel,
     type AuditWindow
 } from '#server/utils/audit'
+import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { GENRES, prefixesForGenre } from '#shared/utils/game-genres'
 import { cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -80,6 +81,13 @@ describe('topPlayersForLabel', () => {
                 )
                 expect(values).toEqual([...values].sort((a, b) => b - a))
             }
+        }
+    })
+
+    it('finds the players behind hyphenated categories, mapped or not', async () => {
+        for (const category of ['hero-quest', 'a-game-nobody-mapped-yet']) {
+            const players = await topPlayersForLabel(normaliseCategory(category), '30d', 'net', 1000)
+            expect(players.map(p => p.userId), category).toContain(LEDGER_USER)
         }
     })
 })
