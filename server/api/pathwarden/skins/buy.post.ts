@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
             const [current] = await tx.select({ gems: user.gems }).from(user).where(eq(user.id, userId))
             gems = current?.gems
         } else {
-            gems = await debitGems(userId, skin.gemCost, 'pathwarden:skin', tx)
+            gems = await debitGems(userId, skin.gemCost, 'pathwarden', tx)
         }
         if (gems === undefined) throw createError({ statusCode: 404, statusMessage: 'User not found' })
         await tx.update(pathwardenState)

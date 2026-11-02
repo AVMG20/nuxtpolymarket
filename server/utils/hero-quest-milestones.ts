@@ -106,7 +106,7 @@ export async function claimMilestones(tx: DbExecutor, userId: string, trackId: s
         .returning({ userId: hqState.userId })
     if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Milestones changed; try again' })
 
-    if (gems > 0) await creditGems(userId, gems, 'hero-quest:milestone', tx)
+    if (gems > 0) await creditGems(userId, gems, 'hero-quest', tx)
 
     return {
         claimed: rows.map(r => ({ id: r.id, from: r.claimed, to: r.reached })),

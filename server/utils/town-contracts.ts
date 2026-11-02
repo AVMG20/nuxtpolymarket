@@ -205,7 +205,7 @@ export async function claimTownContractBonus(userId: string) {
             throw createError({ statusCode: 400, statusMessage: message })
         }
 
-        await creditGems(userId, claimed.bonusGems, 'polytown:contract-bonus', tx)
+        await creditGems(userId, claimed.bonusGems, 'polytown', tx)
 
         const [wallet] = await tx.select({ balance: user.balance, gems: user.gems }).from(user).where(eq(user.id, userId))
         return {

@@ -88,7 +88,7 @@ export async function respecPassiveTree(tx: DbExecutor, userId: string) {
         throw createError({ statusCode: 400, statusMessage: 'Nothing to refund' })
     }
     const free = state.passiveRespecFree
-    if (!free) await debitGems(userId, PASSIVE_RESPEC_GEMS, 'hero-quest:passive-respec', tx)
+    if (!free) await debitGems(userId, PASSIVE_RESPEC_GEMS, 'hero-quest', tx)
     await tx.update(hqState).set({ passiveTree: {}, passiveRespecFree: false }).where(eq(hqState.userId, userId))
     return { free, pointsLeft: passivePointsEarned(state.heroLevel) }
 }

@@ -29,8 +29,8 @@ export default defineEventHandler(async (event) => {
     // coins and gems.
     await claimBuilder(userId, HABITAT_BUILDER_JOB_ID, tx)
 
-    await debit(userId, coinCost.toFixed(4), 'colony:habitat', tx)
-    await debitGems(userId, gemCost, 'colony:habitat', tx)
+    await debit(userId, coinCost.toFixed(4), 'colony', tx)
+    await debitGems(userId, gemCost, 'colony', tx)
   })
 
   return { ok: true, level: state.habitatLevel + 1 }

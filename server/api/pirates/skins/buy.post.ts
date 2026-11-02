@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
         const ownedSkinIds = Array.from(new Set(['starter', ...(state.ownedSkinIds ?? [])]))
         if (ownedSkinIds.includes(skin.id)) throw createError({ statusCode: 400, statusMessage: 'Skin already owned' })
 
-        const gems = await debitGems(userId, skin.cost, 'pirates:skin', tx)
+        const gems = await debitGems(userId, skin.cost, 'pirates', tx)
 
         await tx.update(pirateState)
             .set({ ownedSkinIds: [...ownedSkinIds, skin.id], equippedSkinId: skin.id })

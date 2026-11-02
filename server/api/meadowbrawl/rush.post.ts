@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
         if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'The meadow is ready — no need to rush' })
 
         const gemCost = meadowbrawlRushGemCost(remainingMs)
-        const gems = await debitGems(userId, gemCost, 'meadowbrawl:rush', tx)
+        const gems = await debitGems(userId, gemCost, 'meadowbrawl', tx)
         await tx.update(meadowbrawlState)
             .set({ lastRunFinishedAt: null })
             .where(eq(meadowbrawlState.userId, userId))

@@ -62,8 +62,8 @@ export async function giftToUser(fromUserId: string, toUserId: string, input: Gi
             await credit(toUserId, amount, 'gift:received', tx)
         }
         if (gems > 0) {
-            await debitGems(fromUserId, gems, 'gift:sent', tx)
-            await creditGems(toUserId, gems, 'gift:received', tx)
+            await debitGems(fromUserId, gems, 'gift', tx)
+            await creditGems(toUserId, gems, 'gift', tx)
         }
         return { coins, gems }
     })

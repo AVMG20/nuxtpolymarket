@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
         if (tier.currency === 'cash') {
             await debit(userId, tier.cost.toFixed(4), 'HackOps', tx)
         } else {
-            await debitGems(userId, tier.cost, 'hackops:recruit', tx)
+            await debitGems(userId, tier.cost, 'HackOps', tx)
         }
 
         const rarity = rollRarity(tier.weights)

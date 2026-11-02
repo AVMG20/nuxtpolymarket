@@ -414,7 +414,7 @@ export async function refreshCandidates(userId: string, now: number) {
         }
         const today = refreshesOn(refreshesOf(state), ladderDateKey(now))
         const price = refreshPrice(today.used)
-        if (price > 0) await debitGems(userId, price, 'hero-quest:arena-refresh', tx)
+        if (price > 0) await debitGems(userId, price, 'hero-quest', tx)
         await tx.update(hqState)
             .set({ arenaCandidates: candidates, arenaRefreshDate: today.date, arenaRefreshesToday: today.used + 1 })
             .where(eq(hqState.userId, userId))
@@ -429,7 +429,7 @@ export async function buyAttempt(tx: DbExecutor, userId: string, now: number) {
     const state = await lockOwn(tx, userId)
     const today = attemptsOn(attemptsOf(state), ladderDateKey(now))
     const price = extraAttemptPrice(today.purchased)
-    await debitGems(userId, price, 'hero-quest:arena-attempt', tx)
+    await debitGems(userId, price, 'hero-quest', tx)
     const after = { ...today, purchased: today.purchased + 1 }
     await tx.update(hqState)
         .set({ arenaAttemptDate: after.date, arenaAttemptsUsedToday: after.used, arenaExtraAttemptsPurchasedToday: after.purchased })
@@ -686,7 +686,7 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
     if (!spent) throw createError({ statusCode: 400, statusMessage: 'Not enough Arena Medals' })
 
     const amount = count
-    if (item.kind === 'gems') await creditGems(userId, count, 'hero-quest:arena-shop', tx)
+    if (item.kind === 'gems') await creditGems(userId, count, 'hero-quest', tx)
     return {
         itemId: item.id,
         kind: item.kind,

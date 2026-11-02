@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
       await consumePlantsByType(userId, plantTypeId, quantity * count, tx)
     }
     // Throws 400 if the user can't afford the gem craft.
-    if (gemCrafted) await debitGems(userId, gemCraftCost(artType) * count, 'xeno:artifact', tx)
+    if (gemCrafted) await debitGems(userId, gemCraftCost(artType) * count, 'xeno', tx)
 
     return tx.insert(xenoArtifacts)
       .values(Array.from({ length: count }, () => ({

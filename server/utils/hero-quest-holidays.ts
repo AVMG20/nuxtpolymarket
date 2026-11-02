@@ -87,7 +87,7 @@ export async function claimHoliday(tx: DbExecutor, userId: string, holidayId: un
     }
     const gold = holidayGiftGold(gift, goldPerHour)
     if (gold > 0) await credit(userId, gold.toFixed(4), 'hero-quest:holiday', tx)
-    if (gift.gems > 0) await creditGems(userId, gift.gems, 'hero-quest:holiday', tx)
+    if (gift.gems > 0) await creditGems(userId, gift.gems, 'hero-quest', tx)
 
     return { holidayId, year: window.year, gold: String(gold), gems: gift.gems, seals }
 }

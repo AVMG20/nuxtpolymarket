@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
 
     if (method === 'gems') {
       const cost = gemFeedCost(missing, max)
-      const gems = await debitGems(userId, cost, 'colony:feed', tx)
+      const gems = await debitGems(userId, cost, 'colony', tx)
       await tx.update(colonyState).set({ gemNutrition: state.gemNutrition + missing }).where(eq(colonyState.userId, userId))
       return { ok: true, method, cost, nutrition: state.nutrition, gemNutrition: state.gemNutrition + missing, gems }
     }
