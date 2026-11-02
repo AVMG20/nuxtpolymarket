@@ -1,5 +1,6 @@
 import { requireUserId } from '#server/utils/auth'
 import { parseMetric, parseWindow, topPlayersForLabel } from '#server/utils/audit'
+import { parseCurrency } from '#shared/utils/currency'
 
 const TOP_LIMIT = 5
 
@@ -16,11 +17,13 @@ export default defineEventHandler(async (event) => {
 
     const window = parseWindow(query.window)
     const metric = parseMetric(query.metric)
+    const currency = parseCurrency(query.currency)
 
     return {
         label,
         window,
         metric,
-        players: await topPlayersForLabel(label, window, metric, TOP_LIMIT)
+        currency,
+        players: await topPlayersForLabel(label, window, metric, TOP_LIMIT, currency)
     }
 })

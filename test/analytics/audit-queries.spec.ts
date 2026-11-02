@@ -13,6 +13,7 @@ import {
 } from '#server/utils/audit'
 import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { GENRES, prefixesForGenre } from '#shared/utils/game-genres'
+import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { cleanupUser, seedUser } from '../setup/db-helpers'
 
 // The admin audit reads build their CASE and IN clauses from the shared genre tables.
@@ -23,6 +24,9 @@ import { cleanupUser, seedUser } from '../setup/db-helpers'
 const WINDOWS = Object.keys(AUDIT_WINDOWS) as AuditWindow[]
 
 const LEDGER_USER = 'test-audit-queries'
+
+/** Only ever written as a gem row, so it must never surface in the coin audit. */
+const GEM_ONLY_CATEGORY = 'audit-gem-only-seed'
 
 /**
  * One row per category the tables know about, plus an uncategorised one and a
@@ -50,6 +54,10 @@ async function seedLedger() {
         type: i % 2 === 0 ? 'credit' : 'debit',
         category
     })))
+    await db.insert(transactions).values([
+        { userId: LEDGER_USER, amount: '7', type: 'credit', category: GEM_ONLY_CATEGORY, currency: 'gems' },
+        { userId: LEDGER_USER, amount: '7', type: 'credit', category: 'miner:gem-seed', currency: 'gems' }
+    ])
 }
 
 beforeAll(seedLedger)
@@ -66,6 +74,25 @@ describe('auditOverview', () => {
             expect(overview.days).toBe(AUDIT_WINDOWS[window].hours / 24)
             expect(overview.since.getTime()).toBeLessThan(Date.now())
         }
+    })
+})
+
+describe('currency split', () => {
+    it('keeps gem rows out of the coin audit and coin rows out of the gem audit', async () => {
+        const label = normaliseCategory(GEM_ONLY_CATEGORY)
+        const coins = await auditOverview('24h', 'coins')
+        const gems = await auditOverview('24h', 'gems')
+
+        expect(coins.games.find(g => g.label === label)).toBeUndefined()
+        expect(gems.games.find(g => g.label === label)?.credits).toBeGreaterThanOrEqual(7)
+        expect(gems.games.find(g => g.label === normaliseCategory('a-game-nobody-mapped-yet'))).toBeUndefined()
+
+        // The seed user is the only one with gem rows under Miner, but the
+        // coin side may hold real players, so look the seed user up by id.
+        const gemTop = await topPlayersForLabel('Miner', '24h', 'emitted', 5, 'gems')
+        expect(gemTop.find(p => p.userId === LEDGER_USER)?.credits).toBe(7)
+        const coinTop = await topPlayersForLabel('Miner', '24h', 'emitted', 1000, 'coins')
+        expect(coinTop.find(p => p.userId === LEDGER_USER)?.credits ?? 0).toBeLessThan(7)
     })
 })
 
