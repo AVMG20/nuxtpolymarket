@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { demolishTile } from '../../shared/utils/rail-tycoon/demolish'
-import { buildDepot, rtDepotFacing, rtDepotKind, rtDepotLink, rtDepotTrackFor } from '../../shared/utils/rail-tycoon/depots'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind, rtTreePayload } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad, rtRoadBits } from '../../shared/utils/rail-tycoon/road'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { demolishTile } from '#shared/utils/rail-tycoon/demolish'
+import { buildDepot, rtDepotFacing, rtDepotKind, rtDepotLink, rtDepotTrackFor } from '#shared/utils/rail-tycoon/depots'
+import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind, rtTreePayload } from '#shared/utils/rail-tycoon/map'
+import { buildRoad, rtRoadBits } from '#shared/utils/rail-tycoon/road'
 import {
     RtAxis,
     RtStationTile,
@@ -16,7 +16,7 @@ import {
     rtStationId,
     rtStationTileType,
     rtWithPlatformReservation
-} from '../../shared/utils/rail-tycoon/stations-build'
+} from '#shared/utils/rail-tycoon/stations-build'
 import {
     RT_ROAD_X,
     RT_ROAD_Y,
@@ -28,7 +28,7 @@ import {
     rtTracksOverlap,
     rtWithRailReservation,
     type RtReservationHooks
-} from '../../shared/utils/rail-tycoon/track'
+} from '#shared/utils/rail-tycoon/track'
 import {
     RT_NONE,
     RT_OWNER_NONE,
@@ -40,7 +40,7 @@ import {
     type RtStation,
     type RtTown,
     type RtVehicle
-} from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/types'
 
 const C = RT_CATALOG.construction
 const ME = 0
@@ -107,9 +107,9 @@ function setReserved(map: RtMap, tile: number, piece: RtTrack, on: boolean): voi
 }
 
 /**
- * A stand-in for goal 04's reservation rules over rail and platforms: each train follows a fixed list
+ * A stand-in for signals.ts's reservation rules over rail and platforms: each train follows a fixed list
  * of (tile, piece) steps and reserves up to the first gap; a step reserved by another train, or
- * crossing one, reserves nothing. Only the hook contract is under test; reservePath arrives with goal 04.
+ * crossing one, reserves nothing. Only the hook contract is under test, not the real reservePath.
  */
 class FakeReservations implements RtReservationHooks {
     readonly held = new Map<number, Set<string>>()
@@ -250,7 +250,7 @@ describe('rail tycoon station building', () => {
             expect(snapshot(map, stations)).toBe(withRoad)
         })
 
-        it('refuses growing a station to 13 tiles across (AR-101)', () => {
+        it('refuses growing a station to 13 tiles across', () => {
             const { map, stations, towns } = setup()
             buildRailStation(map, stations, towns, ME, map.idx(10, 10), RtAxis.x, 1, 7, true)
             expect(buildRailStation(map, stations, towns, ME, map.idx(17, 10), RtAxis.x, 1, 6, true)).toEqual({ ok: false, error: RtBuildError.tooSpread })
@@ -317,7 +317,7 @@ describe('rail tycoon station building', () => {
             expect(stations[0]!.tiles).toHaveLength(3)
         })
 
-        it('a chain of road stops is refused once it would pass stationSpread (AR-101)', () => {
+        it('a chain of road stops is refused once it would pass stationSpread', () => {
             const { map, stations, towns } = setup()
             for (let x = 10; x <= 23; x++) map.setTile(map.idx(x, 10), RtTileKind.road, RT_OWNER_NONE, RT_ROAD_X)
             for (let x = 10; x <= 21; x++) {
@@ -381,7 +381,7 @@ describe('rail tycoon station building', () => {
             expect(map.kind[tile]).toBe(RtTileKind.clear)
         })
 
-        it('a drive-through stop on a town road, demolished, leaves a town-owned straight road (AR-51)', () => {
+        it('a drive-through stop on a town road, demolished, leaves a town-owned straight road', () => {
             const { map, stations, towns } = setup()
             buildRailStation(map, stations, towns, ME, map.idx(10, 10), RtAxis.x, 1, 2, true)
             const tile = map.idx(10, 11)
@@ -412,7 +412,7 @@ describe('rail tycoon station building', () => {
             expect(demolishTile(map, stations, ME, map.idx(14, 14), free, true)).toEqual({ ok: false, error: RtBuildError.conflict })
         })
 
-        it('demolishing a station deletes every order to it and clears packet sources (AR-69)', () => {
+        it('demolishing a station deletes every order to it and clears packet sources', () => {
             const { map, stations, towns } = setup()
             buildRailStation(map, stations, towns, ME, map.idx(10, 10), RtAxis.x, 1, 1, true)
             buildRailStation(map, stations, towns, RIVAL, map.idx(30, 30), RtAxis.x, 1, 1, true)
@@ -464,7 +464,7 @@ describe('rail tycoon station building', () => {
             expect(v.serviceDepot).toBe(RT_NONE)
         })
 
-        it('bulldozing a reserved platform frees the reservation, the train stops before the gap and re-reserves inside the command (AR-100, AR-118)', () => {
+        it('bulldozing a reserved platform frees the reservation, the train stops before the gap and re-reserves inside the command', () => {
             const { map, stations, towns } = setup()
             const a = map.idx(8, 10)
             const junction = map.idx(9, 10)

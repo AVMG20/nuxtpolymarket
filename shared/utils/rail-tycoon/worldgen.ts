@@ -1,5 +1,5 @@
 /**
- * Seeded world generation: terrain, towns and industries, all driven by one RtRng so the same seed
+ * Seeded world generation: terrain, towns and industries, all driven by one SeededRandom so the same seed
  * always yields the same world. Integers only; the generator is written from scratch and only its
  * behaviour mimics the original game (sea at height 0, coast beside it, towns on flat land around a
  * road cross, industries on flat footprints away from towns).
@@ -21,7 +21,7 @@ import {
     rtTreePayload,
     type RtDir
 } from './map'
-import { RtRng } from './rng'
+import { SeededRandom } from '../random'
 import { RT_OWNER_NONE, type RtIndustry, type RtTown } from './types'
 
 /* ------------------------------------------------------------------------------------------
@@ -62,10 +62,10 @@ function checkInt(value: number, min: number, max: number, what: string): void {
  * One octave of integer value noise over the corner grid: random 0-255 values on a lattice of the
  * given cell size, bilinearly interpolated in integers. Returns (side + 1) squared values 0-255.
  */
-function valueNoise(rng: RtRng, side: number, cell: number): Uint8Array {
+function valueNoise(rng: SeededRandom, side: number, cell: number): Uint8Array {
     const points = side / cell + 2
     const lattice = new Uint8Array(points * points)
-    for (let i = 0; i < lattice.length; i++) lattice[i] = rng.int(0, 255)
+    for (let i = 0; i < lattice.length; i++) lattice[i] = rng.randomInt(0, 255)
     const c = side + 1
     const out = new Uint8Array(c * c)
     const area = cell * cell
@@ -114,7 +114,7 @@ function limitCornerSteps(map: RtMap): void {
  * Fill the map's corner heights from two octaves of value noise, sink the edges into the sea, mark
  * water (every corner at sea level) and coast (land touching water), then scatter forests over land.
  */
-export function generateTerrain(map: RtMap, rng: RtRng, options: RtTerrainOptions = RT_TERRAIN_DEFAULTS): void {
+export function generateTerrain(map: RtMap, rng: SeededRandom, options: RtTerrainOptions = RT_TERRAIN_DEFAULTS): void {
     checkInt(options.seaPercent, 5, 90, 'seaPercent')
     checkInt(options.peakHeight, 1, RT_MAX_HEIGHT, 'peakHeight')
     checkInt(options.treePercent, 0, 100, 'treePercent')
@@ -182,9 +182,9 @@ export function generateTerrain(map: RtMap, rng: RtRng, options: RtTerrainOption
             const i = y * side + x
             if (map.kind[i] !== RtTileKind.clear) continue
             const weight = Math.max(0, forest[y * c + x]! - 64) * 2
-            if (weight === 0 || !rng.chance(options.treePercent * weight, 12800)) continue
-            const stage = Math.min(rng.int(0, 7), 6)
-            map.setTile(i, RtTileKind.tree, RT_OWNER_NONE, rtTreePayload(rng.int(0, 11), stage, rng.int(1, 4)))
+            if (weight === 0 || !rng.randomRatio(options.treePercent * weight, 12800)) continue
+            const stage = Math.min(rng.randomInt(0, 7), 6)
+            map.setTile(i, RtTileKind.tree, RT_OWNER_NONE, rtTreePayload(rng.randomInt(0, 11), stage, rng.randomInt(1, 4)))
         }
     }
 }
@@ -207,13 +207,13 @@ const CODAS = ['', '', '', 'l', 'n', 'r', 's', 'th', 'nd', 'rn', 'm', 'x']
 /** Endings follow an open last syllable only, so no vowels pile up. */
 const ENDINGS = ['', '', 'ria', 'ven', 'dor', 'wyn', 'lis', 'mar', 'tel', 'rin', 'sk']
 
-function pick(rng: RtRng, list: readonly string[]): string {
-    return list[rng.int(0, list.length - 1)]!
+function pick(rng: SeededRandom, list: readonly string[]): string {
+    return list[rng.randomInt(0, list.length - 1)]!
 }
 
 /** A pronounceable name of two or three syllables, the last closed or given an ending. */
-export function rtTownName(rng: RtRng): string {
-    const count = rng.chance(1, 4) ? 3 : 2
+export function rtTownName(rng: SeededRandom): string {
+    const count = rng.randomRatio(1, 4) ? 3 : 2
     let name = ''
     for (let k = 0; k < count; k++) name += pick(rng, ONSETS) + pick(rng, VOWELS)
     const coda = pick(rng, CODAS)
@@ -221,7 +221,7 @@ export function rtTownName(rng: RtRng): string {
     return clampUtf8(name.charAt(0).toUpperCase() + name.slice(1), RT_CATALOG.caps.maxNameBytes)
 }
 
-function uniqueTownName(rng: RtRng, taken: Set<string>): string {
+function uniqueTownName(rng: SeededRandom, taken: Set<string>): string {
     for (let k = 0; k < NAME_ATTEMPTS; k++) {
         const name = rtTownName(rng)
         if (!taken.has(name)) return name
@@ -249,10 +249,10 @@ function roadSlopeFits(map: RtMap, i: number, dir: RtDir): boolean {
 }
 
 /** Size class of a new house: the larger classes gather near the centre. */
-function houseClass(rng: RtRng, distance: number): number {
-    if (distance <= 2) return rng.int(1, 2)
-    if (distance <= 4) return rng.int(0, 1)
-    return rng.chance(1, 4) ? 1 : 0
+function houseClass(rng: SeededRandom, distance: number): number {
+    if (distance <= 2) return rng.randomInt(1, 2)
+    if (distance <= 4) return rng.randomInt(0, 1)
+    return rng.randomRatio(1, 4) ? 1 : 0
 }
 
 /** Normal growth interval of a town without active stations (town ticks), as townTick resets it. */
@@ -271,13 +271,13 @@ function cargoZeros(): number[] {
  * free flat land or a ramp along the arm) and houses on free flat tiles beside the road.
  * Returns the house count and population, or null when no arm could be laid.
  */
-function layTown(map: RtMap, rng: RtRng, centre: number): { houses: number, population: number } | null {
+function layTown(map: RtMap, rng: SeededRandom, centre: number): { houses: number, population: number } | null {
     const side = map.side
     const cx = centre % side
     const cy = (centre / side) | 0
     const arms: number[][] = []
     for (const dir of RT_DIRS) {
-        const want = rng.int(TOWN_ARM_MIN, TOWN_ARM_MAX)
+        const want = rng.randomInt(TOWN_ARM_MIN, TOWN_ARM_MAX)
         const arm: number[] = []
         for (let k = 1; k <= want; k++) {
             const x = cx + RT_DIR_DX[dir]! * k
@@ -321,7 +321,7 @@ function layTown(map: RtMap, rng: RtRng, centre: number): { houses: number, popu
     let houses = 0
     let population = 0
     sites.forEach((site, k) => {
-        if (k > 0 && !rng.chance(3, 4)) return
+        if (k > 0 && !rng.randomRatio(3, 4)) return
         const distance = Math.max(Math.abs(site % side - cx), Math.abs(((site / side) | 0) - cy))
         const size = houseClass(rng, distance)
         map.setTile(site, RtTileKind.house, RT_OWNER_NONE, size)
@@ -336,7 +336,7 @@ function layTown(map: RtMap, rng: RtRng, centre: number): { houses: number, popu
  * and from the map edge, named uniquely from our syllable generator. Returns the towns in id order;
  * fewer than count when the map has no room.
  */
-export function placeTowns(map: RtMap, rng: RtRng, count: number): RtTown[] {
+export function placeTowns(map: RtMap, rng: SeededRandom, count: number): RtTown[] {
     checkInt(count, 0, RT_CATALOG.caps.maxTowns, 'town count')
     const side = map.side
     const towns: RtTown[] = []
@@ -344,8 +344,8 @@ export function placeTowns(map: RtMap, rng: RtRng, count: number): RtTown[] {
     const low = RT_TOWN_SPACING
     const high = side - 1 - RT_TOWN_SPACING
     for (let attempt = 0; attempt < count * TOWN_ATTEMPTS_PER_TOWN && towns.length < count; attempt++) {
-        const x = rng.int(low, high)
-        const y = rng.int(low, high)
+        const x = rng.randomInt(low, high)
+        const y = rng.randomInt(low, high)
         const centre = y * side + x
         if (!isFreeLand(map, centre) || !map.isFlat(centre)) continue
         const crowded = towns.some(t => Math.max(Math.abs(t.centre % side - x), Math.abs(((t.centre / side) | 0) - y)) < RT_TOWN_SPACING)
@@ -408,7 +408,7 @@ function areaCount(sums: Int32Array, side: number, x0: number, y0: number, x1: n
  * RT_INDUSTRY_SPACING from every town tile and industry, or -1 when none exists. Every fitting
  * origin is counted and one is drawn uniformly, so placement never misses a site that fits.
  */
-function findIndustrySite(map: RtMap, rng: RtRng, w: number, h: number): number {
+function findIndustrySite(map: RtMap, rng: SeededRandom, w: number, h: number): number {
     const side = map.side
     const unusable = summedArea(map, i => !isFreeLand(map, i) || !map.isFlat(i))
     const builtUp = summedArea(map, (i) => {
@@ -424,7 +424,7 @@ function findIndustrySite(map: RtMap, rng: RtRng, w: number, h: number): number 
         for (let x = 1; x < side - w; x++) if (fits(x, y)) count++
     }
     if (count === 0) return -1
-    let pick = rng.int(0, count - 1)
+    let pick = rng.randomInt(0, count - 1)
     for (let y = 1; y < side - h; y++) {
         for (let x = 1; x < side - w; x++) {
             if (fits(x, y) && pick-- === 0) return y * side + x
@@ -439,7 +439,7 @@ function findIndustrySite(map: RtMap, rng: RtRng, w: number, h: number): number 
  * RT_INDUSTRY_SPACING from towns and other industries; each tile becomes industry kind with the
  * industry id as payload. An instance with no fitting site left is skipped.
  */
-export function placeIndustries(map: RtMap, rng: RtRng, perType: number): RtIndustry[] {
+export function placeIndustries(map: RtMap, rng: SeededRandom, perType: number): RtIndustry[] {
     checkInt(perType, 0, Math.floor(RT_CATALOG.caps.maxIndustries / RT_INDUSTRY_TYPE_IDS.length), 'perType')
     const side = map.side
     const industries: RtIndustry[] = []
@@ -504,14 +504,14 @@ export function rtIndustriesPerType(side: number, density: number): number {
     return Math.max(1, (density * side * side / (128 * 128)) | 0)
 }
 
-/** Generate a fresh world from a u32 seed: terrain, then towns, then industries, from one RtRng. */
+/** Generate a fresh world from a u32 seed: terrain, then towns, then industries, from one SeededRandom. */
 export function generateWorld(seed: number, options: RtWorldOptions = rtDefaultWorldOptions()): RtWorldLayout {
     checkInt(seed, 0, 0xffffffff, 'seed')
     if (!RT_MAP_SIDES.includes(options.side)) throw new RangeError(`map side must be 64, 128 or 256: ${options.side}`)
     const resolved = { ...rtDefaultWorldOptions(options.side), ...definedOnly(options) }
     checkInt(resolved.towns, 0, RT_CATALOG.caps.maxTowns, 'towns')
     checkInt(resolved.industryDensity, 0, MAX_INDUSTRY_DENSITY, 'industryDensity')
-    const rng = new RtRng(seed)
+    const rng = new SeededRandom(seed)
     const map = new RtMap(resolved.side)
     generateTerrain(map, rng, RT_TERRAIN_DEFAULTS)
     const towns = placeTowns(map, rng, resolved.towns)

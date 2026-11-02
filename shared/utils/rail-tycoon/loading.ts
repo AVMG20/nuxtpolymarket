@@ -1,10 +1,10 @@
 /**
- * Loading and unloading (W51): what a vehicle standing at a station does, one loading step at a
+ * Loading and unloading: what a vehicle standing at a station does, one loading step at a
  * time, as the original's gradual loading. A step moves loadAmount units per cargo-carrying part,
  * unloading first, then loading with what is left of the step. Delivered cargo is paid by distance
  * from where it was produced and by its transit time (deliveryPayment), feeds an accepting industry
  * around the station and the station town's delivery counter. Station owners share in deliveries made
- * at their stations and of cargo picked up at them (Q19b, AR-72).
+ * at their stations and of cargo picked up at them.
  */
 
 import { RT_CATALOG } from './catalog'
@@ -123,7 +123,7 @@ function acceptingIndustry(world: RtLoadWorld, station: RtStation, cargo: number
 }
 
 /**
- * Pays for delivered packets (W51 5.1 to 5.4): the vehicle owner books the payment as train or road
+ * Pays for delivered packets: the vehicle owner books the payment as train or road
  * income; the station's owner, and the owner of another company's station the cargo was picked up
  * at, each take stationSharingShare of it. The vehicle's profit is the payment minus those shares.
  * A portion pays the packet's payment before it minus the payment for what stays aboard, so a packet
@@ -163,7 +163,7 @@ function unloadable(station: RtStation, flags: number, packet: RtCargoPacket): b
 }
 
 /**
- * W51: one loading step of a vehicle standing at `stationId`; true when it is done and may leave
+ * One loading step of a vehicle standing at `stationId`; true when it is done and may leave
  * (the mover then runs advanceOrder). Unloading comes first: accepted cargo is delivered and paid,
  * cargo the station does not accept stays aboard unless the order says unload, which transfers it to
  * the station's waiting cargo; no-unload keeps everything aboard. Then the vehicle tries to load every
@@ -236,7 +236,7 @@ export function loadUnload(world: RtLoadWorld, vehicle: RtVehicle, stationId: nu
 }
 
 /**
- * The movers' loading hooks (W48, W49): arrival starts the step timer, and every loadStepTicks a
+ * The movers' loading hooks: arrival starts the step timer, and every loadStepTicks a
  * loading step runs; the stop ends when loadUnload says so.
  */
 export const rtLoadHooks: RtTrainHooks = {

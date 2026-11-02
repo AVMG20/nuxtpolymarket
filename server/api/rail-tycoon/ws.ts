@@ -2,7 +2,7 @@ import { auth } from '#server/utils/auth'
 import { useRtHub, type RtHubSocket } from '#server/utils/rail-tycoon/hub'
 import { RT_BACKLOG_CLOSE_BYTES, RT_MAX_PEERS } from '#shared/utils/rail-tycoon/limits'
 
-// Rail Tycoon socket (W96): one binary connection per tab, routed by RtHub. Authenticated in `open`
+// Rail Tycoon socket: one binary connection per tab, routed by RtHub. Authenticated in `open`
 // (crossws exposes the upgrade request headers there); frames that arrive while the session lookup
 // is in flight wait for it, in arrival order. Nothing here throws into crossws: a failed lookup
 // closes the socket instead of becoming an unhandled rejection.
@@ -41,7 +41,7 @@ function rtBacklog(peer: RtPeerLike): number {
 /**
  * The hub's view of a peer. Lockstep cannot survive a dropped frame, so a peer whose backlog passes
  * RT_BACKLOG_CLOSE_BYTES, or whose frame Bun dropped, is closed with 4408 (it reconnects and reopens)
- * rather than left missing a frame (AR-16, AR-133).
+ * rather than left missing a frame.
  */
 function rtSocketFor(peer: RtPeerLike): RtHubSocket {
     let closed = false

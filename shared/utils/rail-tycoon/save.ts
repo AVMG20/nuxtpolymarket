@@ -1,7 +1,7 @@
 /**
- * Rail Tycoon's binary world save (goal 09). encodeWorld (W66) writes a whole RtWorld at a tick
- * boundary; decodeWorld (W67) reads it back under the bounds below. The bytes are uncompressed:
- * goal 10 gzips them for the database and goal 13 for snapshots.
+ * Rail Tycoon's binary world save. encodeWorld writes a whole RtWorld at a tick
+ * boundary; decodeWorld reads it back under the bounds below. The bytes are uncompressed:
+ * store.ts gzips them for the database and room.ts for snapshots.
  *
  * Layout, little-endian, every list prefixed with its count as a varint:
  *   magic 'RTWD' (4 bytes), u16 format version
@@ -14,7 +14,7 @@
  *   scalars: u32 rng state, varint tick, u8 day, u8 month, varint year, varint pathfinder cursor
  *
  * Field encodings: ids, counts, tiles, ticks and other non-negative integers are varints; money is an
- * svarint (it goes negative and past 2^31, AR-58); a field that may hold RT_NONE is a "ref", the
+ * svarint (it goes negative and past 2^31); a field that may hold RT_NONE is a "ref", the
  * varint of value + 1; booleans and small enums (vehicle kind, state, order kind and flags) are u8.
  *
  * encodeWorld refuses (RangeError) a world that breaks a bound decode enforces, so a save that cannot
@@ -62,7 +62,7 @@ export const RT_SAVE_FORMAT = 1
 /** The four bytes every save starts with: 'RTWD'. */
 export const RT_SAVE_MAGIC: readonly number[] = Object.freeze([0x52, 0x54, 0x57, 0x44])
 
-/** The bounds encode checks and decode enforces, equal to the creation caps (W59, W37, AR-78). */
+/** The bounds encode checks and decode enforces, equal to the creation caps. */
 export const RT_SAVE_BOUNDS = Object.freeze({
     /** UTF-8 bytes of a company, town or station name. */
     nameBytes: RT_CATALOG.caps.maxNameBytes,
@@ -78,7 +78,7 @@ export const RT_SAVE_BOUNDS = Object.freeze({
     vehicles: RT_CATALOG.caps.maxVehicles,
     vehiclesPerCompany: RT_CATALOG.caps.maxVehiclesPerCompany,
     /**
-     * Tiles of one station: its tiles lie within stationSpread in each direction (AR-101), so at most
+     * Tiles of one station: its tiles lie within stationSpread in each direction, so at most
      * stationSpread squared, tighter than the world-wide caps.maxStationTiles.
      */
     stationTiles: Math.min(RT_CATALOG.stations.stationSpread ** 2, RT_CATALOG.caps.maxStationTiles),
@@ -90,7 +90,7 @@ export const RT_SAVE_BOUNDS = Object.freeze({
     orders: RT_CATALOG.caps.maxOrders,
     /** Entries of one vehicle's cached route. */
     route: RT_CATALOG.caps.maxRouteLength,
-    /** Parts of one consist (maxTrainLength tiles of half-tile vehicles, AR-91). */
+    /** Parts of one consist (maxTrainLength tiles of half-tile vehicles). */
     consist: RT_CATALOG.vehicles.maxTrainVehicles,
     /** Tiles one vehicle occupies: every part covers at most one more tile, plus the head's. */
     vehicleTiles: RT_CATALOG.vehicles.maxTrainVehicles + 1,
@@ -254,7 +254,7 @@ function writeStation(w: RtWriter, station: RtStation): void {
     ref(w, station.lastPickupTick)
     ref(w, station.lastDeliveryTick)
     ref(w, station.lastVehicleKind)
-    // catchment and catchmentRevision are derived: decode rebuilds them (W35, AR-88)
+    // catchment and catchmentRevision are derived: decode rebuilds them
 }
 
 function writeVehicle(w: RtWriter, vehicle: RtVehicle): void {
@@ -362,13 +362,13 @@ export function encodeWorld(world: RtWorld): Uint8Array {
 }
 
 /* ------------------------------------------------------------------------------------------
- * decodeWorld (W67)
+ * decodeWorld
  * ---------------------------------------------------------------------------------------- */
 
 const TILE_KIND_COUNT = Object.keys(RtTileKind).length
 
 /**
- * Exclusive bound of a train's trackdir (pieces, direction, route): track.ts RT_TRACKDIR_END (W26).
+ * Exclusive bound of a train's trackdir (pieces, direction, route): track.ts RT_TRACKDIR_END.
  * 6 and 7 lie inside the bound but are no trackdir; rtTrackdirPiece refuses them in a train's pieces.
  */
 const RT_TRACKDIR_LIMIT = RT_TRACKDIR_END
@@ -647,7 +647,7 @@ function readStation(ctx: DecodeContext, previous: number): RtStation {
     return {
         id, owner, name, town, sign, tiles, tilesRevision, facilities, cargo, acceptance,
         lastPickupTick, lastDeliveryTick, lastVehicleKind,
-        // derived: rebuilt from tiles (W35, AR-88)
+        // derived: rebuilt from tiles
         catchment: null, catchmentRevision: 0
     }
 }
@@ -686,7 +686,7 @@ function readVehicle(ctx: DecodeContext, previous: number): RtVehicle {
     const rail = kind === RtVehicleKind.rail
     const model = readUint(r, MODEL_SPECS.length - 1, 'vehicle model')
     if (MODEL_SPECS[model]!.role !== (rail ? 'engine' : 'road')) bad(`vehicle ${id} model ${model} does not lead a ${rail ? 'train' : 'road vehicle'}`)
-    // a train's consist is bounded by maxTrainLength in half-tile vehicles (AR-91); a road vehicle is one part
+    // a train's consist is bounded by maxTrainLength in half-tile vehicles; a road vehicle is one part
     const parts = readCount(r, rail ? RT_SAVE_BOUNDS.consist : 1, 'consist')
     const consist: number[] = []
     for (let k = 0; k < parts; k++) {
@@ -796,18 +796,18 @@ function asBadData<T>(what: string, run: () => T): T {
 }
 
 /**
- * track.ts's trackdir -> track piece mapping (goal 04, W26); it throws RangeError on a value that is
+ * track.ts's trackdir -> track piece mapping; it throws RangeError on a value that is
  * no trackdir, which decode reports as bad data. The fallback below it is kept for a null mapping.
- * The blockHasPathSignal memo (W28) needs no rebuild: it is keyed by the map object and checks
+ * The blockHasPathSignal memo needs no rebuild: it is keyed by the map object and checks
  * every tile it read before answering.
  */
 const SAVE_TRACKDIR_PIECE: RtTrackdirPiece | null = rtTrackdirPiece
 
 /**
- * Rebuilds the derived state a save omits (goal 09 § 8.1, § 8.4) on a freshly decoded world: dirty
- * tiles empty, pathNodesLeft full, company infrastructure counts from the map (W57), every
- * station's catchment cache marked stale (null), the tile-to-stations index (W35), the path-signal
- * cache dropped (W28) and the occupied registry from the vehicles (depot occupants and road vehicles
+ * Rebuilds the derived state a save omits (§ 8.4) on a freshly decoded world: dirty
+ * tiles empty, pathNodesLeft full, company infrastructure counts from the map, every
+ * station's catchment cache marked stale (null), the tile-to-stations index, the path-signal
+ * cache dropped and the occupied registry from the vehicles (depot occupants and road vehicles
  * now, train pieces once SAVE_TRACKDIR_PIECE is set). Throws RangeError on a vehicle the registry
  * refuses.
  */
@@ -843,7 +843,7 @@ export function rtRebuildDerived(world: RtWorld): void {
  * Parses a format-1 save into a world, or throws RtBadData: wrong magic or version, a short or
  * over-long read, a count past its bound (RT_SAVE_BOUNDS, checked before allocating), an enum or
  * value out of range, ids not strictly ascending, a reference to a missing company, town or station
- * (a packet's source station may be RT_NONE, AR-69), or trailing bytes. Never throws another error
+ * (a packet's source station may be RT_NONE), or trailing bytes. Never throws another error
  * type for any input. Derived state is rebuilt (rtRebuildDerived).
  */
 export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
@@ -907,7 +907,7 @@ export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
 
 /**
  * The world in a format-1 save, or null when the bytes are malformed, oversized or reference a
- * missing entity (W67 § 5.1). Goal 10's rtLoadWorld and goal 14's RtLockstep call it.
+ * missing entity. rtLoadWorld (store.ts) and RtLockstep (lockstep.ts) call it.
  */
 export function decodeWorld(bytes: Uint8Array): RtWorld | null {
     try {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { rtLoadHooks } from '../../shared/utils/rail-tycoon/loading'
-import { depotSharingFee } from '../../shared/utils/rail-tycoon/economy'
-import { RtDir, RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad } from '../../shared/utils/rail-tycoon/road'
-import { stepRoadVehicle } from '../../shared/utils/rail-tycoon/road-vehicle'
-import { RtRng } from '../../shared/utils/rail-tycoon/rng'
-import { decodeWorldOrThrow, encodeWorld } from '../../shared/utils/rail-tycoon/save'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { rtLoadHooks } from '#shared/utils/rail-tycoon/loading'
+import { depotSharingFee } from '#shared/utils/rail-tycoon/economy'
+import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { buildRoad } from '#shared/utils/rail-tycoon/road'
+import { stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
+import { SeededRandom } from '#shared/utils/random'
+import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import {
     RtSignalType,
     placeSignal,
@@ -15,11 +15,11 @@ import {
     rtReservedAhead,
     rtSignalGreen,
     updateSignalStates
-} from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, buildRailStation } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_Y, RtBuildError, RtTrack, buildRail, removeRail, rtPieceBetween } from '../../shared/utils/rail-tycoon/track'
-import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '../../shared/utils/rail-tycoon/train'
-import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, buildRailStation } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_Y, RtBuildError, RtTrack, buildRail, removeRail, rtPieceBetween } from '#shared/utils/rail-tycoon/track'
+import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
+import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import {
     buyVehicle,
     createVehicle,
@@ -44,8 +44,8 @@ import {
     sellVehicle,
     serviceAndBreakdown,
     type RtServiceContext
-} from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const M = RT_CATALOG.vehicles.models
 const ME = 0
@@ -69,7 +69,7 @@ function world(): RtWorld {
 }
 
 describe('rail tycoon trains', () => {
-    describe('createVehicle (W47)', () => {
+    describe('createVehicle', () => {
         it('a locomotive and three coal wagons carry three wagons of coal and are two tiles long', () => {
             const train = createVehicle(3, ME, M.tankEngine.index, [M.coalHopper.index, M.coalHopper.index, M.coalHopper.index], 100, RtDir.se, 42)
             expect(train.consist).toEqual([M.tankEngine.index, M.coalHopper.index, M.coalHopper.index, M.coalHopper.index])
@@ -107,7 +107,7 @@ describe('rail tycoon trains', () => {
         })
     })
 
-    describe('buying and selling (W47)', () => {
+    describe('buying and selling', () => {
         it('buys into an own depot with the lowest free id, stopped inside, and returns the price', () => {
             const w = world()
             const depot = w.map.idx(10, 10)
@@ -224,7 +224,7 @@ describe('rail tycoon trains', () => {
         })
     })
 
-    describe('reliability, breakdowns and servicing (W52)', () => {
+    describe('reliability, breakdowns and servicing', () => {
         const DAY = RT_CATALOG.time.dayTicks
         const V = RT_CATALOG.vehicles
         const SERVICE_DAYS = M.tankEngine.serviceDays
@@ -274,7 +274,7 @@ describe('rail tycoon trains', () => {
         }
 
         it('reliability falls by the model decay every day, never below zero, and not while loading or blocked', () => {
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const train = runningTrain()
             train.speed = 0
             const state = rng.state
@@ -297,7 +297,7 @@ describe('rail tycoon trains', () => {
         })
 
         it('a breakdown stands the vehicle still for breakdownDelayMin plus up to breakdownDelayRandom ticks', () => {
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const train = runningTrain()
             train.reliability = 0
             train.breakdownChance = 254
@@ -320,12 +320,15 @@ describe('rail tycoon trains', () => {
         })
 
         it('never rolls for a stopped, slow or already broken vehicle, and draws no randomness then', () => {
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const cases: [string, (v: RtVehicle) => void][] = [
                 ['stopped', (v) => { v.stopped = true }],
                 ['slow', (v) => { v.speed = V.breakdownMinSpeed - 1 }],
                 ['broken', (v) => { v.breakdownTicks = 10 }],
-                ['in depot', (v) => { v.state = RtVehicleState.inDepot; v.speed = 0 }]
+                ['in depot', (v) => {
+                    v.state = RtVehicleState.inDepot
+                    v.speed = 0
+                }]
             ]
             for (const [, setup] of cases) {
                 const train = runningTrain()
@@ -339,11 +342,11 @@ describe('rail tycoon trains', () => {
             }
         })
 
-        it('breaks down more often as reliability falls, over a seeded RtRng(7) run', () => {
+        it('breaks down more often as reliability falls, over a seeded SeededRandom(7) run', () => {
             // Reduced breakdowns add 26214 before the lookup, so everything from 39321 up shares the top entry.
             const levels = [V.reliabilityMax, 30000, 15000, 0]
             const counts = levels.map((level) => {
-                const rng = new RtRng(7)
+                const rng = new SeededRandom(7)
                 const train = runningTrain()
                 let breakdowns = 0
                 for (let day = 0; day < 2000; day++) {
@@ -356,7 +359,7 @@ describe('rail tycoon trains', () => {
             })
             for (let k = 1; k < counts.length; k++) expect(counts[k]).toBeGreaterThan(counts[k - 1]!)
 
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const train = runningTrain()
             const halves = [0, 0]
             for (let day = 0; day < 700; day++) {
@@ -433,7 +436,7 @@ describe('rail tycoon trains', () => {
 
         it('a due vehicle is sent to the depot on its way, keeps it, and drops it when no depot is near', () => {
             const w = sharingWorld(true)
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const depot = { tile: w.map.idx(10, 10), searches: 0 }
             const ctx = context(w, depot)
             const train = runningTrain()
@@ -457,7 +460,7 @@ describe('rail tycoon trains', () => {
 
         it('one heading for a depot switches to another only by the original\'s small daily chance', () => {
             const w = sharingWorld(true)
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const first = w.map.idx(10, 10)
             const depot = { tile: w.map.idx(20, 20), searches: 0 }
             const ctx = context(w, depot)
@@ -475,7 +478,7 @@ describe('rail tycoon trains', () => {
 
         it('a running vehicle standing in a depot is serviced in place; a stopped one is not', () => {
             const w = sharingWorld(true)
-            const rng = new RtRng(7)
+            const rng = new SeededRandom(7)
             const tile = w.map.idx(10, 10)
             buildDepot(w.map, RIVAL, tile, RtVehicleKind.rail, RtDir.se, true)
             const depot = { tile, searches: 0 }
@@ -552,7 +555,7 @@ describe('rail tycoon trains', () => {
                         if (rtIsVehicleDayTick(vehicle.id, tick)) rtVehicleDay(vehicle, w.rng, tick, ctx)
                         if (!rtBreakdownTick(vehicle)) vehicle.speed = 40
                         rtCountRunningTick(vehicle)
-                        // Arriving at the service depot stands in for movement (W48) entering it.
+                        // Arriving at the service depot stands in for movement entering it.
                         if (vehicle.serviceDepot !== RT_NONE && tick % (7 * DAY) === 0) {
                             rtServiceInDepot(w, vehicle, vehicle.serviceDepot, tick)
                         }
@@ -581,8 +584,8 @@ describe('rail tycoon trains', () => {
 })
 
 /* ------------------------------------------------------------------------------------------
- * W53: trains on built networks over long runs (W48 movement). The runs step every vehicle in
- * id order each tick, as RtWorld.step (W57) will.
+ * Trains on built networks over long runs. The runs step every vehicle in
+ * id order each tick, as RtWorld.step does.
  * ---------------------------------------------------------------------------------------- */
 
 type XY = [number, number]
@@ -730,7 +733,7 @@ function holdsAny(v: RtVehicle, tiles: Set<number>): boolean {
     return v.state !== RtVehicleState.inDepot && v.tiles.some(tile => tiles.has(tile))
 }
 
-/** Every reserved piece is held by a train or lies on a train's reservation ahead (AR-63). */
+/** Every reserved piece is held by a train or lies on a train's reservation ahead. */
 function reservationsOwned(world: RtWorld): boolean {
     const owned = new Set<number>()
     for (const v of trainsOf(world)) {
@@ -819,7 +822,7 @@ function headOn(w: RtWorld, westOwner: number, eastDepotOwner: number, extra?: (
     }
 }
 
-describe('rail tycoon trains on built networks (W53)', () => {
+describe('rail tycoon trains on built networks', () => {
     it('shuttles between two termini for 10000 ticks, at least four arrivals at each end, never lost', () => {
         const w = net()
         lay(w.map, ME, row(10, 6, 40))
@@ -1292,7 +1295,7 @@ describe('rail tycoon trains on built networks (W53)', () => {
         expect(play().w.hash()).toBe(first.w.hash())
     })
 
-    it('with a tick budget that fits only a few searches, every vehicle needing one gets it within a bounded number of ticks (AR-129)', () => {
+    it('with a tick budget that fits only a few searches, every vehicle needing one gets it within a bounded number of ticks', () => {
         const w = net()
         const trains: RtVehicle[] = []
         for (let k = 0; k < 12; k++) {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { RT_ROAD_DIR_BIT, RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
-import { RT_ROAD_TURN_AROUND_PENALTY, RtRouteHeap, RtRouteOutcome, findRailRoute, findRoadRoute, type RtRouteTarget } from '../../shared/utils/rail-tycoon/pathfinder'
-import { rtSetPieceReserved } from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile, rtStationPayload } from '../../shared/utils/rail-tycoon/stations-build'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { RT_ROAD_DIR_BIT, RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { RT_ROAD_TURN_AROUND_PENALTY, RtRouteHeap, RtRouteOutcome, findRailRoute, findRoadRoute, type RtRouteTarget } from '#shared/utils/rail-tycoon/pathfinder'
+import { rtSetPieceReserved } from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, RtStationTile, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
 import {
     RtBuildError,
     RtTrack,
@@ -13,7 +13,7 @@ import {
     rtPieceBetween,
     rtRailPayload,
     rtTrackdirExitDir
-} from '../../shared/utils/rail-tycoon/track'
+} from '#shared/utils/rail-tycoon/track'
 
 type XY = [number, number]
 
@@ -96,7 +96,7 @@ function maze() {
 }
 
 describe('rail tycoon pathfinding', () => {
-    describe('rail routes (W31)', () => {
+    describe('rail routes', () => {
         it('takes the shorter of two routes and runs on to the platform end', () => {
             const { map, t, target } = twoRoutes()
             const result = findRailRoute(map, 0, t(5, 20), RtTrackdir.xSw, target, BUDGET, BUDGET, { sharing: false })
@@ -165,7 +165,7 @@ describe('rail tycoon pathfinding', () => {
             expect(run()).toEqual(run())
         })
 
-        it('reverses at a terminus when the target lies behind (AR-42)', () => {
+        it('reverses at a terminus when the target lies behind', () => {
             const { map, t } = twoRoutes()
             const target = { tiles: [t(4, 20)] }
             const stuck = findRailRoute(map, 0, t(33, 20), RtTrackdir.xSw, target, BUDGET, BUDGET, { sharing: false })
@@ -214,7 +214,7 @@ describe('rail tycoon pathfinding', () => {
             return { map, t }
         }
 
-        it('breaks equal costs by insertion order: the branch offered first wins (AR-117)', () => {
+        it('breaks equal costs by insertion order: the branch offered first wins', () => {
             const { map, t } = diamond()
             const result = findRailRoute(map, 0, t(4, 30), RtTrackdir.xSw, { tiles: [t(25, 30)] }, BUDGET, BUDGET, { sharing: false })
             expect(result.outcome).toBe(RtRouteOutcome.found)
@@ -222,7 +222,7 @@ describe('rail tycoon pathfinding', () => {
             expect(railTiles(map, 0, false, t(4, 30), RtTrackdir.xSw, result.route)).toContain(t(15, 31))
         })
 
-        it('takes the lowest-ranked of goals reached at the same cost (parking spots, W150)', () => {
+        it('takes the lowest-ranked of goals reached at the same cost (parking spots)', () => {
             const { map, t } = diamond()
             const goals = [t(15, 29), t(15, 31)]
             const byTile = findRailRoute(map, 0, t(4, 30), RtTrackdir.xSw, { tiles: goals }, BUDGET, BUDGET, { sharing: false })
@@ -234,7 +234,7 @@ describe('rail tycoon pathfinding', () => {
         })
     })
 
-    describe('sharing (Q19b)', () => {
+    describe('sharing', () => {
         function sharedLine() {
             const map = new RtMap(64)
             const t = (x: number, y: number) => map.idx(x, y)
@@ -273,7 +273,7 @@ describe('rail tycoon pathfinding', () => {
         })
     })
 
-    describe('road routes (W32)', () => {
+    describe('road routes', () => {
         /** Roads every four tiles from 10 to 22 both ways, a bus stop at (16, 14) on an x-axis road. */
         function town() {
             const map = new RtMap(64)
@@ -333,7 +333,7 @@ describe('rail tycoon pathfinding', () => {
             expect(roadTiles(map, t(10, 20), first, result.route).at(-1)).toBe(t(22, 22))
         })
 
-        it('turns around at a dead end for free and says so (AR-43)', () => {
+        it('turns around at a dead end for free and says so', () => {
             const map = new RtMap(64)
             const t = (x: number, y: number) => map.idx(x, y)
             for (let x = 5; x <= 15; x++) map.setTile(t(x, 50), RtTileKind.road, 255, (x > 5 ? RT_ROAD_DIR_BIT[0]! : 0) | (x < 15 ? RT_ROAD_DIR_BIT[2]! : 0))

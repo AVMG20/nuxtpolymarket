@@ -15,7 +15,7 @@ import { RtNet, type RtSocket } from '../../app/utils/rail-tycoon/net'
 
 /* ------------------------------------------------------------------------------------------
  * A minimal room: commands stamped T are applied before stepping from T, and the hash for T is
- * taken at T before them (AR-103).
+ * taken at T before them.
  * ---------------------------------------------------------------------------------------- */
 
 function flatWorld(): RtWorld {
@@ -103,7 +103,7 @@ function catchUp(lock: RtLockstep, tick: number): void {
     }
 }
 
-describe('RtLockstep (W100, W106)', () => {
+describe('RtLockstep', () => {
     it('a client built from an opened message with pending commands stays hash-equal for 2000 ticks', async () => {
         const room = new Room()
         const script = shuttle(room.world, 10)
@@ -138,7 +138,7 @@ describe('RtLockstep (W100, W106)', () => {
         expect(lock.world.map.kind[depot.tile]).toBe(RtTileKind.depot)
     })
 
-    it('holds a hash for a future tick until the world reaches it; a forged one then asks for a resync (AR-18)', async () => {
+    it('holds a hash for a future tick until the world reaches it; a forged one then asks for a resync', async () => {
         const room = new Room()
         const { lock, sent, resyncs } = await client(room)
         room.runTo(300)
@@ -154,7 +154,7 @@ describe('RtLockstep (W100, W106)', () => {
         expect(lock.frame()).toBe(0)
     })
 
-    it('far behind the allowance it asks for a resync instead of replaying (AR-18)', async () => {
+    it('far behind the allowance it asks for a resync instead of replaying', async () => {
         const room = new Room()
         const { lock, resyncs } = await client(room)
         lock.receive({ type: 'allowance', tick: RT_RESYNC_BEHIND_TICKS + 1 })
@@ -170,7 +170,7 @@ describe('RtLockstep (W100, W106)', () => {
         expect(resyncs).toEqual(['late'])
     })
 
-    it('a snapshot taken while the room was paused steps as soon as allowances arrive (AR-47)', async () => {
+    it('a snapshot taken while the room was paused steps as soon as allowances arrive', async () => {
         const room = new Room()
         room.runTo(30)
         const { lock } = await client(room)
@@ -185,7 +185,7 @@ describe('RtLockstep (W100, W106)', () => {
         expect(lock.paused).toBe(false)
     })
 
-    it('a closed world turns the player into a spectator and a command is refused locally (AR-104)', async () => {
+    it('a closed world turns the player into a spectator and a command is refused locally', async () => {
         const room = new Room()
         const { lock } = await client(room)
         const demolish = { kind: RtCommandKind.demolish, tile: 0 } as const
@@ -197,7 +197,7 @@ describe('RtLockstep (W100, W106)', () => {
         expect(lock.commandMessage(demolish, 2)).toBeNull()
     })
 
-    it('a snapshot that does not inflate, or inflates past the cap, is refused with a resync request (AR-79)', async () => {
+    it('a snapshot that does not inflate, or inflates past the cap, is refused with a resync request', async () => {
         const room = new Room()
         const opened = room.opened()
         expect(await rtGunzip(opened.snapshot, 100)).toBeNull()
@@ -286,7 +286,7 @@ function fakeNet() {
     return { net, sockets, timers }
 }
 
-describe('RtNet (W99)', () => {
+describe('RtNet', () => {
     it('stops as outdated on a hello from another build, and on 4401 and 4409 for good', () => {
         const { net, sockets } = fakeNet()
         const stops: string[] = []
@@ -326,7 +326,7 @@ describe('RtNet (W99)', () => {
         expect(reconnected).toBe(1)
     })
 
-    it('holds world messages while a lockstep is built and hands them over in order (AR-84)', async () => {
+    it('holds world messages while a lockstep is built and hands them over in order', async () => {
         const room = new Room()
         const s = room.stamp(20, 0, { kind: RtCommandKind.buildDepot, tile: room.world.map.idx(30, 30), vehicleKind: RtVehicleKind.rail, facing: RtDir.sw })
         room.runTo(10)

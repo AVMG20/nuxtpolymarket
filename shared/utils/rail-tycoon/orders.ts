@@ -1,10 +1,10 @@
 /**
- * Vehicle orders (W50): checking an order list a client sends and stepping through it. Behaviour
+ * Vehicle orders: checking an order list a client sends and stepping through it. Behaviour
  * mimics the original game at its default settings; the code is written from scratch.
  *
  * A station order targets a station id, a depot order a depot tile index (depots are tiles, not
  * entities). A depot order always means "service there and continue"; it carries no flags. Removing
- * a station or depot deletes every order to it (rtDeleteOrdersTo in demolish.ts, AR-69).
+ * a station or depot deletes every order to it (rtDeleteOrdersTo in demolish.ts).
  */
 
 import { RT_CATALOG, RT_VEHICLE_MODEL_IDS } from './catalog'
@@ -13,7 +13,7 @@ import { RtTileKind, type RtMap } from './map'
 import { rtValidCompany } from './track'
 import { RT_NONE, RtFacility, RtOrderFlag, RtOrderKind, RtVehicleKind, type RtOrder, type RtStation, type RtVehicle } from './types'
 
-/** Orders one vehicle may hold (AR-78); setOrders refuses a longer list. */
+/** Orders one vehicle may hold; setOrders refuses a longer list. */
 export const RT_MAX_ORDERS = RT_CATALOG.caps.maxOrders
 
 /** Every RtOrderFlag bit together. */
@@ -32,7 +32,7 @@ export const RtOrderError = {
     unusable: 4,
     /** Flags that cannot go together (unload with no-unload) or flags on a depot order. */
     badFlags: 5,
-    /** Full load at another company's station (AR-102). */
+    /** Full load at another company's station. */
     foreignFullLoad: 6
 } as const
 export type RtOrderError = typeof RtOrderError[keyof typeof RtOrderError]
@@ -110,12 +110,12 @@ function checkOrder(
 }
 
 /**
- * Checks an order list a client sent for one vehicle of `owner` (goal 08 setOrders). An empty list
- * is valid: the vehicle keeps driving without a destination (AR-126). At most RT_MAX_ORDERS. With
- * sharing off every target must belong to the owner; with sharing on (Q19b) a station order may
+ * Checks an order list a client sent for one vehicle of `owner` (the setOrders command). An empty list
+ * is valid: the vehicle keeps driving without a destination. At most RT_MAX_ORDERS. With
+ * sharing off every target must belong to the owner; with sharing on a station order may
  * target any company's station and a depot order any company's depot, for servicing only. Every
  * station must have the facility the vehicle stops at (rtVehicleFacility) and every depot must be of
- * the vehicle's kind, as the original. Full load at another company's station is refused (AR-102).
+ * the vehicle's kind, as the original. Full load at another company's station is refused.
  * Returns fresh copies, so the caller may store them. Never throws on hostile input.
  */
 export function validateOrders(
@@ -147,9 +147,9 @@ export function rtCurrentOrder(vehicle: RtVehicle): RtOrder | null {
 /**
  * Moves a vehicle on to its next order, wrapping after the last (the original's order cycle), and
  * returns that order. An empty list keeps index 0 and returns null: the vehicle has no destination
- * and keeps driving (AR-126). A missing target cannot happen in a well-formed world (deleting a
- * station or depot deletes its orders, AR-69); should one appear it returns null rather than throw,
- * so the vehicle drives on as if orderless, and the W64 rescan reports the corrupt state. Changing
+ * and keeps driving. A missing target cannot happen in a well-formed world (deleting a
+ * station or depot deletes its orders); should one appear it returns null rather than throw,
+ * so the vehicle drives on as if orderless, and the tests' rescan reports the corrupt state. Changing
  * the order marks the cached route stale (routeTick RT_NONE) so the movement rules plan anew.
  */
 export function advanceOrder(vehicle: RtVehicle, stations: readonly (RtStation | null)[], depots: RtMap): RtOrder | null {
@@ -165,7 +165,7 @@ export function advanceOrder(vehicle: RtVehicle, stations: readonly (RtStation |
 }
 
 /**
- * Stores a validated order list on a vehicle (goal 08 setOrders): the current index stays where it
+ * Stores a validated order list on a vehicle (the setOrders command): the current index stays where it
  * was while it is still in range, else restarts at 0; the cached route is marked stale.
  */
 export function rtReplaceOrders(vehicle: RtVehicle, orders: readonly RtOrder[]): void {

@@ -1,4 +1,4 @@
-// Rail Tycoon live room (goal 13): one world in memory, stepped every 27 ms only while a player is attached.
+// Rail Tycoon live room: one world in memory, stepped every 27 ms only while a player is attached.
 // A deploy drops every socket and the room is rebuilt from its last checkpoint, so at most
 // RT_CHECKPOINT_MS (2 minutes) of play is lost.
 import { promisify } from 'node:util'
@@ -47,7 +47,7 @@ import type { RtLoadedWorld } from './store'
 const rtGzip = promisify(gzip)
 
 const TICK_MS = RT_CATALOG.time.tickMs
-/** Wall-clock debt a late timer may carry, and the most steps one callback runs (AR-14). */
+/** Wall-clock debt a late timer may carry, and the most steps one callback runs. */
 const MAX_DEBT_MS = 250
 const MAX_STEPS_PER_CALLBACK = 4
 
@@ -56,10 +56,10 @@ export interface RtRoomPeer {
     send(frame: Uint8Array): void
 }
 
-/** What open needs from storage: the loaded world plus the invite code an owner or player is shown (AR-64). */
+/** What open needs from storage: the loaded world plus the invite code an owner or player is shown. */
 export type RtRoomLoad = RtLoadedWorld & { inviteCode: string }
 
-/** The process step-time budget the hub shares among live rooms (AR-14). */
+/** The process step-time budget the hub shares among live rooms. */
 export interface RtStepBudget {
     /** Milliseconds this room may still spend stepping in the current hub tick. */
     remainingMs(): number
@@ -94,7 +94,7 @@ export interface RtRoomDeps {
     /** The last player left and the leave checkpoint is written; the hub unloads after RT_ROOM_IDLE_MS without peers. */
     onIdle?(room: RtRoom): void
     stepBudget: RtStepBudget
-    /** encodeWorld by default; a test swaps it to prove the writer's checks (AR-80). */
+    /** encodeWorld by default; a test swaps it to prove the writer's checks. */
     encodeWorld?(world: RtWorld): Uint8Array
 }
 
@@ -142,9 +142,9 @@ function describe(error: unknown): string {
 }
 
 /**
- * A live world (goal 13). The hub owns sockets, access and per-world serialization; the room owns
+ * A live world. The hub owns sockets, access and per-world serialization; the room owns
  * the authoritative world, the stamped command queue, pausing, and the single checkpoint writer.
- * Tick boundary convention (AR-103): processing tick T applies every command stamped T in stamp
+ * Tick boundary convention: processing tick T applies every command stamped T in stamp
  * order, then steps to T + 1; the hash for T + 1 is taken right after that step.
  */
 export class RtRoom {
@@ -173,7 +173,7 @@ export class RtRoom {
     private leaveCheckpointDue = false
     private idleSinceMs: number | null
 
-    /** Bumped by every world change outside a step: the snapshot cache key (AR-111). */
+    /** Bumped by every world change outside a step: the snapshot cache key. */
     private mutation = 0
     private snapshotCache: { tick: number, mutation: number, bytes: Uint8Array } | null = null
 
@@ -204,8 +204,8 @@ export class RtRoom {
     }
 
     /**
-     * W89: the world exactly as saved, paused with no peers. Time it was away is never simulated
-     * (Q15): it ticks only once a player attaches. Null when the row is missing or does not load.
+     * The world exactly as saved, paused with no peers. Time it was away is never simulated:
+     * it ticks only once a player attaches. Null when the row is missing or does not load.
      */
     static async open(id: string, deps: RtRoomDeps): Promise<RtRoom | null> {
         const load = await deps.rtLoadWorld(id)
@@ -249,12 +249,12 @@ export class RtRoom {
         return this.idleSinceMs
     }
 
-    /* ---- W90: attach, loaded, resync ---- */
+    /* ---- Attach, loaded, resync ---- */
 
     /**
      * Adds a peer with the role rtGetAccess gave it, sending opened (snapshot at this tick boundary plus
      * every queued stamped command) before anything else. A player's load pauses the room within the
-     * AR-90 bounds. Returns false, after sending the peer an error, when the room cannot take it.
+     * join-pause limits. Returns false, after sending the peer an error, when the room cannot take it.
      */
     attach(peer: RtRoomPeer, userId: string, access: RtAccess): boolean {
         if (this.isUnloaded) return this.refusePeer(peer, 'busy')
@@ -306,14 +306,14 @@ export class RtRoom {
         if (state?.pausing) this.endJoinPause(state, false)
     }
 
-    /** A fresh snapshot with every queued command, built at this tick boundary (AR-83). The hub applies the cooldown. */
+    /** A fresh snapshot with every queued command, built at this tick boundary. The hub applies the cooldown. */
     resync(peer: RtRoomPeer): boolean {
         if (this.isUnloaded || !this.peers.has(peer)) return false
         this.sendResync(peer)
         return true
     }
 
-    /* ---- W91: detach ---- */
+    /* ---- Detach ---- */
 
     /** Removes a peer. The last player leaving pauses after the queued commands ran, then checkpoints. */
     detach(peer: RtRoomPeer): void {
@@ -331,7 +331,7 @@ export class RtRoom {
         if (this.leaveCheckpointDue && !this.running) this.leaveCheckpoint()
     }
 
-    /* ---- W92: submit ---- */
+    /* ---- Submit ---- */
 
     /**
      * A player's command: intent only. The company is the peer's membership and the tick is the
@@ -361,13 +361,13 @@ export class RtRoom {
         return true
     }
 
-    /* ---- W93: the tick ---- */
+    /* ---- The tick ---- */
 
     /**
      * One timer callback: wall-clock debt (capped at 0.25 s) buys at most 4 steps and never more than
      * the hub's step budget; each step applies its tick's commands first. A frame allowance follows the
      * steps, a hash every RT_HASH_EVERY ticks, a checkpoint every RT_CHECKPOINT_MS. A throwing step
-     * unloads the room without writing the mutated world (AR-12).
+     * unloads the room without writing the mutated world.
      */
     tickOnce(): void {
         if (!this.running || this.isUnloaded) return
@@ -400,7 +400,7 @@ export class RtRoom {
     }
 
     /**
-     * W93, AR-35: the room's single checkpoint writer. Encodes synchronously at this tick boundary and
+     * The room's single checkpoint writer. Encodes synchronously at this tick boundary and
      * queues the write; one write is in flight at a time, a request made meanwhile waits and then
      * writes the latest bytes with the revision that write returned, and a periodic request is dropped
      * while any write is in flight. Resolves with the new revision.
@@ -437,9 +437,9 @@ export class RtRoom {
         return done
     }
 
-    /* ---- W94: stop ---- */
+    /* ---- Stop ---- */
 
-    /** The owner's stop (Q8c): checkpoint, close the row, and leave every peer watching a read-only world. */
+    /** The owner's stop: checkpoint, close the row, and leave every peer watching a read-only world. */
     async stop(userId: string): Promise<RtStopOutcome> {
         if (this.isUnloaded) return { ok: false, code: 'busy' }
         if (userId !== this.ownerId) return { ok: false, code: 'notOwner' }
@@ -475,14 +475,14 @@ export class RtRoom {
         return { ok: true }
     }
 
-    /* ---- W140: live join ---- */
+    /* ---- Live join ---- */
 
     /**
      * A user joins this live world (the hub resolved the invite and serializes per world). An existing
      * member gets their company back with nothing stamped. Otherwise foundCompany is stamped (at
      * world.tick + RT_INPUT_DELAY while running, at world.tick and applied at once while paused),
      * then the save and the member row commit together before the join is acknowledged. A failure or
-     * timeout after stamping unloads the room without writing (AR-32).
+     * timeout after stamping unloads the room without writing.
      */
     async join(userId: string, userName: string): Promise<RtJoinOutcome> {
         if (this.isUnloaded || this.joining) return { ok: false, code: 'busy' }
@@ -503,7 +503,7 @@ export class RtRoom {
     /* ---- unload ---- */
 
     /**
-     * The hub unloads an idle room (or evicts one, AR-110): any unsaved change is checkpointed first,
+     * The hub unloads an idle room (or evicts one): any unsaved change is checkpointed first,
      * then remaining peers are told the room is gone. A failed checkpoint takes the failure path.
      */
     async unload(): Promise<void> {
@@ -537,7 +537,7 @@ export class RtRoom {
         return this.playerCount === 0 ? 'noPlayers' : 'joining'
     }
 
-    /** Starts or stops ticking to match the room's state; a pause waits for the queued commands (goal 13). */
+    /** Starts or stops ticking to match the room's state; a pause waits for the queued commands. */
     private update(): void {
         if (this.isUnloaded || this.stopped) return
         if (this.wantRun()) {
@@ -581,7 +581,7 @@ export class RtRoom {
         if (this.leaveCheckpointDue) this.leaveCheckpoint()
     }
 
-    /** W91: the leave-time state, written once the last player's queued commands ran; then the hub hears the room is idle. */
+    /** The leave-time state, written once the last player's queued commands ran; then the hub hears the room is idle. */
     private leaveCheckpoint(): void {
         this.leaveCheckpointDue = false
         if (this.playerCount > 0 || this.isUnloaded) return
@@ -590,7 +590,7 @@ export class RtRoom {
         }, noop)
     }
 
-    /** Applies every command stamped for this tick, in stamp order, then steps (AR-103). */
+    /** Applies every command stamped for this tick, in stamp order, then steps. */
     private processTick(): void {
         this.applyDue(this.room.tick)
         this.room.step()
@@ -607,7 +607,7 @@ export class RtRoom {
         }
     }
 
-    /* ---- internals: join pause (AR-90) ---- */
+    /* ---- internals: join pause ---- */
 
     private joinPauseLeftMs(now: number): number {
         const from = now - RT_JOIN_PAUSE_BUDGET_WINDOW_MS
@@ -726,7 +726,7 @@ export class RtRoom {
     }
 
     /**
-     * A paused room (AR-31, AR-47): no peer was allowed past world.tick, so foundCompany is stamped for
+     * A paused room: no peer was allowed past world.tick, so foundCompany is stamped for
      * world.tick behind the commands already queued for it, and all of them are applied now, in queue
      * order, exactly as every peer will apply them before its next step.
      */
@@ -742,7 +742,7 @@ export class RtRoom {
 
     /* ---- internals: commands ---- */
 
-    /** The command re-encoded and re-decoded against this world's map side (W85 handoff); foundCompany is never a client's. */
+    /** The command re-encoded and re-decoded against this world's map side, as decodeCommand would; foundCompany is never a client's. */
     private canonical(command: RtCommand): { bytes: Uint8Array, command: RtCommand } | null {
         let bytes: Uint8Array
         try {
@@ -780,7 +780,7 @@ export class RtRoom {
         return (this.deps.encodeWorld ?? encodeWorld)(this.room)
     }
 
-    /** The compressed world at this boundary, reused while neither the tick nor the mutation counter moved (AR-111). */
+    /** The compressed world at this boundary, reused while neither the tick nor the mutation counter moved. */
     private snapshotBytes(): Uint8Array {
         const cache = this.snapshotCache
         if (cache && cache.tick === this.room.tick && cache.mutation === this.mutation) return cache.bytes
@@ -789,7 +789,7 @@ export class RtRoom {
         return bytes
     }
 
-    /** Snapshot plus every queued command, all stamped at or after this tick (AR-103); the pending list is per send. */
+    /** Snapshot plus every queued command, all stamped at or after this tick; the pending list is per send. */
     private snapshotBody(): RtSnapshotBody {
         return {
             tick: this.room.tick,
@@ -879,7 +879,7 @@ export class RtRoom {
     }
 
     /**
-     * AR-80: bytes that would not load again are never written over the only save. Checks the sizes
+     * Bytes that would not load again are never written over the only save. Checks the sizes
      * rtLoadWorld enforces (compressed and decoded), then that the bytes decode to the hash the live
      * world had when they were encoded. Null when the bytes are safe to write.
      */
@@ -900,7 +900,7 @@ export class RtRoom {
         return null
     }
 
-    /* ---- internals: failure (AR-11, AR-12, AR-36) ---- */
+    /* ---- internals: failure ---- */
 
     /** Stops for good without writing the in-memory world, tells every peer, and asks the hub to unload. */
     private fail(reason: RtUnloadReason): void {

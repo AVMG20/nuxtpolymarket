@@ -24,7 +24,7 @@ const atlasJson = () => JSON.parse(read('atlas.json').toString('utf8')) as {
     sprites: Record<string, { x: number, y: number, w: number, h: number, ox: number, oy: number }>
 }
 
-/** Every name the renderer (W101) asks for. */
+/** Every name the renderer asks for. */
 function requiredNames(): string[] {
     const names: string[] = []
     const facings = ['to-sw', 'to-ne', 'to-se', 'to-nw', 'to-e', 'to-w', 'to-s', 'to-n']

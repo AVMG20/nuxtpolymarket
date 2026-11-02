@@ -1,5 +1,5 @@
 /**
- * Parking spots (W150, Q20 and Q23, answered by Michael): a stopped train is sent off the line to a
+ * Parking spots (answered by Michael): a stopped train is sent off the line to a
  * parking spot instead of standing where it is. A spot is a dead-end side rail: a run of the owner's
  * own plain track that branches off at a junction and ends in a dead end, marked on its dead-end tile
  * with RT_RAIL_SIDING. It holds one train, which must fit. The inside of an own rail depot is a
@@ -37,7 +37,7 @@ import {
 import { RT_NONE, type RtVehicle } from './types'
 import { rtConsistLengthTiles } from './vehicles'
 
-/** Rail payload bit marking a parking spot's dead-end tile (bits 29-31 are unused by goal 03's layout). */
+/** Rail payload bit marking a parking spot's dead-end tile (bits 29-31 are unused by track.ts's layout). */
 export const RT_RAIL_SIDING = 1 << 29
 /** A spot's run is walked back at most this many tiles; a longer run is not a spot. */
 export const RT_SIDING_MAX_TILES = 64
@@ -113,7 +113,7 @@ export function rtSidingSpot(map: RtMap, tile: number): RtSidingSpot | null {
 }
 
 /**
- * W150: mark a parking spot on the dead-end tile of an own branch. Refused with invalid for bad
+ * Mark a parking spot on the dead-end tile of an own branch. Refused with invalid for bad
  * input or a tile that is not rail, notOwner for another company's track, alreadyBuilt for a marked
  * tile, and conflict when the tile is no dead end or its run back to the junction holds anything but
  * plain track.
@@ -129,7 +129,7 @@ export function buildSiding(map: RtMap, owner: number, tile: number, apply: bool
     return rtBuildOk(RT_CATALOG.construction.siding)
 }
 
-/** W150: take the mark off an own marked tile. Removing the rail itself drops the mark too. */
+/** Take the mark off an own marked tile. Removing the rail itself drops the mark too. */
 export function removeSiding(map: RtMap, owner: number, tile: number, apply: boolean): RtBuildResult {
     if (!rtValidCompany(owner) || !map.validTile(tile)) return rtBuildFail(RtBuildError.invalid)
     if (map.kind[tile] !== RtTileKind.rail) return rtBuildFail(RtBuildError.invalid)
@@ -223,10 +223,10 @@ export function rtCanReverse(world: RtParkingWorld, vehicle: RtVehicle, moving =
 }
 
 /**
- * W150: where a train under a stop order should park. Searches for the nearest free spot it fits
+ * Where a train under a stop order should park. Searches for the nearest free spot it fits
  * in, or an own rail depot, ahead of the train and, when it may reverse, behind it, in one search
  * (the pathfinder weighs the reversal). found gives the route; none means no place is reachable,
- * and the train travels on (Q23); deferred means the tick's node budget ran out, and the caller
+ * and the train travels on; deferred means the tick's node budget ran out, and the caller
  * keeps moving and asks again next tick. Never throws.
  */
 export function findParkingTarget(world: RtParkingWorld, vehicle: RtVehicle, searchBudget: number, tickBudget: number): RtParkingResult {

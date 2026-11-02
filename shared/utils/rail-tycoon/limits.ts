@@ -49,7 +49,7 @@ export const RT_MAX_SAVE_BYTES = 16777216
 export const RT_MAX_SNAPSHOT_FRAME_BYTES = 17825792
 /** Unsent backlog that closes a slow consumer: a snapshot frame plus 1 MiB fits, and it fires below the socket's backpressure limit. */
 export const RT_BACKLOG_CLOSE_BYTES = 25165824
-/** Bun's websocket backpressureLimit for the hub (its 16 MiB default drops frames, AR-133): above the backlog close. */
+/** Bun's websocket backpressureLimit for the hub (its 16 MiB default drops frames): above the backlog close. */
 export const RT_WS_BACKPRESSURE_LIMIT_BYTES = 33554432
 /** Largest decompressed save gunzip may produce. */
 export const RT_GUNZIP_MAX_BYTES = 67108864

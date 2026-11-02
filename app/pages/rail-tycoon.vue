@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// Rail Tycoon — the game page (W121): the world chooser, or the game view for ?world=<id>.
+// Rail Tycoon — the game page: the world chooser, or the game view for ?world=<id>.
 //
 // Opening a world puts its id in the query with router.replace, so a reload reopens it; leaving
-// clears it. The page hosts every game window (AR-38): each useRtWindows entry renders through the
+// clears it. The page hosts every game window: each useRtWindows entry renders through the
 // kind-to-component map below. A query click on the map opens the vehicle, station or depot buy
 // window for that tile (rtQueryTarget). The orders editor's pick mode is run by the vehicle window
-// itself through the game's RtTools (AR-54), so nothing passes through here for it.
+// itself through the game's RtTools, so nothing passes through here for it.
 //
-// Invites (AR-32): /rail-tycoon/invite/<code> parks the code in the rt-invite cookie and sends the
+// Invites: /rail-tycoon/invite/<code> parks the code in the rt-invite cookie and sends the
 // player here, through the login redirect if need be. The chooser sends it as a join; on the hub's
 // answer, either way, the cookie is cleared, so a reload never joins twice.
 import type { Component } from 'vue'

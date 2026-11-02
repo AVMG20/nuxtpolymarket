@@ -1,8 +1,8 @@
 /**
- * Towns (W39): house production of passengers and mail, active-station counting and growth.
+ * Towns: house production of passengers and mail, active-station counting and growth.
  * Behaviour mimics the original game at its default settings (binomial cargo generation, normal
  * growth speed, original road layout); the code is written from scratch. Integers only; every random
- * draw goes through the RtRng passed in, in ascending tile order, so peers stay in lockstep.
+ * draw goes through the SeededRandom passed in, in ascending tile order, so peers stay in lockstep.
  *
  * A house tile's payload is its size class (worldgen); it belongs to the nearest town centre by
  * Manhattan distance (ties to the lower id). Towns grow along their own roads (town-owned road tiles
@@ -15,7 +15,7 @@ import { distributeProduction } from './cargo'
 import { manhattan } from './economy'
 import { RT_DIRS, RT_ROAD_DIR_BIT, RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
 import { rtRoadBits, rtRoadSlopeError } from './road'
-import type { RtRng } from './rng'
+import type { SeededRandom } from '../random'
 import { RtStationTile, rtRoadStopBits, rtRoadStopRoadOwner, rtStationTileType } from './stations-build'
 import type { RtStationWorld } from './stations'
 import { RT_NONE, RT_OWNER_NONE, type RtStation, type RtTown } from './types'
@@ -136,11 +136,11 @@ export function rtTownGrowthRate(activeStations: number, houses: number): number
 }
 
 /* ------------------------------------------------------------------------------------------
- * W39: the town tick
+ * The town tick
  * ---------------------------------------------------------------------------------------- */
 
 /** Units from one binomial roll: the set bits of a random u32 masked to (rate + 7) / genDivisor bits. */
-function binomialAmount(rng: RtRng, rate: number): number {
+function binomialAmount(rng: SeededRandom, rate: number): number {
     const bits = Math.floor((rate + 7) / TOWNS.genDivisor)
     const mask = bits >= 32 ? 0xffffffff : 2 ** bits - 1
     let v = (rng.next() & mask) >>> 0
@@ -153,7 +153,7 @@ function binomialAmount(rng: RtRng, rate: number): number {
 }
 
 /**
- * One tick of a town (W39); goal 08 calls it every tick for each town in ascending id.
+ * One tick of a town; RtWorld.step calls it every tick for each town in ascending id.
  * Houses: on the town's house period (housePeriodTicks, phased by town id), each house in ascending
  * tile order whose turn it is (a quarter of them each period, by the tile's low bits, as the
  * original's binomial mode) rolls passengers then mail and hands them to distributeProduction.
@@ -161,7 +161,7 @@ function binomialAmount(rng: RtRng, rate: number): number {
  * grow (a house beside its road, or a road piece), then waits growthRate town ticks, or retries next
  * town tick after a failure. The monthly growth flag and rate are rtTownMonthly's.
  */
-export function townTick(world: RtTownWorld, town: RtTown, rng: RtRng, tick: number): void {
+export function townTick(world: RtTownWorld, town: RtTown, rng: SeededRandom, tick: number): void {
     if ((tick + town.id) % TOWNS.housePeriodTicks === 0) produceHouses(world, town, rng, tick)
     if ((tick + town.id) % RT_CATALOG.time.townTickUnit === 0 && town.growing) {
         let counter = town.growthCounter - 1
@@ -170,7 +170,7 @@ export function townTick(world: RtTownWorld, town: RtTown, rng: RtRng, tick: num
     }
 }
 
-function produceHouses(world: RtTownWorld, town: RtTown, rng: RtRng, tick: number): void {
+function produceHouses(world: RtTownWorld, town: RtTown, rng: SeededRandom, tick: number): void {
     const map = world.map
     const classes = RT_CATALOG.houses.classes
     const turn = Math.floor(tick / TOWNS.housePeriodTicks) & 3
@@ -185,19 +185,19 @@ function produceHouses(world: RtTownWorld, town: RtTown, rng: RtRng, tick: numbe
 }
 
 /**
- * The town's monthly update (goal 08 calls it at each month change, towns in ascending id): count
+ * The town's monthly update (RtWorld.step calls it at each month change, towns in ascending id): count
  * active stations, set the normal growth rate (rescaling the counter so progress is kept, as the
  * original), decide whether the town grows this month (always with an active station, otherwise
  * with chance unservedGrowth), and roll this month's received cargo into last month's.
  */
-export function rtTownMonthly(world: RtTownWorld, town: RtTown, rng: RtRng, tick: number): void {
+export function rtTownMonthly(world: RtTownWorld, town: RtTown, rng: SeededRandom, tick: number): void {
     const active = rtCountActiveStations(world, town, tick)
     town.activeStations = active
     const old = town.growthRate
     town.growthRate = rtTownGrowthRate(active, town.houseCount)
     // keep relative progress: counter * (new + 1) / (old + 1), rounded
     town.growthCounter = Math.floor((town.growthCounter * (town.growthRate + 1) + Math.floor((old + 1) / 2)) / (old + 1))
-    town.growing = active > 0 || rng.chance(TOWNS.unservedGrowthNumerator, TOWNS.unservedGrowthDenominator)
+    town.growing = active > 0 || rng.randomRatio(TOWNS.unservedGrowthNumerator, TOWNS.unservedGrowthDenominator)
     for (let cargo = 0; cargo < RT_CARGO_IDS.length; cargo++) {
         town.receivedLastMonth[cargo] = town.receivedThisMonth[cargo] ?? 0
         town.receivedThisMonth[cargo] = 0
@@ -253,16 +253,16 @@ function setRoad(world: RtTownWorld, tile: number, bits: number): void {
 }
 
 /** Size class of a new house: the larger classes gather near the centre. */
-function newHouseClass(world: RtTownWorld, town: RtTown, tile: number, rng: RtRng): number {
+function newHouseClass(world: RtTownWorld, town: RtTown, tile: number, rng: SeededRandom): number {
     const map = world.map
     const distance = Math.max(Math.abs(map.tileX(tile) - map.tileX(town.centre)), Math.abs(map.tileY(tile) - map.tileY(town.centre)))
-    if (distance <= 2) return rng.int(1, 2)
-    if (distance <= 4) return rng.int(0, 1)
-    return rng.chance(1, 4) ? 1 : 0
+    if (distance <= 2) return rng.randomInt(1, 2)
+    if (distance <= 4) return rng.randomInt(0, 1)
+    return rng.randomRatio(1, 4) ? 1 : 0
 }
 
 /** Builds a house on free flat land that belongs to the town; false when the tile does not take one. */
-function tryBuildHouse(world: RtTownWorld, town: RtTown, tile: number, rng: RtRng): boolean {
+function tryBuildHouse(world: RtTownWorld, town: RtTown, tile: number, rng: SeededRandom): boolean {
     const map = world.map
     if (tile < 0) return false
     const kind = map.kind[tile]
@@ -284,15 +284,15 @@ function isHouse(map: RtMap, tile: number): boolean {
 }
 
 /** One growth step at a tile, the original's three cases: off the road, a road end to join, or on the road. */
-function growInTile(world: RtTownWorld, town: RtTown, tile: number, bits: number, target: RtDir | -1, rng: RtRng): Grow {
+function growInTile(world: RtTownWorld, town: RtTown, tile: number, bits: number, target: RtDir | -1, rng: SeededRandom): Grow {
     const map = world.map
     if (bits === 0) {
         // walked off the end of a road onto land: extend the road onto this tile
         if (target === -1) return Grow.stop
         const source = rtReverseDir(target)
         let dir = target
-        if (rng.chance(1, 4)) {
-            do dir = rng.int(0, 3) as RtDir
+        if (rng.randomRatio(1, 4)) {
+            do dir = rng.randomInt(0, 3) as RtDir
             while (dir === source)
         }
         const piece = RT_ROAD_DIR_BIT[source]! | RT_ROAD_DIR_BIT[dir]!
@@ -314,14 +314,14 @@ function growInTile(world: RtTownWorld, town: RtTown, tile: number, bits: number
         return Grow.success
     }
     // on the road: try a house beside it, or extend the road that way
-    const dir = rng.int(0, 3) as RtDir
+    const dir = rng.randomInt(0, 3) as RtDir
     const bit = RT_ROAD_DIR_BIT[dir]!
     if ((bits & bit) !== 0) return Grow.continue
     const side = map.neighbour(tile, dir)
     if (side < 0) return Grow.continue
     const sideKind = map.kind[side]
     if (sideKind === RtTileKind.water || sideKind === RtTileKind.coast) return Grow.continue
-    const allowHouse = !roadAllowed(world, town, side, bit | RT_ROAD_DIR_BIT[rtReverseDir(dir)]!) || rng.chance(6, 10)
+    const allowHouse = !roadAllowed(world, town, side, bit | RT_ROAD_DIR_BIT[rtReverseDir(dir)]!) || rng.randomRatio(6, 10)
     if (allowHouse) {
         if (sideKind === RtTileKind.house) return Grow.continue
         return tryBuildHouse(world, town, side, rng) ? Grow.success : Grow.continue
@@ -332,7 +332,7 @@ function growInTile(world: RtTownWorld, town: RtTown, tile: number, bits: number
 }
 
 /** Random walk along the town's roads from a start tile, trying to grow at each step (the original's GrowTownAtRoad). */
-function growAtRoad(world: RtTownWorld, town: RtTown, start: number, rng: RtRng): boolean {
+function growAtRoad(world: RtTownWorld, town: RtTown, start: number, rng: SeededRandom): boolean {
     const map = world.map
     let tile = start
     let target: RtDir | -1 = -1
@@ -345,7 +345,7 @@ function growAtRoad(world: RtTownWorld, town: RtTown, start: number, rng: RtRng)
         if (target !== -1) bits &= ~RT_ROAD_DIR_BIT[rtReverseDir(target)]!
         if (bits === 0) return false
         let dir: RtDir
-        do dir = rng.int(0, 3) as RtDir
+        do dir = rng.randomInt(0, 3) as RtDir
         while ((bits & RT_ROAD_DIR_BIT[dir]!) === 0)
         const next = map.neighbour(tile, dir)
         if (next < 0) return false
@@ -364,7 +364,7 @@ const SEARCH_STEPS: readonly (readonly [number, number])[] = [
 ]
 
 /** One growth attempt (the original's GrowTown): grow from the first own road near the centre, else lay a road block. */
-function growTown(world: RtTownWorld, town: RtTown, rng: RtRng): boolean {
+function growTown(world: RtTownWorld, town: RtTown, rng: SeededRandom): boolean {
     const map = world.map
     let x = map.tileX(town.centre)
     let y = map.tileY(town.centre)
@@ -383,8 +383,8 @@ function growTown(world: RtTownWorld, town: RtTown, rng: RtRng): boolean {
             const tile = map.idx(x, y)
             // only plain flat land of this town takes a random two-bit road block
             if (map.isFlat(tile) && roadAllowed(world, town, tile, 0)) {
-                const a = rng.int(0, 3)
-                let b = rng.int(0, 3)
+                const a = rng.randomInt(0, 3)
+                let b = rng.randomInt(0, 3)
                 if (a === b) b ^= 2
                 setRoad(world, tile, RT_ROAD_DIR_BIT[RT_DIRS[a]!]! | RT_ROAD_DIR_BIT[RT_DIRS[b]!]!)
                 return true

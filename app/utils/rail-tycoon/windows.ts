@@ -1,12 +1,12 @@
-// Rail Tycoon — the window registry and the game view's shared context (W109).
+// Rail Tycoon — the window registry and the game view's shared context.
 //
 // useRtWindows() keeps the open game windows: one per kind plus entity id (one finances window, one
 // window per vehicle or station). open() focuses a window that is already open instead of adding a
 // second, new windows cascade from the top-left, and focus() raises a window above the others. The
-// page renders every entry through its kind-to-component map (W121); RtWindow (W108) reads its
+// page renders every entry through its kind-to-component map; RtWindow reads its
 // stacking order and closes itself through the same registry.
 //
-// The game view (W105) provides an RtGameContext to its toolbar, status bar and windows: the lockstep,
+// The game view provides an RtGameContext to its toolbar, status bar and windows: the lockstep,
 // the tools, the camera and a throttled tick to re-render on. The formatters below show the game's own
 // money (pounds, not Polynux coins) and calendar.
 
@@ -186,7 +186,7 @@ export interface RtGameContext {
     readonly inviteCode: Readonly<Ref<string | null>>
     /** Why the room is paused, or null while it runs. */
     readonly paused: Readonly<Ref<RtPauseReason | null>>
-    /** The owner stopped the world: everyone spectates (AR-104). */
+    /** The owner stopped the world: everyone spectates. */
     readonly closed: Readonly<Ref<boolean>>
     /** The selected tool, mirrored from RtTools for the toolbar's highlight. */
     readonly tool: Readonly<Ref<RtToolKind>>
@@ -220,8 +220,8 @@ export function useRtGame(): RtGameContext {
 }
 
 /**
- * What window.__railTycoon holds (AR-95): read-only views of local state for the browser harness
- * (W147). Screen positions are client (viewport) CSS pixels.
+ * What window.__railTycoon holds: read-only views of local state for the browser harness.
+ * Screen positions are client (viewport) CSS pixels.
  */
 export interface RtDebugHook {
     readonly ready: boolean

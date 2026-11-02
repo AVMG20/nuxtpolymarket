@@ -1,10 +1,10 @@
 /**
- * RtWorld: the complete, deterministic Rail Tycoon game state in one object (W56). Every peer holds
- * one and advances it identically; goal 09 saves exactly its saved state and goal 08 hashes the same.
+ * RtWorld: the complete, deterministic Rail Tycoon game state in one object. Every peer holds
+ * one and advances it identically; save.ts saves exactly its saved state and hash() hashes the same.
  * Entities live in dense arrays indexed by id, null where an id is free, so lookups are direct and
  * iteration in ascending id is a plain loop. A new entity takes the lowest free id of its kind, as
- * the original's pools allocate (AR-137), so there is no next-id counter to save.
- * There is no paused flag: pausing is room state (AR-47).
+ * the original's pools allocate, so there is no next-id counter to save.
+ * There is no paused flag: pausing is room state.
  */
 
 import { clampUtf8 } from './bytes'
@@ -12,7 +12,7 @@ import { RT_CATALOG } from './catalog'
 import { rtClearPacketSource, rtDeleteOrdersTo } from './demolish'
 import { bookMoney, monthlyFinance, rtEmptyFinance } from './economy'
 import { RT_MAP_SIDES, RtTileKind, type RtMap } from './map'
-import { RtRng } from './rng'
+import { SeededRandom } from '../random'
 import { releaseAllFor, rtReleaseAhead, rtReservedAhead, updateSignalStates } from './signals'
 import {
     RT_STATION_ROAD_OWNER_SHIFT,
@@ -83,7 +83,7 @@ function rtTrackPieceOf(pieces: number): RtTrack {
  * Occupied-tile registry (derived; rebuilt on decode, never saved or hashed)
  * ---------------------------------------------------------------------------------------- */
 
-/** Track pieces per rail tile (the six piece bits of the rail payload, W16). */
+/** Track pieces per rail tile (the six piece bits of the rail payload). */
 export const RT_TRACK_PIECES = 6
 
 /** Road lanes a tile can hold apart; a road vehicle's lane is its road direction (0 to 3). */
@@ -95,7 +95,7 @@ const HOLD_ROAD = 2
 
 const EMPTY_IDS: readonly number[] = Object.freeze([])
 
-/** Maps a train's trackdir (RtVehicle.pieces) to its track piece index; track.ts (W27) defines it. */
+/** Maps a train's trackdir (RtVehicle.pieces) to its track piece index; track.ts defines it. */
 export type RtTrackdirPiece = (trackdir: number) => number
 
 function insertSorted(list: number[], value: number): void {
@@ -112,7 +112,7 @@ function removeOne(list: number[], value: number): boolean {
 }
 
 /**
- * Who stands where, piece by piece (AR-56, AR-57). Three separate holdings: a train on track holds
+ * Who stands where, piece by piece. Three separate holdings: a train on track holds
  * (tile, track piece) pairs; a vehicle inside a depot is a depot occupant, not a track holder; a road
  * vehicle holds (tile, lane). A vehicle may hold several pieces, and two trains may briefly hold one
  * piece (the collision tick). Every query answers in ascending vehicle id.
@@ -233,7 +233,7 @@ export class RtOccupiedRegistry {
     }
 
     /**
-     * Whether a train on track holds that piece: collisions and signal blocks (W28, W48). Depot
+     * Whether a train on track holds that piece: collisions and signal blocks. Depot
      * occupants and road vehicles never count.
      */
     trainOnPiece(tile: number, piece: number): boolean {
@@ -245,7 +245,7 @@ export class RtOccupiedRegistry {
         return this.rail.get(this.railKey(tile, piece)) ?? EMPTY_IDS
     }
 
-    /** The lowest-id train other than `except` holding that piece, or RT_NONE (reservations, W29). */
+    /** The lowest-id train other than `except` holding that piece, or RT_NONE (reservations). */
     otherTrainOnPiece(tile: number, piece: number, except: number): number {
         const ids = this.rail.get(this.railKey(tile, piece))
         if (!ids) return RT_NONE
@@ -265,7 +265,7 @@ export class RtOccupiedRegistry {
         return this.roadPerTile.has(tile)
     }
 
-    /** The road vehicles holding a lane of a tile, ascending id (road vehicle blocking, W47). */
+    /** The road vehicles holding a lane of a tile, ascending id (road vehicle blocking). */
     roadVehiclesInLane(tile: number, lane: number): readonly number[] {
         return this.road.get(this.roadKey(tile, lane)) ?? EMPTY_IDS
     }
@@ -287,7 +287,7 @@ export class RtOccupiedRegistry {
     }
 
     /**
-     * Rebuild from vehicle state in ascending id, as decode does and the W64 rescan checks against: a
+     * Rebuild from vehicle state in ascending id, as decode does and the tests' rescan checks against: a
      * vehicle inside a depot occupies its depot tile (tiles[0]); a crashed or driving train holds each
      * occupied tile's piece; a road vehicle holds each tile's lane (its road direction in pieces).
      */
@@ -331,7 +331,7 @@ export class RtOccupiedRegistry {
  * Entity id helpers
  * ---------------------------------------------------------------------------------------- */
 
-/** The lowest free id in an id-indexed list below cap, or RT_NONE when every id is taken (AR-137). */
+/** The lowest free id in an id-indexed list below cap, or RT_NONE when every id is taken. */
 export function rtLowestFreeId(list: readonly (unknown | null)[], cap: number): number {
     const end = Math.min(list.length, cap)
     for (let id = 0; id < end; id++) if (list[id] === null || list[id] === undefined) return id
@@ -377,7 +377,7 @@ function removeAt<T>(list: (T | null)[], id: number): T | null {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Saved state in canonical order (W58): the hash walks exactly what encodeWorld (W66) writes, in
+ * Saved state in canonical order: the hash walks exactly what encodeWorld writes, in
  * the same order; a field added to one must be added to the other
  * ---------------------------------------------------------------------------------------- */
 
@@ -567,9 +567,9 @@ function walkList<T>(sink: RtStateSink, list: readonly (T | null)[], walk: (sink
  * Walks every saved field of a world in canonical order: settings, the four map arrays, each
  * entity list as a live count then its entities in ascending id (each field in its interface's
  * declaration order), the crossing violations in list order (tile, causer, since), then RNG state,
- * tick, date and the pathfinder cursor (goal 09 § 8.1, AR-137).
+ * tick, date and the pathfinder cursor.
  * Derived state is skipped: company infrastructure, station catchment and catchmentRevision, the
- * occupied registry, dirty tiles and pathNodesLeft (AR-66). Allocates nothing.
+ * occupied registry, dirty tiles and pathNodesLeft. Allocates nothing.
  */
 export function rtWalkSavedState(world: RtWorld, sink: RtStateSink): void {
     sink.uint(world.settings.side)
@@ -675,14 +675,14 @@ class RtHashSink implements RtStateSink {
 const hashSink = new RtHashSink()
 
 /* ------------------------------------------------------------------------------------------
- * Companies (W62)
+ * Companies
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * A player-supplied company name made safe to store: anything but a string is empty; control
  * characters are dropped and lone surrogates become U+FFFD (so the UTF-8 save round-trips the name
  * exactly and the hash agrees); whitespace is trimmed; the result is clamped to
- * RT_CATALOG.caps.maxNameBytes of UTF-8 (AR-76). May return ''; the caller supplies a default.
+ * RT_CATALOG.caps.maxNameBytes of UTF-8. May return ''; the caller supplies a default.
  */
 export function rtCleanCompanyName(name: unknown): string {
     if (typeof name !== 'string') return ''
@@ -704,7 +704,7 @@ export function rtDefaultCompanyName(id: number): string {
 }
 
 /**
- * A company as it starts (and restarts after a bankruptcy reset, W63): start money, all of it the
+ * A company as it starts (and restarts after a bankruptcy reset): start money, all of it the
  * start loan, as the original; no finances, infrastructure or history yet.
  */
 export function rtNewCompany(id: number, name: string, colour: number, foundedTick: number): RtCompany {
@@ -730,7 +730,7 @@ export function rtNewCompany(id: number, name: string, colour: number, foundedTi
  * The world
  * ---------------------------------------------------------------------------------------- */
 
-/** Everything a world is built from: create(layout, settings) for a new world, decodeWorld (W67) for a saved one. */
+/** Everything a world is built from: create(layout, settings) for a new world, decodeWorld for a saved one. */
 export interface RtWorldInit {
     settings: RtWorldSettings
     map: RtMap
@@ -771,7 +771,7 @@ export function rtStartDate(): RtDate {
 
 /**
  * The simulation RNG of a new world, kept apart from the generator's sequence: generateWorld
- * consumed an RtRng seeded with the same u32, so the world mixes the seed before seeding its own.
+ * consumed an SeededRandom seeded with the same u32, so the world mixes the seed before seeding its own.
  */
 export function rtWorldRngSeed(layoutSeed: number): number {
     return (Math.imul(layoutSeed ^ 0x5bd1e995, 0x9e3779b1) ^ 0x2545f491) >>> 0
@@ -789,29 +789,29 @@ function checkSettings(settings: RtWorldSettings): void {
 function checkDate(date: RtDate): void {
     const days = RT_CATALOG.time.daysPerMonth
     if (!Number.isInteger(date.month) || date.month < 0 || date.month >= days.length) throw new RangeError(`bad month: ${date.month}`)
-    // the 29th of February is checked by the calendar step (W57); here only the static bound
+    // the 29th of February is checked by the calendar step; here only the static bound
     const most = date.month === 1 ? 29 : days[date.month]!
     if (!Number.isInteger(date.day) || date.day < 1 || date.day > most) throw new RangeError(`bad day: ${date.day}`)
     if (!Number.isInteger(date.year) || date.year < 0) throw new RangeError(`bad year: ${date.year}`)
 }
 
 export class RtWorld {
-    /** Map side, company cap and sharing; set at creation, saved, never changed (Q19b). */
+    /** Map side, company cap and sharing; set at creation, saved, never changed. */
     readonly settings: Readonly<RtWorldSettings>
     readonly map: RtMap
     /** The one simulation RNG; its state is saved and hashed. */
-    readonly rng: RtRng
+    readonly rng: SeededRandom
     /** Ticks since the world was created. */
     tick: number
-    /** The calendar; W57 advances it every RT_CATALOG time dayTicks ticks. */
+    /** The calendar; step() advances it every RT_CATALOG time dayTicks ticks. */
     date: RtDate
-    /** Index of the next vehicle the round-robin pathfinder budget serves (saved, AR-129). */
+    /** Index of the next vehicle the round-robin pathfinder budget serves (saved). */
     pathfinderCursor: number
-    /** Derived: pathfinder nodes left this tick, refilled to pathNodesPerTick at the start of every step (W48). */
+    /** Derived: pathfinder nodes left this tick, refilled to pathNodesPerTick at the start of every step. */
     pathNodesLeft: number
     /**
      * Not state: the per-tick search budget, RT_CATALOG's on every peer. Only a test lowers it, to make
-     * searches scarce (AR-129); a world in play must never change it, or peers would split.
+     * searches scarce; a world in play must never change it, or peers would split.
      */
     pathNodesPerTick: number = RT_CATALOG.pathfinder.pathNodesPerTick
 
@@ -826,15 +826,15 @@ export class RtWorld {
 
     /** Derived: who stands on which piece, depot and lane; rebuilt on decode. */
     readonly occupied: RtOccupiedRegistry
-    /** Derived: tiles changed since the last drain, empty at a tick boundary after W57's step. */
+    /** Derived: tiles changed since the last drain, empty at a tick boundary after step(). */
     readonly dirtyTiles = new Set<number>()
 
-    // TODO(W35): the tile-to-stations index and (W28) the path-signal cache are derived state owned
-    // by stations.ts and signals.ts; they hang off the world here once those modules exist.
+    // The tile-to-stations index and the path-signal memo are derived state too, held in WeakMaps
+    // by stations.ts (keyed by the station list) and signals.ts (keyed by the map), not on the world.
 
     /**
      * Builds a world from complete state. The map and entity objects are taken over, not copied.
-     * The occupied registry starts empty: a world with vehicles on track (decode, W67) rebuilds it
+     * The occupied registry starts empty: a world with vehicles on track (decode) rebuilds it
      * with occupied.rebuild(world.vehicles, trackdirPiece), and infrastructure counts likewise, since
      * both need track.ts encodings this file does not import.
      */
@@ -848,7 +848,7 @@ export class RtWorld {
         const caps = RT_CATALOG.caps
         this.settings = Object.freeze(settings)
         this.map = init.map
-        this.rng = new RtRng(init.rngState)
+        this.rng = new SeededRandom(init.rngState)
         this.tick = init.tick
         this.date = { day: init.date.day, month: init.date.month, year: init.date.year }
         this.pathfinderCursor = init.pathfinderCursor
@@ -884,7 +884,7 @@ export class RtWorld {
         })
     }
 
-    /** The saved world-level scalars (goal 09 writes them, W58 hashes them). */
+    /** The saved world-level scalars (save.ts writes them, hash() hashes them). */
     scalars(): RtWorldScalars {
         return {
             tick: this.tick,
@@ -896,8 +896,8 @@ export class RtWorld {
 
     /**
      * 32-bit FNV-1a (u32) over exactly the saved state in canonical order (rtWalkSavedState), so a
-     * world decoded from a snapshot hashes equal to the live world it was taken from (AR-66). It
-     * covers the pathfinder cursor and every vehicle's lost-retry tick and blocked counter (AR-137);
+     * world decoded from a snapshot hashes equal to the live world it was taken from. It
+     * covers the pathfinder cursor and every vehicle's lost-retry tick and blocked counter;
      * derived caches are not hashed. Allocates nothing; call it at a tick boundary.
      */
     hash(): number {
@@ -950,7 +950,7 @@ export class RtWorld {
         return live(this.vehicles)
     }
 
-    /* ---- id allocation: the lowest free id of the kind, RT_NONE at the cap (AR-137) ---- */
+    /* ---- id allocation: the lowest free id of the kind, RT_NONE at the cap ---- */
 
     freeCompanyId(): number {
         return rtLowestFreeId(this.companies, this.settings.maxCompanies)
@@ -992,13 +992,13 @@ export class RtWorld {
     }
 
     /**
-     * A player joins as a new company under the lowest free id (W62): start money, all of it the
-     * start loan, as the original. The name is cleaned and clamped to maxNameBytes (AR-76), with a
+     * A player joins as a new company under the lowest free id: start money, all of it the
+     * start loan, as the original. The name is cleaned and clamped to maxNameBytes, with a
      * default when nothing is left. The preferred colour is used when it is a valid, unused index;
      * otherwise the company gets the first unused one, as the catalog decides (the original draws a
      * random unused colour; this one draws nothing, so joining never moves the RNG). Returns the new
      * id, or null when the world already has settings.maxCompanies companies. Never throws on bad
-     * input; whether a player already has a company here is room state (W80, W140), not world state.
+     * input; whether a player already has a company here is room state, not world state.
      */
     addCompany(name: unknown, colour?: unknown): number | null {
         const id = this.freeCompanyId()
@@ -1024,12 +1024,12 @@ export class RtWorld {
         placeAt(this.vehicles, vehicle, RT_CATALOG.caps.maxVehicles, 'vehicle')
     }
 
-    /** Frees a station id; order and packet clean-up (W23) is the caller's. */
+    /** Frees a station id; order and packet clean-up is the caller's. */
     removeStation(id: number): RtStation | null {
         return removeAt(this.stations, id)
     }
 
-    /** Frees a vehicle id and drops its occupied holdings; reservations are the caller's (W30). */
+    /** Frees a vehicle id and drops its occupied holdings; reservations are the caller's. */
     removeVehicle(id: number): RtVehicle | null {
         const vehicle = removeAt(this.vehicles, id)
         if (vehicle) this.occupied.releaseVehicle(id)
@@ -1037,14 +1037,14 @@ export class RtWorld {
     }
 
     /**
-     * W63: the bankruptcy reset, as the original removes a company. Its vehicles go (reservations
+     * The bankruptcy reset, as the original removes a company. Its vehicles go (reservations
      * released); another company's vehicle standing on its rail, platforms or in its depots goes too,
      * its owner refunded the sell value, in ascending vehicle id. Its stations, depots, signals and rail
-     * are removed with the W23 order and packet clean-up (AR-69). Its road bits stay as unowned road, so
+     * are removed with the order and packet clean-up in demolish.ts. Its road bits stay as unowned road, so
      * towns and others keep driving them; a level crossing of its rail and a road stop of its own become
      * plain road under their road owner (unowned where that was the company), and another company's
-     * crossing or stop on its road keeps the rail or stop with the road part unowned (AR-52, AR-65).
-     * Signals of every touched tile are refreshed (AR-59). The company restarts with start money and
+     * crossing or stop on its road keeps the rail or stop with the road part unowned.
+     * Signals of every touched tile are refreshed. The company restarts with start money and
      * loan and a cleared record, keeping its id, name and colour. Returns false for an unknown id.
      */
     resetCompany(id: number): boolean {
@@ -1139,18 +1139,18 @@ export class RtWorld {
         return true
     }
 
-    /* ---- the tick (W57) ---- */
+    /* ---- the tick ---- */
 
     /**
-     * Advances the world one tick, in the fixed order every peer follows (goal 08): the date; every
+     * Advances the world one tick, in the fixed order every peer follows: the date; every
      * vehicle in id order from the pathfinder cursor, its daily step (age, breakdown, service, running
      * cost booked as it accrues) before its move, a block it enters or leaves updated before the next
-     * vehicle moves (W48, AR-46); accidents on foreign crossings charged to their causers
+     * vehicle moves; accidents on foreign crossings charged to their causers
      * (inspector.ts); towns then industries in id order; station acceptance and ratings;
      * cargo aboard ageing every packetAgeTicks; on a new month the towns' monthly update, the crossing
      * inspector's visits and each company's month end in id order, resetting a company that went bankrupt; on 1 January the
-     * new-year roll of finances and vehicle profits (AR-53). Commands for the tick are applied before
-     * it is stepped (the room's and the client's job). Pausing is not stepping (AR-47).
+     * new-year roll of finances and vehicle profits. Commands for the tick are applied before
+     * it is stepped (the room's and the client's job). Pausing is not stepping.
      */
     step(): void {
         this.tick++
@@ -1204,7 +1204,7 @@ export class RtWorld {
     /**
      * Every vehicle once, in id order starting at the pathfinder cursor and wrapping. The cursor then
      * moves to the first vehicle that found this tick's search budget spent, so a vehicle starved of
-     * searches goes first next tick and every search waits a bounded number of ticks (AR-129).
+     * searches goes first next tick and every search waits a bounded number of ticks.
      */
     private stepVehicles(): void {
         const list = this.vehicleList()
@@ -1232,8 +1232,8 @@ export class RtWorld {
 
     /**
      * The depot a vehicle due for a service drives to, as the original: the nearest of its kind it can
-     * reach within serviceDepotMaxCost of route, its own or, with sharing on, another company's
-     * (Q19b); RT_NONE when none is that near or this tick's search budget is spent. The search is
+     * reach within serviceDepotMaxCost of route, its own or, with sharing on, another company's;
+     * RT_NONE when none is that near or this tick's search budget is spent. The search is
      * charged to the tick's budget.
      */
     private serviceDepotFor(vehicle: RtVehicle): number {

@@ -1,15 +1,15 @@
-// Rail Tycoon — the socket to the game server (W99).
+// Rail Tycoon — the socket to the game server.
 //
 // One binary WebSocket to /api/rail-tycoon/ws. Frames are decoded with decodeServerMsg (a frame it
 // refuses is dropped) and handed to listeners; client messages go out through encodeClientMsg. It
 // pings every 2 s for the latency readout and reconnects with backoff capped at 3 s, also after the
-// server closed it for a send backlog (4408, AR-16), and emits reconnected so the view opens its
+// server closed it for a send backlog (4408), and emits reconnected so the view opens its
 // world again. Close codes 4401 (not signed in) and 4409 (replaced by a newer tab) stop it for good,
 // as does a hello from another protocol version or build: a tab running the previous deploy's
-// simulation can never stay in lockstep (AR-34).
+// simulation can never stay in lockstep.
 //
 // While a lockstep is being built from an opened or resync message (an async gunzip), the world's
-// later messages are held in arrival order and handed over by release(), so none is lost (AR-84).
+// later messages are held in arrival order and handed over by release(), so none is lost.
 
 import { decodeServerMsg, encodeClientMsg, RT_PROTOCOL_VERSION, type RtClientMsg, type RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
 
@@ -136,7 +136,7 @@ export class RtNet {
         return true
     }
 
-    /** Hands the held world messages to `deliver` in arrival order and stops holding (AR-84). */
+    /** Hands the held world messages to `deliver` in arrival order and stops holding. */
     release(deliver: (msg: RtServerMsg) => void): void {
         const held = this.held
         this.held = []

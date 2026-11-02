@@ -1,6 +1,6 @@
-// Rail Tycoon — renderer (W103).
+// Rail Tycoon — renderer.
 //
-// Draws the client's world with pixi.js v8 from the OpenGFX sprite atlas (W101) the way the original's
+// Draws the client's world with pixi.js v8 from the OpenGFX sprite atlas the way the original's
 // viewport does: every ground sprite first (terrain, water, track, road, platform and depot floors),
 // then everything that stands up (trees, houses, industries, station buildings, depots, signals and
 // vehicles) sorted back to front, so a train passes behind a house in front of it and in front of a
@@ -8,7 +8,7 @@
 // a margin so a pan rebuilds only when it leaves that margin; dirty tiles from RtLockstep are redrawn
 // one by one.
 //
-// Over that, in screen pixels: station name signs in the owner's colour, parking spot markers (W150)
+// Over that, in screen pixels: station name signs in the owner's colour, parking spot markers
 // and the income that rises and fades for 2 s where a vehicle is paid. The canvas renders at the
 // device pixel ratio with a floor of 1 (never below native resolution on a standard screen), nearest
 // sampling, no antialias, every position on a whole pixel.
@@ -211,7 +211,7 @@ export function rtStandHeight(map: RtMap, tile: number, lx: number, ly: number):
 /** Midpoint of each tile edge (RtDir order ne, se, sw, nw) in tile-local coordinates. */
 const EDGE_MID: readonly (readonly [number, number])[] = [[0, 0.5], [0.5, 1], [1, 0.5], [0.5, 0]]
 
-/** The rail piece bits of goal 03 (RtTrack) as the atlas names them. */
+/** The rail piece bits of RtTrack as the atlas names them. */
 export const RT_TRACK_BITS: RtTrackBitTable = {
     x: 1 << RtTrack.x,
     y: 1 << RtTrack.y,
@@ -296,7 +296,7 @@ export interface RtDrawWorld {
     readonly occupied: { trainOnPiece(tile: number, piece: number): boolean }
 }
 
-/** Whether a tile is the dead-end tile of a parking spot (W150), which gets a marker. */
+/** Whether a tile is the dead-end tile of a parking spot, which gets a marker. */
 export function rtIsParkingSpot(map: RtMap, tile: number): boolean {
     return map.kind[tile] === RtTileKind.rail && rtIsSiding(map.payload[tile]!)
 }
@@ -580,7 +580,7 @@ export function rtBayPart(map: RtMap, vehicle: RtVehicle): RtVehiclePart | null 
     }
 }
 
-/** A vehicle window badge (W150): parked in a spot, or stopped and still travelling to find one. */
+/** A vehicle window badge: parked in a spot, or stopped and still travelling to find one. */
 export type RtVehicleBadge = 'parked' | 'parking'
 
 export function rtVehicleBadge(vehicle: RtVehicle): RtVehicleBadge | null {
@@ -1285,7 +1285,7 @@ export class RtRenderer {
     }
 }
 
-/** The parking spot marker (W150): a blue square sign with a white P, unlike any signal. */
+/** The parking spot marker: a blue square sign with a white P, unlike any signal. */
 function buildMarkerContext(pixi: Pixi): GraphicsContext {
     const s = MARKER_SIZE
     return new pixi.GraphicsContext()

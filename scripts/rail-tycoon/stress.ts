@@ -198,7 +198,7 @@ interface Room {
 }
 
 async function scenario(label: string, worlds: { world: RtWorld }[], seconds: number): Promise<void> {
-    // the hub's budget (AR-14): 10 ms per 27 ms window for the process, split evenly among rooms
+    // the hub's budget: 10 ms per 27 ms window for the process, split evenly among rooms
     let budgetWindow = -1
     let budgetSpent = 0
     const perRoom = () => RT_STEP_BUDGET_MS / Math.max(1, rooms.length)

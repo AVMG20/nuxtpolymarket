@@ -3,7 +3,7 @@
  * Tiles are indexed y * side + x. Heights live on the (side + 1) squared corner grid, so a tile's
  * slope follows from its four corners as in the original game: the north corner of tile (x, y) is
  * corner (x, y), west is (x + 1, y), east is (x, y + 1) and south is (x + 1, y + 1).
- * Every array is a plain typed array so goal 09 can write the map raw.
+ * Every array is a plain typed array so the save (save.ts) can write the map raw.
  */
 
 import { RT_OWNER_NONE } from './types'

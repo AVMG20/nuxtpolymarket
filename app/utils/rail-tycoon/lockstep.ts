@@ -1,14 +1,14 @@
-// Rail Tycoon — the client's copy of the world (W100).
+// Rail Tycoon — the client's copy of the world.
 //
-// Built from an opened (or resync) message: the gzip snapshot is inflated under RT_GUNZIP_MAX_BYTES
-// (AR-79), decoded, and the commands the room had already stamped are queued (AR-3). After that the
+// Built from an opened (or resync) message: the gzip snapshot is inflated under RT_GUNZIP_MAX_BYTES,
+// decoded, and the commands the room had already stamped are queued. After that the
 // client steps on its own, never ahead of the room's frame allowance, running several ticks per
 // animation frame to catch up as the original's joining clients do.
 //
-// The tick boundary (AR-103), the same as the room's: at tick T the server's hash for T is compared
+// The tick boundary, the same as the room's: at tick T the server's hash for T is compared
 // first, then every command stamped T is applied in stamp order, then the world steps to T + 1. A
 // hash that differs, a command stamped for a tick already passed, or falling more than
-// RT_RESYNC_BEHIND_TICKS behind the allowance asks the room for a fresh snapshot instead (AR-18).
+// RT_RESYNC_BEHIND_TICKS behind the allowance asks the room for a fresh snapshot instead.
 //
 // Events feed the renderer and the windows: dirty tiles, payments (where and how much), vehicle list
 // changes, pause and resume, role changes and resync requests.
@@ -37,7 +37,7 @@ export interface RtLockstepEvents {
     vehicles: undefined
     paused: RtPauseReason
     resumed: undefined
-    /** The receiver's role changed (a closed world makes everyone a spectator, AR-104). */
+    /** The receiver's role changed (a closed world makes everyone a spectator). */
     role: RtRole
     resync: RtResyncReason
 }
@@ -50,7 +50,7 @@ interface Queued {
     command: RtCommand
 }
 
-/** Inflates gzip bytes, refusing output past `limit` (AR-79). Null when it is too big or not gzip. */
+/** Inflates gzip bytes, refusing output past `limit`. Null when it is too big or not gzip. */
 export async function rtGunzip(bytes: Uint8Array, limit = RT_GUNZIP_MAX_BYTES): Promise<Uint8Array | null> {
     try {
         const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream('gzip'))
@@ -222,7 +222,7 @@ export class RtLockstep {
 
     /**
      * One animation frame: steps toward the allowance, at most RT_CLIENT_STEPS_PER_FRAME ticks.
-     * Too far behind, it asks for a resync rather than replaying (AR-18). Returns the ticks stepped.
+     * Too far behind, it asks for a resync rather than replaying. Returns the ticks stepped.
      */
     frame(maxSteps = RT_CLIENT_STEPS_PER_FRAME): number {
         if (this.resyncing) return 0
@@ -242,7 +242,7 @@ export class RtLockstep {
         return steps
     }
 
-    /** One tick boundary: the hash for this tick, this tick's commands, then the step (AR-103). */
+    /** One tick boundary: the hash for this tick, this tick's commands, then the step. */
     private stepOnce(): void {
         const world = this.world
         const tick = world.tick
@@ -276,7 +276,7 @@ export class RtLockstep {
         }
     }
 
-    /** The command message for a player's command, or null when this client may not send one now (AR-104). */
+    /** The command message for a player's command, or null when this client may not send one now. */
     commandMessage(command: RtCommand, seq: number): RtClientMsg | null {
         if (!this.canCommand) return null
         return { type: 'command', seq: seq & 0xff, command }

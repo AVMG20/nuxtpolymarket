@@ -1,5 +1,5 @@
 /**
- * W147's proof: three players launch with separate profiles, each signs in as its own account,
+ * Three players launch with separate profiles, each signs in as its own account,
  * all three reach the same world and report the same hash, and close() leaves no Chrome behind.
  */
 import { RtBrowserHarness } from './harness.ts'

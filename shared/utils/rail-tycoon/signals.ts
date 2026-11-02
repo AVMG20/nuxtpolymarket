@@ -1,7 +1,7 @@
 /**
- * Signals and path reservations (goal 04): placing signals (W27), block signal aspects (W28), path
- * reservation (W29), releasing it (W30) and the RtReservationHooks the building commands use
- * (AR-118). Behaviour mimics the original game's block and path signals; the code is written from
+ * Signals and path reservations: placing signals, block signal aspects, path
+ * reservation, releasing it and the RtReservationHooks the building commands use.
+ * Behaviour mimics the original game's block and path signals; the code is written from
  * scratch.
  *
  * A signal sits on one track piece and governs trains entering its tile along that piece: a train
@@ -59,8 +59,8 @@ export type RtSignalType = typeof RtSignalType[keyof typeof RtSignalType]
 
 /**
  * Whether a train other than `except` holds the track piece (tile, piece): world.occupied's
- * otherTrainOnPiece(tile, piece, except) !== RT_NONE. Depot occupants and road vehicles never count
- * (AR-57). updateSignalStates passes except = -1, meaning any train.
+ * otherTrainOnPiece(tile, piece, except) !== RT_NONE. Depot occupants and road vehicles never count.
+ * updateSignalStates passes except = -1, meaning any train.
  */
 export type RtTrainOnPiece = (tile: number, piece: number, except: number) => boolean
 
@@ -141,13 +141,13 @@ export function rtPassableTrackdirs(map: RtMap, tile: number, bits: number): num
 }
 
 /* ------------------------------------------------------------------------------------------
- * W27: placing, cycling and removing a signal
+ * Placing, cycling and removing a signal
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Places a signal of `type` (RtSignalType) on one piece of the company's own plain rail, as the
  * original: never on a platform, depot or level crossing, nor on a tile whose pieces overlap (a
- * junction, AR-50), so at most two parallel diagonals of a tile carry one each. A new signal is
+ * junction), so at most two parallel diagonals of a tile carry one each. A new signal is
  * two-way, shows red until updateSignalStates runs, and costs RT_CATALOG signal. Placing again on a
  * signalled piece with the same type cycles it: both ways, one way (the piece's 0-5 trackdir), the
  * other way, then removes it at removeSignal; turning around is free, as the original. Placing the
@@ -196,7 +196,7 @@ export function placeSignal(map: RtMap, owner: number, tile: number, piece: numb
 }
 
 /* ------------------------------------------------------------------------------------------
- * W28: signal blocks
+ * Signal blocks
  * ---------------------------------------------------------------------------------------- */
 
 /** One signal block found by a flood fill. */
@@ -365,16 +365,15 @@ function pieceSeeds(map: RtMap, tile: number, piece: number, out: number[]): voi
 }
 
 /**
- * W28: recomputes the aspects of every signal facing into a block that touches a dirty tile (the
+ * Recomputes the aspects of every signal facing into a block that touches a dirty tile (the
  * tile's own pieces and the pieces of its neighbours at the shared edges, so a removal that split or
- * merged blocks is seen). A block signal shows red when a train holds any piece of its block (AR-57:
- * trainOnPiece counts trains on track only), or when the fill overflowed RT_CATALOG blockFillTiles;
+ * merged blocks is seen). A block signal shows red when a train holds any piece of its block (* trainOnPiece counts trains on track only), or when the fill overflowed RT_CATALOG blockFillTiles;
  * else green. A path signal whose piece is reserved keeps the aspect its reservation gave it; an
  * unreserved one is red when its block is occupied, holds a junction or has more than one way in,
  * else green, as the original. `sharing` is the world setting: off, a block stays on its owner's
  * track as the original; on, it runs across every company's connected track. Returns the tiles whose
- * aspects changed, ascending. Call it for the tiles a train entered or left (W48) and after every
- * applied change to rail, signals, platforms or depots and every train removal (W59, W63, AR-59).
+ * aspects changed, ascending. Call it for the tiles a train entered or left and after every
+ * applied change to rail, signals, platforms or depots and every train removal.
  */
 export function updateSignalStates(map: RtMap, trainOnPiece: RtTrainOnPiece, dirtyTiles: Iterable<number>, sharing: boolean): number[] {
     const tiles = [...new Set(dirtyTiles)].filter(t => map.validTile(t)).sort((a, b) => a - b)
@@ -424,7 +423,7 @@ export function updateSignalStates(map: RtMap, trainOnPiece: RtTrainOnPiece, dir
 
 /**
  * Whether a train holds any piece of the block a rail depot opens into, as the original, where a
- * depot works as a block signal: a train stays inside while its block is occupied (W48, AR-56). An
+ * depot works as a block signal: a train stays inside while its block is occupied. An
  * overflowing fill counts as occupied; a tile that is no rail depot never is.
  */
 export function rtDepotBlockOccupied(map: RtMap, depot: number, trainOnPiece: RtTrainOnPiece, sharing: boolean): boolean {
@@ -452,7 +451,7 @@ export function rtDepotBlockOccupied(map: RtMap, depot: number, trainOnPiece: Rt
 }
 
 /* ------------------------------------------------------------------------------------------
- * W28 section 5.2 and 5.3: blockHasPathSignal and its memo
+ * blockHasPathSignal and its memo
  * ---------------------------------------------------------------------------------------- */
 
 /** A memoised answer and the structural content of every tile it read. */
@@ -490,13 +489,13 @@ export function rtClearSignalCache(map: RtMap): void {
 }
 
 /**
- * Whether the block a train enters along `td` on `tile` is a path block (AR-68): a path signal faces
+ * Whether the block a train enters along `td` on `tile` is a path block: a path signal faces
  * into it (including the far half of a two-way path signal at its exit), as the original's path
  * segment; also true when the fill overflowed. For a signalled piece the block is the one ahead of
  * td; for a plain piece either trackdir names its one block. A block-signalled train entering a path
- * block must reserve first (W48 section 5.2).
+ * block must reserve first.
  *
- * The answer is a function of the map alone (AR-88): it is computed on demand and memoised per map
+ * The answer is a function of the map alone: it is computed on demand and memoised per map
  * together with the kind, owner and structural payload of every tile the fill read, and a memo is
  * used only while all of those are unchanged, so building, removing or decoding can never leave a
  * stale answer and every peer agrees whatever it has cached. Reservations and aspects are not part
@@ -534,7 +533,7 @@ function memoValid(map: RtMap, memo: RtPathMemo): boolean {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Reservation bits of every piece kind (W16, W20, W22, AR-100)
+ * Reservation bits of every piece kind
  * ---------------------------------------------------------------------------------------- */
 
 /** Whether a rail piece, a rail platform or a rail depot's half-piece carries a reservation. */
@@ -622,7 +621,7 @@ function isTrainOnTrack(vehicle: RtVehicle | null | undefined): vehicle is RtVeh
     return !!vehicle && vehicle.kind === RtVehicleKind.rail && vehicle.state !== RtVehicleState.inDepot && vehicle.tiles.length > 0
 }
 
-/** Whether entering (tile, piece) would run into another train's reservation or body (AR-62). */
+/** Whether entering (tile, piece) would run into another train's reservation or body. */
 function conflicts(map: RtMap, vehicle: RtVehicle, own: Set<number>, tile: number, piece: number, trainOnPiece: RtTrainOnPiece): boolean {
     if (!own.has(tile * 8 + piece) && rtPieceReserved(map, tile, piece)) return true
     if (trainOnPiece(tile, piece, vehicle.id)) return true
@@ -638,14 +637,14 @@ function conflicts(map: RtMap, vehicle: RtVehicle, own: Set<number>, tile: numbe
 }
 
 /* ------------------------------------------------------------------------------------------
- * W29: path reservation
+ * Path reservation
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Reserves a train's path all or nothing, from route index `fromIndex` up to the first safe waiting
  * position, as the original: the last piece before a signal (block or path) facing the train, a
  * depot entry, an end of line, or the end of the route (which for a station order is the far end of
- * the target platform, W31). The piece at fromIndex is taken whatever signal it carries: it is the
+ * the target platform). The piece at fromIndex is taken whatever signal it carries: it is the
  * signal the train is about to pass. `route` is vehicle.route; route[i] lies on the tile beyond the
  * piece before it, starting from the head (vehicle.tiles[0], vehicle.pieces[0]); fromIndex runs from
  * vehicle.routeIndex (nothing reserved yet) to vehicle.reservedEnd (extending).
@@ -656,8 +655,8 @@ function conflicts(map: RtMap, vehicle: RtVehicle, own: Set<number>, tile: numbe
  * Otherwise every bit on the way is set, vehicle.reservedEnd becomes fromIndex plus the count, a
  * path signal at fromIndex facing the train turns green, and the count is returned.
  *
- * With no route left at fromIndex (an orderless train, AR-134, or one past the end of its route),
- * the walk takes the first connecting trackdir in trackdir order at every tile, the rule W50 drives
+ * With no route left at fromIndex (an orderless train, or one past the end of its route),
+ * the walk takes the first connecting trackdir in trackdir order at every tile, the rule an orderless train drives
  * by, and appends the walked trackdirs to `route`, so the reservation stays indexable. A route that
  * no longer connects (track removed under it) ends the walk where it breaks. `sharing` is the world
  * setting (followTrack). Returns 0 when nothing can or need be reserved. Never throws.
@@ -723,13 +722,13 @@ export function reservePath(
 }
 
 /* ------------------------------------------------------------------------------------------
- * W30: releasing reservations
+ * Releasing reservations
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Clears the reservation bit of (tile, piece) only when it is one of this train's own pieces (its
  * tile list or its reservation up to vehicle.reservedEnd), so a train never erases a reservation
- * another train set (AR-63). A piece the train both stands on and has reserved again ahead (a short
+ * another train set. A piece the train both stands on and has reserved again ahead (a short
  * loop) stays reserved. Call it as the tail leaves a tile, before the tile leaves vehicle.tiles.
  * Returns whether a bit was cleared.
  */
@@ -766,9 +765,9 @@ export function rtReleaseAhead(map: RtMap, vehicle: RtVehicle): number {
 }
 
 /**
- * Clears every piece the train holds or has reserved, for a sold, crashed, reset or stuck train
- * (W48, W59, W63), and resets vehicle.reservedEnd to 0. Returns the bits cleared. Call
- * updateSignalStates for its tiles afterwards (AR-59).
+ * Clears every piece the train holds or has reserved, for a sold, crashed, reset or stuck train,
+ * and resets vehicle.reservedEnd to 0. Returns the bits cleared. Call
+ * updateSignalStates for its tiles afterwards.
  */
 export function releaseAllFor(map: RtMap, vehicle: RtVehicle): number {
     if (!vehicle) return 0
@@ -784,15 +783,15 @@ export function releaseAllFor(map: RtMap, vehicle: RtVehicle): number {
 }
 
 /* ------------------------------------------------------------------------------------------
- * The reservation hooks of the building commands (goal 03, AR-118)
+ * The reservation hooks of the building commands
  * ---------------------------------------------------------------------------------------- */
 
 /**
- * The real RtReservationHooks for removeRail and demolishTile (W59): reserverOf finds the lowest-id
+ * The real RtReservationHooks for removeRail and demolishTile: reserverOf finds the lowest-id
  * train on track whose held pieces or reservation ahead cover (tile, piece); releaseAhead releases
  * its reservation ahead (rtReleaseAhead); reserveAgain reserves from its head along its route
  * (reservePath from vehicle.routeIndex) within the same command, as the original. When that fails
- * the train is left with no reservation ahead and must stop as at a red path signal (W48).
+ * the train is left with no reservation ahead and must stop as at a red path signal.
  * `vehicles` is every vehicle (world.vehicles), `trainOnPiece` world.occupied's otherTrainOnPiece.
  */
 export function rtReservationHooks(

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
 import {
     RT_RAIL_SIDING,
     RtParkingOutcome,
@@ -12,8 +12,8 @@ import {
     rtIsSiding,
     rtSidingSpot,
     type RtParkingWorld
-} from '../../shared/utils/rail-tycoon/sidings'
-import { RtSignalType, placeSignal } from '../../shared/utils/rail-tycoon/signals'
+} from '#shared/utils/rail-tycoon/sidings'
+import { RtSignalType, placeSignal } from '#shared/utils/rail-tycoon/signals'
 import {
     RT_ROAD_Y,
     RT_TRACKDIR_END,
@@ -25,9 +25,9 @@ import {
     rtTrackdirEntryEdge,
     rtTrackdirExitDir,
     rtValidTrackdir
-} from '../../shared/utils/rail-tycoon/track'
-import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { RtOccupiedRegistry } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/track'
+import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/world'
 
 type XY = [number, number]
 
@@ -131,7 +131,7 @@ function fixture(sharing = false) {
 
 const BUDGET = RT_CATALOG.pathfinder.maxSearchNodes
 
-describe('rail tycoon parking spots (W150, Q20)', () => {
+describe('rail tycoon parking spots', () => {
     it('marks the dead end of an own branch and reads back its run to the junction', () => {
         const { map, t } = fixture()
         const dryRun = buildSiding(map, 0, t(12, 14), false)

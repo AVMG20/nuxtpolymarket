@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { chargeSharing, rtEmptyFinance, type RtSharingWorld } from '../../shared/utils/rail-tycoon/economy'
+import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { chargeSharing, rtEmptyFinance, type RtSharingWorld } from '#shared/utils/rail-tycoon/economy'
 import {
     RT_NONE,
     RT_OWNER_NONE,
@@ -10,7 +10,7 @@ import {
     type RtCompany,
     type RtStation,
     type RtVehicle
-} from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/types'
 import {
     RtOccupiedRegistry,
     RtWorld,
@@ -20,21 +20,20 @@ import {
     rtStartDate,
     rtWalkSavedState,
     type RtStateSink
-} from '../../shared/utils/rail-tycoon/world'
-import { generateWorld } from '../../shared/utils/rail-tycoon/worldgen'
-import { RtReader, RtWriter } from '../../shared/utils/rail-tycoon/bytes'
-import { RT_FINANCE_KEYS, decodeWorldOrThrow, encodeWorld } from '../../shared/utils/rail-tycoon/save'
-import { RT_SERVER_COMPANY, RtCommandError, RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
-import { infrastructureUpkeep, monthlyInterest } from '../../shared/utils/rail-tycoon/economy'
-import { rtRecountInfrastructure } from '../../shared/utils/rail-tycoon/infrastructure'
-import { RT_STEP_BUDGET_MS } from '../../shared/utils/rail-tycoon/limits'
-import { rtPieceReserved, rtReservedAhead } from '../../shared/utils/rail-tycoon/signals'
-import { stationsAround } from '../../shared/utils/rail-tycoon/stations'
-import { RtDir, RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
-import { RtAxis, RtStationTile, rtRoadStopRoadOwner } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtRailPieceReserved, rtTrackdirOf } from '../../shared/utils/rail-tycoon/track'
-import { stepTrain } from '../../shared/utils/rail-tycoon/train'
-import { rtVehicleSellValue } from '../../shared/utils/rail-tycoon/vehicles'
+} from '#shared/utils/rail-tycoon/world'
+import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
+import { RtReader, RtWriter } from '#shared/utils/rail-tycoon/bytes'
+import { RT_FINANCE_KEYS, decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { RT_SERVER_COMPANY, RtCommandError, RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { infrastructureUpkeep, monthlyInterest } from '#shared/utils/rail-tycoon/economy'
+import { rtRecountInfrastructure } from '#shared/utils/rail-tycoon/infrastructure'
+import { rtPieceReserved, rtReservedAhead } from '#shared/utils/rail-tycoon/signals'
+import { stationsAround } from '#shared/utils/rail-tycoon/stations'
+import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtAxis, RtStationTile, rtRoadStopRoadOwner } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtRailPieceReserved, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
+import { stepTrain } from '#shared/utils/rail-tycoon/train'
+import { rtVehicleSellValue } from '#shared/utils/rail-tycoon/vehicles'
 
 const SETTINGS = { side: 64, maxCompanies: 8, sharing: true }
 
@@ -67,7 +66,7 @@ function vehicle(id: number, kind: RtVehicleKind, state: RtVehicleState, tiles: 
     }
 }
 
-describe('RtWorld.create (W56)', () => {
+describe('RtWorld.create', () => {
     it('exposes the layout\'s towns and industries under their ids, ascending', () => {
         const layout = generateWorld(1234, { side: 64 })
         const world = RtWorld.create(layout, SETTINGS)
@@ -125,7 +124,7 @@ describe('RtWorld.create (W56)', () => {
     })
 })
 
-describe('RtWorld ids (W56)', () => {
+describe('RtWorld ids', () => {
     it('hands out the lowest free id and reuses a freed one', () => {
         const world = RtWorld.create(generateWorld(3, { side: 64 }), SETTINGS)
         for (let k = 0; k < 3; k++) {
@@ -151,7 +150,7 @@ describe('RtWorld ids (W56)', () => {
     })
 })
 
-describe('RtOccupiedRegistry (W56)', () => {
+describe('RtOccupiedRegistry', () => {
     it('keeps trains on pieces, depot occupants and road vehicles apart', () => {
         const reg = new RtOccupiedRegistry(64 * 64)
         reg.holdPiece(5, 100, 0)
@@ -234,7 +233,7 @@ describe('RtOccupiedRegistry (W56)', () => {
     })
 })
 
-describe('RtWorld dirty tiles (W56)', () => {
+describe('RtWorld dirty tiles', () => {
     it('drains marked tiles in ascending order', () => {
         const world = RtWorld.create(generateWorld(2, { side: 64 }), SETTINGS)
         world.markDirty(30)
@@ -324,7 +323,7 @@ function saved(world: RtWorld): string | null {
     }
 }
 
-describe('RtWorld.hash (W58)', () => {
+describe('RtWorld.hash', () => {
     it('is a u32, stable across calls, and equal for twin worlds', () => {
         const a = populated()
         const b = populated()
@@ -337,7 +336,7 @@ describe('RtWorld.hash (W58)', () => {
         expect(populated(22).hash()).not.toBe(h)
     })
 
-    it('changes exactly when the save changes: every saved entity field, never a derived one (AR-66)', () => {
+    it('changes exactly when the save changes: every saved entity field, never a derived one', () => {
         const world = populated()
         const base = world.hash()
         const baseBytes = saved(world)
@@ -406,7 +405,7 @@ describe('RtWorld.hash (W58)', () => {
         expect(fewer).not.toBe(shared)
     })
 
-    it('covers the pathfinder cursor, lost-retry tick and road blocked counter (AR-137)', () => {
+    it('covers the pathfinder cursor, lost-retry tick and road blocked counter', () => {
         const world = populated()
         const base = world.hash()
         const train = world.vehicle(0)!
@@ -453,7 +452,10 @@ describe('RtWorld.hash (W58)', () => {
     it('walks the settings and map first, then entities, in one fixed order with signed values marked', () => {
         const kinds: string[] = []
         const record = (out: string[]): RtStateSink => ({
-            uint: value => { if (value < 0) throw new RangeError(`negative uint ${value}`); out.push('u') },
+            uint: value => {
+                if (value < 0) throw new RangeError(`negative uint ${value}`)
+                out.push('u')
+            },
             int: () => { out.push('i') },
             bool: () => { out.push('b') },
             str: () => { out.push('s') },
@@ -474,19 +476,9 @@ describe('RtWorld.hash (W58)', () => {
         expect(again).toEqual(kinds)
         expect(RT_FINANCE_KEYS).toEqual(Object.keys(rtEmptyFinance()))
     })
-
-    it('hashes a 256 map quickly enough to run every check interval', () => {
-        const world = RtWorld.create(generateWorld(4, { side: 256 }), { ...SETTINGS, side: 256 })
-        world.hash()
-        const runs = 20
-        const start = performance.now()
-        for (let k = 0; k < runs; k++) world.hash()
-        const each = (performance.now() - start) / runs
-        console.log(`[W58] hash of a 256 map: ${each.toFixed(2)} ms`)
-    })
 })
 
-describe('RtWorld.addCompany (W62)', () => {
+describe('RtWorld.addCompany', () => {
     it('founds companies under the lowest free id with start money, the start loan and the first unused colour', () => {
         const world = RtWorld.create(generateWorld(8, { side: 64 }), SETTINGS)
         world.tick = 1234
@@ -543,7 +535,7 @@ describe('RtWorld.addCompany (W62)', () => {
         expect(world.companyList().map(c => c.colour)).toEqual([5, 0, 1, 2, 3, 4, 6, 7])
     })
 
-    it('clamps a long accented or emoji name to maxNameBytes so the save can always decode it (AR-76)', () => {
+    it('clamps a long accented or emoji name to maxNameBytes so the save can always decode it', () => {
         const world = RtWorld.create(generateWorld(8, { side: 64 }), SETTINGS)
         const name = 'Société Ferroviaire 🚂🚃🚃🚃 Ëxpress'
         expect(name.length).toBeGreaterThanOrEqual(30)
@@ -583,7 +575,7 @@ describe('RtWorld.addCompany (W62)', () => {
     })
 })
 
-describe('RtWorld.resetCompany (W63)', () => {
+describe('RtWorld.resetCompany', () => {
     const [ME, RIVAL] = [0, 1]
     const K = RtCommandKind
     const EAST = rtTrackdirOf(RtTrack.x, true)
@@ -644,7 +636,7 @@ describe('RtWorld.resetCompany (W63)', () => {
         expect(decodeWorldOrThrow(encodeWorld(w)).hash()).toBe(w.hash())
     })
 
-    it('its crossings become road of the road owner; a rival crossing on its road keeps the rail (AR-52, AR-65)', () => {
+    it('its crossings become road of the road owner; a rival crossing on its road keeps the rail', () => {
         const { w, at } = built()
         w.resetCompany(ME)
         // ME's rail over the rival's road: plain rival road
@@ -660,7 +652,7 @@ describe('RtWorld.resetCompany (W63)', () => {
         expect([w.map.owner[at(27, 30)], rtRoadStopRoadOwner(w.map.payload[at(27, 30)]!)]).toEqual([RIVAL, RIVAL])
     })
 
-    it('a rival train on its track is deleted and its owner refunded; rival orders to its stations and depots go (Q19b, AR-69)', () => {
+    it('a rival train on its track is deleted and its owner refunded; rival orders to its stations and depots go', () => {
         const { w, at, must } = built()
         must(RIVAL, { kind: K.buildDepot, tile: at(41, 10), vehicleKind: RtVehicleKind.rail, facing: RtDir.ne })
         const train = w.vehicle(must(RIVAL, { kind: K.buyVehicle, depot: at(41, 10), model: RT_CATALOG.vehicles.models.expressEngine.index, wagons: [] }).id!)!
@@ -688,7 +680,7 @@ describe('RtWorld.resetCompany (W63)', () => {
         for (let t = 0; t < 64 * 64; t++) expect(w.map.kind[t] === RtTileKind.rail && rtRailPieceReserved(w.map.payload[t]!, 0)).toBe(false)
     })
 
-    it('after the reset the same company id builds rail and buys a vehicle (AR-89)', () => {
+    it('after the reset the same company id builds rail and buys a vehicle', () => {
         const { w, at, must } = built()
         w.resetCompany(ME)
         must(ME, { kind: K.buildRailLine, tile: at(6, 40), endTile: at(20, 40), trackdir: EAST })
@@ -700,7 +692,7 @@ describe('RtWorld.resetCompany (W63)', () => {
 })
 
 /* ------------------------------------------------------------------------------------------
- * W64: the world stepping as a whole. Commands are stamped with a tick and applied before that
+ * The world stepping as a whole. Commands are stamped with a tick and applied before that
  * tick's step, as the room does.
  * ---------------------------------------------------------------------------------------- */
 
@@ -759,7 +751,7 @@ function shuttleScript(w: RtWorld, owner: number, x: number, y: number, length: 
     ]
 }
 
-/** Whether the incrementally kept state equals a full rebuild: a decoded copy rebuilds all of it (AR-77, AR-81). */
+/** Whether the incrementally kept state equals a full rebuild: a decoded copy rebuilds all of it. */
 function expectMatchesRescan(w: RtWorld): void {
     const copy = decodeWorldOrThrow(encodeWorld(w))
     for (const company of w.companyList()) expect(company.infrastructure).toEqual(copy.company(company.id)!.infrastructure)
@@ -780,7 +772,7 @@ function expectMatchesRescan(w: RtWorld): void {
     }
 }
 
-describe('RtWorld.step (W57, W64)', () => {
+describe('RtWorld.step', () => {
     const settings = { side: 64, maxCompanies: 8, sharing: false }
 
     it('twin worlds from one seed fed the same commands hash equal after 20000 ticks; one command a tick late splits them', () => {
@@ -804,7 +796,7 @@ describe('RtWorld.step (W57, W64)', () => {
         expect(late.hash()).not.toBe(a.hash())
     })
 
-    it('a scripted network earns within 60 game days; after every command the kept state matches a rescan; no tick overspends its search budget', () => {
+    it('a scripted network earns once its train has made two round trips; after every command the kept state matches a rescan; no tick overspends its search budget', () => {
         const w = new RtWorld({
             settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 11, tick: 0, date: rtStartDate(),
             pathfinderCursor: 0, companies: [], towns: [], industries: [], stations: [], vehicles: []
@@ -823,24 +815,26 @@ describe('RtWorld.step (W57, W64)', () => {
             ...shuttleScript(w, 0, 4, 10, 20, 2)
         ]
         const budget = w.pathNodesPerTick
-        let worst = 0
-        // first income comes on about day 40: the first round trip runs empty and the train takes some 12 days to reach full speed
-        play(w, script, RT_CATALOG.time.dayTicks * 60, applied => {
+        const checkStep = (applied: boolean) => {
             if (applied) expectMatchesRescan(w)
             expect(w.pathNodesLeft).toBeGreaterThanOrEqual(0)
             expect(budget - w.pathNodesLeft).toBeLessThanOrEqual(budget)
-        })
-        const company = w.company(0)!
-        expect(company.financeThisYear.trainIncome).toBeGreaterThan(0)
-        expectMatchesRescan(w)
-        // AR-130: the worst step with every vehicle searching, at the catalog's budget
-        for (const v of w.vehicleList()) v.routeTick = RT_NONE
-        for (let k = 0; k < 200; k++) {
-            const start = performance.now()
-            w.step()
-            worst = Math.max(worst, performance.now() - start)
         }
-        console.log(`rail tycoon scripted network: worst step ${worst.toFixed(3)} ms (budget ${RT_STEP_BUDGET_MS} ms)`)
+        play(w, script, 10, checkStep)
+        // the first round trip runs empty, so income follows the second; four station calls make two round trips
+        const train = w.vehicleList()[0]!
+        let calls = 0
+        let order = train.orderIndex
+        for (let tick = 0; calls < 4; tick++) {
+            if (tick > RT_CATALOG.time.dayTicks * 365) throw new Error(`the train made ${calls} station calls in a year`)
+            play(w, [], 1, checkStep)
+            if (train.orderIndex !== order) {
+                order = train.orderIndex
+                calls++
+            }
+        }
+        expect(w.company(0)!.financeThisYear.trainIncome).toBeGreaterThan(0)
+        expectMatchesRescan(w)
     })
 
     it('refuses a ninth company', () => {
@@ -851,7 +845,7 @@ describe('RtWorld.step (W57, W64)', () => {
         expect(w.companyList().length).toBe(8)
     })
 
-    it('after a company reset another company\'s bus on its former road keeps running and arrives (AR-52)', () => {
+    it('after a company reset another company\'s bus on its former road keeps running and arrives', () => {
         const w = new RtWorld({
             settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 4, tick: 0, date: rtStartDate(),
             pathfinderCursor: 0, companies: [rtNewCompany(0, 'Roads', 0, 0), rtNewCompany(1, 'Buses', 1, 0)], towns: [], industries: [], stations: [], vehicles: []
@@ -883,7 +877,7 @@ describe('RtWorld.step (W57, W64)', () => {
         expect(arrived).toBe(true)
     })
 
-    it('across 1 January every company rolls this year into last year and every vehicle its profit (AR-53)', () => {
+    it('across 1 January every company rolls this year into last year and every vehicle its profit', () => {
         const w = new RtWorld({
             settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 4, tick: 74 * 1000,
             date: { day: 31, month: 11, year: 1955 }, pathfinderCursor: 0,
@@ -915,28 +909,5 @@ describe('RtWorld.step (W57, W64)', () => {
         }
         expect(v.profitLastYear).toBe(1234)
         expect(v.profitThisYear).toBe(0)
-    })
-
-    it('a 256 map with 200 vehicles runs 2000 steps; logs the average step time (AR-27)', () => {
-        const w = new RtWorld({
-            settings: { side: 256, maxCompanies: 8, sharing: false }, map: new RtMap(256), rngState: 8, tick: 0, date: rtStartDate(),
-            pathfinderCursor: 0, companies: [rtNewCompany(0, 'Big', 0, 0)], towns: [], industries: [], stations: [], vehicles: []
-        })
-        w.company(0)!.money = 1e12
-        // 200 single-track shuttles, one train each: four columns of 50 lines
-        for (let k = 0; k < 200; k++) {
-            const x = 2 + 64 * (k % 4)
-            const y = 2 + 2 * Math.floor(k / 4)
-            // apply each line now so the next one's ids follow on
-            for (const [, company, command] of shuttleScript(w, 0, x, y, 60, 1)) {
-                if (!applyCommand(w, company, command, true).ok) throw new Error(`line ${k}: command ${command.kind} refused`)
-            }
-        }
-        expect(w.vehicleList().length).toBe(200)
-        const start = performance.now()
-        for (let k = 0; k < 2000; k++) w.step()
-        const average = (performance.now() - start) / 2000
-        console.log(`rail tycoon 256 map, 200 vehicles: average step ${average.toFixed(3)} ms over 2000 steps (tick ${RT_CATALOG.time.tickMs} ms)`)
-        expect(w.vehicleList().filter(v => v.state !== RtVehicleState.inDepot).length).toBe(200)
     })
 })

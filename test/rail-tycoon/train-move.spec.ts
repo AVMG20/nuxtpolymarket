@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
-import { buildSiding } from '../../shared/utils/rail-tycoon/sidings'
-import { RtSignalType, placeSignal } from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, buildRailStation } from '../../shared/utils/rail-tycoon/stations-build'
-import { RtBuildError, buildRail, rtPieceBetween } from '../../shared/utils/rail-tycoon/track'
-import { stepTrain, rtRemoveTrain, type RtTrainHooks } from '../../shared/utils/rail-tycoon/train'
-import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { buyVehicle } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { buildSiding } from '#shared/utils/rail-tycoon/sidings'
+import { RtSignalType, placeSignal } from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, buildRailStation } from '#shared/utils/rail-tycoon/stations-build'
+import { RtBuildError, buildRail, rtPieceBetween } from '#shared/utils/rail-tycoon/track'
+import { stepTrain, rtRemoveTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
+import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 type XY = [number, number]
 
@@ -96,7 +96,7 @@ function noSharedTiles(world: RtWorld): boolean {
     return true
 }
 
-describe('rail tycoon train movement (W48)', () => {
+describe('rail tycoon train movement', () => {
     it('leaves its depot, runs to the end of the line, turns round and comes back', () => {
         const world = flatWorld()
         const map = world.map

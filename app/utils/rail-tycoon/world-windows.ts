@@ -1,4 +1,4 @@
-// Rail Tycoon — pure helpers for the world windows (goal 16: W114 to W118).
+// Rail Tycoon — pure helpers for the world windows.
 //
 // What the buy, vehicle list, vehicle, station and minimap windows show, computed from the client's
 // world without touching it: consists and their totals, vehicle names and status lines, order text and
@@ -45,7 +45,7 @@ export function rtCargoCss(cargo: number): string {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Buying (W114)
+ * Buying
  * ---------------------------------------------------------------------------------------- */
 
 /** The models a depot of this kind sells as the lead vehicle: locomotives, or road vehicles. */
@@ -60,7 +60,7 @@ export function rtWagonModels(): RtVehicleModelSpec[] {
 
 /**
  * The most wagons the engine can pull: the longest consist that fits maxTrainLength tiles of
- * halfTilesPerVehicle parts and maxTrainVehicles parts (AR-91). 0 for anything not a locomotive.
+ * halfTilesPerVehicle parts and maxTrainVehicles parts. 0 for anything not a locomotive.
  */
 export function rtMaxWagons(engine: number): number {
     const spec = RT_VEHICLE_MODELS[engine]
@@ -132,7 +132,7 @@ export function rtVehiclesInDepot(world: RtWorld, depot: number): RtVehicle[] {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Vehicles (W115, W116)
+ * Vehicles
  * ---------------------------------------------------------------------------------------- */
 
 /** A vehicle's name: "Train 4" or "Road vehicle 9", numbered by its id. */
@@ -270,7 +270,7 @@ export function rtVehicleOnTile(world: RtWorld, tile: number): RtVehicle | null 
 }
 
 /* ------------------------------------------------------------------------------------------
- * Order list edits (W116): each returns a new list, the input untouched
+ * Order list edits: each returns a new list, the input untouched
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -335,7 +335,7 @@ export function rtOrderErrorText(error: RtOrderError): string {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Stations (W117)
+ * Stations
  * ---------------------------------------------------------------------------------------- */
 
 export interface RtStationCargoRow {
@@ -375,7 +375,7 @@ export function rtStationAccepts(world: RtWorld, station: RtStation): number[] {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Query clicks (for the page, W121)
+ * Query clicks (for the page)
  * ---------------------------------------------------------------------------------------- */
 
 export type RtQueryTarget =
@@ -409,7 +409,7 @@ export function rtDepotKindAt(world: RtWorld, tile: number): RtVehicleKind | nul
 }
 
 /* ------------------------------------------------------------------------------------------
- * Minimap (W118)
+ * Minimap
  * ---------------------------------------------------------------------------------------- */
 
 /** Minimap width in CSS pixels; the height is half of it (the map is drawn as the main view's diamond). */

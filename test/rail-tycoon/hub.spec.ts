@@ -1,5 +1,5 @@
 /**
- * RtHub (goal 20, W98) with an in-memory registry and store, fake sockets that decode every frame,
+ * RtHub with an in-memory registry and store, fake sockets that decode every frame,
  * fake timers, and real RtRooms: socket replacement, the flood bucket, ownership before any
  * destructive act, per-world chains, the live-room cap, the shared step budget, cooldowns and the
  * broken-world refusal.
@@ -347,7 +347,7 @@ describe('rail tycoon hub: sockets', () => {
 /* ---- ownership and chains ---- */
 
 describe('rail tycoon hub: ownership and per-world chains', () => {
-    it('a non-owner delete leaves the live room and its peers untouched (AR-9)', async () => {
+    it('a non-owner delete leaves the live room and its peers untouched', async () => {
         const { hub, registry, connect } = setup()
         const world = registry.add('alice')
         world.members.set('bob', 1)
@@ -404,7 +404,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         expect(hub.liveRoomCount).toBe(0)
     })
 
-    it('delete racing open resolves in chain order without a stray room (AR-10)', async () => {
+    it('delete racing open resolves in chain order without a stray room', async () => {
         const { hub, registry, connect } = setup()
         const first = registry.add('alice')
         const alice = connect('alice')
@@ -428,7 +428,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         expect(registry.loads).toBe(1)
     })
 
-    it('join racing open resolves in chain order: the joiner has a company in the one live room (AR-10)', async () => {
+    it('join racing open resolves in chain order: the joiner has a company in the one live room', async () => {
         for (const order of ['openFirst', 'joinFirst'] as const) {
             const { hub, registry, connect } = setup()
             const world = registry.add('alice')
@@ -469,7 +469,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         expect(alice.socket.errors()).toEqual(['worldClosed'])
     })
 
-    it('a live join that never acknowledges is refused at the timeout, and a following stop proceeds (AR-31)', async () => {
+    it('a live join that never acknowledges is refused at the timeout, and a following stop proceeds', async () => {
         const openRoom = async (id: string, deps: RtRoomDeps) => {
             const room = await RtRoom.open(id, deps)
             if (room) room.join = () => new Promise(() => {})
@@ -502,7 +502,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         expect(hub.room(world.id)!.worldStatus).toBe('closed')
     })
 
-    it('two users opening each other\'s previous worlds at once both complete (AR-119)', async () => {
+    it('two users opening each other\'s previous worlds at once both complete', async () => {
         const { hub, registry, connect } = setup()
         const x = registry.add('alice')
         const y = registry.add('bob')
@@ -527,7 +527,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
 /* ---- caps and budget ---- */
 
 describe('rail tycoon hub: caps and the step budget', () => {
-    it('opening a second world detaches the socket from the first (AR-110)', async () => {
+    it('opening a second world detaches the socket from the first', async () => {
         const { hub, registry, connect } = setup()
         const first = registry.add('alice')
         const second = registry.add('alice')
@@ -541,7 +541,7 @@ describe('rail tycoon hub: caps and the step budget', () => {
         await until(() => (registry.saves.get(first.id) ?? 0) >= 1, 'leave checkpoint')
     })
 
-    it('at the live-room cap an idle room is checkpointed and evicted; with every room peopled the open is busy (AR-14, AR-110)', async () => {
+    it('at the live-room cap an idle room is checkpointed and evicted; with every room peopled the open is busy', async () => {
         const { hub, registry, connect } = setup()
         const owners: Client[] = []
         const worlds: FakeWorld[] = []
@@ -577,7 +577,7 @@ describe('rail tycoon hub: caps and the step budget', () => {
         expect(stored.hash()).toBe(idleHash)
     })
 
-    it('shares the step budget so the sum of room steps per tick stays within it (AR-14)', async () => {
+    it('shares the step budget so the sum of room steps per tick stays within it', async () => {
         const COST = 4
         let perf = 0
         const { hub, registry, connect } = setup({ perfNow: () => perf })
@@ -606,7 +606,7 @@ describe('rail tycoon hub: caps and the step budget', () => {
         for (const n of steps) expect(n).toBeGreaterThan(windows * RT_STEP_BUDGET_MS / COST / rooms.length * 0.6)
     })
 
-    it('a room whose step always throws is refused worldBroken after RT_BROKEN_UNLOADS unloads and not reopened (AR-61)', async () => {
+    it('a room whose step always throws is refused worldBroken after RT_BROKEN_UNLOADS unloads and not reopened', async () => {
         let opens = 0
         const openRoom = async (id: string, deps: RtRoomDeps) => {
             opens++
@@ -639,7 +639,7 @@ describe('rail tycoon hub: caps and the step budget', () => {
 /* ---- cooldowns ---- */
 
 describe('rail tycoon hub: cooldowns', () => {
-    it('two resync requests 1 s apart produce one snapshot and one tooSoon (AR-82)', async () => {
+    it('two resync requests 1 s apart produce one snapshot and one tooSoon', async () => {
         const { registry, connect } = setup()
         const world = registry.add('alice')
         const alice = connect('alice')
@@ -651,7 +651,7 @@ describe('rail tycoon hub: cooldowns', () => {
         expect(alice.socket.errors()).toEqual(['tooSoon'])
     })
 
-    it('the open cooldown is per user and survives a reconnect (AR-90)', async () => {
+    it('the open cooldown is per user and survives a reconnect', async () => {
         const { registry, connect } = setup()
         const world = registry.add('alice')
         const first = connect('alice')
@@ -662,7 +662,7 @@ describe('rail tycoon hub: cooldowns', () => {
         expect((await open(second, world.id)).type).toBe('opened')
     })
 
-    it('a second create within the cooldown is tooSoon; a create at the open-world cap is refused before generation (AR-99)', async () => {
+    it('a second create within the cooldown is tooSoon; a create at the open-world cap is refused before generation', async () => {
         const { registry, connect } = setup()
         const alice = connect('alice')
         const create: RtClientMsg = { type: 'create', name: 'Alpha', side: 64, maxCompanies: 4, sharing: true }

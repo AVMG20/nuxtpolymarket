@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { acceptDelivery, industryTick, rtIndustryTiles } from '#shared/utils/rail-tycoon/industries'
 import { RT_DIRS, RT_ROAD_DIR_BIT, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
-import { RtRng } from '#shared/utils/rail-tycoon/rng'
+import { SeededRandom } from '#shared/utils/random'
 import { RtAxis, RtStationTile, rtFacilityOf, rtNewStationCargo, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
 import { rtPacketTotal } from '#shared/utils/rail-tycoon/stations'
 import { rtCountActiveStations, rtTownGrowthRate, rtTownMonthly, townTick } from '#shared/utils/rail-tycoon/towns'
@@ -114,7 +114,7 @@ function townWorld(seed = 1): { world: RtWorld, town: RtTown, slopes: number[], 
     return { world, town, slopes, startHouses }
 }
 
-/** Ticks a world's towns and calls the monthly update every MONTH_TICKS, as goal 08's step will. */
+/** Ticks a world's towns and calls the monthly update every MONTH_TICKS, as RtWorld.step does. */
 function runTowns(world: RtWorld, ticks: number, eachTick?: (tick: number) => void): void {
     for (let k = 0; k < ticks; k++) {
         world.tick++
@@ -134,7 +134,7 @@ function builtTiles(world: RtWorld): number {
 }
 
 describe('rail tycoon towns and industries', () => {
-    describe('towns (W39)', () => {
+    describe('towns', () => {
         it('a town with three active stations grows faster over 20000 ticks than an unserved twin', () => {
             const served = townWorld(7)
             const unserved = townWorld(7)
@@ -209,7 +209,7 @@ describe('rail tycoon towns and industries', () => {
         })
     })
 
-    describe('industries (W40)', () => {
+    describe('industries', () => {
         function industryWorld(type: number, stationTile: (map: RtMap) => number, cargo: number) {
             const map = new RtMap(SIDE)
             const origin = map.idx(20, 20)
@@ -286,7 +286,7 @@ describe('rail tycoon towns and industries', () => {
                     acceptDelivery(industry, WOOD, 7 + k)
                     runIndustries(world, 200)
                 }
-                return { industry: { ...industry }, packets: station.cargo, rng: new RtRng(world.rng.state).next() }
+                return { industry: { ...industry }, packets: station.cargo, rng: new SeededRandom(world.rng.state).next() }
             }
             expect(run()).toEqual(run())
         })

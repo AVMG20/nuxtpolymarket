@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { RtReader, RtWriter } from '../../shared/utils/rail-tycoon/bytes'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { decodeCommand, encodeCommand, RtCommandKind, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
-import { RT_MAX_FRAME_BYTES, RT_MAX_SAVE_BYTES, RT_MAX_SNAPSHOT_FRAME_BYTES } from '../../shared/utils/rail-tycoon/limits'
+import { RtReader, RtWriter } from '#shared/utils/rail-tycoon/bytes'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { decodeCommand, encodeCommand, RtCommandKind, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RT_MAX_FRAME_BYTES, RT_MAX_SAVE_BYTES, RT_MAX_SNAPSHOT_FRAME_BYTES } from '#shared/utils/rail-tycoon/limits'
 import {
     decodeClientMsg,
     decodeServerMsg,
@@ -21,9 +21,9 @@ import {
     type RtServerMsg,
     type RtStampedCommand,
     type RtWorldSummary
-} from '../../shared/utils/rail-tycoon/protocol'
-import { RtRng } from '../../shared/utils/rail-tycoon/rng'
-import { RT_OWNER_NONE, RtOrderKind } from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/protocol'
+import { SeededRandom } from '#shared/utils/random'
+import { RT_OWNER_NONE, RtOrderKind } from '#shared/utils/rail-tycoon/types'
 
 const INVITE = '0123456789ABCDEF'
 const GZIP = new Uint8Array([0x1f, 0x8b, 8, 0, 1, 2, 3, 4, 5, 6])
@@ -77,7 +77,7 @@ const SAMPLES: { [K in RtServerMsg['type']]: Extract<RtServerMsg, { type: K }> }
     pong: { type: 'pong', echo: 123456789 }
 }
 
-/** Reads a frame by the layout in protocol.ts' header, independently of the encoder (no W87 decoder yet). */
+/** Reads a frame by the layout in protocol.ts' header, independently of the encoder and decoder. */
 function readStamped(r: RtReader): RtStampedCommand {
     const tick = r.u32()
     const company = r.u8()
@@ -114,16 +114,16 @@ function expectRefused(msg: unknown): void {
 
 /** Seeded messages of every type, valid and invalid alike, drawn from values near each cap. */
 function seededServerMsgs(seed: number, count: number): RtServerMsg[] {
-    const rng = new RtRng(seed)
-    const pick = <T>(list: readonly T[]): T => list[rng.int(0, list.length - 1)]!
+    const rng = new SeededRandom(seed)
+    const pick = <T>(list: readonly T[]): T => list[rng.randomInt(0, list.length - 1)]!
     const int = () => pick([0, 1, 7, 8, 255, 256, 0xffff, 0x10000, 0xffffffff, 2 ** 32, -1, 1.5, Number.NaN, rng.next()])
-    const company = () => pick<number | null>([null, 0, 7, 8, 255, -1, rng.int(0, 9)])
+    const company = () => pick<number | null>([null, 0, 7, 8, 255, -1, rng.randomInt(0, 9)])
     const text = () => pick(['', 'w', 'x'.repeat(32), 'x'.repeat(33), '€'.repeat(11), 'a\uD800', INVITE, 'b'.repeat(64), 'b'.repeat(65)])
     const bytes = () => new Uint8Array(pick([0, 1, 3, RT_PROTOCOL_BOUNDS.commandBytes, RT_PROTOCOL_BOUNDS.commandBytes + 1]))
-    const pending = () => Array.from({ length: rng.int(0, 4) }, () => stamped(int(), company(), bytes()))
+    const pending = () => Array.from({ length: rng.randomInt(0, 4) }, () => stamped(int(), company(), bytes()))
     const builders: (() => unknown)[] = [
         () => ({ type: 'hello', version: int(), buildId: text() }),
-        () => ({ type: 'worldList', worlds: Array.from({ length: rng.int(0, 3) }, () => ({ ...WORLD, id: text(), name: text(), status: pick(['open', 'closed', 'x']), isOwner: pick([true, false, 0]), memberCount: int(), maxCompanies: pick([null, int()]), myCompanyId: company(), lastActiveAt: int(), inviteCode: text() })) }),
+        () => ({ type: 'worldList', worlds: Array.from({ length: rng.randomInt(0, 3) }, () => ({ ...WORLD, id: text(), name: text(), status: pick(['open', 'closed', 'x']), isOwner: pick([true, false, 0]), memberCount: int(), maxCompanies: pick([null, int()]), myCompanyId: company(), lastActiveAt: int(), inviteCode: text() })) }),
         () => ({ type: 'joined', worldId: text() }),
         () => ({ type: 'opened', worldId: text(), role: pick(['player', 'spectator', 'owner']), owner: pick([true, false]), company: company(), inviteCode: pick([null, INVITE, text()]), tick: int(), serverNow: int(), snapshot: bytes(), pending: pending() }),
         () => ({ type: 'resync', worldId: text(), tick: int(), serverNow: int(), snapshot: bytes(), pending: pending() }),
@@ -141,7 +141,7 @@ function seededServerMsgs(seed: number, count: number): RtServerMsg[] {
     return Array.from({ length: count }, () => pick(builders)() as RtServerMsg)
 }
 
-describe('encodeServerMsg (W86)', () => {
+describe('encodeServerMsg', () => {
     it('gives every message a distinct tag at 0x80 or above, so no client frame is ever read as one', () => {
         const tags = Object.values(RtServerTag)
         expect(new Set(tags).size).toBe(tags.length)
@@ -168,7 +168,7 @@ describe('encodeServerMsg (W86)', () => {
         expect(encodeServerMsg({ type: 'worldClosed' })).toEqual(new Uint8Array([RtServerTag.worldClosed]))
     })
 
-    it('carries the protocol version as a u16 and the build id as a length-prefixed string (AR-34)', () => {
+    it('carries the protocol version as a u16 and the build id as a length-prefixed string', () => {
         const r = new RtReader(encodeServerMsg({ type: 'hello', version: RT_PROTOCOL_VERSION, buildId: 'abc-123' }))
         expect(r.u8()).toBe(RtServerTag.hello)
         expect(r.u16()).toBe(RT_PROTOCOL_VERSION)
@@ -194,12 +194,12 @@ describe('encodeServerMsg (W86)', () => {
         expect(Array.from(server)).toEqual([RtServerTag.command, 1, 0, 0, 0, RT_OWNER_NONE, 42])
     })
 
-    it('round-trips an opened message with its pending list, with the invite code for a player (AR-3, AR-64)', () => {
+    it('round-trips an opened message with its pending list, with the invite code for a player', () => {
         const msg = SAMPLES.opened
         expect(readOpened(encodeServerMsg(msg))).toEqual({ ...msg, pending: PENDING.map(p => ({ ...p })) })
     })
 
-    it('round-trips opened for an owner spectator with the code and for a plain spectator without it (AR-64)', () => {
+    it('round-trips opened for an owner spectator with the code and for a plain spectator without it', () => {
         const owner = { ...SAMPLES.opened, role: 'spectator' as const, owner: true, company: null }
         expect(readOpened(encodeServerMsg(owner))).toEqual(owner)
         const spectator = { ...SAMPLES.opened, role: 'spectator' as const, owner: false, company: null, inviteCode: null, pending: [] }
@@ -209,7 +209,7 @@ describe('encodeServerMsg (W86)', () => {
         expect(new TextDecoder().decode(frame)).not.toContain(INVITE)
     })
 
-    it('carries the gzip snapshot opaquely and byte for byte (AR-79)', () => {
+    it('carries the gzip snapshot opaquely and byte for byte', () => {
         const snapshot = new Uint8Array(70000)
         for (let i = 0; i < snapshot.length; i++) snapshot[i] = (i * 31 + 7) & 0xff
         const read = readOpened(encodeServerMsg({ ...SAMPLES.opened, snapshot, pending: [] }))
@@ -224,7 +224,7 @@ describe('encodeServerMsg (W86)', () => {
         r.end()
     })
 
-    it('carries each world in the list with its invite code (AR-64)', () => {
+    it('carries each world in the list with its invite code', () => {
         const r = new RtReader(encodeServerMsg(SAMPLES.worldList))
         expect(r.u8()).toBe(RtServerTag.worldList)
         const worlds: RtWorldSummary[] = []
@@ -244,7 +244,7 @@ describe('encodeServerMsg (W86)', () => {
         expect(worlds).toEqual(SAMPLES.worldList.worlds)
     })
 
-    it('writes room-unloaded with each reason code and world-deleted with the world id (AR-36)', () => {
+    it('writes room-unloaded with each reason code and world-deleted with the world id', () => {
         RT_UNLOAD_REASONS.forEach((reason, index) => {
             expect(Array.from(encodeServerMsg({ type: 'roomUnloaded', reason }))).toEqual([RtServerTag.roomUnloaded, index])
         })
@@ -274,7 +274,7 @@ describe('encodeServerMsg (W86)', () => {
 })
 
 describe('encodeServerMsg refuses what a client would refuse', () => {
-    it('never sends the invite code to a plain spectator, and always to an owner or player (AR-64)', () => {
+    it('never sends the invite code to a plain spectator, and always to an owner or player', () => {
         expectRefused({ ...SAMPLES.opened, role: 'spectator', owner: false, company: null, inviteCode: INVITE })
         expectRefused({ ...SAMPLES.opened, inviteCode: null })
         expectRefused({ ...SAMPLES.opened, role: 'spectator', owner: true, company: null, inviteCode: null })
@@ -307,7 +307,7 @@ describe('encodeServerMsg refuses what a client would refuse', () => {
         expectRefused({ type: 'joined', worldId: '\uDC00w' })
     })
 
-    it('keeps pending commands ascending and never before the snapshot tick (AR-103)', () => {
+    it('keeps pending commands ascending and never before the snapshot tick', () => {
         expectRefused({ ...SAMPLES.opened, pending: [stamped(101, 0, cmd(1)), stamped(100, 0, cmd(1))] })
         expectRefused({ ...SAMPLES.opened, pending: [stamped(99, 0, cmd(1))] })
         expectRefused({ ...SAMPLES.resync, pending: [stamped(99, 0, cmd(1))] })
@@ -432,14 +432,14 @@ const VARIANTS: RtServerMsg[] = [
     ...RT_ERROR_CODES.map(code => ({ type: 'error', code }) as const)
 ]
 
-describe('decodeServerMsg (W87)', () => {
+describe('decodeServerMsg', () => {
     it('round-trips every server variant: decode(encode(m)) deep-equals m', () => {
         for (const msg of VARIANTS) {
             expect(decodeServerMsg(encodeServerMsg(msg))).toEqual(msg)
         }
     })
 
-    it('round-trips every message the seeded W86 generator gets accepted', () => {
+    it('round-trips every message the seeded generator gets accepted', () => {
         let accepted = 0
         for (const seed of [99, 7, 2026]) {
             for (const msg of seededServerMsgs(seed, 3000)) {
@@ -591,7 +591,7 @@ describe('decodeServerMsg (W87)', () => {
         expect(decodeServerMsg(frame(RtServerTag.worldList, w => w.varint(Number.MAX_SAFE_INTEGER)))).toBeNull()
     })
 
-    it('ties the invite code to the role and owner flag (AR-64)', () => {
+    it('ties the invite code to the role and owner flag', () => {
         const ownerSpectator = encodeServerMsg({ ...SAMPLES.opened, role: 'spectator', owner: true, company: null })
         const plain = encodeServerMsg({ ...SAMPLES.opened, role: 'spectator', owner: false, company: null, inviteCode: null })
         expect(decodeServerMsg(ownerSpectator)).not.toBeNull()
@@ -605,7 +605,7 @@ describe('decodeServerMsg (W87)', () => {
         expect(decodeServerMsg(nowOwner)).toBeNull()
     })
 
-    it('keeps pending ascending, at or after the snapshot tick, and within its caps (AR-103)', () => {
+    it('keeps pending ascending, at or after the snapshot tick, and within its caps', () => {
         const resync = (snapshotBytes: number, pending: RtStampedCommand[]) => decodeServerMsg(frame(RtServerTag.resync, w => {
             rawStr(w, [0x77])
             writeBody(w, snapshotBytes, pending)
@@ -679,17 +679,17 @@ describe('decodeServerMsg (W87)', () => {
     })
 
     it('yields null or a canonical message for seeded byte flips of every message type', () => {
-        const rng = new RtRng(87)
+        const rng = new SeededRandom(87)
         let accepted = 0
         let refused = 0
         for (const msg of VARIANTS) {
             const bytes = encodeServerMsg(msg)
             for (let i = 0; i < 300; i++) {
                 const copy = bytes.slice()
-                const flips = rng.int(1, 3)
+                const flips = rng.randomInt(1, 3)
                 for (let f = 0; f < flips; f++) {
-                    const at = rng.int(0, copy.length - 1)
-                    copy[at] = rng.chance(1, 2) ? copy[at]! ^ (1 << rng.int(0, 7)) : rng.int(0, 255)
+                    const at = rng.randomInt(0, copy.length - 1)
+                    copy[at] = rng.randomRatio(1, 2) ? copy[at]! ^ (1 << rng.randomInt(0, 7)) : rng.randomInt(0, 255)
                 }
                 if (expectNullOrCanonical(copy) === null) refused++
                 else accepted++
@@ -700,19 +700,19 @@ describe('decodeServerMsg (W87)', () => {
     })
 
     it('yields null or a canonical message for seeded garbage behind every server tag', () => {
-        const rng = new RtRng(870)
+        const rng = new SeededRandom(870)
         const tags = Object.values(RtServerTag)
         for (let i = 0; i < 20000; i++) {
-            const garbage = new Uint8Array(rng.int(1, 48))
-            garbage[0] = tags[rng.int(0, tags.length - 1)]!
-            for (let j = 1; j < garbage.length; j++) garbage[j] = rng.int(0, 255)
+            const garbage = new Uint8Array(rng.randomInt(1, 48))
+            garbage[0] = tags[rng.randomInt(0, tags.length - 1)]!
+            for (let j = 1; j < garbage.length; j++) garbage[j] = rng.randomInt(0, 255)
             expectNullOrCanonical(garbage)
         }
     })
 })
 
 /* ------------------------------------------------------------------------------------------
- * Client messages (W84, W85): the anti-cheat boundary, so most cases below are hand-built
+ * Client messages: the anti-cheat boundary, so most cases below are hand-built
  * hostile frames rather than round trips.
  * ---------------------------------------------------------------------------------------- */
 
@@ -788,7 +788,7 @@ function expectClientRefused(msg: unknown): void {
     expect(() => encodeClientMsg(msg as RtClientMsg)).toThrow(RangeError)
 }
 
-describe('encodeClientMsg (W84)', () => {
+describe('encodeClientMsg', () => {
     it('gives every client message a distinct tag from 0x01 to 0x7f', () => {
         const tags = Object.values(RtClientTag)
         expect(new Set(tags).size).toBe(tags.length)
@@ -815,7 +815,7 @@ describe('encodeClientMsg (W84)', () => {
         }
     })
 
-    it('writes create as name, u16 side, u8 max companies and u8 sharing, on and off (AR-75)', () => {
+    it('writes create as name, u16 side, u8 max companies and u8 sharing, on and off', () => {
         for (const sharing of [true, false]) {
             const bytes = encodeClientMsg({ type: 'create', name: 'Rails', side: 256, maxCompanies: 8, sharing })
             expect(Array.from(bytes)).toEqual([RtClientTag.create, 5, ...new TextEncoder().encode('Rails'), 0, 1, 8, sharing ? 1 : 0])
@@ -829,7 +829,7 @@ describe('encodeClientMsg (W84)', () => {
         expect(Array.from(encodeClientMsg({ type: 'ping', value: 0x01020304 }))).toEqual([RtClientTag.ping, 4, 3, 2, 1])
     })
 
-    it('refuses create settings outside 64/128/256, 2 to 8 companies and a boolean sharing (AR-75)', () => {
+    it('refuses create settings outside 64/128/256, 2 to 8 companies and a boolean sharing', () => {
         for (const side of [0, 63, 100, 512, 65536, 128.5]) expectClientRefused({ ...CREATE_BASE, side })
         for (const maxCompanies of [0, 1, 9, 255, 2.5, Number.NaN]) expectClientRefused({ ...CREATE_BASE, maxCompanies })
         for (const sharing of [0, 1, 'yes', null]) expectClientRefused({ ...CREATE_BASE, sharing })
@@ -855,7 +855,7 @@ describe('encodeClientMsg (W84)', () => {
         for (const type of ['nope', '', 'constructor', 'toString', 'hello', 'pong']) expectClientRefused({ type })
     })
 
-    it('refuses foundCompany, which only the server issues (AR-2), and any command decodeCommand refuses', () => {
+    it('refuses foundCompany, which only the server issues, and any command decodeCommand refuses', () => {
         expectClientRefused({ type: 'command', seq: 0, command: { kind: RtCommandKind.foundCompany, name: 'Mine', colour: 1 } })
         expectClientRefused({ type: 'command', seq: 0, command: { ...BUILD_RAIL, piece: 99 } })
         expectClientRefused({ type: 'command', seq: 0, command: { ...BUILD_RAIL, tile: 256 * 256 } })
@@ -864,12 +864,12 @@ describe('encodeClientMsg (W84)', () => {
     })
 })
 
-describe('decodeClientMsg (W85)', () => {
+describe('decodeClientMsg', () => {
     it('round-trips every client variant: decode(encode(m)) deep-equals m', () => {
         for (const msg of CLIENT_VARIANTS) expect(decodeClientMsg(encodeClientMsg(msg))).toEqual(msg)
     })
 
-    it('round-trips create with sharing on and off (AR-75)', () => {
+    it('round-trips create with sharing on and off', () => {
         for (const sharing of [true, false]) {
             const msg = { ...CREATE_BASE, sharing }
             expect(decodeClientMsg(encodeClientMsg(msg))).toEqual(msg)
@@ -884,14 +884,14 @@ describe('decodeClientMsg (W85)', () => {
         expect(decodeClientMsg(outer.subarray(10, 10 + bytes.length))).toEqual(CLIENT_SAMPLES.command)
     })
 
-    it('refuses a client frame that carries foundCompany, though the command codec accepts it (AR-2)', () => {
+    it('refuses a client frame that carries foundCompany, though the command codec accepts it', () => {
         const found = encodeCommand({ kind: RtCommandKind.foundCompany, name: 'Mine', colour: 1 })
         expect(decodeCommand(found)).not.toBeNull()
         expect(decodeClientMsg(commandFrame(0, found))).toBeNull()
         expect(decodeClientMsg(commandFrame(255, found))).toBeNull()
     })
 
-    it('refuses create with side 100 or max companies 9, and every other out-of-range setting (AR-75)', () => {
+    it('refuses create with side 100 or max companies 9, and every other out-of-range setting', () => {
         expect(decodeClientMsg(createFrame())).toEqual(CREATE_BASE)
         expect(decodeClientMsg(createFrame({ side: 100 }))).toBeNull()
         expect(decodeClientMsg(createFrame({ max: 9 }))).toBeNull()
@@ -1031,39 +1031,39 @@ describe('decodeClientMsg (W85)', () => {
     })
 
     it('never throws on 1000 seeded random byte arrays, and accepts only canonical frames', () => {
-        const rng = new RtRng(99)
+        const rng = new SeededRandom(99)
         for (let i = 0; i < 1000; i++) {
-            const bytes = new Uint8Array(rng.int(0, 64))
-            for (let j = 0; j < bytes.length; j++) bytes[j] = rng.int(0, 255)
+            const bytes = new Uint8Array(rng.randomInt(0, 64))
+            for (let j = 0; j < bytes.length; j++) bytes[j] = rng.randomInt(0, 255)
             expectClientNullOrCanonical(bytes)
         }
     })
 
     it('yields null or a canonical message for seeded garbage behind every client tag', () => {
-        const rng = new RtRng(85)
+        const rng = new SeededRandom(85)
         const tags = Object.values(RtClientTag)
         let accepted = 0
         for (let i = 0; i < 20000; i++) {
-            const garbage = new Uint8Array(rng.int(1, 48))
-            garbage[0] = tags[rng.int(0, tags.length - 1)]!
-            for (let j = 1; j < garbage.length; j++) garbage[j] = rng.int(0, 255)
+            const garbage = new Uint8Array(rng.randomInt(1, 48))
+            garbage[0] = tags[rng.randomInt(0, tags.length - 1)]!
+            for (let j = 1; j < garbage.length; j++) garbage[j] = rng.randomInt(0, 255)
             if (expectClientNullOrCanonical(garbage) !== null) accepted++
         }
         expect(accepted).toBeGreaterThan(0)
     })
 
     it('yields null or a canonical message for seeded byte flips of every client variant, and never foundCompany', () => {
-        const rng = new RtRng(850)
+        const rng = new SeededRandom(850)
         let accepted = 0
         let refused = 0
         for (const msg of CLIENT_VARIANTS) {
             const bytes = encodeClientMsg(msg)
             for (let i = 0; i < 300; i++) {
                 const copy = bytes.slice()
-                const flips = rng.int(1, 3)
+                const flips = rng.randomInt(1, 3)
                 for (let f = 0; f < flips; f++) {
-                    const at = rng.int(0, copy.length - 1)
-                    copy[at] = rng.chance(1, 2) ? copy[at]! ^ (1 << rng.int(0, 7)) : rng.int(0, 255)
+                    const at = rng.randomInt(0, copy.length - 1)
+                    copy[at] = rng.randomRatio(1, 2) ? copy[at]! ^ (1 << rng.randomInt(0, 7)) : rng.randomInt(0, 255)
                 }
                 const decoded = expectClientNullOrCanonical(copy)
                 if (decoded === null) {
@@ -1079,8 +1079,8 @@ describe('decodeClientMsg (W85)', () => {
     })
 
     it('encodes seeded hostile messages to a frame the decoder accepts, or throws only RangeError', () => {
-        const rng = new RtRng(84)
-        const pick = <T>(list: readonly T[]): T => list[rng.int(0, list.length - 1)]!
+        const rng = new SeededRandom(84)
+        const pick = <T>(list: readonly T[]): T => list[rng.randomInt(0, list.length - 1)]!
         const int = () => pick([0, 1, 2, 8, 9, 64, 100, 128, 255, 256, 0xffff, 2 ** 32, -1, 1.5, Number.NaN])
         const text = () => pick(['', 'w', 'x'.repeat(32), 'x'.repeat(33), '€'.repeat(11), 'a\uD800', ' a', 'a\u0001', INVITE, 'ILOU456789ABCDEF'])
         const builders: (() => unknown)[] = [

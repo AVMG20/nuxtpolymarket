@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Rail Tycoon — the top icon toolbar (W110): zoom, the windows, the rail and road build tools with
+// Rail Tycoon — the top icon toolbar: zoom, the windows, the rail and road build tools with
 // their options, demolish, query, and the world menu. Spectators see only zoom, the windows they can
-// use and leave (AR-104). There is no station list in version 1; stations open by a query click (AR-38).
+// use and leave. There is no station list in version 1; stations open by a query click.
 import { RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import { RtToolKind } from '~/utils/rail-tycoon/tools'
@@ -168,7 +168,7 @@ function stopWorld() {
   confirmStop.value = false
   menuOpen.value = false
   if (!game.send({ type: 'stop', worldId: game.worldId })) {
-    toast.add({ title: 'Not connected, try again in a moment', color: 'error' })
+    toast.add({ title: 'Not connected, try again in a moment', color: 'warning' })
   }
 }
 

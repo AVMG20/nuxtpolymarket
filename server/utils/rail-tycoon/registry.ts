@@ -65,7 +65,7 @@ export interface RtWorldListing {
     /** The caller's company in this world, or null when the caller owns it without a company. */
     myCompanyId: number | null
     lastActiveAt: Date
-    /** Every member sees the code, so any member can invite (AR-64). */
+    /** Every member sees the code, so any member can invite. */
     inviteCode: string
 }
 
@@ -101,7 +101,7 @@ const RT_NAME_INPUT_UNITS = 256
 /** First key of the two-key advisory lock that serializes one owner's creates; app-unique ('RTWC'). */
 const RT_CREATE_LOCK_SPACE = 0x52545743
 
-// C0 and C1 controls, and lone surrogates: the wire refuses both in a world name (W84)
+// C0 and C1 controls, and lone surrogates: the wire refuses both in a world name
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
 const RT_CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f]/
 const RT_LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
@@ -119,7 +119,7 @@ function rtRandomCode(alphabet: string, length: number): string {
 
 /**
  * The world name as stored: trimmed, 1 to nameBytes of UTF-8, no control characters and no lone
- * surrogates, so every stored name is one the wire carries (AR-87). Anything else is a 400.
+ * surrogates, so every stored name is one the wire carries. Anything else is a 400.
  */
 function rtCleanWorldName(name: unknown): string {
     const tooLong = `World name must be 1 to ${RT_PROTOCOL_BOUNDS.nameBytes} bytes`
@@ -135,7 +135,7 @@ export interface RtCreateOptions {
     side: number
     /** 2 to 8. */
     maxCompanies: number
-    /** Infrastructure sharing (Q19b); true when left out. */
+    /** Infrastructure sharing; true when left out. */
     sharing?: boolean
 }
 
@@ -174,16 +174,16 @@ function rtRefuseAtCap(counts: { open: number, total: number }): void {
 
 export interface RtCreatedWorld {
     worldId: string
-    /** Shown to the owner and every member, so any member can invite (AR-64). */
+    /** Shown to the owner and every member, so any member can invite. */
     inviteCode: string
 }
 
 /**
  * Starts a new world from the chooser: the owner gets company 0, named after them. The name and
  * every option are checked here (400), since the hub passes what the client sent. A plain count
- * refuses an owner at the cap before the world is generated (AR-99); the authority is the count
+ * refuses an owner at the cap before the world is generated; the authority is the count
  * repeated under a per-owner advisory lock in the transaction that inserts, so of parallel creates
- * at the last free slot exactly one gets through and the rest get 409 (AR-19, AR-110).
+ * at the last free slot exactly one gets through and the rest get 409.
  */
 export async function rtCreateWorld(userId: string, userName: string, name: string, options: RtCreateOptions): Promise<RtCreatedWorld> {
     const worldName = rtCleanWorldName(name)
@@ -234,11 +234,11 @@ export interface RtJoinedWorld {
 
 /**
  * Joins the world behind an invite code as a new company, while no room is live for it (the hub
- * routes a live world's join to RtRoom.join, W140). Lock-then-read: the world row is locked FOR
+ * routes a live world's join to RtRoom.join). Lock-then-read: the world row is locked FOR
  * UPDATE before anything is read, so parallel joins queue and each sees the save the one before it
  * wrote. An existing member gets their membership back unchanged; a closed or full world is 409, an
  * unknown code 404 and a malformed one 400. The member row's company is exactly the id addCompany
- * returned (AR-1), and it commits with the save in the locked transaction.
+ * returned, and it commits with the save in the locked transaction.
  */
 export async function rtJoinWorld(userId: string, userName: string, inviteCode: string): Promise<RtJoinedWorld> {
     if (!isRtInviteCode(inviteCode)) rtBadRequest('That is not an invite code')
@@ -308,7 +308,7 @@ export async function rtCloseWorld(userId: string, worldId: string, exec: DbExec
 
 /**
  * Removes a world for good; its members go with it through the foreign key.
- * The hub unloads a live room only after this returns a row (AR-9).
+ * The hub unloads a live room only after this returns a row.
  */
 export async function rtDeleteWorld(userId: string, worldId: string, exec: DbExecutor = db) {
     const [deleted] = await exec.delete(railTycoonWorlds)
@@ -332,7 +332,7 @@ function rtInviteMatches(presented: string | undefined, actual: string): boolean
 }
 
 /**
- * Who may open a world and as what (AR-25): a member of an open world plays
+ * Who may open a world and as what: a member of an open world plays
  * their company; the owner, a member of a closed world, or anyone presenting
  * the world's invite code watches; everyone else gets none. A missing world is
  * none too, with no status, so a stranger learns nothing about it.

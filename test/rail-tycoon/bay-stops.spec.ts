@@ -1,5 +1,5 @@
 /**
- * Bay road stops (Q29a, 2026-11-02): the original's normal bus and lorry stops beside the drive-through
+ * Bay road stops (2026-11-02): the original's normal bus and lorry stops beside the drive-through
  * ones. Building every shape and its refusals, a bus serving a bay (in, load, turn, out), two bays
  * full with a third bus waiting outside, twin worlds staying hash-equal, saves of bays, a save from
  * before bays, and the command byte that carries the shape.
@@ -127,7 +127,7 @@ function baysSound(w: RtWorld, bay: number, facing: RtDir): boolean {
     return held[facing] === 0 && held[rtReverseDir(facing)] === 0 && held[rtBayLane(facing, 0)]! <= 1 && held[rtBayLane(facing, 1)]! <= 1
 }
 
-describe('bay road stops: building (Q29a)', () => {
+describe('bay road stops: building', () => {
     it('builds a bay of every facing on clear land: its payload, cost and road stub', () => {
         for (const shape of BAYS) {
             const w = world()
@@ -251,7 +251,7 @@ describe('bay road stops: building (Q29a)', () => {
     })
 })
 
-describe('bay road stops: road vehicles (Q29a)', () => {
+describe('bay road stops: road vehicles', () => {
     /**
      * A street along y = 20 (x 10 to 40), a depot at its west end, a bay at (25, 19) whose entrance
      * faces south-east onto the street, and a drive-through stop at (38, 20).
@@ -376,7 +376,7 @@ describe('bay road stops: road vehicles (Q29a)', () => {
     })
 })
 
-describe('bay road stops: determinism and saves (Q29a)', () => {
+describe('bay road stops: determinism and saves', () => {
     /** A world built only by commands: a street, a bay, a drive-through stop and three buses. */
     function commandWorld(): RtWorld {
         const w = world()
@@ -479,7 +479,7 @@ describe('bay road stops: determinism and saves (Q29a)', () => {
     })
 })
 
-describe('bay road stops: the command byte (Q29a)', () => {
+describe('bay road stops: the command byte', () => {
     const tile = 64 * 30 + 30
 
     it('a stop command without a shape is byte for byte the old command and still builds a drive-through stop', () => {

@@ -1,5 +1,5 @@
 /**
- * Road rules: laying (W18) and removing (W19) road bits. Behaviour mimics the original game at its
+ * Road rules: laying and removing road bits. Behaviour mimics the original game at its
  * default settings; the code is written from scratch.
  *
  * Road payload (kind road): bits 0-3 the road bits (RT_ROAD_DIR_BIT, one per half-tile direction),
@@ -74,7 +74,7 @@ export function rtRoadSlopeError(map: RtMap, tile: number, bits: number): RtBuil
 }
 
 /* ------------------------------------------------------------------------------------------
- * W18: build road bits
+ * Build road bits
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -82,7 +82,7 @@ export function rtRoadSlopeError(map: RtMap, tile: number, bits: number): RtBuil
  * trees (cleared at catalog cost), and adding bits to the company's own road or a town road, whose
  * owner stays the town. Across a single straight of anyone's rail without signals, on flat land, a
  * road perpendicular to it makes a level crossing (the full straight, two bits' cost) that keeps the
- * rail owner as tile owner and records the road builder in the road-owner byte (AR-65); a vehicle on
+ * rail owner as tile owner and records the road builder in the road-owner byte; a vehicle on
  * the tile (when occupied is given) refuses it. With apply false nothing is written.
  */
 export function buildRoad(map: RtMap, owner: number, tile: number, bits: number, apply: boolean, occupied?: RtOccupied): RtBuildResult {
@@ -138,15 +138,15 @@ export function buildRoad(map: RtMap, owner: number, tile: number, bits: number,
 }
 
 /* ------------------------------------------------------------------------------------------
- * W19: remove road bits
+ * Remove road bits
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Removes the company's own road bits at RT_CATALOG removeRoad per bit. Town roads and other
- * companies' roads are refused with notOwner, a vehicle on the tile (AR-44), a road stop or a depot
+ * companies' roads are refused with notOwner, a vehicle on the tile, a road stop or a depot
  * with conflict, bits that are not there with invalid. Removing every bit leaves clear land. On a
  * level crossing only the road owner in its road-owner byte may remove the road part, always the whole
- * straight (two bits' cost), which leaves the rail as plain rail of the rail owner (AR-65).
+ * straight (two bits' cost), which leaves the rail as plain rail of the rail owner.
  */
 export function removeRoad(map: RtMap, owner: number, tile: number, bits: number, occupied: RtOccupied, apply: boolean): RtBuildResult {
     if (!rtValidCompany(owner) || !map.validTile(tile) || !validBits(bits) || typeof occupied !== 'function') {

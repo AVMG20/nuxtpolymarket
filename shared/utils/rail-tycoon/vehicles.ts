@@ -1,6 +1,6 @@
 /**
- * Vehicles (goal 07): buying, selling and ageing (W47); reliability, breakdowns, servicing and
- * running cost (W52); movement (W48, W49) joins this file later. Behaviour mimics the original game at its default settings; the code is
+ * Vehicles: buying, selling and ageing; reliability, breakdowns, servicing and
+ * running cost; movement joins this file later. Behaviour mimics the original game at its default settings; the code is
  * written from scratch.
  *
  * A vehicle inside a depot (state inDepot) holds tiles [depot tile], pieces [facing] and direction
@@ -12,7 +12,7 @@ import { RT_CARGO_IDS, RT_CATALOG, RT_VEHICLE_MODEL_IDS, type RtVehicleModelSpec
 import { rtDepotFacing, rtDepotKind } from './depots'
 import { chargeSharing, depotSharingFee, type RtSharingWorld } from './economy'
 import { RtTileKind, type RtDir, type RtMap } from './map'
-import type { RtRng } from './rng'
+import type { SeededRandom } from '../random'
 import { RtBuildError, rtValidCompany } from './track'
 import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtCompany, type RtVehicle } from './types'
 
@@ -41,7 +41,7 @@ export function rtModelCargo(spec: RtVehicleModelSpec): number {
  * Consist properties, derived from the part list (engine first)
  * ---------------------------------------------------------------------------------------- */
 
-/** Half tiles a consist covers: every engine and wagon takes halfTilesPerVehicle (AR-91). */
+/** Half tiles a consist covers: every engine and wagon takes halfTilesPerVehicle. */
 export function rtConsistHalfTiles(consist: readonly number[]): number {
     return consist.length * RT_CATALOG.vehicles.halfTilesPerVehicle
 }
@@ -104,7 +104,7 @@ export function rtConsistWeight(consist: readonly number[]): number {
  * The consist a purchase builds, engine first, or the reason it cannot: invalid for an unknown
  * model, a wagon as the lead model, a part that is not a wagon, wagons behind a road vehicle or a
  * wagons value that is not an array; limit for more parts than maxTrainVehicles (maxTrainLength
- * tiles of half-tile vehicles, AR-91). Never throws on hostile input.
+ * tiles of half-tile vehicles). Never throws on hostile input.
  */
 export function rtPurchaseConsist(model: unknown, wagons: unknown): number[] | RtBuildError {
     const lead = rtModelSpec(model)
@@ -122,7 +122,7 @@ export function rtPurchaseConsist(model: unknown, wagons: unknown): number[] | R
 }
 
 /* ------------------------------------------------------------------------------------------
- * createVehicle (W47)
+ * createVehicle
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -187,7 +187,7 @@ export function createVehicle(
 }
 
 /* ------------------------------------------------------------------------------------------
- * Buying and selling (W47 rules, booked by W59)
+ * Buying and selling (the rules here, the money in applyCommand)
  * ---------------------------------------------------------------------------------------- */
 
 /** What buying and selling reach in the world; RtWorld satisfies it. */
@@ -204,7 +204,7 @@ export interface RtVehicleWorld {
 
 /**
  * A vehicle rule's outcome: the signed cost (a refund is negative) and the vehicle id bought or
- * sold, or the RtBuildError refusing it. Rules never touch money; W59 checks cash and books.
+ * sold, or the RtBuildError refusing it. Rules never touch money; applyCommand checks cash and books.
  */
 export type RtVehicleResult = { ok: true, cost: number, vehicle: number } | { ok: false, error: RtBuildError }
 
@@ -224,7 +224,7 @@ export function rtCompanyVehicleCount(vehicles: readonly (RtVehicle | null)[], o
  * train, model is the locomotive and wagons the wagon models behind it, engine plus wagons at most
  * maxTrainVehicles; a road vehicle takes no wagons. Refused with invalid for a bad owner, an owner
  * without a company, a tile off the map or not a depot, or an unusable model or wagon list; notOwner
- * for another company's depot (buying is own-depot only, also with sharing, W59); conflict for a
+ * for another company's depot (buying is own-depot only, also with sharing); conflict for a
  * depot of the other vehicle kind; limit at maxVehiclesPerCompany, at the world's vehicle cap or for
  * a consist past maxTrainLength. The cost is the summed price of the parts. With apply true the
  * vehicle takes the lowest free id, enters the world and occupies the depot. Never throws on
@@ -265,7 +265,7 @@ export function rtVehicleSellValue(vehicle: RtVehicle): number {
  * crashed. The cost is the negative of rtVehicleSellValue. Refused with invalid for an unknown
  * vehicle or bad owner, notOwner for another company's vehicle and conflict for a crashed vehicle
  * or one not stopped in a depot. With apply true the vehicle leaves the world, freeing its id and
- * depot place; signal refresh and reservations are the caller's (W59). Never throws on hostile input.
+ * depot place; signal refresh and reservations are the caller's. Never throws on hostile input.
  */
 export function sellVehicle(world: RtVehicleWorld, owner: unknown, vehicleId: unknown, apply: boolean): RtVehicleResult {
     if (typeof owner !== 'number' || !rtValidCompany(owner)) return vehicleFail(RtBuildError.invalid)
@@ -281,7 +281,7 @@ export function sellVehicle(world: RtVehicleWorld, owner: unknown, vehicleId: un
 
 /**
  * One game day of ageing, as the original: age grows by a day and every valueDecayDays days the
- * value loses value >> valueDecayShift. The daily vehicle step (W52 / W57) calls it.
+ * value loses value >> valueDecayShift. The daily vehicle step calls it.
  */
 export function rtAgeVehicleDay(vehicle: RtVehicle): void {
     const economy = RT_CATALOG.economy
@@ -292,7 +292,7 @@ export function rtAgeVehicleDay(vehicle: RtVehicle): void {
 }
 
 /* ------------------------------------------------------------------------------------------
- * Reliability, breakdowns and servicing (W52)
+ * Reliability, breakdowns and servicing
  *
  * The original's daily vehicle step at its default "reduced" breakdowns: reliability falls by the
  * model's decay every day (not while loading), a moving vehicle's breakdown chance creeps up and is
@@ -366,9 +366,9 @@ export interface RtServiceWorld extends RtSharingWorld {
  * reliability back to the purchase level, breakdowns-since-service and the breakdown chance cleared
  * (reduced breakdowns), lastServiceTick set to tick. A pending implicit visit (serviceDepot) is
  * done, so serviceDepot clears and routeTick goes stale for movement to re-plan to the current order.
- * At another company's depot the owner is paid depotSharingFee through chargeSharing (Q19b);
+ * At another company's depot the owner is paid depotSharingFee through chargeSharing;
  * returns the fee charged (money, 0 at an own depot or without sharing).
- * Movement (W48/W49) calls it whenever a vehicle enters a depot.
+ * Movement calls it whenever a vehicle enters a depot.
  */
 export function rtServiceInDepot(world: RtServiceWorld, vehicle: RtVehicle, depotTile: number, tick: number): number {
     vehicle.reliability = RT_CATALOG.vehicles.reliabilityMax
@@ -397,7 +397,7 @@ export function rtServiceInDepot(world: RtServiceWorld, vehicle: RtVehicle, depo
  * breakdownTicks to breakdownDelayMin plus a random 0..breakdownDelayRandom, zeroes the chance and
  * the speed and counts the breakdown. Returns whether the vehicle broke down.
  */
-export function rtCheckBreakdown(vehicle: RtVehicle, rng: RtRng): boolean {
+export function rtCheckBreakdown(vehicle: RtVehicle, rng: SeededRandom): boolean {
     const rules = RT_CATALOG.vehicles
     if (vehicle.state === RtVehicleState.crashed || vehicle.state === RtVehicleState.loading) return false
     if (vehicle.kind === RtVehicleKind.road && vehicle.blockedTicks !== 0) return false
@@ -408,12 +408,12 @@ export function rtCheckBreakdown(vehicle: RtVehicle, rng: RtRng): boolean {
 
     if (vehicle.breakdownTicks !== 0 || vehicle.stopped || vehicle.speed < rules.breakdownMinSpeed) return false
     let chance = vehicle.breakdownChance + rules.breakdownChanceStep
-    if (rng.chance(1, rules.breakdownBonusDenominator)) chance += rules.breakdownBonusStep
+    if (rng.randomRatio(1, rules.breakdownBonusDenominator)) chance += rules.breakdownBonusStep
     vehicle.breakdownChance = Math.min(BREAKDOWN_CHANCE_LIMIT, chance)
 
     const reliability = Math.min(RELIABILITY_LIMIT, vehicle.reliability + rules.reducedBreakdownBonus)
     if (rules.breakdownChance[reliability >> RELIABILITY_TABLE_SHIFT]! > vehicle.breakdownChance) return false
-    vehicle.breakdownTicks = rules.breakdownDelayMin + rng.int(0, rules.breakdownDelayRandom)
+    vehicle.breakdownTicks = rules.breakdownDelayMin + rng.randomInt(0, rules.breakdownDelayRandom)
     vehicle.breakdownChance = 0
     vehicle.breakdownsSinceService = Math.min(BREAKDOWN_COUNT_LIMIT, vehicle.breakdownsSinceService + 1)
     vehicle.speed = 0
@@ -423,7 +423,7 @@ export function rtCheckBreakdown(vehicle: RtVehicle, rng: RtRng): boolean {
 
 /**
  * One tick of a breakdown: while breakdownTicks runs the vehicle stands still (speed 0) and the count
- * falls by one. Returns true while broken down, so movement (W48/W49) skips the vehicle this tick;
+ * falls by one. Returns true while broken down, so movement skips the vehicle this tick;
  * it calls this first, every tick, for every vehicle.
  */
 export function rtBreakdownTick(vehicle: RtVehicle): boolean {
@@ -440,7 +440,7 @@ export interface RtServiceContext {
     /**
      * The depot tile the vehicle should visit for a service: the nearest one reachable without
      * straying further than the original's go-to-depot penalty from its way, or RT_NONE. The
-     * pathfinder (goal 04 for trains, W49 for road vehicles) supplies it.
+     * pathfinder (pathfinder.ts, for trains and road vehicles) supplies it.
      */
     findServiceDepot(vehicle: RtVehicle): number
 }
@@ -466,11 +466,11 @@ export interface RtServiceOutcome {
  * daily chance; when no depot is near its way any more the visit is dropped. Randomness only
  * through rng (the world's). Never books money except the depot sharing fee.
  */
-export function serviceAndBreakdown(vehicle: RtVehicle, rng: RtRng, tick: number, context?: RtServiceContext): RtServiceOutcome {
+export function serviceAndBreakdown(vehicle: RtVehicle, rng: SeededRandom, tick: number, context?: RtServiceContext): RtServiceOutcome {
     const outcome: RtServiceOutcome = { brokeDown: false, serviced: false, serviceDepotChanged: false, fee: 0 }
     if (vehicle.state === RtVehicleState.crashed) return outcome
     outcome.brokeDown = rtCheckBreakdown(vehicle, rng)
-    // a vehicle sent to a depot (AR-71) keeps that depot
+    // a vehicle sent to a depot keeps that depot
     if (!context || vehicle.haltInDepot || !rtVehicleNeedsAutoService(vehicle, tick)) return outcome
 
     if (vehicle.state === RtVehicleState.inDepot) {
@@ -493,7 +493,7 @@ export function serviceAndBreakdown(vehicle: RtVehicle, rng: RtRng, tick: number
     if (vehicle.serviceDepot === depot) return outcome
     if (vehicle.serviceDepot !== RT_NONE) {
         const odds = vehicle.kind === RtVehicleKind.rail ? TRAIN_DEPOT_SWITCH : ROAD_DEPOT_SWITCH
-        if (!rng.chance(odds.numerator, odds.denominator)) return outcome
+        if (!rng.randomRatio(odds.numerator, odds.denominator)) return outcome
     }
     vehicle.serviceDepot = depot
     vehicle.routeTick = RT_NONE
@@ -502,13 +502,13 @@ export function serviceAndBreakdown(vehicle: RtVehicle, rng: RtRng, tick: number
 }
 
 /* ------------------------------------------------------------------------------------------
- * Running cost (W52, booked by W57)
+ * Running cost (booked by RtWorld.step)
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * One tick of running-cost time, as the original: a train counts while not stopped or still
- * rolling, a road vehicle while not stopped; a crashed vehicle never. Movement (W48/W49) or the
- * tick step (W57) calls it once per tick per vehicle.
+ * rolling, a road vehicle while not stopped; a crashed vehicle never. Movement or the
+ * tick step calls it once per tick per vehicle.
  */
 export function rtCountRunningTick(vehicle: RtVehicle): void {
     if (vehicle.state === RtVehicleState.crashed) return
@@ -519,7 +519,7 @@ export function rtCountRunningTick(vehicle: RtVehicle): void {
  * The running cost accrued by the vehicle's running ticks, as the original's daily charge:
  * rtConsistRunningCost * runningTicks / (yearDays * dayTicks), rounded down. The whole-money part is
  * returned and taken off profitThisYear; the leftover fraction stays in runningTicks as the ticks it
- * is worth, so nothing is lost over a year. Returns the cost (money, non-negative); the caller (W57)
+ * is worth, so nothing is lost over a year. Returns the cost (money, non-negative); the caller
  * books it as runningCosts (bookMoney or monthlyFinance's runningCostsAccrued), never twice.
  */
 export function rtVehicleRunningCost(vehicle: RtVehicle): number {
@@ -540,16 +540,16 @@ export function rtVehicleRunningCost(vehicle: RtVehicle): number {
 
 /** What one daily vehicle step did: the service outcome plus the running cost to book. */
 export interface RtVehicleDayOutcome extends RtServiceOutcome {
-    /** Running cost accrued today, for W57 to book as runningCosts (money, non-negative). */
+    /** Running cost accrued today, for RtWorld.step to book as runningCosts (money, non-negative). */
     runningCost: number
 }
 
 /**
  * The whole daily vehicle step in the original's order: age and value (rtAgeVehicleDay), breakdown
- * and service (serviceAndBreakdown), then the running cost (rtVehicleRunningCost). W57 calls it for
+ * and service (serviceAndBreakdown), then the running cost (rtVehicleRunningCost). RtWorld.step calls it for
  * every live vehicle on rtIsVehicleDayTick(vehicle.id, world.tick), with world.rng.
  */
-export function rtVehicleDay(vehicle: RtVehicle, rng: RtRng, tick: number, context?: RtServiceContext): RtVehicleDayOutcome {
+export function rtVehicleDay(vehicle: RtVehicle, rng: SeededRandom, tick: number, context?: RtServiceContext): RtVehicleDayOutcome {
     if (vehicle.state === RtVehicleState.crashed) {
         return { brokeDown: false, serviced: false, serviceDepotChanged: false, fee: 0, runningCost: 0 }
     }

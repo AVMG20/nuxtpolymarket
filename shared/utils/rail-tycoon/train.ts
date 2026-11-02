@@ -1,13 +1,13 @@
 /**
- * Train movement (W48): one tick of one train, as the original's train controller. The plan places
- * stepTrain in vehicles.ts; it lives here so world.ts (W57) can import it without a cycle.
+ * Train movement: one tick of one train, as the original's train controller. The plan places
+ * stepTrain in vehicles.ts; it lives here so world.ts can import it without a cycle.
  *
  * A train's tiles run head first; pieces[k] is the trackdir held on tiles[k]; progress is the head's
  * way through its tile (a straight piece subTileUnits long, a corner cornerPieceUnits). The train
  * covers its length in tiles behind the front, so it lists length + 1 tiles while the front is inside
  * a tile and length tiles when it stands at a tile edge. Reaching an edge it tries to enter the next
  * tile: the route's trackdir when it still connects, else the first connecting one; signals, path
- * reservations (AR-63, AR-68), foreign trains (Q19b) and the end of the line can hold it there.
+ * reservations, foreign trains and the end of the line can hold it there.
  * Red signals stop it at the edge at once, as the original; a platform end, an end of line and a
  * parking spot slow it in the last tile instead.
  */
@@ -60,7 +60,7 @@ import {
 } from './vehicles'
 import type { RtWorld } from './world'
 
-/** W51's side of a station stop. Without hooks a stop ends on the next tick. */
+/** What happens at a station stop (loading.ts supplies it). Without hooks a stop ends on the next tick. */
 export interface RtTrainHooks {
     /** The head stopped at the end of its target platform. */
     arrive?(world: RtWorld, vehicle: RtVehicle, station: number): void
@@ -71,7 +71,7 @@ export interface RtTrainHooks {
 export interface RtTrainStepResult {
     /** A crashed train whose crash period ran out: the caller removes it (rtRemoveTrain). */
     remove: boolean
-    /** The train ran a route search this tick (W57's round-robin cursor). */
+    /** The train ran a route search this tick (for RtWorld.step's round-robin cursor). */
     searched: boolean
 }
 
@@ -99,7 +99,7 @@ function trainOnPieceOf(world: RtWorld): RtTrainOnPiece {
     return (tile, piece, except) => world.occupied.otherTrainOnPiece(tile, piece, except) !== RT_NONE
 }
 
-/** Recomputes the signals around `tiles` and marks every changed tile dirty (AR-46). */
+/** Recomputes the signals around `tiles` and marks every changed tile dirty. */
 function refreshSignals(world: RtWorld, tiles: Iterable<number>): void {
     const changed = updateSignalStates(world.map, trainOnPieceOf(world), tiles, world.settings.sharing)
     for (const tile of changed) world.markDirty(tile)
@@ -117,7 +117,7 @@ function trainsAcross(world: RtWorld, tile: number, piece: number, except: numbe
     return out.sort((a, b) => a - b)
 }
 
-/** Crashes a vehicle (AR-48, AR-59): it stops, drops every reservation and counts down crashTicks; its pieces stay held until removal. */
+/** Crashes a vehicle: it stops, drops every reservation and counts down crashTicks; its pieces stay held until removal. */
 export function rtCrashVehicle(world: RtWorld, vehicle: RtVehicle): void {
     if (vehicle.state === RtVehicleState.crashed) return
     vehicle.state = RtVehicleState.crashed
@@ -129,7 +129,7 @@ export function rtCrashVehicle(world: RtWorld, vehicle: RtVehicle): void {
     for (const tile of vehicle.tiles) world.markDirty(tile)
 }
 
-/** Removes a vehicle whose crash period ran out (or any train being deleted): frees its pieces and refreshes the signals of its blocks (AR-59). */
+/** Removes a vehicle whose crash period ran out (or any train being deleted): frees its pieces and refreshes the signals of its blocks. */
 export function rtRemoveTrain(world: RtWorld, vehicle: RtVehicle): void {
     const tiles = [...vehicle.tiles]
     if (vehicle.kind === RtVehicleKind.rail) releaseAllFor(world.map, vehicle)
@@ -147,7 +147,7 @@ function setRoute(world: RtWorld, vehicle: RtVehicle, route: number[]): void {
 }
 
 /**
- * Turns the train round (AR-42): its tile list and trackdirs flip, the reservation ahead is released,
+ * Turns the train round: its tile list and trackdirs flip, the reservation ahead is released,
  * and it stands still with a stale route, to reserve and search again from its new head.
  */
 export function rtReverseTrain(world: RtWorld, vehicle: RtVehicle): void {
@@ -203,7 +203,7 @@ function isPlatformOf(map: RtMap, tile: number, station: number): boolean {
     return rtStationTileType(payload) === RtStationTile.rail && rtStationId(payload) === station
 }
 
-/** Searches a route when the train needs one and the tick's node budget allows (W48 5.4 to 5.6, W150). */
+/** Searches a route when the train needs one and the tick's node budget allows. */
 function plan(world: RtWorld, vehicle: RtVehicle): boolean {
     if (vehicle.routeIndex < vehicle.reservedEnd) return false
     const stale = vehicle.routeTick === RT_NONE || vehicle.routeIndex >= vehicle.route.length
@@ -291,7 +291,7 @@ function waitAt(world: RtWorld, vehicle: RtVehicle, limit: number): void {
     if (limit > 0 && vehicle.waitTicks >= limit) rtReverseTrain(world, vehicle)
 }
 
-/** Drops the train's tail tiles beyond `keep`, releasing each piece as it leaves (AR-63). */
+/** Drops the train's tail tiles beyond `keep`, releasing each piece as it leaves. */
 function trimTail(world: RtWorld, vehicle: RtVehicle, keep: number, dirty: Set<number>): void {
     while (vehicle.tiles.length > keep) {
         const tile = vehicle.tiles[vehicle.tiles.length - 1]!
@@ -306,7 +306,7 @@ function trimTail(world: RtWorld, vehicle: RtVehicle, keep: number, dirty: Set<n
     }
 }
 
-/** The train drives into a depot: it leaves the track, is serviced and runs its depot order (W52). */
+/** The train drives into a depot: it leaves the track, is serviced and runs its depot order. */
 function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number, dirty: Set<number>): void {
     for (const tile of vehicle.tiles) dirty.add(tile)
     releaseAllFor(world.map, vehicle)
@@ -327,7 +327,7 @@ function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number, dirty: Se
     vehicle.routeTick = RT_NONE
     vehicle.waitTicks = 0
     const parking = vehicle.stopped
-    // sent here by sendToDepot (AR-71): it stops inside until started
+    // sent here by sendToDepot: it stops inside until started
     const halt = vehicle.haltInDepot
     vehicle.haltInDepot = false
     rtServiceInDepot(world, vehicle, depot, world.tick)
@@ -352,7 +352,7 @@ function entrySpeed(world: RtWorld, vehicle: RtVehicle, from: number, fromTd: nu
 const enum Enter { entered, held, depot }
 
 /**
- * The head stands at its tile's edge: enter the next tile if it may (W48 5.1 to 5.3). A refusal
+ * The head stands at its tile's edge: enter the next tile if it may. A refusal
  * leaves the train where it is, counting its wait, and may turn it round.
  */
 function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter {
@@ -360,7 +360,7 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
     const head = vehicle.tiles[0]!
     const { next, bits } = ahead(world, vehicle)
     if (bits === 0) {
-        // the end of the line: a parking train parks on its spot, any other turns round (AR-42)
+        // the end of the line: a parking train parks on its spot, any other turns round
         if (vehicle.state === RtVehicleState.parking && map.kind[head] === RtTileKind.rail && rtIsSiding(map.payload[head]!)) {
             vehicle.state = RtVehicleState.parked
             vehicle.speed = 0
@@ -382,7 +382,7 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
         return Enter.held
     }
 
-    // another company's train on the piece ahead: wait as at red; after the two-way wait the higher id turns round (AR-68)
+    // another company's train on the piece ahead: wait as at red; after the two-way wait the higher id turns round
     const blockers = trainsAcross(world, next, td & 7, vehicle.id)
     const foreign = blockers.find(id => world.vehicle(id)?.owner !== vehicle.owner)
     if (foreign !== undefined) {
@@ -447,7 +447,7 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
         }
         // a crossing without barriers (inspector.ts): hitting a road vehicle there may derail the train
         const rules = RT_CATALOG.inspector
-        if (hit && rtIsForeignCrossing(map, next) && world.rng.chance(rules.derailNumerator, rules.derailDenominator)) rtCrashVehicle(world, vehicle)
+        if (hit && rtIsForeignCrossing(map, next) && world.rng.randomRatio(rules.derailNumerator, rules.derailDenominator)) rtCrashVehicle(world, vehicle)
     }
     for (const id of trainsAcross(world, next, piece, vehicle.id)) {
         const other = world.vehicle(id)
@@ -540,7 +540,7 @@ function updateSpeed(world: RtWorld, vehicle: RtVehicle): void {
 }
 
 /**
- * W48: one tick of one train. RtWorld.step (W57) calls it for every train in id order, starting at
+ * One tick of one train. RtWorld.step calls it for every train in id order, starting at
  * the round-robin cursor, then removes the train when `remove` is set (rtRemoveTrain).
  */
 export function stepTrain(world: RtWorld, vehicle: RtVehicle, hooks?: RtTrainHooks): RtTrainStepResult {
@@ -554,7 +554,7 @@ export function stepTrain(world: RtWorld, vehicle: RtVehicle, hooks?: RtTrainHoo
     rtCountRunningTick(vehicle)
     if (rtBreakdownTick(vehicle)) return result
 
-    // the stop and start orders (W59): a running train goes parking, a started one drives again
+    // the stop and start orders: a running train goes parking, a started one drives again
     if (vehicle.stopped && (vehicle.state === RtVehicleState.driving || vehicle.state === RtVehicleState.loading)) {
         vehicle.state = RtVehicleState.parking
         vehicle.loadingStation = RT_NONE

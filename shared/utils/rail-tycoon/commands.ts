@@ -1,9 +1,9 @@
 /**
- * Player commands (W59): the only way a company changes the world. Every peer applies the same
+ * Player commands: the only way a company changes the world. Every peer applies the same
  * stamped command stream at the same ticks, so applyCommand is deterministic, never throws and
  * refuses anything the UI could not have produced the same way as an illegal move (Michael,
  * 2026-10-29). The build and vehicle rules (goals 03 to 07) decide what is possible; this layer adds
- * ownership, money, caps, the line and area drags (AR-37) and the signal refresh (AR-59).
+ * ownership, money, caps, the line and area drags and the signal refresh.
  */
 
 import { clampUtf8, RtBadData, RtReader, RtWriter } from './bytes'
@@ -74,7 +74,7 @@ export const RtCommandKind = {
     renameCompany: 19,
     buildSiding: 20,
     removeSiding: 21,
-    /** Server-only: a player joins a world (AR-2). decodeClientMsg refuses it from clients (W85). */
+    /** Server-only: a player joins a world. decodeClientMsg refuses it from clients. */
     foundCompany: 22
 } as const
 export type RtCommandKind = typeof RtCommandKind[keyof typeof RtCommandKind]
@@ -213,7 +213,7 @@ export function rtLineMaxTiles(map: RtMap): number {
 
 /**
  * The pieces a rail drag lays from tile along trackdir, straight or diagonal (a diagonal alternates
- * two pieces), up to maxTiles or the map edge. The line command and the client's rail tool (W104)
+ * two pieces), up to maxTiles or the map edge. The line command and the client's rail tool
  * both walk it, so a preview covers exactly what the command builds.
  */
 export function rtRailLineWalk(map: RtMap, tile: number, trackdir: number, maxTiles: number): { tile: number, piece: number }[] {
@@ -262,7 +262,7 @@ function roadLineTiles(world: RtWorld, tile: number, endTile: number): { tiles: 
 
 /**
  * Walks a drag's steps in order, stopping at the first refusal or unaffordable step and keeping what
- * was done (AR-49). A step answering alreadyBuilt counts as done at no cost. The drag succeeds when
+ * was done. A step answering alreadyBuilt counts as done at no cost. The drag succeeds when
  * at least one step did something; otherwise it returns the first refusal.
  */
 function drag(company: RtCompany, apply: boolean, touched: Touched, steps: { tiles: number[], rule: (apply: boolean) => RtBuildResult }[]): RtCommandResult {
@@ -325,7 +325,7 @@ function areaTiles(world: RtWorld, tile: number, endTile: number): number[] | nu
     return out
 }
 
-/** The footprint of a rail station, for the signal refresh and the station tool's preview (W104). */
+/** The footprint of a rail station, for the signal refresh and the station tool's preview. */
 export function rtStationFootprint(map: RtMap, origin: number, axis: number, tracks: number, length: number): number[] {
     const out: number[] = []
     if (!map.validTile(origin) || !isInt(tracks) || !isInt(length)) return out
@@ -339,7 +339,7 @@ export function rtStationFootprint(map: RtMap, origin: number, axis: number, tra
     return out
 }
 
-/** Whether every tile the train holds is the company's own (AR-102, AR-115): only then may it be stopped there. */
+/** Whether every tile the train holds is the company's own: only then may it be stopped there. */
 function onOwnTrack(world: RtWorld, vehicle: RtVehicle): boolean {
     for (const tile of vehicle.tiles) if (world.map.owner[tile] !== vehicle.owner) return false
     return true
@@ -347,8 +347,8 @@ function onOwnTrack(world: RtWorld, vehicle: RtVehicle): boolean {
 
 /**
  * The nearest own depot of the vehicle's kind it can reach, by the movers' own pathfinder within one
- * search budget, or RT_NONE (AR-71). Another company's depot is never a target: a foreign vehicle
- * must never be able to stand in a depot and block its demolition (Q19b). A train searches behind
+ * search budget, or RT_NONE. Another company's depot is never a target: a foreign vehicle
+ * must never be able to stand in a depot and block its demolition. A train searches behind
  * itself too, moving or not, and `reverse` says the depot found lies that way: the original turns the
  * train round when it is sent to a depot behind it.
  */
@@ -424,7 +424,7 @@ function vehicleCommand(world: RtWorld, company: RtCompany, command: RtCommand, 
             const vehicle = ownVehicle(world, owner, command.vehicle)
             if (!isVehicle(vehicle)) return vehicle
             if (typeof command.stopped !== 'boolean' || command.stopped === vehicle.stopped) return fail(RtCommandError.state)
-            // a train is parked only on its own network (AR-102, AR-115); in a depot it simply stops
+            // a train is parked only on its own network; in a depot it simply stops
             if (command.stopped && vehicle.kind === RtVehicleKind.rail && vehicle.state !== RtVehicleState.inDepot && !onOwnTrack(world, vehicle)) {
                 return fail(RtCommandError.notOwner)
             }
@@ -548,7 +548,7 @@ function oneTileRoadBits(world: RtWorld, tile: number): number {
 }
 
 /**
- * demolishArea (AR-44): every tile row by row, stopping at the first tile that is refused (a foreign
+ * demolishArea: every tile row by row, stopping at the first tile that is refused (a foreign
  * tile, a house, a vehicle in the way) or cannot be paid for, keeping what was cleared before it.
  * Empty land counts as cleared.
  */
@@ -655,11 +655,11 @@ function wellFormed(world: RtWorld, command: RtCommand): boolean {
 }
 
 /**
- * W59: applies (or with apply false only validates) one command for companyId. Validation never
- * changes the world, so the room pre-checks with it (W92). A command a company issues needs that
+ * Applies (or with apply false only validates) one command for companyId. Validation never
+ * changes the world, so the room pre-checks with it. A command a company issues needs that
  * company to exist; foundCompany is the server's alone (companyId RT_SERVER_COMPANY). After an
  * applied change to rail, signals, platforms or depots, or a train's removal, the signals of the
- * touched tiles are refreshed before returning (AR-59), in the same order on every peer. Never
+ * touched tiles are refreshed before returning, in the same order on every peer. Never
  * throws: a hostile or stale payload is refused like an illegal move.
  */
 export function applyCommand(world: RtWorld, companyId: number, command: RtCommand, apply: boolean): RtCommandResult {
@@ -712,10 +712,10 @@ function applyInner(world: RtWorld, companyId: number, command: RtCommand, apply
 }
 
 /* ------------------------------------------------------------------------------------------
- * W60, W61: the command codec. One u8 kind, then the fields at fixed widths: tiles as u32, piece,
+ * The command codec. One u8 kind, then the fields at fixed widths: tiles as u32, piece,
  * trackdir, bits and small enums as u8, vehicle ids as u16, loan steps as i16, names as a
  * varint-length UTF-8 string of at most maxNameBytes. Lines and areas are two tiles (and a trackdir),
- * so a drag of any length is one small command (AR-37). Never JSON.
+ * so a drag of any length is one small command. Never JSON.
  * ---------------------------------------------------------------------------------------- */
 
 /** The largest map side (RT_MAP_SIDES); decodeCommand bounds tiles by it when given no side. */

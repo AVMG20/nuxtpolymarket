@@ -1,45 +1,45 @@
 /**
- * Rail Tycoon's binary socket protocol (goal 12). Every frame is one u8 tag followed by fixed
+ * Rail Tycoon's binary socket protocol. Every frame is one u8 tag followed by fixed
  * little-endian fields (bytes.ts); strings are varint-length-prefixed UTF-8 under a cap, lists are a
  * varint count under a cap. Never JSON. Tags are fixed for protocol version 1 and only ever added.
  *
- * Client to server (W84, encodeClientMsg), tags 0x01 to 0x7f (0x00 is never a tag):
+ * Client to server (encodeClientMsg), tags 0x01 to 0x7f (0x00 is never a tag):
  *   list          no fields: the worlds the user owns or has joined
  *   create        str world name (no control characters, no outer whitespace), u16 map side
- *                 (64, 128 or 256), u8 max companies (2 to 8), u8 sharing (0 or 1, Q19b; AR-75)
+ *                 (64, 128 or 256), u8 max companies (2 to 8), u8 sharing (0 or 1)
  *   join          str invite code (exactly the shape rtCreateWorld generates)
- *   open          str world id, u8 has invite (0 or 1), then str invite code when it is 1 (AR-25)
+ *   open          str world id, u8 has invite (0 or 1), then str invite code when it is 1
  *   loaded        str world id: the client finished decoding that world's snapshot
  *   command       u8 sequence number (the server's result echoes it), then encodeCommand bytes to
- *                 the frame end: the command plus 2 bytes. foundCompany is the server's alone (AR-2).
+ *                 the frame end: the command plus 2 bytes. foundCompany is the server's alone.
  *   stop, delete  str world id (owner only; the hub checks)
  *   resync        str world id: ask for a fresh snapshot of the open world
  *   ping          u32 value, echoed by pong
  *
- * Server to client (W86, encodeServerMsg), tags 0x80 and up so a client frame echoed back is never
- * mistaken for one (client tags, W84, stay below 0x80):
- *   hello         u16 protocol version, str build id (AR-34)
+ * Server to client (encodeServerMsg), tags 0x80 and up so a client frame echoed back is never
+ * mistaken for one (client tags stay below 0x80):
+ *   hello         u16 protocol version, str build id
  *   worldList     varint count, then per world: str id, str name, u8 status, u8 owner, u8 members,
  *                 u8 max companies (0 = unset), u8 my company (255 = none), varint last active ms,
- *                 str invite code (AR-64)
+ *                 str invite code
  *   joined        str world id: the world a create or a join made the user a member of
  *   opened        u8 role, u8 owner, u8 company (255 = none), str world id, str invite code only when
- *                 the role is player or owner is 1 (AR-64), then the snapshot body
+ *                 the role is player or owner is 1, then the snapshot body
  *   resync        str world id, then the snapshot body
  *     snapshot body: u32 tick, varint server now ms (display only), varint length + gzip bytes
- *                    (opaque, AR-79), varint count + pending stamped commands (AR-3), each
+ *                    (opaque), varint count + pending stamped commands, each
  *                    u32 tick, u8 company, varint length + command bytes, ticks ascending and at or
- *                    after the snapshot tick (AR-103)
+ *                    after the snapshot tick
  *   command       u32 tick, u8 company (255 = server-issued), then the command bytes to the frame end
  *   allowance     u32 tick the client may step up to
- *   paused        u8 reason;  resumed: no fields (AR-104)
+ *   paused        u8 reason;  resumed: no fields
  *   hash          u32 tick, u32 world hash
  *   result        u8 client sequence number, u8 applyCommand error code (to the sender only)
- *   worldClosed   no fields;  roomUnloaded: u8 reason (AR-36);  worldDeleted: str world id (AR-36)
+ *   worldClosed   no fields;  roomUnloaded: u8 reason;  worldDeleted: str world id
  *   error         u8 error code;  pong: u32 echo of the ping's value
  *
  * Each encoder refuses (RangeError) any message its decoder would refuse, so neither side sends a
- * frame the other drops. Each decoder (W85, W87) mirrors every one of those checks and returns null
+ * frame the other drops. Each decoder mirrors every one of those checks and returns null
  * for any frame it refuses; whatever it accepts re-encodes to the same bytes (varints and strings
  * must be canonical). decodeClientMsg is the anti-cheat boundary: a hand-built frame gets no further
  * than one the chooser and the tools could send. This file imports no compression module: the
@@ -59,12 +59,12 @@ import {
 import { RT_MAP_SIDES } from './map'
 import { RT_OWNER_NONE } from './types'
 
-/** Wire protocol version; hello carries it and a client with another one stops as outdated (AR-34). */
+/** Wire protocol version; hello carries it and a client with another one stops as outdated. */
 export const RT_PROTOCOL_VERSION = 1
 
 /** Every cap the codecs enforce, one place for both directions. */
 export const RT_PROTOCOL_BOUNDS = Object.freeze({
-    /** Largest client frame (W85). */
+    /** Largest client frame. */
     clientFrameBytes: RT_MAX_FRAME_BYTES,
     /** Largest server frame other than opened and resync. */
     serverFrameBytes: 8192,
@@ -88,7 +88,7 @@ export const RT_PROTOCOL_BOUNDS = Object.freeze({
     pending: 1024,
     /** Companies in a world; a company byte is below this or RT_OWNER_NONE. */
     companies: RT_CATALOG.caps.maxCompanies,
-    /** The fewest companies a created world may allow (Q5a). */
+    /** The fewest companies a created world may allow. */
     minCompanies: 2
 })
 
@@ -116,18 +116,18 @@ export type RtClientMsg =
         side: number
         /** 2 to 8. */
         maxCompanies: number
-        /** Infrastructure sharing (Q19b). */
+        /** Infrastructure sharing. */
         sharing: boolean
     }
     | { type: 'join', inviteCode: string }
-    /** An invite code lets a stranger spectate (AR-25); null for a world the user already belongs to. */
+    /** An invite code lets a stranger spectate; null for a world the user already belongs to. */
     | { type: 'open', worldId: string, inviteCode: string | null }
     | { type: 'loaded', worldId: string }
     | {
         type: 'command'
         /** Echoed by the server's result; the client wraps it at 256. */
         seq: number
-        /** Any command but foundCompany, which only the server issues (AR-2). */
+        /** Any command but foundCompany, which only the server issues. */
         command: RtCommand
     }
     | { type: 'stop', worldId: string }
@@ -168,25 +168,25 @@ export type RtRole = typeof RT_ROLES[number]
 export const RT_WORLD_STATUSES = Object.freeze(['open', 'closed'] as const)
 export type RtWireWorldStatus = typeof RT_WORLD_STATUSES[number]
 
-/** Why the room stopped ticking (AR-104): no player attached, a join pause, or the owner's stop. */
+/** Why the room stopped ticking: no player attached, a join pause, or the owner's stop. */
 export const RT_PAUSE_REASONS = Object.freeze(['noPlayers', 'joining', 'closed'] as const)
 export type RtPauseReason = typeof RT_PAUSE_REASONS[number]
 
-/** Why a room unloaded under its peers (AR-36): a foreign 409, a step exception or refused write, a failed live join, idleness. */
+/** Why a room unloaded under its peers: a foreign 409, a step exception or refused write, a failed live join, idleness. */
 export const RT_UNLOAD_REASONS = Object.freeze(['conflict', 'error', 'joinFailed', 'idle'] as const)
 export type RtUnloadReason = typeof RT_UNLOAD_REASONS[number]
 
 /** Request-level refusals the hub and room answer with (goals 13 and 20). */
 export const RT_ERROR_CODES = Object.freeze([
-    /** A frame failed to decode (AR-87). */
+    /** A frame failed to decode. */
     'badRequest',
-    /** A cooldown is running: open, resync, create or invite lookups (AR-82, AR-99, AR-109). */
+    /** A cooldown is running: open, resync, create or invite lookups. */
     'tooSoon',
-    /** The process is at a cap: pending creates, live rooms, a chain wait timed out (AR-99, AR-110, AR-119). */
+    /** The process is at a cap: pending creates, live rooms, a chain wait timed out. */
     'busy',
-    /** The world's room failed too often and is refused until restart (AR-61). */
+    /** The world's room failed too often and is refused until restart. */
     'worldBroken',
-    /** Not found or not allowed; the two are one code so a stranger learns nothing (AR-25). */
+    /** Not found or not allowed; the two are one code so a stranger learns nothing. */
     'noAccess',
     /** The world has its maximum number of companies. */
     'worldFull',
@@ -210,11 +210,11 @@ export interface RtStampedCommand {
     tick: number
     /** The acting company, or null for a command the server issues itself (a live join's foundCompany). */
     company: number | null
-    /** encodeCommand bytes (goal 08), carried as-is. */
+    /** encodeCommand bytes, carried as-is. */
     command: Uint8Array
 }
 
-/** One row of the chooser's list; every member sees the invite code (AR-64). */
+/** One row of the chooser's list; every member sees the invite code. */
 export interface RtWorldSummary {
     id: string
     name: string
@@ -229,13 +229,13 @@ export interface RtWorldSummary {
     inviteCode: string
 }
 
-/** A world captured at a tick boundary with every command stamped for that tick or later (AR-103). */
+/** A world captured at a tick boundary with every command stamped for that tick or later. */
 export interface RtSnapshotBody {
     /** world.tick when the snapshot was encoded. */
     tick: number
     /** The server's clock in ms, for display only; never fed to the simulation. */
     serverNow: number
-    /** gzip of encodeWorld, opaque here (AR-79). */
+    /** gzip of encodeWorld, opaque here. */
     snapshot: Uint8Array
     /** Ascending by tick, stamp order within a tick. */
     pending: readonly RtStampedCommand[]
@@ -253,7 +253,7 @@ export type RtServerMsg =
         owner: boolean
         /** The receiver's company: set exactly for a player. */
         company: number | null
-        /** Set exactly when the role is player or owner is true (AR-64). */
+        /** Set exactly when the role is player or owner is true. */
         inviteCode: string | null
     } & RtSnapshotBody)
     | ({ type: 'resync', worldId: string } & RtSnapshotBody)
@@ -266,7 +266,7 @@ export type RtServerMsg =
         type: 'result'
         /** The sequence number the client gave the command. */
         seq: number
-        /** applyCommand's error code (goal 08). */
+        /** applyCommand's error code. */
         error: number
     }
     | { type: 'worldClosed' }
@@ -334,7 +334,7 @@ function writeSnapshotBody(w: RtWriter, body: RtSnapshotBody): void {
     w.bytes(body.snapshot)
     if (body.pending.length > RT_PROTOCOL_BOUNDS.pending) refuse(`${body.pending.length} pending commands exceed ${RT_PROTOCOL_BOUNDS.pending}`)
     w.varint(body.pending.length)
-    // ascending ticks, never before the snapshot's own tick (AR-103)
+    // ascending ticks, never before the snapshot's own tick
     let minTick = body.tick
     for (const stamped of body.pending) {
         writeStamped(w, stamped, minTick)
@@ -371,7 +371,7 @@ function writeOpened(w: RtWriter, msg: Extract<RtServerMsg, { type: 'opened' }>)
     if ((msg.role === 'player') !== (msg.company !== null)) refuse('a player has a company and a spectator none')
     writeCompany(w, msg.company, 'company')
     writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-    // the code goes to an owner or a player only; a spectator's frame has no field for it (AR-64)
+    // the code goes to an owner or a player only; a spectator's frame has no field for it
     const invited = msg.role === 'player' || msg.owner
     if (invited !== (msg.inviteCode !== null)) refuse('the invite code goes exactly to an owner or a player')
     if (msg.inviteCode !== null) {
@@ -472,7 +472,7 @@ function worldNameProblem(name: string): string | null {
     return null
 }
 
-/** Why create settings cannot travel, or null (AR-75): the same bounds as checkSettings in world.ts. */
+/** Why create settings cannot travel, or null: the same bounds as checkSettings in world.ts. */
 function createSettingsProblem(side: number, maxCompanies: number): string | null {
     if (!RT_MAP_SIDES.includes(side)) return `map side must be ${RT_MAP_SIDES.join(', ')}: ${side}`
     const { minCompanies, companies } = RT_PROTOCOL_BOUNDS
@@ -550,7 +550,7 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
 }
 
 /*
- * Decoding (W87). Each reader below throws RtBadData and nothing else; decodeServerMsg turns that
+ * Decoding. Each reader below throws RtBadData and nothing else; decodeServerMsg turns that
  * into null. Every count is checked against its cap before a loop runs on it, and the reader's own
  * short-read check bounds every byte run by the bytes actually present.
  */
@@ -672,7 +672,7 @@ function readOpened(r: RtReader): Extract<RtServerMsg, { type: 'opened' }> {
     const company = readCompany(r, 'company')
     if ((role === 'player') !== (company !== null)) bad('a player has a company and a spectator none')
     const worldId = readStr(r, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-    // present exactly for an owner or a player (AR-64); a spectator's frame has no field for it
+    // present exactly for an owner or a player; a spectator's frame has no field for it
     const inviteCode = role === 'player' || owner ? readInviteCode(r, 'opened invite code') : null
     return { type: 'opened', worldId, role, owner, company, inviteCode, ...readSnapshotBody(r) }
 }
@@ -761,7 +761,7 @@ export function decodeServerMsg(bytes: Uint8Array): RtServerMsg | null {
 }
 
 /*
- * Client decoding (W85), the anti-cheat boundary: the hub runs every inbound frame through it, so it
+ * Client decoding, the anti-cheat boundary: the hub runs every inbound frame through it, so it
  * holds every field to what encodeClientMsg would write. Strings are length-checked against their
  * cap before any byte is read, and a command is bounded by the bytes actually left in the frame.
  */
@@ -829,7 +829,7 @@ function readClientMsg(r: RtReader, type: RtClientMsg['type']): RtClientMsg {
  * One client frame read as hostile, or null for anything encodeClientMsg would not have written:
  * a frame over the client cap (checked before any parsing), a server or unknown tag, a field out of
  * range, a non-canonical number or string, invalid UTF-8, a short frame, trailing bytes, a command
- * decodeCommand refuses, or foundCompany (AR-2). Never throws. Whatever it returns re-encodes to
+ * decodeCommand refuses, or foundCompany. Never throws. Whatever it returns re-encodes to
  * exactly `bytes`.
  */
 export function decodeClientMsg(bytes: Uint8Array): RtClientMsg | null {

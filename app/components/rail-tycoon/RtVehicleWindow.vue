@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// Rail Tycoon — one vehicle's window (W116): model, age, reliability, breakdowns, value, profit, cargo
+// Rail Tycoon — one vehicle's window: model, age, reliability, breakdowns, value, profit, cargo
 // aboard and capacity; the orders list with add station and add depot (each a click on the map
-// through RtTools pick mode, AR-54), remove, move up and down and the full load, unload and no
+// through RtTools pick mode), remove, move up and down and the full load, unload and no
 // unloading flags, sent as setOrders after validateOrders passes; Start or Stop, Send to depot,
-// Reverse for trains (AR-70) and Sell, which only works stopped in a depot. A follow toggle keeps the
-// camera on it. Another company's vehicle shows the same facts, read only (AR-74).
+// Reverse for trains and Sell, which only works stopped in a depot. A follow toggle keeps the
+// camera on it. Another company's vehicle shows the same facts, read only.
 import { RtCommandKind, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RT_MAX_ORDERS, validateOrders } from '#shared/utils/rail-tycoon/orders'
 import { RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtOrder } from '#shared/utils/rail-tycoon/types'
@@ -190,7 +190,7 @@ function hasFlag(flag: number): boolean {
   return ((selectedOrder.value?.flags ?? 0) & flag) !== 0
 }
 
-// ─── Picking a station or depot on the map (AR-54) ───────────────────────
+// ─── Picking a station or depot on the map ───────────────────────
 
 function startPick(kind: RtPickKind) {
   if (!view.value?.can) return

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// Rail Tycoon — the finances window (W112): this year and last year by the categories monthlyFinance
-// books, totals, the last 12 months' income and expenses (RtCompany.monthlyIncome, AR-67), sharing
-// income and costs as their own rows (Q19b), crossing fines and compensation, and the loan with Borrow and Repay one step at a time.
+// Rail Tycoon — the finances window: this year and last year by the categories monthlyFinance
+// books, totals, the last 12 months' income and expenses (RtCompany.monthlyIncome), sharing
+// income and costs as their own rows, crossing fines and compensation, and the loan with Borrow and Repay one step at a time.
 // Each button is off whenever changeLoan would refuse it, so a click never asks for a refusal.
 import { RtCommandKind } from '#shared/utils/rail-tycoon/commands'
 import type { RtFinance, RtMonthTotals } from '#shared/utils/rail-tycoon/types'

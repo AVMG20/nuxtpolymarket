@@ -1,6 +1,6 @@
 /**
  * Every simulation constant Rail Tycoon's rules read, so no rule carries a magic number.
- * Values mimic the original game's mechanics at its default settings (decision Q15), re-typed as
+ * Values mimic the original game's mechanics at its default settings, re-typed as
  * numbers from a behavioural reading of its source; the comment on each group names that source file.
  * Names of vehicles and industries are our own. Money is in the smallest unit (one pound in the original).
  * Network, persistence and server limits live in limits.ts, not here.
@@ -233,7 +233,7 @@ export const RT_CATALOG = {
         /** A vehicle loses value >> valueDecayShift every valueDecayDays days. */
         valueDecayDays: 8,
         valueDecayShift: 8,
-        /** Infrastructure sharing (Q19b) is this plan's own design; the original has none. */
+        /** Infrastructure sharing is this plan's own design; the original has none. */
         sharing: {
             railFeePerPiece: Math.max(1, Math.floor(TRACK_COST / 64)),
             stationSharePercent: 25,
@@ -391,7 +391,7 @@ export const RT_CATALOG = {
         road: 71,
         signal: 48,
         removeSignal: 7,
-        /** Marking a parking spot (W150, Q20) costs and refunds like a signal. */
+        /** Marking a parking spot costs and refunds like a signal. */
         siding: 48,
         removeSiding: 7,
         railStationTile: 150,

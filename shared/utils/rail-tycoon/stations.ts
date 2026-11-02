@@ -1,7 +1,7 @@
 /**
- * Station catchment, acceptance and ratings (goal 05: W35, W36). Behaviour mimics the original game at
+ * Station catchment, acceptance and ratings. Behaviour mimics the original game at
  * its default settings (modified catchment, selective goods, manual cargo distribution); the code is
- * written from scratch. Integers only; every random draw goes through the RtRng passed in.
+ * written from scratch. Integers only; every random draw goes through the SeededRandom passed in.
  *
  * Catchment: each station tile covers a square of its own radius (rail 4, road stop 3); the station
  * covers the union. It depends only on the station's own tiles, so it is a derived cache keyed by the
@@ -13,7 +13,7 @@
 
 import { RT_CARGO_IDS, RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from './catalog'
 import { RtTileKind, type RtMap } from './map'
-import type { RtRng } from './rng'
+import type { SeededRandom } from '../random'
 import { RtStationTile, rtStationTileType } from './stations-build'
 import { RT_NONE, RtFacility, type RtCargoPacket, type RtIndustry, type RtStation } from './types'
 
@@ -41,7 +41,7 @@ export interface RtAcceptanceWorld extends RtStationWorld {
 
 /**
  * Whether a station with these facility bits handles a cargo at all: production, acceptance and
- * loading (goal 07) all use this rule. Passengers need rail or a bus stop; mail and freight need rail
+ * loading all use this rule. Passengers need rail or a bus stop; mail and freight need rail
  * or a truck stop, as the original (mail vans use truck stops).
  */
 export function rtStationServesCargo(facilities: number, cargo: number): boolean {
@@ -50,7 +50,7 @@ export function rtStationServesCargo(facilities: number, cargo: number): boolean
 }
 
 /* ------------------------------------------------------------------------------------------
- * W35: catchment
+ * Catchment
  * ---------------------------------------------------------------------------------------- */
 
 /** Catchment radius of one station tile: rail platforms 4, road stops 3 (modified catchment). */
@@ -126,7 +126,7 @@ export function stationCatchment(map: RtMap, station: RtStation): readonly numbe
 }
 
 /* ------------------------------------------------------------------------------------------
- * W35: the tile-to-stations index (derived; never saved or hashed)
+ * The tile-to-stations index (derived; never saved or hashed)
  * ---------------------------------------------------------------------------------------- */
 
 interface StationIndex {
@@ -185,7 +185,7 @@ export function stationsAround(world: RtStationWorld, tile: number): readonly Rt
     return stationIndex(world).byTile.get(tile) ?? EMPTY_STATIONS
 }
 
-/** The stations covering any of the tiles, each once, ascending id (production sources, W37). */
+/** The stations covering any of the tiles, each once, ascending id (production sources). */
 export function stationsAroundTiles(world: RtStationWorld, tiles: readonly number[]): RtStation[] {
     const index = stationIndex(world)
     if (tiles.length === 1) return (index.byTile.get(tiles[0]!) ?? EMPTY_STATIONS).slice()
@@ -199,7 +199,7 @@ export function stationsAroundTiles(world: RtStationWorld, tiles: readonly numbe
 }
 
 /* ------------------------------------------------------------------------------------------
- * W35: acceptance
+ * Acceptance
  * ---------------------------------------------------------------------------------------- */
 
 /** Summed acceptance in eighths per cargo index over a set of tiles: houses by class, industry tiles by type. */
@@ -247,7 +247,7 @@ export function accepts(station: RtStation, cargo: number): boolean {
 
 /**
  * A station's tiles changed (built, joined or removed): refresh its catchment and the index, and
- * recompute its acceptance at once (AR-77). W59 calls it after every station build or removal that
+ * recompute its acceptance at once. applyCommand calls it after every station build or removal that
  * applied; a station that lost its last tile is simply dropped from the index on next use.
  */
 export function stationTilesChanged(world: RtAcceptanceWorld, station: RtStation): void {
@@ -267,10 +267,10 @@ export function rtRatingDue(station: RtStation, tick: number): boolean {
 }
 
 /**
- * The per-tick station step for goal 08: every station in ascending id recomputes its acceptance on
+ * The per-tick station step for RtWorld.step: every station in ascending id recomputes its acceptance on
  * its acceptance tick and updates its ratings on its rating tick, drawing from the world's rng.
  */
-export function stationsTick(world: RtAcceptanceWorld, rng: RtRng, tick: number): void {
+export function stationsTick(world: RtAcceptanceWorld, rng: SeededRandom, tick: number): void {
     for (const station of world.stations) {
         if (!station) continue
         if (rtAcceptanceDue(station, tick)) updateAcceptance(world, station)
@@ -281,7 +281,7 @@ export function stationsTick(world: RtAcceptanceWorld, rng: RtRng, tick: number)
 }
 
 /* ------------------------------------------------------------------------------------------
- * W36: ratings
+ * Ratings
  * ---------------------------------------------------------------------------------------- */
 
 /** Units waiting in a packet list. */
@@ -297,7 +297,7 @@ export function rtPacketTotal(packets: readonly RtCargoPacket[]): number {
  * and otherwise takes what is still due from it; passes repeat until the amount is gone. Empty
  * packets are dropped. Returns the units removed.
  */
-export function rtTruncatePackets(packets: RtCargoPacket[], amount: number, rng: RtRng): number {
+export function rtTruncatePackets(packets: RtCargoPacket[], amount: number, rng: SeededRandom): number {
     const total = rtPacketTotal(packets)
     const due = Math.min(Math.max(0, Math.floor(amount)), total)
     if (due === 0) return 0
@@ -306,7 +306,7 @@ export function rtTruncatePackets(packets: RtCargoPacket[], amount: number, rng:
         for (let k = 0; k < packets.length && removed < due; k++) {
             const packet = packets[k]!
             if (packet.count === 0) continue
-            if (total > due && rng.int(0, total - 1) < total - due) continue
+            if (total > due && rng.randomInt(0, total - 1) < total - due) continue
             const take = Math.min(packet.count, due - removed)
             packet.count -= take
             removed += take
@@ -330,7 +330,7 @@ export function rtRatingTarget(lastSpeed: number, cyclesSincePickup: number, max
 }
 
 /**
- * One rating cycle of a station (W36), as the original: a cargo without a rating creeps back toward
+ * One rating cycle of a station, as the original: a cargo without a rating creeps back toward
  * the start rating; otherwise cyclesSincePickup advances, and at abandonCycles the rating and pile
  * are dropped. The rating moves toward its target by at most stepLimit; a low rating, a middling one
  * (by chance) and a huge pile remove waiting cargo at random, after which maxWaiting is fed back to
@@ -338,7 +338,7 @@ export function rtRatingTarget(lastSpeed: number, cyclesSincePickup: number, max
  * source stations for that feedback (omitted, only this station's own cargo feeds back).
  */
 export function updateStationRatings(
-    station: RtStation, nowTick: number, rng: RtRng, lookup?: (id: number) => RtStation | undefined
+    station: RtStation, nowTick: number, rng: SeededRandom, lookup?: (id: number) => RtStation | undefined
 ): void {
     void nowTick
     const spec = RT_CATALOG.stationRating

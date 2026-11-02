@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind, rtTreePayload } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad, removeRoad, rtRoadBits } from '../../shared/utils/rail-tycoon/road'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind, rtTreePayload } from '#shared/utils/rail-tycoon/map'
+import { buildRoad, removeRoad, rtRoadBits } from '#shared/utils/rail-tycoon/road'
 import {
     RT_ROAD_X,
     RT_ROAD_Y,
@@ -20,8 +20,8 @@ import {
     rtWithRailReservation,
     rtWithSignalSlot,
     type RtReservationHooks
-} from '../../shared/utils/rail-tycoon/track'
-import { RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/track'
+import { RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 
 const C = RT_CATALOG.construction
 const ME = 0
@@ -59,9 +59,9 @@ function vehicle(id: number, owner: number): RtVehicle {
 }
 
 /**
- * A stand-in for goal 04's reservation rules over plain rail: each train follows a fixed list of
+ * A stand-in for signals.ts's reservation rules over plain rail: each train follows a fixed list of
  * (tile, piece) steps, reserving from the start until the first missing or foreign-reserved piece.
- * Only the hook contract is under test here; the real reservePath arrives with goal 04.
+ * Only the hook contract is under test here, not the real reservePath.
  */
 class FakeReservations implements RtReservationHooks {
     readonly held = new Map<number, Set<string>>()

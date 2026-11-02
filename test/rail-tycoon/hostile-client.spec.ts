@@ -1,5 +1,5 @@
 /**
- * hostileClientSpec (goal 20, W148): nothing is cheatable through socket requests (Michael,
+ * hostileClientSpec: nothing is cheatable through socket requests (Michael,
  * 2026-10-29). A real RtHub and real RtRooms with fake sockets, an in-memory registry and store, and
  * fake timers. A hostile peer sends hand-built frames; an honest peer replays the server's stamped
  * stream the way the client lockstep does and checks every hash the room sends; a control world that
@@ -478,7 +478,7 @@ afterEach(() => {
 
 describe('hostileClientSpec: hand-built frames gain nothing', () => {
     it('every refused frame leaves the honest hash equal to a control world that never saw it', async () => {
-        // no cash: every build is unaffordable, even a drag's first tile (a drag builds what it can pay for, AR-49)
+        // no cash: every build is unaffordable, even a drag's first tile (a drag builds what it can pay for)
         const s = scene({ hostileMoney: 0 })
         const { hub, registry, connect, stepErrors } = setup(s.raw)
         const world = registry.add('honest', s.raw, [['honest', HONEST], ['hostile', HOSTILE]])
@@ -509,7 +509,7 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
         cmd({ kind: K.removeRail, tile: honestRail, piece: RtTrack.x })
         cmd({ kind: K.buildRail, tile: honestRail, piece: RtTrack.y })
         cmd({ kind: K.buildRailLine, tile: at(15, 10), endTile: at(25, 10), trackdir: EAST })
-        // a road along the honest rail (a crossing across it is legal, AR-65, and is not sent here)
+        // a road along the honest rail (a crossing across it is legal, and is not sent here)
         cmd({ kind: K.buildRoad, tile: honestRail, bits: RT_ROAD_X })
         cmd({ kind: K.removeRoad, tile: honestRail, bits: RT_ROAD_Y })
         cmd({ kind: K.buildRoadLine, tile: at(15, 10), endTile: at(25, 10) })
@@ -769,7 +769,7 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
         expect(mine.money).toBe(clean.company(HONEST)!.money)
         expect(mine.loan).toBe(clean.company(HONEST)!.loan)
         // the honest company's tiles: same owner, kind and rail pieces. The one legal change is a level
-        // crossing the hostile company may lay across anyone's unsignalled straight (AR-65): the rail
+        // crossing the hostile company may lay across anyone's unsignalled straight: the rail
         // and the tile stay the honest company's, only the road part is the hostile one's.
         let crossings = 0
         for (let t = 0; t < SIDE * SIDE; t++) {
@@ -793,9 +793,9 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
     }, 240000)
 })
 
-/* ---- AR-90: join pauses ---- */
+/* ---- Join pauses ---- */
 
-describe('hostileClientSpec: reopen loops (AR-90)', () => {
+describe('hostileClientSpec: reopen loops', () => {
     it('a spectator that never sends loaded and reopens every 2 s never pauses the room', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
@@ -892,9 +892,9 @@ describe('hostileClientSpec: reopen loops (AR-90)', () => {
     }, 120000)
 })
 
-/* ---- AR-99: create floods ---- */
+/* ---- Create floods ---- */
 
-describe('hostileClientSpec: create floods (AR-99)', () => {
+describe('hostileClientSpec: create floods', () => {
     it('200 create frames in a second make one world; the rest are tooSoon, busy or dropped, and an honest room keeps ticking', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
@@ -955,10 +955,10 @@ describe('hostileClientSpec: create floods (AR-99)', () => {
     })
 })
 
-/* ---- AR-109, AR-110 ---- */
+/* ---- Invite lookup limits and the live-room cap ---- */
 
 describe('hostileClientSpec: invites and room slots', () => {
-    it('100 join frames with random invite codes do at most 10 lookups a minute and never join (AR-109)', async () => {
+    it('100 join frames with random invite codes do at most 10 lookups a minute and never join', async () => {
         const s = scene()
         const { registry, connect } = setup(s.raw)
         registry.add('honest', s.raw)
@@ -984,7 +984,7 @@ describe('hostileClientSpec: invites and room slots', () => {
         expect(again.socket.of('joined')).toEqual([])
     })
 
-    it('a user who creates, stops and reopens worlds every 2 s holds at most one live room, and an honest player can still open at the cap (AR-110)', async () => {
+    it('a user who creates, stops and reopens worlds every 2 s holds at most one live room, and an honest player can still open at the cap', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
         registry.openCap = 3
@@ -1023,9 +1023,9 @@ describe('hostileClientSpec: invites and room slots', () => {
     }, 60000)
 })
 
-/* ---- AR-117, AR-130: pathfinder budget under a hostile maze ---- */
+/* ---- Pathfinder budget under a hostile maze ---- */
 
-describe('hostileClientSpec: a junction maze and many lost trains (AR-117, AR-130)', () => {
+describe('hostileClientSpec: a junction maze and many lost trains', () => {
     it('no room step exceeds pathNodesPerTick pathfinder nodes, and an honest room keeps stepping', async () => {
         const world = blankWorld(false, 100_000_000)
         // a grid of own track with full junctions at every crossing
@@ -1089,7 +1089,7 @@ describe('hostileClientSpec: a junction maze and many lost trains (AR-117, AR-13
         const mazeTick = room.world.tick
         vi.advanceTimersByTime(TICK * 1000)
         await settle()
-        // wall time is only logged (AR-27): the budget, not the clock, is what this asserts
+        // wall time is only logged: the budget, not the clock, is what this asserts
         console.info(`[hostile maze] ${room.world.tick - mazeTick} maze steps, max ${maxNodes} pathfinder nodes in one step, ${(performance.now() - started).toFixed(0)} ms wall`)
 
         expect(room.world.vehicleList().some(v => v.state !== RtVehicleState.inDepot)).toBe(true)
@@ -1102,9 +1102,9 @@ describe('hostileClientSpec: a junction maze and many lost trains (AR-117, AR-13
     }, 120000)
 })
 
-/* ---- AR-126, Q20, Q23: stop orders and sharing ---- */
+/* ---- Stop orders and sharing ---- */
 
-describe('hostileClientSpec: stop orders and shared track (AR-126, Q20, Q23)', () => {
+describe('hostileClientSpec: stop orders and shared track', () => {
     it('with sharing on, a hostile train on the victim\'s track cannot be stopped there and keeps running after its orders are cleared', async () => {
         const world = blankWorld(true)
         must(world, HONEST, { kind: K.buildRailLine, tile: at(6, 10), endTile: at(40, 10), trackdir: EAST })

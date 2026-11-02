@@ -1,11 +1,11 @@
 /**
- * Depot building (W22). A depot is a tile, not an entity: orders name it by tile index. Behaviour
+ * Depot building. A depot is a tile, not an entity: orders name it by tile index. Behaviour
  * mimics the original game at its default settings; the code is written from scratch.
  *
  * Depot payload (kind depot):
  *   bit  0      kind (RtVehicleKind: 0 rail, 1 road)
  *   bits 1-2    facing (RtDir), the side the entrance opens towards
- *   bit  3      reservation of the depot's track half-piece (AR-100), set and checked by reservePath (W29)
+ *   bit  3      reservation of the depot's track half-piece, set and checked by reservePath
  *   bits 8-13   rail depot: the connecting track piece bit (the straight along the facing axis)
  *   bits 8-11   road depot: the connecting road bit (RT_ROAD_DIR_BIT of the facing)
  * The tile's owner byte is the depot owner.

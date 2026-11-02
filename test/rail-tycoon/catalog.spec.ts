@@ -5,8 +5,8 @@ import {
     RT_INDUSTRY_TYPE_IDS,
     RT_VEHICLE_MODEL_IDS,
     type RtCargoId
-} from '../../shared/utils/rail-tycoon/catalog'
-import * as limits from '../../shared/utils/rail-tycoon/limits'
+} from '#shared/utils/rail-tycoon/catalog'
+import * as limits from '#shared/utils/rail-tycoon/limits'
 
 const isPositiveInt = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
 
@@ -19,7 +19,7 @@ const models = Object.values(RT_CATALOG.vehicles.models)
 const industries = Object.values(RT_CATALOG.industries)
 
 describe('RT_CATALOG', () => {
-    it('has every group W04 names', () => {
+    it('has every group the game reads', () => {
         for (const group of ['time', 'cargos', 'payment', 'catchment', 'stationRating', 'stations', 'production', 'towns', 'houses', 'industries', 'economy', 'vehicles', 'movement', 'signals', 'pathfinder', 'construction', 'caps']) {
             expect(RT_CATALOG, group).toHaveProperty(group)
         }
@@ -59,7 +59,7 @@ describe('RT_CATALOG', () => {
         expect(RT_CATALOG.economy.maxLoan % RT_CATALOG.economy.loanStep).toBe(0)
     })
 
-    it('derives the sharing fees from the construction costs in integers (AR-121)', () => {
+    it('derives the sharing fees from the construction costs in integers', () => {
         const { sharing } = RT_CATALOG.economy
         expect(sharing.railFeePerPiece).toBe(Math.max(1, Math.floor(RT_CATALOG.construction.track / 64)))
         expect(sharing.depotServiceFee).toBe(Math.max(1, Math.floor(RT_CATALOG.construction.trainDepot / 32)))
@@ -174,7 +174,7 @@ const LIMIT_NAMES = [
 /** The invite code's alphabet and shape checker live in limits.ts beside its length. */
 const NON_LIMIT_EXPORTS = ['RT_INVITE_CODE_ALPHABET', 'isRtInviteCode'] as const
 
-describe('limits.ts (W144)', () => {
+describe('limits.ts', () => {
     const table = limits as Record<string, unknown>
 
     it('exports every limit as a positive safe integer', () => {
@@ -188,14 +188,14 @@ describe('limits.ts (W144)', () => {
         expect(limits.RT_MAX_FRAME_BYTES).toBeLessThan(limits.RT_MAX_SNAPSHOT_FRAME_BYTES)
         expect(limits.RT_MAX_SAVE_BYTES).toBeLessThan(limits.RT_GUNZIP_MAX_BYTES)
         expect(limits.RT_MAX_SNAPSHOT_FRAME_BYTES).toBeGreaterThan(limits.RT_MAX_SAVE_BYTES)
-        // AR-133 replaces the twice-the-snapshot rule
+        // the backlog close leaves at least 1 MiB above the largest snapshot frame
         expect(limits.RT_BACKLOG_CLOSE_BYTES).toBeGreaterThanOrEqual(limits.RT_MAX_SNAPSHOT_FRAME_BYTES + 1048576)
         expect(limits.RT_BACKLOG_CLOSE_BYTES).toBeLessThan(limits.RT_WS_BACKPRESSURE_LIMIT_BYTES)
         expect(limits.RT_JOIN_LOAD_TIMEOUT_MS).toBe(500 * RT_CATALOG.time.tickMs)
     })
 })
 
-describe('invite code shape (W79 5.6, W143)', () => {
+describe('invite code shape', () => {
     it('is 16 Crockford base32 characters', () => {
         expect(limits.RT_INVITE_CODE_LENGTH).toBe(16)
         expect(limits.RT_INVITE_CODE_ALPHABET).toBe('0123456789ABCDEFGHJKMNPQRSTVWXYZ')

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { agePackets, distributeProduction, rtAppendPacket, rtCapPackets } from '#shared/utils/rail-tycoon/cargo'
 import { RT_ROAD_DIR_BIT, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
-import { RtRng } from '#shared/utils/rail-tycoon/rng'
+import { SeededRandom } from '#shared/utils/random'
 import { decodeWorld, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RtAxis, RtStationTile, buildRoadStop, rtFacilityOf, rtNewStationCargo, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
 import {
@@ -109,7 +109,7 @@ function stationState(world: RtWorld): unknown {
     return world.stationList().map(s => ({ ...s, catchment: null, catchmentRevision: 0 }))
 }
 
-/** The test's stand-in for goal 08's step: towns, then stations, each tick. */
+/** The test's stand-in for RtWorld.step: towns, then stations, each tick. */
 function advance(world: RtWorld, ticks: number): void {
     for (let k = 0; k < ticks; k++) {
         world.tick++
@@ -119,7 +119,7 @@ function advance(world: RtWorld, ticks: number): void {
 }
 
 describe('rail tycoon stations and cargo', () => {
-    describe('catchment (W35)', () => {
+    describe('catchment', () => {
         it('covers a square of radius 4 around a platform and 3 around a road stop, clipped to the map', () => {
             const world = newWorld()
             const map = world.map
@@ -162,7 +162,7 @@ describe('rail tycoon stations and cargo', () => {
         })
     })
 
-    describe('acceptance (W35)', () => {
+    describe('acceptance', () => {
         it('a bus stop in a town centre accepts passengers', () => {
             const map = new RtMap(SIDE)
             const centre = map.idx(30, 30)
@@ -213,7 +213,7 @@ describe('rail tycoon stations and cargo', () => {
         })
     })
 
-    describe('ratings (W36)', () => {
+    describe('ratings', () => {
         it('climbs toward the target by at most the step per cycle with a fast new vehicle picking up every cycle', () => {
             const world = newWorld()
             const station = placeStation(world, 0, 0, [world.map.idx(10, 10)], RtStationTile.rail)
@@ -223,7 +223,7 @@ describe('rail tycoon stations and cargo', () => {
             goods.lastAge = 0
             const target = rtRatingTarget(112, 1, 0, 0)
             expect(target).toBe(209)
-            const rng = new RtRng(1)
+            const rng = new SeededRandom(1)
             let previous = goods.rating
             for (let cycle = 0; cycle < 40; cycle++) {
                 goods.cyclesSincePickup = 0
@@ -242,7 +242,7 @@ describe('rail tycoon stations and cargo', () => {
             goods.hasRating = true
             goods.cyclesSincePickup = 100
             goods.packets.push(packet(COAL, 6000, 5), packet(COAL, 4000, 6))
-            const rng = new RtRng(1)
+            const rng = new SeededRandom(1)
             updateStationRatings(station, 0, rng)
             expect(goods.rating).toBe(RT_CATALOG.stationRating.start - 2)
             const left = rtPacketTotal(goods.packets)
@@ -257,7 +257,7 @@ describe('rail tycoon stations and cargo', () => {
             goods.hasRating = true
             goods.cyclesSincePickup = RT_CATALOG.stationRating.abandonCycles - 1
             goods.packets.push(packet(PAX, 50, 5))
-            updateStationRatings(station, 0, new RtRng(1))
+            updateStationRatings(station, 0, new SeededRandom(1))
             expect(goods.hasRating).toBe(false)
             expect(goods.packets).toEqual([])
         })
@@ -266,12 +266,12 @@ describe('rail tycoon stations and cargo', () => {
             const world = newWorld()
             const station = placeStation(world, 0, 0, [world.map.idx(10, 10)], RtStationTile.rail)
             station.cargo[PAX]!.rating = 100
-            updateStationRatings(station, 0, new RtRng(1))
+            updateStationRatings(station, 0, new SeededRandom(1))
             expect(station.cargo[PAX]!.rating).toBe(101)
         })
     })
 
-    describe('production split (W37)', () => {
+    describe('production split', () => {
         function twoStations(owners: [number, number]) {
             const map = new RtMap(SIDE)
             const house = map.idx(30, 30)
@@ -323,21 +323,21 @@ describe('rail tycoon stations and cargo', () => {
         })
 
         it('the split shares sum to exactly the scaled total and never exceed it', () => {
-            const rng = new RtRng(1)
+            const rng = new SeededRandom(1)
             for (let round = 0; round < 200; round++) {
                 const map = new RtMap(SIDE)
                 const house = map.idx(30, 30)
                 addHouse(map, house)
                 const world = newWorld([], [], map)
-                const count = rng.int(2, 5)
+                const count = rng.randomInt(2, 5)
                 let best = 0
                 for (let id = 0; id < count; id++) {
-                    const s = placeStation(world, id, rng.int(0, 1), [map.idx(27 + id, 27)], RtStationTile.rail)
-                    s.cargo[PAX]!.rating = rng.int(1, 255)
+                    const s = placeStation(world, id, rng.randomInt(0, 1), [map.idx(27 + id, 27)], RtStationTile.rail)
+                    s.cargo[PAX]!.rating = rng.randomInt(1, 255)
                     s.cargo[PAX]!.loadAttempted = true
                     best = Math.max(best, s.cargo[PAX]!.rating)
                 }
-                const amount = rng.int(1, 255)
+                const amount = rng.randomInt(1, 255)
                 distributeProduction(world, [house], PAX, amount)
                 let scaled = 0
                 for (const s of world.stationList()) scaled += rtPacketTotal(s.cargo[PAX]!.packets) * 256 + s.cargo[PAX]!.fraction
@@ -370,7 +370,7 @@ describe('rail tycoon stations and cargo', () => {
         })
     })
 
-    describe('packets (W37 caps, W38 ageing)', () => {
+    describe('packets (caps and ageing)', () => {
         it('merges into the newest packet with the same source', () => {
             const packets: RtCargoPacket[] = []
             rtAppendPacket(packets, packet(PAX, 5, 1), 10)
@@ -399,7 +399,7 @@ describe('rail tycoon stations and cargo', () => {
         })
     })
 
-    describe('acceptance timing and saves (AR-77)', () => {
+    describe('acceptance timing and saves', () => {
         /** A small growing town whose roads all lie inside a rail station's catchment, two houses to start. */
         function growingTownWorld(): { world: RtWorld, station: RtStation } {
             const map = new RtMap(SIDE)

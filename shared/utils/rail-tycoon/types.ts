@@ -2,7 +2,7 @@
  * The shape of every Rail Tycoon simulation entity, fixed once so the rules, the save format and the
  * client agree. Every number is an integer: ticks, tiles (map index y * side + x), sub-tile units,
  * km/h, or money in the smallest unit. Fields marked "derived" are caches that decode rebuilds; they
- * are neither saved nor hashed. Everything else is saved state, written by goal 09 in field order.
+ * are neither saved nor hashed. Everything else is saved state, written by save.ts in field order.
  */
 
 /** Marks an absent id or tile in integer fields. */
@@ -32,9 +32,9 @@ export const RtVehicleState = {
     inDepot: 2,
     /** Crashed; removed when crashTicks runs out. */
     crashed: 3,
-    /** Under a stop order, driving to a parking place (W150, Q20). */
+    /** Under a stop order, driving to a parking place. */
     parking: 4,
-    /** Under a stop order, standing in a parking spot (W150, Q20). */
+    /** Under a stop order, standing in a parking spot. */
     parked: 5
 } as const
 export type RtVehicleState = typeof RtVehicleState[keyof typeof RtVehicleState]
@@ -47,12 +47,12 @@ export interface RtDate {
     year: number
 }
 
-/** The world-level saved scalars besides the entity lists; RtWorld (W56) carries these. */
+/** The world-level saved scalars besides the entity lists; RtWorld carries these. */
 export interface RtWorldScalars {
     /** Ticks since the world was created. */
     tick: number
     date: RtDate
-    /** RtRng state (u32). */
+    /** SeededRandom state (u32). */
     rngState: number
     /** Index of the next vehicle the round-robin pathfinder budget serves. */
     pathfinderCursor: number
@@ -63,7 +63,7 @@ export interface RtWorldSettings {
     side: number
     /** Companies allowed, 2 to 8. */
     maxCompanies: number
-    /** Infrastructure sharing between companies (Q19b), on by default. */
+    /** Infrastructure sharing between companies, on by default. */
     sharing: boolean
 }
 
@@ -332,7 +332,7 @@ export interface RtVehicle {
     lastServiceTick: number
     /** Depot tile of an implicit service visit, or RT_NONE (tile index). */
     serviceDepot: number
-    /** serviceDepot is a send-to-depot target (AR-71): the vehicle stops when it drives in. */
+    /** serviceDepot is a send-to-depot target: the vehicle stops when it drives in. */
     haltInDepot: boolean
     /** Running ticks not yet charged as running cost (ticks). */
     runningTicks: number

@@ -1,5 +1,5 @@
 /**
- * The bulldozer (W23): one rule for everything that is not track or road. Behaviour mimics the
+ * The bulldozer: one rule for everything that is not track or road. Behaviour mimics the
  * original game at its default settings; the code is written from scratch.
  */
 
@@ -33,9 +33,9 @@ import { RT_NONE, RT_OWNER_NONE, RtOrderKind, type RtStation, type RtVehicle } f
 
 /** What demolishing a station or depot reaches beyond the map and the station list. */
 export interface RtDemolishContext {
-    /** Every vehicle of every company, for order and packet cleanup (AR-69). */
+    /** Every vehicle of every company, for order and packet cleanup. */
     vehicles?: RtVehicle[]
-    /** Needed to remove a reserved platform or depot tile (AR-100, AR-118). */
+    /** Needed to remove a reserved platform or depot tile. */
     reservations?: RtReservationHooks
 }
 
@@ -101,12 +101,12 @@ function detachTile(map: RtMap, stations: RtStation[], station: RtStation, tile:
  * nothing to do, at no cost. An own rail station tile: taken out of its station (the station deleted
  * with its last tile) and left clear, at removeRailStation. An own drive-through road stop: taken out of
  * its station, leaving the straight road with the owner it had before the stop (a town road stays a
- * town road, AR-51), at removeRoadStop; a bay stop goes with its road stub and leaves clear land, at
+ * town road), at removeRoadStop; a bay stop goes with its road stub and leaves clear land, at
  * the same price. An own depot: cleared at removeDepot. Station and depot tiles are refused
  * with conflict while occupied. Deleting a station or a depot deletes every order targeting it and,
- * for a station, clears the source station of packets loaded there (AR-69), given ctx.vehicles. A
+ * for a station, clears the source station of packets loaded there, given ctx.vehicles. A
  * reserved platform or depot tile first has the reserving train's reservation released ahead, and the
- * train reserves again before returning (AR-100, AR-118); without ctx.reservations it is refused with
+ * train reserves again before returning; without ctx.reservations it is refused with
  * conflict. Houses and industries are refused with occupied, water with water, town roads and other
  * companies' objects with notOwner, and own track or road with conflict (removeRail / removeRoad do those).
  */

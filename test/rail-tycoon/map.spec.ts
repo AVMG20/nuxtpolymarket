@@ -11,8 +11,8 @@ import {
     rtTreePayload,
     rtTreeStage,
     rtTreeType
-} from '../../shared/utils/rail-tycoon/map'
-import { RT_OWNER_NONE } from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/map'
+import { RT_OWNER_NONE } from '#shared/utils/rail-tycoon/types'
 
 /** Set tile (x, y)'s corners to the given heights; north is corner (x, y), west (x + 1, y), east (x, y + 1), south (x + 1, y + 1). */
 function setCorners(map: RtMap, x: number, y: number, h: { n: number, w: number, e: number, s: number }): number {

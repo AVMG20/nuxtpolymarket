@@ -1,11 +1,11 @@
 /**
- * Cargo packets: production handed to stations by rating (W37), the packet caps (AR-78) and ageing
- * in transit (W38). Behaviour mimics the original game (cargo moves only to stations a vehicle has
+ * Cargo packets: production handed to stations by rating, the packet caps and ageing
+ * in transit. Behaviour mimics the original game (cargo moves only to stations a vehicle has
  * tried to load at, the total is scaled by the best rating and split between companies by their best
  * rating and within a company by rating); the code is written from scratch. Integers only.
  */
 import { RT_CATALOG } from './catalog'
-import type { RtRng } from './rng'
+import type { SeededRandom } from '../random'
 import { rtStationServesCargo, stationsAroundTiles, type RtStationWorld } from './stations'
 import type { RtCargoPacket, RtStation } from './types'
 
@@ -24,7 +24,7 @@ export function rtStationTakesCargo(station: RtStation, cargo: number): boolean 
 
 /**
  * Adds a packet to a list, merging into the newest packet when it has the same cargo and source and
- * has not travelled (no transit, no feeder share), then applies the cap (AR-78).
+ * has not travelled (no transit, no feeder share), then applies the cap.
  */
 export function rtAppendPacket(packets: RtCargoPacket[], packet: RtCargoPacket, max: number): void {
     const last = packets[packets.length - 1]
@@ -39,7 +39,7 @@ export function rtAppendPacket(packets: RtCargoPacket[], packet: RtCargoPacket, 
 }
 
 /**
- * Keeps a packet list at most `max` long (AR-78): while it is longer, the oldest packet absorbs the
+ * Keeps a packet list at most `max` long: while it is longer, the oldest packet absorbs the
  * next-oldest packet of the same cargo, keeping the larger transit value, the older source tile and
  * station, and the summed count and feeder share. A list whose cargos are all different is left as is.
  */
@@ -89,7 +89,7 @@ function updateStationWaiting(station: RtStation, cargo: number, amount256: numb
 }
 
 /**
- * Moves produced cargo to the stations around its source (W37). sourceTiles is a house's tile or an
+ * Moves produced cargo to the stations around its source. sourceTiles is a house's tile or an
  * industry's footprint; the packets' source tile is the first of them. Eligible stations cover a
  * source tile and take the cargo (rtStationTakesCargo). One station gets amount * (rating + 1) / 256;
  * several share amount * (best + 1) / 256: each company's part is in proportion to its best rating,
@@ -98,7 +98,7 @@ function updateStationWaiting(station: RtStation, cargo: number, amount256: numb
  * per station. Returns the whole units moved. `rng` is unused (the split draws nothing, as the original).
  */
 export function distributeProduction(
-    world: RtStationWorld, sourceTiles: readonly number[], cargo: number, amount: number, rng?: RtRng
+    world: RtStationWorld, sourceTiles: readonly number[], cargo: number, amount: number, rng?: SeededRandom
 ): number {
     void rng
     const units = Math.min(MAX_PRODUCTION, Math.max(0, Math.floor(amount)))

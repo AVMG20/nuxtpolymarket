@@ -30,7 +30,7 @@ export interface RtLoadedWorld {
     /** The revision rtSaveCheckpoint must be handed as expectedRevision for the next checkpoint. */
     revision: number
     lastActiveAt: Date
-    /** Shown to the owner and every player of a live room (AR-64). */
+    /** Shown to the owner and every player of a live room. */
     inviteCode: string
     world: RtWorld
 }
@@ -143,7 +143,7 @@ async function rtWriteCheckpoint(
 
 /**
  * Writes a checkpoint of world `id` and returns its new revision. `encodedBytes` is the world
- * encoded synchronously at a tick boundary (AR-12) and must not be reused while this runs; it is
+ * encoded synchronously at a tick boundary and must not be reused while this runs; it is
  * gzipped off the event loop before any lock is taken. The row is locked FOR UPDATE and its
  * integer revision must equal `expectedRevision`, or this throws 409; a missing world is 404 and
  * a compressed save over RT_MAX_SAVE_BYTES is 413, so a save rtLoadWorld would refuse is never

@@ -51,7 +51,7 @@ function must(w: RtWorld, company: number, command: RtCommand) {
     return result
 }
 
-describe('RtTools (W104, W107)', () => {
+describe('RtTools', () => {
     it('picks the tile under the pointer on a hilly map at every zoom', () => {
         const layout = generateWorld(7, { side: 64 })
         const map = layout.map
@@ -81,7 +81,7 @@ describe('RtTools (W104, W107)', () => {
         }
     })
 
-    it('a 100-tile straight rail drag emits exactly one buildRailLine reaching the end tile (AR-37)', () => {
+    it('a 100-tile straight rail drag emits exactly one buildRailLine reaching the end tile', () => {
         const w = flatWorld()
         const r = rig(w)
         r.tools.select(RtToolKind.rail)
@@ -149,7 +149,7 @@ describe('RtTools (W104, W107)', () => {
         expect(Math.abs(w.map.tileX(diagonal!.endTile) - 70) + Math.abs(w.map.tileY(diagonal!.endTile) - 70)).toBeLessThanOrEqual(1)
     })
 
-    it('a drag starting on the end of own track extends it, costing only the new pieces (AR-49, AR-50)', () => {
+    it('a drag starting on the end of own track extends it, costing only the new pieces', () => {
         const w = flatWorld()
         const east = rtTrackdirOf(RtTrack.x, true)
         must(w, 0, { kind: RtCommandKind.buildRailLine, tile: w.map.idx(10, 10), endTile: w.map.idx(20, 10), trackdir: east })
@@ -200,7 +200,7 @@ describe('RtTools (W104, W107)', () => {
         expect(r.commands).toEqual([])
     })
 
-    it('drags are clamped to the line and area caps before a command is sent (W148)', () => {
+    it('drags are clamped to the line and area caps before a command is sent', () => {
         const w = flatWorld(256)
         const r = rig(w)
         r.tools.select(RtToolKind.road)
@@ -229,7 +229,7 @@ describe('RtTools (W104, W107)', () => {
         ])
     })
 
-    it('the signal tool places the toolbar type; a click on an existing signal cycles it with its own type (AR-38)', () => {
+    it('the signal tool places the toolbar type; a click on an existing signal cycles it with its own type', () => {
         const w = flatWorld()
         must(w, 0, { kind: RtCommandKind.buildRailLine, tile: w.map.idx(10, 10), endTile: w.map.idx(20, 10), trackdir: rtTrackdirOf(RtTrack.x, true) })
         const r = rig(w)
@@ -319,7 +319,7 @@ describe('RtTools (W104, W107)', () => {
         expect(r.preview()!.catchment.length).toBeGreaterThan(1)
     })
 
-    it('query emits the clicked tile (AR-39)', () => {
+    it('query emits the clicked tile', () => {
         const w = flatWorld()
         const r = rig(w)
         r.tools.select(RtToolKind.query)
@@ -328,7 +328,7 @@ describe('RtTools (W104, W107)', () => {
         expect(r.commands).toEqual([])
     })
 
-    it('pick mode emits picked for an own station or depot, ignores a rival\'s without sharing, and Escape leaves it (AR-54)', () => {
+    it('pick mode emits picked for an own station or depot, ignores a rival\'s without sharing, and Escape leaves it', () => {
         const w = flatWorld()
         const own = must(w, 0, { kind: RtCommandKind.buildRailStation, tile: w.map.idx(10, 10), axis: RtAxis.x, tracks: 1, length: 3 }).id!
         must(w, 1, { kind: RtCommandKind.buildRailStation, tile: w.map.idx(10, 20), axis: RtAxis.x, tracks: 1, length: 3 })
@@ -351,7 +351,7 @@ describe('RtTools (W104, W107)', () => {
         expect(r.commands).toEqual([])
     })
 
-    it('with sharing on a rival\'s station can be picked (Q19b)', () => {
+    it('with sharing on a rival\'s station can be picked', () => {
         const w = flatWorld(128, true)
         const rival = must(w, 1, { kind: RtCommandKind.buildRailStation, tile: w.map.idx(10, 20), axis: RtAxis.x, tracks: 1, length: 3 }).id!
         const r = rig(w)

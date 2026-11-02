@@ -1,11 +1,11 @@
 /**
- * Route search (W31, W32): integer A-star over trackdirs for trains and over road tiles and
+ * Route search: integer A-star over trackdirs for trains and over road tiles and
  * directions for road vehicles. Costs and budgets come from RT_CATALOG pathfinder and mimic the
  * original's pathfinder at its default settings; the code is written from scratch.
  *
  * Every search is deterministic: integer costs, neighbours expanded in trackdir (or direction)
- * order, and a binary heap that breaks equal costs by insertion order (AR-117). It ends in one of
- * three outcomes (AR-128): found, notFound (the reachable graph or the per-search node budget ran
+ * order, and a binary heap that breaks equal costs by insertion order. It ends in one of
+ * three outcomes: found, notFound (the reachable graph or the per-search node budget ran
  * out first; the route then leads to the visited node nearest the target and lost is set) or
  * deferred (the world's per-tick budget ran out first, which says nothing about reachability).
  */
@@ -45,9 +45,9 @@ export type RtRouteOutcome = typeof RtRouteOutcome[keyof typeof RtRouteOutcome]
 
 /**
  * What a search looks for: entering any goal tile reaches it. Stations give their platform or stop
- * tiles, a depot its tile, a parking target (W150, Q20) the tiles of every free spot. The tiles are
+ * tiles, a depot its tile, a parking target the tiles of every free spot. The tiles are
  * also the heuristic's targets. Among goals reached at the same cost the lowest rank wins (default:
- * the tile index; W150 ranks a spot's tiles by its dead-end tile). accept, when given, can refuse a
+ * the tile index; a parking spot's tiles rank by its dead-end tile). accept, when given, can refuse a
  * goal tile entered along a trackdir or direction.
  */
 export interface RtRouteTarget {
@@ -85,7 +85,7 @@ function stationTiles(map: RtMap, station: RtStation, type: RtStationTile): numb
  * The heap: smallest cost first, then the earliest pushed
  * ---------------------------------------------------------------------------------------- */
 
-/** The search's binary min-heap: lowest integer cost first, equal costs in the order they were pushed (AR-117). */
+/** The search's binary min-heap: lowest integer cost first, equal costs in the order they were pushed. */
 export class RtRouteHeap {
     private readonly cost: number[] = []
     private readonly seq: number[] = []
@@ -287,17 +287,17 @@ function search(map: RtMap, graph: RtGraph, starts: readonly [number, number][],
 }
 
 /* ------------------------------------------------------------------------------------------
- * W31: rail
+ * Rail
  * ---------------------------------------------------------------------------------------- */
 
 /**
- * Cost of starting from the reversed tail (AR-42). The original adds a nominal 1 so a reversal only
+ * Cost of starting from the reversed tail. The original adds a nominal 1 so a reversal only
  * wins when the reversed route is cheaper; the catalog has no entry for it.
  */
 export const RT_RAIL_REVERSE_PENALTY = 1
 
 export interface RtRailRouteOptions {
-    /** The world's sharing setting (Q19b). */
+    /** The world's sharing setting. */
     sharing: boolean
     /** A reversing point (a train stopped at a platform or an end of line): its tail tile and trackdir. */
     reverseFrom?: { tile: number, trackdir: number } | null
@@ -343,13 +343,13 @@ function climbs(map: RtMap, tile: number, entry: RtDir, exit: RtDir): boolean {
 }
 
 /**
- * W31: the cheapest train route from (fromTile, fromTrackdir) to `target`, for a train of `owner`.
+ * The cheapest train route from (fromTile, fromTrackdir) to `target`, for a train of `owner`.
  * Edges come from followTrack (one-way signals facing against the train are impassable); each tile
  * costs tileCost (a corner piece cornerTileCost) plus curvePenalty for a 45-degree and curve90Penalty
  * for a 90-degree change of direction, uphillPenalty for a climbing piece, redSignalPenalty for a red
  * block signal facing the train, reservedPiecePenalty for a reserved piece, throughPlatformPenalty for
  * a platform that is no goal, crossingPenalty for a level crossing and, with sharing on,
- * foreignTrackPenalty for another company's tile (Q19b). The heuristic is the Manhattan distance to
+ * foreignTrackPenalty for another company's tile. The heuristic is the Manhattan distance to
  * the nearest goal tile times cornerTileCost, the cheapest tile, so the cost found is the least.
  * A depot that is no goal is a dead end. searchBudget is the per-search node limit (RT_CATALOG
  * maxSearchNodes), tickBudget what the world has left this tick (world.pathNodesLeft). Never throws.
@@ -461,11 +461,11 @@ function extendThroughGoals(map: RtMap, owner: number, sharing: boolean, end: nu
 }
 
 /* ------------------------------------------------------------------------------------------
- * W32: road
+ * Road
  * ---------------------------------------------------------------------------------------- */
 
 /**
- * Cost of turning around in place on a road tile that leads on (AR-43); a dead end costs no extra.
+ * Cost of turning around in place on a road tile that leads on; a dead end costs no extra.
  * The catalog has no entry for it; it is set to the cost of the sharpest rail curve.
  */
 export const RT_ROAD_TURN_AROUND_PENALTY = RT_CATALOG.pathfinder.curve90Penalty
@@ -514,11 +514,11 @@ function roadBitsAt(map: RtMap, tile: number, goals: Set<number>, start: number)
 }
 
 /**
- * W32: the cheapest road route from a vehicle on `fromTile` heading `fromDir` (the edge it will
+ * The cheapest road route from a vehicle on `fromTile` heading `fromDir` (the edge it will
  * leave by) to `target`. Each tile costs tileCost, plus roadCurvePenalty for a turn,
  * roadSlopePenalty for a climb, roadCrossingPenalty for a level crossing and roadStopPenalty for a
  * road stop that is no goal. A vehicle may turn around in place on any tile at
- * RT_ROAD_TURN_AROUND_PENALTY, free at a dead end (AR-43), including on its start tile. Roads are
+ * RT_ROAD_TURN_AROUND_PENALTY, free at a dead end, including on its start tile. Roads are
  * public, as the original: any company's road and drive-through stop can be driven. A bay stop is
  * entered only through its entrance and only as a goal; a vehicle standing in one leaves by its
  * entrance whatever its fromDir (the lane of its bay). Same heap,

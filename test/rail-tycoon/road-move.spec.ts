@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad } from '../../shared/utils/rail-tycoon/road'
-import { rtCrossingBarred, stepRoadVehicle } from '../../shared/utils/rail-tycoon/road-vehicle'
-import { RtStationTile, buildRoadStop } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X, RT_ROAD_Y, RtTrack, buildRail } from '../../shared/utils/rail-tycoon/track'
-import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '../../shared/utils/rail-tycoon/train'
-import { rtSetPieceReserved } from '../../shared/utils/rail-tycoon/signals'
-import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { buyVehicle } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { buildRoad } from '#shared/utils/rail-tycoon/road'
+import { rtCrossingBarred, stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
+import { RtStationTile, buildRoadStop } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X, RT_ROAD_Y, RtTrack, buildRail } from '#shared/utils/rail-tycoon/track'
+import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
+import { rtSetPieceReserved } from '#shared/utils/rail-tycoon/signals'
+import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
 const TILE = RT_CATALOG.movement.subTileUnits
@@ -84,7 +84,7 @@ function lanesKeepTheirGap(world: RtWorld): boolean {
     return true
 }
 
-describe('rail tycoon road vehicle movement (W49)', () => {
+describe('rail tycoon road vehicle movement', () => {
     it('shuttles between two drive-through stops on a dead-end road, both ways', () => {
         const world = flatWorld()
         const map = world.map

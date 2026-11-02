@@ -1,14 +1,14 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { afterAll, describe, expect, it } from 'vitest'
-import { RtBadData, RtReader } from '../../shared/utils/rail-tycoon/bytes'
-import { RT_CARGO_IDS, RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from '../../shared/utils/rail-tycoon/catalog'
-import { rtClearPacketSource, rtDeleteOrdersTo } from '../../shared/utils/rail-tycoon/demolish'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { rtEmptyFinance } from '../../shared/utils/rail-tycoon/economy'
-import { RT_GUNZIP_MAX_BYTES, RT_MAX_SAVE_BYTES } from '../../shared/utils/rail-tycoon/limits'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
-import { RtRng } from '../../shared/utils/rail-tycoon/rng'
-import { buyVehicle, sellVehicle } from '../../shared/utils/rail-tycoon/vehicles'
+import { RtBadData, RtReader } from '#shared/utils/rail-tycoon/bytes'
+import { RT_CARGO_IDS, RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from '#shared/utils/rail-tycoon/catalog'
+import { rtClearPacketSource, rtDeleteOrdersTo } from '#shared/utils/rail-tycoon/demolish'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { rtEmptyFinance } from '#shared/utils/rail-tycoon/economy'
+import { RT_GUNZIP_MAX_BYTES, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
+import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { SeededRandom } from '#shared/utils/random'
+import { buyVehicle, sellVehicle } from '#shared/utils/rail-tycoon/vehicles'
 import {
     decodeWorld,
     decodeWorldOrThrow,
@@ -16,7 +16,7 @@ import {
     RT_SAVE_BOUNDS,
     RT_SAVE_FORMAT,
     RT_SAVE_MAGIC
-} from '../../shared/utils/rail-tycoon/save'
+} from '#shared/utils/rail-tycoon/save'
 import {
     RT_NONE,
     RT_OWNER_NONE,
@@ -28,13 +28,13 @@ import {
     type RtOrder,
     type RtStation,
     type RtVehicle
-} from '../../shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany } from '../../shared/utils/rail-tycoon/world'
-import { generateWorld } from '../../shared/utils/rail-tycoon/worldgen'
-import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
-import { RtSignalType } from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtPieceBetween, rtTrackdirOf } from '../../shared/utils/rail-tycoon/track'
+} from '#shared/utils/rail-tycoon/types'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
+import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 
 function company(id: number): RtCompany {
     return {
@@ -125,7 +125,7 @@ function readPrefix(bytes: Uint8Array) {
     return { r, magic, format, settings, heights, kind, owner, payload }
 }
 
-describe('rail tycoon save format: encodeWorld (W66)', () => {
+describe('rail tycoon save format: encodeWorld', () => {
     it('is format 1 and starts with the RTWD magic and the version', () => {
         expect(RT_SAVE_FORMAT).toBe(1)
         const { magic, format } = readPrefix(encodeWorld(emptyWorld()))
@@ -225,7 +225,7 @@ describe('rail tycoon save format: encodeWorld (W66)', () => {
     })
 })
 
-describe('rail tycoon save format: encode refuses what decode would refuse (W67)', () => {
+describe('rail tycoon save format: encode refuses what decode would refuse', () => {
     it('refuses per-cargo arrays that do not hold one entry per cargo', () => {
         const world = busyWorld(64, 0)
         world.towns.find(town => town !== null)!.receivedThisMonth.pop()
@@ -251,7 +251,7 @@ describe('rail tycoon save format: encode refuses what decode would refuse (W67)
  */
 const MAP_END_64 = 10 + (2 + 65 * 65) + 2 * (2 + 64 * 64) + (2 + 64 * 64 * 4)
 
-/** Derived fields types.ts marks as caches: decode rebuilds them (W35 builds catchments), so they are not compared. */
+/** Derived fields types.ts marks as caches: decode rebuilds them (stations.ts builds catchments), so they are not compared. */
 const DERIVED_KEYS = new Set(['infrastructure', 'catchment', 'catchmentRevision'])
 
 /** JSON of entities with their derived fields left out. */
@@ -305,7 +305,7 @@ function variant(change: (world: RtWorld) => void): Uint8Array {
     return encodeWorld(world)
 }
 
-describe('rail tycoon save format: decodeWorld (W67)', () => {
+describe('rail tycoon save format: decodeWorld', () => {
     it('round-trips an empty world to the same bytes and hash', () => {
         const back = roundTrip(emptyWorld())
         expect(back.scalars()).toEqual(emptyWorld().scalars())
@@ -352,7 +352,7 @@ describe('rail tycoon save format: decodeWorld (W67)', () => {
         expect(back.occupied.roadVehiclesInLane(900, 1)).toEqual([2])
         expect(back.occupied.roadVehiclesInLane(901, 1)).toEqual([2])
         expect(back.occupied.vehicleOnTile(901)).toBe(true)
-        // the saved cache is never trusted: decode leaves it stale (null) or rebuilds it from the tiles (W35)
+        // the saved cache is never trusted: decode leaves it stale (null) or rebuilds it from the tiles
         const rebuilt = back.station(2)!
         expect(rebuilt.catchment).not.toEqual([1, 2, 3])
         if (rebuilt.catchment !== null) expect(rebuilt.catchmentRevision).toBe(rebuilt.tilesRevision)
@@ -517,15 +517,15 @@ describe('rail tycoon save format: decodeWorld (W67)', () => {
         const bytes = encodeWorld(busyWorld(64, 2))
         // the entity lists and scalars follow the map; aim half the flips there
         const mapEnd = MAP_END_64
-        const rng = new RtRng(0x5eed)
+        const rng = new SeededRandom(0x5eed)
         const rounds = 1500
         let accepted = 0
         for (let round = 0; round < rounds; round++) {
             const flipped = bytes.slice()
-            const flips = rng.int(1, 4)
+            const flips = rng.randomInt(1, 4)
             for (let k = 0; k < flips; k++) {
-                const at = rng.chance(1, 2) ? rng.int(mapEnd, bytes.length - 1) : rng.int(0, bytes.length - 1)
-                flipped[at] = flipped[at]! ^ rng.int(1, 255)
+                const at = rng.randomRatio(1, 2) ? rng.randomInt(mapEnd, bytes.length - 1) : rng.randomInt(0, bytes.length - 1)
+                flipped[at] = flipped[at]! ^ rng.randomInt(1, 255)
             }
             let world: RtWorld
             try {
@@ -545,7 +545,7 @@ describe('rail tycoon save format: decodeWorld (W67)', () => {
 })
 
 /* ------------------------------------------------------------------------------------------
- * W70: saves are lossless for everything the simulation reads, not just the hash
+ * Saves are lossless for everything the simulation reads, not just the hash
  * ---------------------------------------------------------------------------------------- */
 
 /** An empty 64 map world with company 0 and a rail depot at (10, 10) facing north-east, holding `trains` bought trains. */
@@ -573,8 +573,8 @@ function expectSameState(back: RtWorld, world: RtWorld): void {
     expect(back.scalars()).toEqual(world.scalars())
 }
 
-describe('rail tycoon save format: lossless round trips (W70)', () => {
-    it('a decoded world hashes like the live world it was saved from (W58 hand-off)', () => {
+describe('rail tycoon save format: lossless round trips', () => {
+    it('a decoded world hashes like the live world it was saved from', () => {
         const worlds = [
             emptyWorld(),
             busyWorld(64, 6),
@@ -599,7 +599,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(world.hash()).toBe(before)
     })
 
-    it('round-trips negative cash, a negative profit, negative finance categories and money past 2^32 (AR-58)', () => {
+    it('round-trips negative cash, a negative profit, negative finance categories and money past 2^32', () => {
         const world = busyWorld(64, 3)
         const poor = world.company(0)!
         poor.money = -987654
@@ -628,7 +628,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(back.vehicle(0)!.cargo[0]!.feederShare).toBe(-(2 ** 33))
     })
 
-    it('round-trips after a demolished station with orders and packets, and a company reset (AR-69)', () => {
+    it('round-trips after a demolished station with orders and packets, and a company reset', () => {
         const gone = 1
         // a station removed without the clean-up leaves dangling orders and packets: the save is refused
         const careless = busyWorld(64, 6)
@@ -648,7 +648,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(world.vehicle(5)!.orderIndex).toBe(2)
 
         // company 1 resets: its vehicles and stations go (with the same clean-up), its tiles fall to
-        // nobody, and it restarts under its old name and colour, founded now (W63)
+        // nobody, and it restarts under its old name and colour, founded now
         world.map.owner[10] = 1
         const old = world.company(1)!
         for (const vehicle of world.vehicleList()) if (vehicle.owner === 1) world.removeVehicle(vehicle.id)
@@ -668,7 +668,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(back.vehicleList().map(vehicle => vehicle.id)).toEqual([0, 2, 4])
     })
 
-    it('gives the same id to a vehicle bought on the live and the decoded world after the highest id was sold (AR-137)', () => {
+    it('gives the same id to a vehicle bought on the live and the decoded world after the highest id was sold', () => {
         const { world, depot } = depotWorld(4)
         expect(sellVehicle(world, 0, 3, true).ok).toBe(true)
         expect(world.vehicles.length).toBe(3)
@@ -683,7 +683,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect([...back.occupied.depotOccupants(depot)].sort()).toEqual([...world.occupied.depotOccupants(depot)].sort())
     })
 
-    it('fills id holes the same way on the live and the decoded world (AR-137)', () => {
+    it('fills id holes the same way on the live and the decoded world', () => {
         const { world, depot } = depotWorld(6)
         expect(sellVehicle(world, 0, 1, true).ok).toBe(true)
         expect(sellVehicle(world, 0, 5, true).ok).toBe(true)
@@ -695,7 +695,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         }
     })
 
-    it('round-trips lost trains mid-retry and a pathfinder cursor part-way round (AR-129)', () => {
+    it('round-trips lost trains mid-retry and a pathfinder cursor part-way round', () => {
         const world = busyWorld(64, 6)
         world.tick = 50_000
         for (const id of [1, 4]) {
@@ -724,12 +724,21 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(back.vehicleList().filter(vehicle => vehicle.lost).map(vehicle => [vehicle.id, vehicle.lostRetryTick]))
             .toEqual([[1, 50_038], [2, 9000], [3, 50_000], [4, 50_041], [5, 9000], [6, 51_000]])
 
-        // the hash sees the cursor, a retry tick and a blocked counter (AR-137)
+        // the hash sees the cursor, a retry tick and a blocked counter
         const hash = back.hash()
         const nudges: ((w: RtWorld) => () => void)[] = [
-            w => { w.pathfinderCursor++; return () => { w.pathfinderCursor-- } },
-            w => { w.vehicle(4)!.lostRetryTick++; return () => { w.vehicle(4)!.lostRetryTick-- } },
-            w => { w.vehicle(6)!.blockedTicks++; return () => { w.vehicle(6)!.blockedTicks-- } }
+            w => {
+                w.pathfinderCursor++
+                return () => { w.pathfinderCursor-- }
+            },
+            w => {
+                w.vehicle(4)!.lostRetryTick++
+                return () => { w.vehicle(4)!.lostRetryTick-- }
+            },
+            w => {
+                w.vehicle(6)!.blockedTicks++
+                return () => { w.vehicle(6)!.blockedTicks-- }
+            }
         ]
         for (const nudge of nudges) {
             const undo = nudge(back)
@@ -768,10 +777,6 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
         expect(() => encodeWorld(world)).toThrow(RangeError)
     })
 
-    // BUG(save.ts name(), line ~105): encode accepts a name holding a lone surrogate; TextEncoder writes
-    // it as U+FFFD, so the decoded name differs and the decoded world's hash differs from the live one.
-    // Unreachable through rtCleanCompanyName (it replaces lone surrogates), but encode should refuse it
-    // (RangeError) or decode must reproduce it. Flip to it() once fixed.
     it('a name with a lone surrogate either round-trips with an equal hash or is refused by encode', () => {
         const world = emptyWorld()
         const named = company(0)
@@ -789,9 +794,9 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
 
     it('refuses a 128 map save truncated at 100 random offsets, or with a flipped magic', () => {
         const bytes = encodeWorld(busyWorld(128, 20))
-        const rng = new RtRng(0x7a11)
+        const rng = new SeededRandom(0x7a11)
         for (let k = 0; k < 100; k++) {
-            const at = rng.int(0, bytes.length - 1)
+            const at = rng.randomInt(0, bytes.length - 1)
             if (!refused(bytes.subarray(0, at))) throw new Error(`truncated to ${at} of ${bytes.length} bytes was accepted`)
         }
         for (let at = 0; at < RT_SAVE_MAGIC.length; at++) {
@@ -804,7 +809,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
 })
 
 /* ------------------------------------------------------------------------------------------
- * W70 § 5.5: a 256 map filled to every cap (AR-78, AR-79)
+ * A 256 map filled to every cap
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -817,7 +822,7 @@ describe('rail tycoon save format: lossless round trips (W70)', () => {
 function capWorld(): RtWorld {
     const caps = RT_CATALOG.caps
     const side = 256
-    const rng = new RtRng(0xca95)
+    const rng = new SeededRandom(0xca95)
     const world = new RtWorld({
         settings: { side, maxCompanies: caps.maxCompanies, sharing: true },
         map: new RtMap(side),
@@ -828,23 +833,23 @@ function capWorld(): RtWorld {
         companies: [], towns: [], industries: [], stations: [], vehicles: []
     })
     for (let id = 0; id < caps.maxCompanies; id++) world.insertCompany(rtNewCompany(id, `Company ${id + 1}`, id, 0))
-    const perCargo = () => RT_CARGO_IDS.map(() => rng.int(0, 100_000))
+    const perCargo = () => RT_CARGO_IDS.map(() => rng.randomInt(0, 100_000))
     for (let id = 0; id < caps.maxTowns; id++) {
         world.towns[id] = {
-            id, name: `Town ${id}`, centre: rng.int(0, side * side - 1), houseCount: 300, population: 9000,
+            id, name: `Town ${id}`, centre: rng.randomInt(0, side * side - 1), houseCount: 300, population: 9000,
             growthCounter: 20, growthRate: 70, growing: true, activeStations: 4,
             receivedThisMonth: perCargo(), receivedLastMonth: perCargo()
         }
     }
     for (let id = 0; id < caps.maxIndustries; id++) {
         world.industries[id] = {
-            id, type: id % RT_INDUSTRY_TYPE_IDS.length, origin: rng.int(0, side * side - 1),
+            id, type: id % RT_INDUSTRY_TYPE_IDS.length, origin: rng.randomInt(0, side * side - 1),
             waiting: perCargo(), delivered: perCargo(), producedThisMonth: perCargo(), transportedThisMonth: perCargo()
         }
     }
     const played = (home: number): RtCargoPacket => ({
-        cargo: home % RT_CARGO_IDS.length, count: rng.int(1, 80), sourceTile: home * 64 + rng.int(0, 3),
-        sourceStation: home, transitPeriods: rng.int(0, 40), feederShare: 0
+        cargo: home % RT_CARGO_IDS.length, count: rng.randomInt(1, 80), sourceTile: home * 64 + rng.randomInt(0, 3),
+        sourceStation: home, transitPeriods: rng.randomInt(0, 40), feederShare: 0
     })
     const stationTiles = caps.maxStationTiles / caps.maxStations
     const perSlot = caps.maxPacketsPerStation / RT_CARGO_IDS.length
@@ -871,14 +876,14 @@ function capWorld(): RtWorld {
             consist: [0, ...Array.from({ length: parts - 1 }, () => 2)], wagonCount: parts - 1,
             tiles: Array.from({ length }, (_, k) => tile + k), pieces: Array.from({ length }, () => 2),
             route: [2, 2, 2, 2], routeIndex: 1, reservedEnd: 2, routeTick: 4_999_000, lost: false, lostRetryTick: RT_NONE,
-            orders: Array.from({ length: caps.maxOrders }, () => ({ kind: RtOrderKind.gotoStation, target: rng.int(0, caps.maxStations - 1), flags: 0 })),
-            cargo: Array.from({ length: caps.maxPacketsPerVehicle }, () => played(rng.int(0, caps.maxStations - 1)))
+            orders: Array.from({ length: caps.maxOrders }, () => ({ kind: RtOrderKind.gotoStation, target: rng.randomInt(0, caps.maxStations - 1), flags: 0 })),
+            cargo: Array.from({ length: caps.maxPacketsPerVehicle }, () => played(rng.randomInt(0, caps.maxStations - 1)))
         })
     }
     return world
 }
 
-describe('rail tycoon save format: a 256 map at every cap (W70, AR-78, AR-79)', () => {
+describe('rail tycoon save format: a 256 map at every cap', () => {
     let cached: { world: RtWorld, bytes: Uint8Array, gz: Uint8Array } | null = null
     const capSave = () => {
         if (!cached) {
@@ -913,14 +918,14 @@ describe('rail tycoon save format: a 256 map at every cap (W70, AR-78, AR-79)', 
         expect(back!.hash()).toBe(world.hash())
     })
 
-    // AR-78: a world at every cap gzips to about 9.3 MB with play-shaped packets; the save bound is 16 MiB
+    // A world at every cap gzips to about 9.3 MB with play-shaped packets; the save bound is 16 MiB
     it('compresses under RT_MAX_SAVE_BYTES', { timeout: 120_000 }, () => {
         expect(capSave().gz.length).toBeLessThan(RT_MAX_SAVE_BYTES)
     })
 })
 
 /* ------------------------------------------------------------------------------------------
- * W70: continued stepping (AR-15, AR-81, AR-88, AR-129, AR-137), on RtWorld.step (W57).
+ * Continued stepping, on RtWorld.step.
  * ---------------------------------------------------------------------------------------- */
 
 function stepN(world: RtWorld, ticks: number): void {
@@ -943,14 +948,14 @@ function expectLockstep(live: RtWorld, copy: RtWorld, ticks: number, commands?: 
         stepN(copy, 100)
         if (copy.hash() !== live.hash()) throw new Error(`hashes split by tick ${live.tick}`)
     }
-    // 5000 ticks is more than two month ends (AR-81)
+    // 5000 ticks is more than two month ends
     if (ticks >= 5000) expect(live.date.year * 12 + live.date.month - startMonths).toBeGreaterThanOrEqual(2)
 }
 
 /**
  * A running network built through commands, in December so a lockstep run crosses a month end and
  * the new year: company 0's main line y = 10 between two stations with a path-signalled passing loop
- * and a block-signalled stretch leaving through a path signal (a mixed block, AR-88), crossing a town
+ * and a block-signalled stretch leaving through a path signal (a mixed block), crossing a town
  * road; company 1's depot and spur at the east end, its train running over company 0's track to
  * company 0's stations (sharing on); a bus between two stops on the town road; a growing town by
  * the east station with houses; cargo waiting. 300 ticks in, trains are mid-route holding
@@ -1036,7 +1041,7 @@ function networkWorld(): RtWorld {
     return world
 }
 
-describe('rail tycoon save format: continued stepping (W70)', () => {
+describe('rail tycoon save format: continued stepping', () => {
     const runningWorld = () => {
         const world = networkWorld()
         world.vehicle(1)!.breakdownTicks = 40
@@ -1055,7 +1060,7 @@ describe('rail tycoon save format: continued stepping (W70)', () => {
         expect(world.vehicleList().map(v => v.tiles[0])).not.toEqual(before)
     })
 
-    it('snapshots at 5 ticks each step 5000 more in lockstep with the original (AR-15, AR-81)', () => {
+    it('snapshots at 5 ticks each step 5000 more in lockstep with the original', () => {
         // the fixture is deterministic, so each snapshot point gets its own original to keep stepping
         for (const ticks of [37, 1013, 2222, 3001, 4999]) {
             const live = runningWorld()
@@ -1064,18 +1069,18 @@ describe('rail tycoon save format: continued stepping (W70)', () => {
         }
     })
 
-    it('the extended fixture (sharing, a crossing over a town road, a stop on it, a growing town) steps 5000 ticks in lockstep after a round trip (AR-81)', () => {
+    it('the extended fixture (sharing, a crossing over a town road, a stop on it, a growing town) steps 5000 ticks in lockstep after a round trip', () => {
         const live = runningWorld()
         expectLockstep(live, roundTrip(live), 5000)
     })
 
-    it('a mixed block snapshotted mid-run steps 5000 ticks in lockstep (AR-88)', () => {
+    it('a mixed block snapshotted mid-run steps 5000 ticks in lockstep', () => {
         const live = runningWorld()
         stepN(live, 500)
         expectLockstep(live, roundTrip(live), 5000)
     })
 
-    it('lost trains mid-retry and a part-way pathfinder cursor step 5000 ticks in lockstep (AR-129)', () => {
+    it('lost trains mid-retry and a part-way pathfinder cursor step 5000 ticks in lockstep', () => {
         const live = runningWorld()
         for (const id of [1, 3]) {
             const vehicle = live.vehicle(id)!
@@ -1086,7 +1091,7 @@ describe('rail tycoon save format: continued stepping (W70)', () => {
         expectLockstep(live, roundTrip(live), 5000)
     })
 
-    it('after the highest id is sold, buying on both copies keeps them in lockstep (AR-137)', () => {
+    it('after the highest id is sold, buying on both copies keeps them in lockstep', () => {
         const { world: live, depot } = depotWorld(4)
         expect(sellVehicle(live, 0, 3, true).ok).toBe(true)
         const copy = roundTrip(live)

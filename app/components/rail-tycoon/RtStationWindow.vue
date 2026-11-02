@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Rail Tycoon — a station's window (W117), opened by a query click on a station tile (id is the
+// Rail Tycoon — a station's window, opened by a query click on a station tile (id is the
 // station id): the owner company's name and colour, the amount waiting and the rating of each cargo,
 // the cargos the catchment accepts (computeCatchment, as the acceptance rule sums it), and a toggle
 // that outlines the station and its catchment on the map. Every company's station shows the same,
-// read only (Q19b).
+// read only.
 import { computeCatchment } from '#shared/utils/rail-tycoon/stations'
 import { RtFacility } from '#shared/utils/rail-tycoon/types'
 import RtWindow from './RtWindow.vue'

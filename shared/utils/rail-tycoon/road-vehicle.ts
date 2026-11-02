@@ -1,16 +1,16 @@
 /**
- * Road vehicle movement (W49): one tick of one bus or truck, as the original's road vehicle
+ * Road vehicle movement: one tick of one bus or truck, as the original's road vehicle
  * controller. The plan places stepRoadVehicle in vehicles.ts; it lives here, beside train.ts, so
- * world.ts (W57) can import it without a cycle.
+ * world.ts can import it without a cycle.
  *
  * A road vehicle is half a tile long. tiles[0] is the head's tile and pieces[0] its lane there: the
  * direction it leaves that tile by, so the two directions of a road are two lanes and a corner's
  * lanes differ by exit. progress runs from the lane's entry edge (0) to its exit edge (subTileUnits).
  * While the head is less than a body length into its tile, the vehicle also holds the lane it came
  * from, as tiles[1]. A vehicle keeps roadLaneGap behind the one ahead in its lane; held there for
- * roadBlockedTicks it drives through, as the original's last resort (AR-127). It turns round in its
- * tile at a road end, or at once when the best route starts behind it (AR-43), and waits before a
- * level crossing while the barriers are down (AR-60).
+ * roadBlockedTicks it drives through, as the original's last resort. It turns round in its
+ * tile at a road end, or at once when the best route starts behind it, and waits before a
+ * level crossing while the barriers are down.
  *
  * A bay stop (the original's normal road stop) is a dead end with two bays side by side. A vehicle
  * whose order names it drives in from the entrance only once a bay is free, taking that bay's lane
@@ -42,13 +42,13 @@ import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } f
 import { rtBreakdownTick, rtConsistMaxSpeed, rtCountRunningTick, rtModelSpec, rtServiceInDepot } from './vehicles'
 import type { RtWorld } from './world'
 
-/** W51's side of a stop: the same hooks as a train's. Without hooks a stop ends on the next tick. */
+/** What happens at a stop (loading.ts supplies it): the same hooks as a train's. Without hooks a stop ends on the next tick. */
 export type RtRoadHooks = RtTrainHooks
 
 export interface RtRoadStepResult {
     /** A crashed vehicle whose crash period ran out: the caller removes it (rtRemoveTrain works for both kinds). */
     remove: boolean
-    /** The vehicle ran a route search this tick (W57's round-robin cursor). */
+    /** The vehicle ran a route search this tick (for RtWorld.step's round-robin cursor). */
     searched: boolean
 }
 
@@ -153,7 +153,7 @@ function orderTarget(world: RtWorld, vehicle: RtVehicle): RtRouteTarget | null {
 }
 
 /**
- * Whether a level crossing's barriers are down (AR-60): a train holds its piece, a path reservation
+ * Whether a level crossing's barriers are down: a train holds its piece, a path reservation
  * runs through it, or a train's head stands on an adjacent rail tile heading into it.
  */
 export function rtCrossingBarred(world: RtWorld, tile: number): boolean {
@@ -193,7 +193,7 @@ function dropTail(world: RtWorld, vehicle: RtVehicle): void {
     }
 }
 
-/** Turns the vehicle round in its head tile (AR-43): it continues in the other lane from where it stands. */
+/** Turns the vehicle round in its head tile: it continues in the other lane from where it stands. */
 function turnAround(world: RtWorld, vehicle: RtVehicle): void {
     // in a bay the U is the way out already
     if (rtBayFacingAt(world.map, vehicle.tiles[0]!) >= 0) return
@@ -212,7 +212,7 @@ function turnAround(world: RtWorld, vehicle: RtVehicle): void {
     world.markDirty(tile)
 }
 
-/** Searches a route when the vehicle needs one and the tick's node budget allows (W49 5.2, AR-117). */
+/** Searches a route when the vehicle needs one and the tick's node budget allows. */
 function plan(world: RtWorld, vehicle: RtVehicle): boolean {
     const stale = vehicle.routeTick === RT_NONE || vehicle.routeIndex >= vehicle.route.length
     if (!stale || world.pathNodesLeft <= 0) return false
@@ -332,7 +332,7 @@ function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number): void {
     vehicle.routeIndex = 0
     vehicle.routeTick = RT_NONE
     vehicle.blockedTicks = 0
-    // sent here by sendToDepot (AR-71): it stops inside until started
+    // sent here by sendToDepot: it stops inside until started
     if (vehicle.haltInDepot) vehicle.stopped = true
     vehicle.haltInDepot = false
     rtServiceInDepot(world, vehicle, depot, world.tick)
@@ -340,7 +340,7 @@ function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number): void {
     if (order && order.kind === RtOrderKind.gotoDepot && order.target === depot) advanceOrder(vehicle, world.stations, world.map)
 }
 
-/** The vehicle stops at a stop of its target station and hands over to loading (W51). */
+/** The vehicle stops at a stop of its target station and hands over to loading. */
 function arrive(vehicle: RtVehicle, station: number): void {
     vehicle.state = RtVehicleState.loading
     vehicle.loadingStation = station
@@ -473,7 +473,7 @@ function stateOf(vehicle: RtVehicle): RtVehicleState {
 }
 
 /**
- * W49: one tick of one road vehicle. RtWorld.step (W57) calls it for every road vehicle in id order,
+ * One tick of one road vehicle. RtWorld.step calls it for every road vehicle in id order,
  * then removes the vehicle when `remove` is set.
  */
 export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRoadHooks): RtRoadStepResult {
@@ -514,7 +514,7 @@ export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRo
     const type = stopType(vehicle)
 
     // the original's blocked counter: it counts while a vehicle is close ahead and clears once none
-    // is; past roadBlockedTicks the vehicle drives through (AR-127)
+    // is; past roadBlockedTicks the vehicle drives through
     const close = room(world, vehicle) <= 0
     if (!vehicle.stopped) vehicle.blockedTicks = close ? vehicle.blockedTicks + 1 : 0
     const through = close && vehicle.blockedTicks > RT_CATALOG.vehicles.roadBlockedTicks

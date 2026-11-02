@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// Rail Tycoon — window chrome every game panel shares (W108).
+// Rail Tycoon — window chrome every game panel shares.
 //
 // A title bar to drag by, a close button, focus-to-front on any press, and a position kept inside
 // the window layer on drag and whenever the layer or the window resizes. Escape closes the window
-// that holds keyboard focus. With a windowKey it stacks, focuses and closes through useRtWindows
-// (W109); without one it is a standalone panel that only emits.
+// that holds keyboard focus. With a windowKey it stacks, focuses and closes through useRtWindows;
+// without one it is a standalone panel that only emits.
 import { useRtWindows } from '~/utils/rail-tycoon/windows'
 
 const props = withDefaults(defineProps<{

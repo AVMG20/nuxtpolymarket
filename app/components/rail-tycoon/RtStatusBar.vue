@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Rail Tycoon — the bottom status bar (W111): the game date, the player's company with its colour,
+// Rail Tycoon — the bottom status bar: the game date, the player's company with its colour,
 // cash in the game's own pounds (red below zero) and the connection state.
 import { rtCompanyCss, rtFormatDate, rtFormatMoney, useRtGame, type RtConnectionStatus } from '~/utils/rail-tycoon/windows'
 

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from '../../shared/utils/rail-tycoon/catalog'
-import { RT_DIRS, RT_ROAD_DIR_BIT, RtMap, RtTileKind, rtReverseDir } from '../../shared/utils/rail-tycoon/map'
-import { RtRng } from '../../shared/utils/rail-tycoon/rng'
-import { RT_OWNER_NONE } from '../../shared/utils/rail-tycoon/types'
+import { RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from '#shared/utils/rail-tycoon/catalog'
+import { RT_DIRS, RT_ROAD_DIR_BIT, RtMap, RtTileKind, rtReverseDir } from '#shared/utils/rail-tycoon/map'
+import { SeededRandom } from '#shared/utils/random'
+import { RT_OWNER_NONE } from '#shared/utils/rail-tycoon/types'
 import {
     RT_INDUSTRY_SPACING,
     RT_TERRAIN_DEFAULTS,
@@ -13,7 +13,7 @@ import {
     placeTowns,
     rtDefaultWorldOptions,
     type RtWorldLayout
-} from '../../shared/utils/rail-tycoon/worldgen'
+} from '#shared/utils/rail-tycoon/worldgen'
 
 function layoutHash(layout: RtWorldLayout): string {
     const hash = createHash('sha1')
@@ -63,7 +63,7 @@ describe('rail tycoon world generation', () => {
     it('generates byte-identical terrain from the same seed and options', () => {
         const run = () => {
             const map = new RtMap(64)
-            generateTerrain(map, new RtRng(5), RT_TERRAIN_DEFAULTS)
+            generateTerrain(map, new SeededRandom(5), RT_TERRAIN_DEFAULTS)
             return map
         }
         const a = run()
@@ -231,8 +231,8 @@ describe('rail tycoon world generation', () => {
 
     it('places fewer towns rather than crowding them when space runs out', () => {
         const map = new RtMap(64)
-        generateTerrain(map, new RtRng(11), RT_TERRAIN_DEFAULTS)
-        const towns = placeTowns(map, new RtRng(12), 64)
+        generateTerrain(map, new SeededRandom(11), RT_TERRAIN_DEFAULTS)
+        const towns = placeTowns(map, new SeededRandom(12), 64)
         expect(towns.length).toBeGreaterThan(0)
         expect(towns.length).toBeLessThan(64)
         for (const a of towns) {

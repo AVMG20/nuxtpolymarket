@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampUtf8, RtBadData, RtReader, RtWriter } from '../../shared/utils/rail-tycoon/bytes'
+import { clampUtf8, RtBadData, RtReader, RtWriter } from '#shared/utils/rail-tycoon/bytes'
 
 const MAX = Number.MAX_SAFE_INTEGER
 
@@ -27,7 +27,7 @@ describe('RtWriter and RtReader', () => {
         }
     })
 
-    it('round-trips svarints across the whole safe range (AR-58)', () => {
+    it('round-trips svarints across the whole safe range', () => {
         for (const v of [-MAX, -(2 ** 40), -64, -63, -1, 0, 1, 63, 64, 65, 2 ** 31, 2 ** 40, MAX]) {
             expect(roundTrip(w => w.svarint(v), r => r.svarint())).toBe(v)
         }
@@ -132,7 +132,7 @@ describe('RtWriter and RtReader', () => {
         expect(() => new RtReader(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f])).varint()).toThrow(RtBadData)
     })
 
-    it('throws RtBadData for truncated, over-long and out-of-range svarints (AR-58)', () => {
+    it('throws RtBadData for truncated, over-long and out-of-range svarints', () => {
         expect(() => new RtReader(new Uint8Array([0x80])).svarint()).toThrow(RtBadData)
         expect(() => new RtReader(new Uint8Array([0xc0, 0x80, 0x80])).svarint()).toThrow(RtBadData)
         expect(() => new RtReader(new Uint8Array(9).fill(0xff)).svarint()).toThrow(RtBadData)
@@ -146,7 +146,7 @@ describe('RtWriter and RtReader', () => {
     })
 })
 
-describe('clampUtf8 (AR-76)', () => {
+describe('clampUtf8', () => {
     const utf8 = (s: string) => new TextEncoder().encode(s).length
 
     it('keeps a long accented and emoji name within 32 bytes without breaking a code point', () => {

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Rail Tycoon — the depot's buy window (W114): opened by a query click on an own depot (id is the
+// Rail Tycoon — the depot's buy window: opened by a query click on an own depot (id is the
 // depot tile). Lists the models that depot sells with cost, speed, capacity and running cost; a train
-// also takes one wagon type and a count, which stops at the longest consist maxTrainLength allows
-// (AR-91). Buy sends buyVehicle and opens the new vehicle's window once it shows up in the depot.
+// also takes one wagon type and a count, which stops at the longest consist maxTrainLength allows.
+// Buy sends buyVehicle and opens the new vehicle's window once it shows up in the depot.
 // The vehicles standing in the depot are listed below, a click opens one.
 import { RT_CATALOG, type RtVehicleModelSpec } from '#shared/utils/rail-tycoon/catalog'
 import { RtCommandKind, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'

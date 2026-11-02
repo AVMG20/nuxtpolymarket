@@ -74,7 +74,7 @@ function network() {
     return { w, depot, rivalDepot, stationTile, station }
 }
 
-describe('buying (W114)', () => {
+describe('buying', () => {
     it('lists locomotives for a rail depot and road vehicles for a road depot', () => {
         expect(rtBuyableModels(RtVehicleKind.rail).map(m => m.index)).toEqual([M.tankEngine.index, M.expressEngine.index])
         expect(rtBuyableModels(RtVehicleKind.road).every(m => m.role === 'road')).toBe(true)
@@ -82,7 +82,7 @@ describe('buying (W114)', () => {
         expect(rtWagonModels()).toHaveLength(5)
     })
 
-    it('stops the wagon count at the longest train maxTrainLength allows (AR-91)', () => {
+    it('stops the wagon count at the longest train maxTrainLength allows', () => {
         const engine = M.expressEngine.index
         const max = rtMaxWagons(engine)
         const v = RT_CATALOG.vehicles
@@ -121,7 +121,7 @@ describe('buying (W114)', () => {
     })
 })
 
-describe('vehicles (W115, W116)', () => {
+describe('vehicles', () => {
     it('names, rows, status and cargo for a bought train', () => {
         const { w, depot } = network()
         must(w, ME, { kind: RtCommandKind.buyVehicle, depot, model: M.tankEngine.index, wagons: [M.coalHopper.index, M.coalHopper.index] })
@@ -179,7 +179,7 @@ describe('vehicles (W115, W116)', () => {
     })
 })
 
-describe('order edits (W116)', () => {
+describe('order edits', () => {
     const a: RtOrder = { kind: RtOrderKind.gotoStation, target: 1, flags: 0 }
     const b: RtOrder = { kind: RtOrderKind.gotoStation, target: 2, flags: 0 }
     const d: RtOrder = { kind: RtOrderKind.gotoDepot, target: 99, flags: 0 }
@@ -221,7 +221,7 @@ describe('order edits (W116)', () => {
     })
 })
 
-describe('stations (W117)', () => {
+describe('stations', () => {
     it('lists waiting cargo and ratings, and acceptance from the catchment', () => {
         const { w, station, stationTile } = network()
         expect(rtStationCargoRows(station)).toEqual([])
@@ -238,7 +238,7 @@ describe('stations (W117)', () => {
     })
 })
 
-describe('query clicks (for W121)', () => {
+describe('query clicks (for the game page)', () => {
     it('opens a station, my own depot, never a rival depot, and a vehicle on its tile', () => {
         const { w, depot, rivalDepot, stationTile, station } = network()
         expect(rtQueryTarget(w, ME, stationTile)).toEqual({ kind: 'station', id: station.id })
@@ -259,7 +259,7 @@ describe('query clicks (for W121)', () => {
     })
 })
 
-describe('minimap (W118)', () => {
+describe('minimap', () => {
     it('fits the map diamond in the minimap and maps world points both ways', () => {
         for (const side of [64, 128, 256]) {
             expect(rtMinimapScale(side) * 2 * side).toBe(RT_MINIMAP_WIDTH)

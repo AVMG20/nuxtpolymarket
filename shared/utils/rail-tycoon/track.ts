@@ -1,6 +1,6 @@
 /**
- * Rail track rules: laying (W16) and removing (W17) one track piece, the shared RtBuildResult every
- * builder returns, and the rail tile payload layout goal 04 reads for signals and reservations.
+ * Rail track rules: laying and removing one track piece, the shared RtBuildResult every
+ * builder returns, and the rail tile payload layout signals.ts reads for signals and reservations.
  * Behaviour mimics the original game at its default settings; the code is written from scratch.
  *
  * Rail payload (32 bits, kind rail):
@@ -9,7 +9,7 @@
  *   bits 7-12   reservation, one bit per RtTrack (bit 7 + piece)
  *   bits 13-20  signal slot 0; on a level crossing this byte holds the road's owner (255 a town)
  *   bits 21-28  signal slot 1
- *   bits 29-31  unused, always 0 (bit 29 is kept free for the siding flag, W150)
+ *   bits 29-31  unused, always 0 (bit 29 is kept free for the siding flag)
  * A signal slot byte: bits 0-2 the signalled piece (RT_SIGNAL_SLOT_EMPTY when the slot is empty),
  * bit 3 the type (0 block, 1 path), bits 4-5 presence per direction, bits 6-7 aspect per direction
  * (1 green, 0 red). A tile carries at most two signalled pieces; a crossing carries none.
@@ -37,9 +37,9 @@ export const RtBuildError = {
     conflict: 4,
     /** A footprint or a depot's front tile runs off the map. */
     edge: 5,
-    /** The station would span more than RT_CATALOG stationSpread tiles in a direction (AR-101). */
+    /** The station would span more than RT_CATALOG stationSpread tiles in a direction. */
     tooSpread: 6,
-    /** Exactly this is already built; a line command treats it as success at no cost (AR-49). */
+    /** Exactly this is already built; a line command treats it as success at no cost. */
     alreadyBuilt: 7,
     /** A parameter is out of range or names nothing there (hostile or stale input). */
     invalid: 8,
@@ -71,16 +71,16 @@ export function rtBuildFail(error: RtBuildError): RtBuildResult {
 export type RtOccupied = (tile: number) => boolean
 
 /**
- * The reservation side of the train rules, passed in by the caller (goal 04 W29/W30, wired by the
- * goal 08 commands). Removing a reserved piece, platform or depot tile needs them; without them such
+ * The reservation side of the train rules, passed in by the caller (wired by the
+ * commands in commands.ts). Removing a reserved piece, platform or depot tile needs them; without them such
  * a removal is refused with conflict, so a train's reservation is never silently lost.
  */
 export interface RtReservationHooks {
     /** The train whose reservation covers (tile, piece), scanning trains in ascending id; null when none. */
     reserverOf(tile: number, piece: RtTrack): RtVehicle | null
-    /** Releases that train's reservation ahead of its head (W30), so it stops and waits. */
+    /** Releases that train's reservation ahead of its head, so it stops and waits. */
     releaseAhead(vehicle: RtVehicle): void
-    /** Asks that train to reserve again from its head (W29) before the command returns (AR-118). */
+    /** Asks that train to reserve again from its head before the command returns. */
     reserveAgain(vehicle: RtVehicle): void
 }
 
@@ -293,13 +293,13 @@ export function rtClearingCost(map: RtMap, tile: number): number {
 }
 
 /* ------------------------------------------------------------------------------------------
- * W16: build one piece
+ * Build one piece
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Lays one track piece for a company. Allowed on clear land, coast above sea level and trees (cleared
  * at catalog cost), and on the company's own plain rail not already holding the piece. A straight
- * across a straight road on flat land makes a level crossing whoever owns the road (AR-65), completing
+ * across a straight road on flat land makes a level crossing whoever owns the road, completing
  * a half road at road cost; the crossing keeps the road owner in its first signal slot byte. Refused on
  * water, houses, industries, stations, depots and other companies' rail. Adding a piece that crosses
  * existing ones is refused while the tile carries signals or, when occupied is given, a vehicle.
@@ -353,16 +353,16 @@ export function buildRail(map: RtMap, owner: number, tile: number, piece: number
 }
 
 /* ------------------------------------------------------------------------------------------
- * W17: remove one piece
+ * Remove one piece
  * ---------------------------------------------------------------------------------------- */
 
 /**
  * Removes one of the company's own track pieces, refunding RT_CATALOG removeRailRefund (a negative
- * cost). Refused with conflict while a vehicle is on the tile or the piece carries a signal (AR-44).
+ * cost). Refused with conflict while a vehicle is on the tile or the piece carries a signal.
  * The last piece leaves clear land; the rail of a level crossing leaves the road, owned by the owner
- * in the crossing's road-owner byte (AR-65). A reserved piece is not refused: with apply, the
+ * in the crossing's road-owner byte. A reserved piece is not refused: with apply, the
  * reserving train's reservation ahead is released first, the piece removed, and the train asked to
- * reserve again before returning (AR-100, AR-118); that needs `reservations`, without which a reserved
+ * reserve again before returning; that needs `reservations`, without which a reserved
  * piece is refused with conflict.
  */
 export function removeRail(map: RtMap, owner: number, tile: number, piece: number, occupied: RtOccupied, apply: boolean, reservations?: RtReservationHooks): RtBuildResult {
@@ -400,7 +400,7 @@ export function removeRail(map: RtMap, owner: number, tile: number, piece: numbe
 }
 
 /* ------------------------------------------------------------------------------------------
- * W26: trackdirs and track following
+ * Trackdirs and track following
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -574,13 +574,13 @@ export function rtRailCanExit(map: RtMap, tile: number, dir: RtDir): boolean {
 }
 
 /**
- * W26: the trackdirs on the tile beyond edge `exitDir` of `tile` that a train of `owner` can take
- * after leaving through that edge, as bits (bit td). The one connectivity rule for signal blocks
- * (W28), reservations (W29), the route search (W31) and movement (W48).
+ * The trackdirs on the tile beyond edge `exitDir` of `tile` that a train of `owner` can take
+ * after leaving through that edge, as bits (bit td). The one connectivity rule for signal blocks,
+ * reservations, the route search and movement.
  *
  * None when the tile itself cannot be left that way (no piece touches the edge, a depot's back or
- * side), at the map edge, or into another company's rail, platform or depot while sharing is off
- * (Q19b); with sharing on any company's track connects like the owner's own. A level crossing
+ * side), at the map edge, or into another company's rail, platform or depot while sharing is off;
+ * with sharing on any company's track connects like the owner's own. A level crossing
  * offers its straight, a platform its straight along the axis, a depot only its straight entered
  * through its entrance. Signals are not considered: a one-way signal facing against the train is
  * the caller's check (signals.ts rtOneWayBlocked).

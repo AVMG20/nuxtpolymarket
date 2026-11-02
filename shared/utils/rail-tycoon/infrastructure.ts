@@ -1,8 +1,8 @@
 /**
- * Company infrastructure counts (W57): track pieces, road bits, signals, station tiles and depots per
- * company, which monthly upkeep (W45) charges. They are derived state: never saved or hashed, recounted
+ * Company infrastructure counts: track pieces, road bits, signals, station tiles and depots per
+ * company, which monthly upkeep charges. They are derived state: never saved or hashed, recounted
  * from the map on decode and after a bankruptcy reset, and kept incrementally between, by subtracting
- * what a command's tiles counted before it ran and adding what they count after (applyCommand, W59).
+ * what a command's tiles counted before it ran and adding what they count after (applyCommand).
  */
 
 import { RtTileKind, type RtMap } from './map'
@@ -84,7 +84,7 @@ export function rtCountTiles(world: RtInfrastructureWorld, tiles: Iterable<numbe
     }
 }
 
-/** Every company's counts from a full scan of the map (decode, a reset, and the tests' rescan, AR-81). */
+/** Every company's counts from a full scan of the map (decode, a reset, and the tests' rescan). */
 export function rtRecountInfrastructure(world: RtInfrastructureWorld): void {
     for (const company of world.companies) if (company) company.infrastructure = rtEmptyInfrastructure()
     const count = world.map.side * world.map.side

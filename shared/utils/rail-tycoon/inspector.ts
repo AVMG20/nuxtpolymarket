@@ -84,7 +84,7 @@ export function rtInspectCrossings(world: RtWorld): number {
     list.length = kept
     let total = 0
     for (const entry of list) {
-        if (!world.rng.chance(rules.visitNumerator, rules.visitDenominator)) continue
+        if (!world.rng.randomRatio(rules.visitNumerator, rules.visitDenominator)) continue
         const months = Math.max(1, Math.floor((world.tick - entry.since) / RT_INSPECTOR_MONTH_TICKS))
         const fine = rules.baseFine * months
         bookMoney(world.company(entry.causer)!, 'fines', -fine)

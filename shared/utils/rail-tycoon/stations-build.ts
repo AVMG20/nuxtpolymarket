@@ -1,5 +1,5 @@
 /**
- * Station building: rail stations (W20) and drive-through road stops (W21). Behaviour mimics the
+ * Station building: rail stations and drive-through road stops. Behaviour mimics the
  * original game at its default settings (adjacent tiles join an own station, station spread 12,
  * drive-through stops allowed on town roads); the code is written from scratch.
  *
@@ -7,7 +7,7 @@
  *   bits 0-15   station id
  *   bits 16-17  tile type (RtStationTile: rail platform, bus stop, truck stop; 3 is never used)
  *   bit  18     axis: 0 along x, 1 along y (the platform track, or the stop's road)
- *   bit  19     reservation of a platform tile (AR-100), set and checked by reservePath (W29)
+ *   bit  19     reservation of a platform tile, set and checked by reservePath
  *   bit  20     road stops: a bay stop (0 a drive-through stop)
  *   bits 21-22  bay stops: the side the entrance faces (RtDir); the axis bit follows it
  *   bit  23     unused, 0
@@ -316,7 +316,7 @@ function adjoiningStation(map: RtMap, owner: number, tiles: readonly number[]): 
     return found
 }
 
-/** Whether a station's tiles plus the new ones span at most stationSpread tiles in each direction (AR-101). */
+/** Whether a station's tiles plus the new ones span at most stationSpread tiles in each direction. */
 function withinSpread(map: RtMap, existing: readonly number[], added: readonly number[]): boolean {
     let minX = Infinity
     let minY = Infinity
@@ -368,7 +368,7 @@ function commitTiles(stations: RtStation[], station: RtStation, created: boolean
 }
 
 /* ------------------------------------------------------------------------------------------
- * W20: rail stations
+ * Rail stations
  * ---------------------------------------------------------------------------------------- */
 
 /**
@@ -378,7 +378,7 @@ function commitTiles(stations: RtStation[], station: RtStation, created: boolean
  * straight rail along the axis (reused; refused with occupied on a vehicle when occupied is given).
  * Touching one own station (the 3 by 3 ring) joins it, touching two is refused, otherwise a new
  * station named after the nearest town is created (RT_CATALOG caps.maxStations bounds it). The station
- * stays within stationSpread (AR-101). Cost per tile railStationTile plus track, plus
+ * stays within stationSpread. Cost per tile railStationTile plus track, plus
  * railStationLength per platform length, as the original. Returns the station id on success.
  */
 export function buildRailStation(
@@ -443,7 +443,7 @@ export function buildRailStation(
 }
 
 /* ------------------------------------------------------------------------------------------
- * W21: road stops
+ * Road stops
  * ---------------------------------------------------------------------------------------- */
 
 /** The road sides (RtDir) a stop of this shape opens to: a bay its entrance, a drive-through stop both ends. */
@@ -481,9 +481,9 @@ function connectEntrances(map: RtMap, owner: number, tile: number, entrances: re
  * - bayNe to bayNw: a bay on flat clear land, trees cleared, whose entrance faces that side and must
  *   lie on the map; it joins the road outside its entrance.
  * A junction, a corner, other companies' roads, a level crossing and a vehicle on the tile (when
- * occupied is given) are refused. Joins an adjoining own station or creates one, within stationSpread
- * (AR-101). A drive-through stop keeps its road and remembers the road owner, so demolishing it gives
- * a town road back to the town (AR-51); a bay leaves clear land. Returns the station id on success.
+ * occupied is given) are refused. Joins an adjoining own station or creates one, within stationSpread.
+ * A drive-through stop keeps its road and remembers the road owner, so demolishing it gives
+ * a town road back to the town; a bay leaves clear land. Returns the station id on success.
  */
 export function buildRoadStop(
     map: RtMap, stations: RtStation[], towns: readonly RtTown[], owner: number, tile: number,

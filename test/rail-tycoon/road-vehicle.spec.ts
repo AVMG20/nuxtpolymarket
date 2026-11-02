@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad } from '../../shared/utils/rail-tycoon/road'
-import { rtCrossingBarred, stepRoadVehicle } from '../../shared/utils/rail-tycoon/road-vehicle'
-import { RtStationTile, buildRoadStop } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X, RT_ROAD_Y, RtTrack, buildRail } from '../../shared/utils/rail-tycoon/track'
-import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '../../shared/utils/rail-tycoon/train'
-import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { buyVehicle } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { buildRoad } from '#shared/utils/rail-tycoon/road'
+import { rtCrossingBarred, stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
+import { RtStationTile, buildRoadStop } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X, RT_ROAD_Y, RtTrack, buildRail } from '#shared/utils/rail-tycoon/track'
+import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
+import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
 const ENGINE = RT_CATALOG.vehicles.models.expressEngine.index
@@ -104,7 +104,7 @@ function count(list: number[], value: number): number {
     return list.filter(x => x === value).length
 }
 
-describe('rail tycoon road vehicles (W54)', () => {
+describe('rail tycoon road vehicles', () => {
     it('a bus serves two stops across a town, round a junction, for 10000 ticks', () => {
         const w = world()
         townRoads(w)
@@ -182,7 +182,7 @@ describe('rail tycoon road vehicles (W54)', () => {
         expect(train.state).not.toBe(RtVehicleState.crashed)
     })
 
-    it('reaching a crossing as a train approaches on an unsignalled line, waits there and survives (AR-60)', () => {
+    it('reaching a crossing as a train approaches on an unsignalled line, waits there and survives', () => {
         const w = world()
         const map = w.map
         for (let x = 6; x <= 40; x++) buildRail(map, 0, map.idx(x, 10), RtTrack.x, true)
@@ -216,7 +216,7 @@ describe('rail tycoon road vehicles (W54)', () => {
         expect(trainFarthest).toBeGreaterThan(20)
     })
 
-    it('a bus stopped by its owner blocks the bus behind for exactly roadBlockedTicks, which then drives through and serves its stops (AR-127)', () => {
+    it('a bus stopped by its owner blocks the bus behind for exactly roadBlockedTicks, which then drives through and serves its stops', () => {
         const w = world()
         const map = w.map
         townRoads(w)

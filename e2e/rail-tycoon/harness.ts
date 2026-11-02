@@ -1,5 +1,5 @@
 /**
- * Rail Tycoon browser harness (W147): several headless Google Chrome players, each in its own
+ * Rail Tycoon browser harness: several headless Google Chrome players, each in its own
  * profile directory and logged in as its own local test account, driving the real game.
  *
  * Every player is a playwright-core persistent context on the installed Chrome (RT_E2E_CHROME

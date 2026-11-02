@@ -106,7 +106,7 @@ describe('resolution and ranges', () => {
         expect(rtRenderResolution(3)).toBe(3)
     })
 
-    it('gives a world pixel a whole number of canvas pixels at every zoom (US-10 seams at 0.5x)', () => {
+    it('gives a world pixel a whole number of canvas pixels at every zoom (no seams at 0.5x)', () => {
         for (const dpr of [1, 1.25, 1.5, 2, 2.25, 3]) {
             for (const zoom of RT_CAMERA_ZOOMS) {
                 const resolution = rtRenderResolution(dpr, zoom)

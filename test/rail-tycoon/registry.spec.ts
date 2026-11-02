@@ -136,7 +136,7 @@ function statusCodes(results: PromiseSettledResult<unknown>[]) {
 }
 
 describe.skipIf(SKIP)('rail tycoon world registry', () => {
-    describe('rtListWorldsForUser (W78)', () => {
+    describe('rtListWorldsForUser', () => {
         it('shows a world to its owner and its members, with the invite code, and not to others', async () => {
             const owner = await newUser('list-owner')
             const member = await newUser('list-member')
@@ -198,7 +198,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('rtCreateWorld (W79)', () => {
+    describe('rtCreateWorld', () => {
         it('creates an open world with its owner as company 0 and returns its id and invite code', async () => {
             const owner = await newUser('create-owner')
             const created = await rtCreateWorld(owner, 'Ada Rail', '  Iron Valley  ', SMALL)
@@ -319,7 +319,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('rtJoinWorld (W80)', () => {
+    describe('rtJoinWorld', () => {
         it('joins as a new company named after the player, writing the save and the member together', async () => {
             const owner = await newUser('join-owner')
             const joiner = await newUser('join-joiner')
@@ -400,7 +400,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             expect(loaded!.revision).toBe(3)
             const companies = loaded!.world.companyList()
             expect(companies.map(c => c.id)).toEqual([0, 1, 2, 3])
-            // each member row points at the company created for that very player (AR-1)
+            // each member row points at the company created for that very player
             for (const member of members) {
                 const name = member.userId === owner ? 'Owner' : `Player ${joiners.indexOf(member.userId)}`
                 expect(loaded!.world.company(member.companyId)!.name).toBe(name)
@@ -422,7 +422,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('invite codes (AR-64)', () => {
+    describe('invite codes', () => {
         it('lists the created world\'s code to its owner and a joined member, and that code joins a third player', async () => {
             const owner = await newUser('code-owner')
             const member = await newUser('code-member')
@@ -441,7 +441,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('rtCloseWorld (W81)', () => {
+    describe('rtCloseWorld', () => {
         it('closes an open world for its owner, then refuses a second close with 409', async () => {
             const owner = await newUser('close-owner')
             const world = await seedWorld(owner)
@@ -480,7 +480,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('rtDeleteWorld (W82)', () => {
+    describe('rtDeleteWorld', () => {
         it('refuses a non-owner with 403 and deletes nothing', async () => {
             const owner = await newUser('del-owner')
             const member = await newUser('del-member')
@@ -514,7 +514,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
-    describe('rtGetAccess (W141)', () => {
+    describe('rtGetAccess', () => {
         it('makes a member of an open world a player with their company', async () => {
             const owner = await newUser('acc-owner')
             const member = await newUser('acc-member')

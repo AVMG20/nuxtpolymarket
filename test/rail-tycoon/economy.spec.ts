@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { agePackets } from '../../shared/utils/rail-tycoon/cargo'
-import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
+import { agePackets } from '#shared/utils/rail-tycoon/cargo'
+import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import {
     bookMoney,
     changeLoan,
@@ -14,9 +14,9 @@ import {
     rtEmptyFinance,
     RtLoanError,
     stationSharingShare
-} from '../../shared/utils/rail-tycoon/economy'
-import type { RtSharingWorld } from '../../shared/utils/rail-tycoon/economy'
-import type { RtCargoPacket, RtCompany, RtInfrastructure } from '../../shared/utils/rail-tycoon/types'
+} from '#shared/utils/rail-tycoon/economy'
+import type { RtSharingWorld } from '#shared/utils/rail-tycoon/economy'
+import type { RtCargoPacket, RtCompany, RtInfrastructure } from '#shared/utils/rail-tycoon/types'
 
 const PASSENGERS = RT_CARGO_IDS.indexOf('passengers')
 const MAIL = RT_CARGO_IDS.indexOf('mail')
@@ -51,7 +51,7 @@ function packet(transitPeriods: number): RtCargoPacket {
 }
 
 describe('rail tycoon economy', () => {
-    describe('agePackets (W38)', () => {
+    describe('agePackets', () => {
         it('ages every packet by one period per call', () => {
             const load = [packet(0), packet(5)]
             agePackets(load)
@@ -69,7 +69,7 @@ describe('rail tycoon economy', () => {
         })
     })
 
-    describe('deliveryPayment (W43)', () => {
+    describe('deliveryPayment', () => {
         it('pays a bus load of 30 passengers over 20 tiles', () => {
             // 20 * 255 * 30 * 3185 >> 21 = 487305000 / 2097152 = 232.36
             expect(deliveryPayment(PASSENGERS, 30, 20, 0)).toBe(232)
@@ -148,7 +148,7 @@ describe('rail tycoon economy', () => {
         })
     })
 
-    describe('changeLoan (W44)', () => {
+    describe('changeLoan', () => {
         it('borrowing raises money and loan equally', () => {
             const c = company(0, 100000, 100000)
             expect(changeLoan(c, 3)).toEqual({ ok: true, amount: 30000 })
@@ -196,7 +196,7 @@ describe('rail tycoon economy', () => {
         })
     })
 
-    describe('monthlyFinance (W45)', () => {
+    describe('monthlyFinance', () => {
         it('twelve monthly interest charges equal the yearly rate exactly', () => {
             const c = company(0, 1000000, 10000)
             const charges: number[] = []
@@ -271,7 +271,7 @@ describe('rail tycoon economy', () => {
         })
     })
 
-    describe('chargeSharing (W145)', () => {
+    describe('chargeSharing', () => {
         function world(sharing = true): RtSharingWorld & { companies: RtCompany[] } {
             return { settings: { sharing }, companies: [company(0, 10000, 0), company(1, 10000, 0)] }
         }
@@ -328,7 +328,7 @@ describe('rail tycoon economy', () => {
         })
     })
 
-    it('books mid-month income, cost and sharing fee into monthlyIncome once, in their month (AR-73)', () => {
+    it('books mid-month income, cost and sharing fee into monthlyIncome once, in their month', () => {
         const w: RtSharingWorld & { companies: RtCompany[] } = {
             settings: { sharing: true },
             companies: [company(0, 1000000, 0), company(1, 1000000, 0)]

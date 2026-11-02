@@ -1,16 +1,16 @@
 /**
- * Industries (W40): primary production every production cycle, secondary conversion of delivered
+ * Industries: primary production every production cycle, secondary conversion of delivered
  * cargo, and moving the output to nearby stations. Behaviour mimics the original game: a primary adds
  * its fixed rate every cycle (the original has no per-cycle random variation), output waits at the
  * industry and moves to the stations around its footprint at most 255 units per footprint tile and
  * cycle, and cargo with no station to take it is lost. Industry opening, closing and production
- * changes are out of scope (goal 05). Integers only; the code is written from scratch.
+ * changes are out of scope. Integers only; the code is written from scratch.
  */
 
 import { RT_CATALOG, RT_INDUSTRY_TYPE_IDS } from './catalog'
 import { distributeProduction } from './cargo'
 import type { RtMap } from './map'
-import type { RtRng } from './rng'
+import type { SeededRandom } from '../random'
 import type { RtStationWorld } from './stations'
 import type { RtIndustry } from './types'
 
@@ -57,7 +57,7 @@ export function rtIndustryOutputs(industry: RtIndustry): number[] {
 }
 
 /**
- * Cargo delivered to the industry by a vehicle unloading at a station that accepts it (goal 07).
+ * Cargo delivered to the industry by a vehicle unloading at a station that accepts it.
  * Input that a conversion uses waits in `delivered` (saturating at maxWaiting) until the next cycle;
  * input that is only consumed (a power station's coal) is gone. Returns the units accepted: the
  * amount, or 0 when the industry does not accept the cargo.
@@ -78,14 +78,14 @@ export function rtIndustryCycleDue(industry: RtIndustry, tick: number): boolean 
 }
 
 /**
- * One tick of an industry (W40); goal 08 calls it every tick for each industry in ascending id. On its
+ * One tick of an industry; RtWorld.step calls it every tick for each industry in ascending id. On its
  * production cycle a primary adds each catalog rate to its waiting output, a secondary converts all
  * delivered input (input * multiplier >> inputShift) into waiting output, and then every output cargo
  * moves to the stations around the footprint through distributeProduction, at most 255 units per
  * footprint tile: what moves counts as transported, the rest of that share is lost, and what exceeds
  * the per-cycle move waits. `rng` is passed through for the signature; production draws nothing.
  */
-export function industryTick(world: RtStationWorld, industry: RtIndustry, rng: RtRng, tick: number): void {
+export function industryTick(world: RtStationWorld, industry: RtIndustry, rng: SeededRandom, tick: number): void {
     if (!rtIndustryCycleDue(industry, tick)) return
     const spec = specOf(industry)
     if (!spec) return

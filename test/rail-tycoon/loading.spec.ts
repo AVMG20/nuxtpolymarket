@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { deliveryPayment, stationSharingShare } from '../../shared/utils/rail-tycoon/economy'
-import { loadUnload, rtLoadHooks, rtLoadStepAmount, rtLoadStepTicks } from '../../shared/utils/rail-tycoon/loading'
-import { RtMap } from '../../shared/utils/rail-tycoon/map'
-import { buildRoad } from '../../shared/utils/rail-tycoon/road'
-import { stepRoadVehicle } from '../../shared/utils/rail-tycoon/road-vehicle'
-import { RtStationTile, buildRoadStop } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X } from '../../shared/utils/rail-tycoon/track'
+import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { deliveryPayment, stationSharingShare } from '#shared/utils/rail-tycoon/economy'
+import { loadUnload, rtLoadHooks, rtLoadStepAmount, rtLoadStepTicks } from '#shared/utils/rail-tycoon/loading'
+import { RtMap } from '#shared/utils/rail-tycoon/map'
+import { buildRoad } from '#shared/utils/rail-tycoon/road'
+import { stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
+import { RtStationTile, buildRoadStop } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X } from '#shared/utils/rail-tycoon/track'
 import {
     RT_NONE,
     RtOrderFlag,
@@ -18,9 +18,9 @@ import {
     type RtStation,
     type RtTown,
     type RtVehicle
-} from '../../shared/utils/rail-tycoon/types'
-import { buyVehicle } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/types'
+import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const C = RT_CATALOG.cargos
 const M = RT_CATALOG.vehicles.models
@@ -88,7 +88,7 @@ function until(world: RtWorld, v: RtVehicle, station: RtStation, max = 100): num
     return -1
 }
 
-describe('rail tycoon loading and unloading (W51)', () => {
+describe('rail tycoon loading and unloading', () => {
     it('pays a bus delivering 30 passengers 20 tiles from their source the deliveryPayment amount', () => {
         const { world, map } = setup()
         const stop = stopAt(world, 30, RtStationTile.bus)
@@ -216,7 +216,7 @@ describe('rail tycoon loading and unloading (W51)', () => {
         expect(world.companies[0]!.financeThisYear.roadIncome).toBe(deliveryPayment(WOOD, 20, 20, 0))
     })
 
-    it('shares a delivery with the owner of the station it is made at, and of the station the cargo came from (Q19b, AR-72)', () => {
+    it('shares a delivery with the owner of the station it is made at, and of the station the cargo came from', () => {
         const { world, map } = setup(true)
         // company 1's own road, two rows south
         for (let x = 4; x <= 50; x++) buildRoad(map, 1, map.idx(x, 12), RT_ROAD_X, true)

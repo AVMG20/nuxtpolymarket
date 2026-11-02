@@ -80,7 +80,7 @@ afterAll(async () => {
 })
 
 describe.skipIf(SKIP)('rail tycoon store', () => {
-    describe('rtLoadWorld (W75)', () => {
+    describe('rtLoadWorld', () => {
         it('loads a stored save as the same world, with the row metadata', async () => {
             const owner = await newUser('load-owner')
             const world = newWorld(4242)
@@ -152,7 +152,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
         }, 20_000)
     })
 
-    describe('rtSaveCheckpoint (W76)', () => {
+    describe('rtSaveCheckpoint', () => {
         /** A fresh world row at revision 0, holding a gzipped save of `world`. */
         async function seedWorld(ownerId: string, world: RtWorld) {
             return seedRow(ownerId, gzipSync(encodeWorld(world)))

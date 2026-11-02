@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Rail Tycoon — the map overview (W118): one pixel per tile on an offscreen canvas (terrain by height,
+// Rail Tycoon — the map overview: one pixel per tile on an offscreen canvas (terrain by height,
 // water, towns, industries, and rail, roads, stations and depots in their owner's colour), drawn turned
 // into the main view's diamond so the camera's viewport is a plain rectangle on it. Dirty tiles from
 // the lockstep repaint one by one; a new lockstep repaints everything. A click or drag moves the main

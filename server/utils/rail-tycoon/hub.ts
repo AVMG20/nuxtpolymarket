@@ -1,12 +1,12 @@
 /**
- * Rail Tycoon hub (goal 20): ties authenticated sockets, the world registry and live rooms together.
+ * Rail Tycoon hub: ties authenticated sockets, the world registry and live rooms together.
  *
  * One socket per user (a newer one closes the older with 4409), a token bucket per connection, and
  * every frame decoded by decodeClientMsg, the anti-cheat boundary. Every lifecycle step of one world
  * (open, join, stop, delete, unload) runs in that world's promise chain, so they never interleave and
- * the live-or-offline decision is taken inside it (AR-10); a step that needs two chains takes them in
- * ascending world id order and every wait is bounded by RT_CHAIN_TIMEOUT_MS (AR-119). Destructive
- * acts ask the registry first, so a non-owner never disconnects anyone (AR-9).
+ * the live-or-offline decision is taken inside it; a step that needs two chains takes them in
+ * ascending world id order and every wait is bounded by RT_CHAIN_TIMEOUT_MS. Destructive
+ * acts ask the registry first, so a non-owner never disconnects anyone.
  *
  * Every export carries the rt prefix, because Nitro auto-imports server/utils recursively.
  */
@@ -59,7 +59,7 @@ import { RtRoom, type RtRoomDeps, type RtRoomPeer, type RtStepBudget } from './r
 import { rtLoadWorld, rtSaveCheckpoint } from './store'
 
 const TICK_MS = RT_CATALOG.time.tickMs
-/** Invite lookups that failed are counted over this window (AR-109). */
+/** Invite lookups that failed are counted over this window. */
 const RT_INVITE_FAIL_WINDOW_MS = 60000
 /** How often idle rooms and stale per-user state are swept. */
 const RT_SWEEP_MS = 30000
@@ -85,7 +85,7 @@ export type RtHubRoomDeps = Omit<RtRoomDeps, 'onUnload' | 'onIdle' | 'stepBudget
 
 /** Everything the hub touches outside itself, injected so tests drive it with fakes. */
 export interface RtHubDeps extends RtHubRoomDeps {
-    /** The deploy's build id for hello (AR-34). */
+    /** The deploy's build id for hello. */
     buildId: string
     rtListWorldsForUser(userId: string): Promise<RtWorldListing[]>
     rtCreateWorld(userId: string, userName: string, name: string, options: RtCreateOptions): Promise<RtCreatedWorld>
@@ -93,7 +93,7 @@ export interface RtHubDeps extends RtHubRoomDeps {
     rtGetAccess(userId: string, worldId: string, inviteCode?: string): Promise<RtAccess>
     rtCloseWorld(userId: string, worldId: string): Promise<unknown>
     rtDeleteWorld(userId: string, worldId: string): Promise<unknown>
-    /** The world an invite code opens, or null: a join resolves the code before taking a chain (AR-31). */
+    /** The world an invite code opens, or null: a join resolves the code before taking a chain. */
     rtFindWorldByInvite(inviteCode: string): Promise<string | null>
     /** RtRoom.open by default; a test swaps in a room that stalls. */
     openRoom?(id: string, deps: RtRoomDeps): Promise<RtRoom | null>
@@ -105,7 +105,7 @@ interface RtConn {
     tokens: number
     tokensAt: number
     closed: boolean
-    /** The one room this socket is attached to (AR-110), and the peer it is attached as. */
+    /** The one room this socket is attached to, and the peer it is attached as. */
     room: RtRoom | null
     peer: RtRoomPeer | null
     /** Bumped by every open, so an older open that finishes late does not attach. */
@@ -115,7 +115,7 @@ interface RtConn {
     ownerBusy: boolean
 }
 
-/** Cooldowns keyed by user, so a reconnect does not reset them (AR-90). */
+/** Cooldowns keyed by user, so a reconnect does not reset them. */
 interface RtUserState {
     openAt: number
     resyncAt: number
@@ -151,7 +151,7 @@ const noop = () => {}
 /**
  * The hub. connect hands it an authenticated socket, message a binary frame, disconnect the close.
  * Rooms are opened on demand, at most RT_MAX_LIVE_ROOMS at once, and share RT_STEP_BUDGET_MS of
- * stepping per 27 ms tick (AR-14).
+ * stepping per 27 ms tick.
  */
 export class RtHub {
     private readonly deps: RtHubDeps
@@ -162,7 +162,7 @@ export class RtHub {
     private readonly chains = new Map<string, Promise<void>>()
     /** Rooms being opened right now, counted against the live-room cap. */
     private opening = 0
-    /** Error unloads per world within RT_BROKEN_WINDOW_MS, and the worlds refused until restart (AR-61). */
+    /** Error unloads per world within RT_BROKEN_WINDOW_MS, and the worlds refused until restart. */
     private readonly errorUnloads = new Map<string, number[]>()
     private readonly broken = new Set<string>()
     /** Deleted worlds whose room may still try a checkpoint; refused so the room unloads without writing. */
@@ -353,7 +353,7 @@ export class RtHub {
     }
 
     /**
-     * AR-99: one create per user per RT_CREATE_COOLDOWN_MS (tooSoon), at most RT_MAX_PENDING_CREATES
+     * One create per user per RT_CREATE_COOLDOWN_MS (tooSoon), at most RT_MAX_PENDING_CREATES
      * queued (busy), and one generation at a time per process. A refused create generates nothing.
      */
     private async create(conn: RtConn, msg: Extract<RtClientMsg, { type: 'create' }>): Promise<void> {
@@ -378,8 +378,8 @@ export class RtHub {
 
     /**
      * Resolves the invite to a world first, then inside that world's chain joins the live room or
-     * the stored row (AR-31). Failed lookups are capped per user per minute, counting the ones in
-     * flight, so a burst cannot run more than RT_INVITE_FAILS_PER_MINUTE lookups (AR-109).
+     * the stored row. Failed lookups are capped per user per minute, counting the ones in
+     * flight, so a burst cannot run more than RT_INVITE_FAILS_PER_MINUTE lookups.
      */
     private async join(conn: RtConn, inviteCode: string): Promise<void> {
         const state = this.userState(conn.user.id)
@@ -421,9 +421,9 @@ export class RtHub {
     }
 
     /**
-     * Opens a world for this socket: cooldown per user (AR-82, AR-90), broken worlds refused (AR-61),
+     * Opens a world for this socket: cooldown per user, broken worlds refused,
      * access from the registry, the socket's previous room left first and a peerless idle room
-     * evicted at the live-room cap (AR-110), all under the chains of every world involved (AR-119).
+     * evicted at the live-room cap, all under the chains of every world involved.
      */
     private async open(conn: RtConn, worldId: string, inviteCode: string | null): Promise<void> {
         const state = this.userState(conn.user.id)
@@ -450,7 +450,7 @@ export class RtHub {
         if (access.role === 'none') return this.refuse(conn, 'noAccess')
         if (this.broken.has(worldId)) return this.refuse(conn, 'worldBroken')
 
-        // one room per socket: leave the previous world (its leave checkpoint, W91) before taking another
+        // one room per socket: leave the previous world (its leave checkpoint) before taking another
         if (conn.room && conn.room.id !== worldId) this.leaveRoom(conn)
 
         let room = this.liveRoom(worldId)
@@ -531,7 +531,7 @@ export class RtHub {
     }
 
     /**
-     * Delete (AR-9): the registry deletes the row first, as the owner only; only then is a live room
+     * Delete: the registry deletes the row first, as the owner only; only then is a live room
      * unloaded, its peers told worldDeleted before they are detached, and nothing more is written.
      */
     private async remove(conn: RtConn, worldId: string): Promise<void> {
@@ -571,7 +571,7 @@ export class RtHub {
         if (outcome !== null) return this.refuse(conn, outcome)
     }
 
-    /** AR-82, AR-83: a fresh snapshot built by the room at its tick boundary, once per RT_RESYNC_COOLDOWN_MS per user. */
+    /** A fresh snapshot built by the room at its tick boundary, once per RT_RESYNC_COOLDOWN_MS per user. */
     private resync(conn: RtConn, worldId: string): void {
         if (!conn.room || !conn.peer || conn.room.id !== worldId) return this.refuse(conn, 'noAccess')
         const state = this.userState(conn.user.id)
@@ -583,7 +583,7 @@ export class RtHub {
 
     /* ---- error codes ---- */
 
-    /** notOwner for someone who may see the world, noAccess for a stranger, so a stranger learns nothing (AR-25). */
+    /** notOwner for someone who may see the world, noAccess for a stranger, so a stranger learns nothing. */
     private async ownerRefusal(userId: string, worldId: string): Promise<RtErrorCode> {
         try {
             const access = await this.deps.rtGetAccess(userId, worldId)
@@ -646,7 +646,7 @@ export class RtHub {
         return {
             rtLoadWorld: id => d.rtLoadWorld(id),
             rtSaveCheckpoint: (id, bytes, tick, expectedRevision, now, options) => {
-                // a deleted world's room unloads through its conflict path, writing nothing (AR-9)
+                // a deleted world's room unloads through its conflict path, writing nothing
                 if (this.deleted.has(id)) return Promise.reject(Object.assign(new Error('World was deleted'), { statusCode: 409 }))
                 return d.rtSaveCheckpoint(id, bytes, tick, expectedRevision, now, options)
             },
@@ -666,7 +666,7 @@ export class RtHub {
         }
     }
 
-    /** AR-61: a world whose room fails with an exception RT_BROKEN_UNLOADS times in the window is refused until restart. */
+    /** A world whose room fails with an exception RT_BROKEN_UNLOADS times in the window is refused until restart. */
     private roomUnloaded(room: RtRoom, reason: RtUnloadReason): void {
         this.forget(room)
         if (reason !== 'error' || this.deleted.has(room.id)) return
@@ -681,7 +681,7 @@ export class RtHub {
     }
 
     /**
-     * AR-14: RT_STEP_BUDGET_MS per 27 ms window for the whole process, split evenly among running
+     * RT_STEP_BUDGET_MS per 27 ms window for the whole process, split evenly among running
      * rooms. A step that runs over is charged to the next window, so the long-run sum stays within it.
      */
     private budgetFor(share: RtBudgetShare): RtStepBudget {
@@ -747,7 +747,7 @@ export class RtHub {
         if (this.rooms.size === 0 && this.conns.size === 0 && this.users.size === 0) this.dispose()
     }
 
-    /* ---- per-world chains (AR-10, AR-31, AR-119) ---- */
+    /* ---- per-world chains ---- */
 
     /**
      * Runs job holding the chain of every world in ids, taken in ascending id order. Each wait and the
@@ -830,7 +830,7 @@ function rtWorldSummary(row: RtWorldListing): RtWorldSummary {
     }
 }
 
-/** rtCreateWorld's refusals as protocol codes: 400 bad input, 409 an owner cap (AR-99). */
+/** rtCreateWorld's refusals as protocol codes: 400 bad input, 409 an owner cap. */
 function rtCreateError(error: unknown): RtErrorCode {
     const status = statusOf(error)
     if (status === 400) return 'badRequest'

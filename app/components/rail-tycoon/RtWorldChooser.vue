@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Rail Tycoon — the world chooser (W120): every world the player owns or joined (owned first), with
+// Rail Tycoon — the world chooser: every world the player owns or joined (owned first), with
 // its status, members, the player's company and when it was last played; Continue an open world or
 // Spectate a closed one; create a world; join one by invite code; and for the owner, Stop (an in-app
 // confirm) and Delete (type the world's name). Copy invite link copies /rail-tycoon/invite/<code>
-// (AR-32) with the code from the list row (AR-64).
+// with the code from the list row.
 //
 // It talks to the hub over its own RtNet: list on every (re)connect, create and join answer joined,
 // which opens the world through the page. The page closes this socket by unmounting the chooser

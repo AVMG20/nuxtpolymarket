@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// Rail Tycoon — the playable view (W105).
+// Rail Tycoon — the playable view.
 //
 // Opens the world over RtNet, builds an RtLockstep from the opened snapshot, draws it with RtRenderer
 // on a full-viewport canvas and turns pointer gestures into commands through RtTools. A reconnect, a
-// room that unloaded or a resync replaces the lockstep from the new snapshot while an overlay stays up
-// (AR-17, AR-36). The toolbar, status bar and windows come in through slots and reach the game
+// room that unloaded or a resync replaces the lockstep from the new snapshot while an overlay stays up.
+// The toolbar, status bar and windows come in through slots and reach the game
 // through useRtGame() (RT_GAME_KEY); window.__railTycoon gives the browser harness read-only views
-// of local state (AR-95).
+// of local state.
 import type { RtCommand } from '#shared/utils/rail-tycoon/commands'
 import type { RtErrorCode, RtPauseReason, RtRole, RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
 import { RT_NONE } from '#shared/utils/rail-tycoon/types'
@@ -32,7 +32,7 @@ const props = withDefaults(defineProps<{
   worldId: string
   /** The role the chooser opened the world as; the opened message has the last word. */
   role?: RtRole
-  /** An invite code lets a stranger spectate (AR-25). */
+  /** An invite code lets a stranger spectate. */
   inviteCode?: string | null
 }>(), {
   role: 'player',
@@ -200,7 +200,7 @@ function sendOpen() {
   net.send({ type: 'open', worldId: props.worldId, inviteCode: props.inviteCode ?? null })
 }
 
-/** Re-sends open after the capped backoff RtNet uses for its reconnects (AR-61). */
+/** Re-sends open after the capped backoff RtNet uses for its reconnects. */
 function reopenLater() {
   if (reopenTimer !== null || unmounted) return
   opening.value = true
@@ -289,7 +289,7 @@ function installLockstep(ls: RtLockstep, fresh: boolean) {
   tools.refresh()
 }
 
-/** Drops the build tools and stops sending commands (AR-104); `closing` marks the owner's stop. */
+/** Drops the build tools and stops sending commands; `closing` marks the owner's stop. */
 function becomeSpectator(closing = true) {
   if (closing) closed.value = true
   tools.select(RtToolKind.none)
@@ -562,7 +562,7 @@ function onBlur() {
   pointerInside = false
 }
 
-// ─── Test hook (AR-95) ───────────────────────────────────────────────────
+// ─── Test hook ───────────────────────────────────────────────────
 
 function installDebugHook() {
   const hook: RtDebugHook = {
@@ -621,7 +621,7 @@ onMounted(async () => {
     net.on('message', onMessage),
     net.on('open', () => {
       socketUp.value = true
-      // every open, the first and each reconnect, opens the world again (AR-17)
+      // every open, the first and each reconnect, opens the world again
       cancelReopen()
       sendOpen()
     }),

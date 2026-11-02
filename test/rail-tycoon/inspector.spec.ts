@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { RtWriter } from '../../shared/utils/rail-tycoon/bytes'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { applyCommand, RtCommandKind, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
+import { RtWriter } from '#shared/utils/rail-tycoon/bytes'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { applyCommand, RtCommandKind, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import {
     RT_INSPECTOR_MONTH_TICKS,
     rtInspectCrossings,
@@ -9,12 +9,12 @@ import {
     rtPeopleAboard,
     rtViolationAt,
     rtWreckDays
-} from '../../shared/utils/rail-tycoon/inspector'
-import { RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
-import { decodeWorld, encodeWorld } from '../../shared/utils/rail-tycoon/save'
-import { RT_ROAD_Y, RtTrack } from '../../shared/utils/rail-tycoon/track'
-import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { RtWorld, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/inspector'
+import { RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { decodeWorld, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { RT_ROAD_Y, RtTrack } from '#shared/utils/rail-tycoon/track'
+import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const SIDE = 64
 const ROW = 10

@@ -1,13 +1,13 @@
-// Rail Tycoon — build tools (W104).
+// Rail Tycoon — build tools.
 //
 // Turns pointer gestures on tiles into commands: rail and road lines, stations, road stops, depots,
 // signals, parking spots, the bulldozer, the query click and the orders editor's pick mode. Every
-// gesture emits at most one command, on release (AR-37): a drag becomes one line or area command
+// gesture emits at most one command, on release: a drag becomes one line or area command
 // however long it is, clamped to the catalog's line and area caps first so the UI never builds a
-// payload the server refuses for size (W148).
+// payload the server refuses for size.
 //
 // The preview runs the same build rules with apply off against the local world, treating pieces
-// that are already there as free and passable as the line command does (AR-49), and stops where the
+// that are already there as free and passable as the line command does, and stops where the
 // command would stop: a refusal or the money running out. It only guides the player. The server's
 // pre-check and the stamped apply decide; a gesture that would build nothing emits nothing.
 //
@@ -51,7 +51,7 @@ export const RtToolKind = {
 } as const
 export type RtToolKind = typeof RtToolKind[keyof typeof RtToolKind]
 
-/** What the orders editor asks the player to click: a station or a depot (AR-54). */
+/** What the orders editor asks the player to click: a station or a depot. */
 export type RtPickKind = 'station' | 'depot'
 
 export interface RtPicked {
@@ -187,7 +187,7 @@ export function rtNearestPiece(mask: number, at: RtSubTile = CENTRE): number {
 }
 
 /**
- * The rail line from `start` towards `end` (W104 5.1): of the straight and diagonal lines starting
+ * The rail line from `start` towards `end`: of the straight and diagonal lines starting
  * at `start`, the one passing nearest `end`, cut at its tile nearest `end`. On a tie a line whose
  * first piece is already on the start tile wins (dragging on from the end of a line extends it), then
  * the first piece nearest the pointer. Only lines whose first piece is in `pieces` count. Null when no
@@ -348,7 +348,7 @@ export class RtTools {
         this.emit('tool', tool)
     }
 
-    /** Pick mode for the orders editor: the next click on one of these emits picked (AR-54). */
+    /** Pick mode for the orders editor: the next click on one of these emits picked. */
     enterPick(kinds: RtPickKind[]): void {
         if (this.tool !== RtToolKind.pick) this.beforePick = this.tool
         this.tool = RtToolKind.pick
@@ -616,7 +616,7 @@ export class RtTools {
         return command ? this.previewSingle(world, command, tile) : null
     }
 
-    /** What a pick-mode click on the tile picks, if it is a station or depot the player may pick (Q19b). */
+    /** What a pick-mode click on the tile picks, if it is a station or depot the player may pick. */
     private pickAt(world: RtWorld, tile: number): RtPicked | null {
         const map = world.map
         const company = this.context.company()

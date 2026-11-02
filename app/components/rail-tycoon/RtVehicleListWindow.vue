@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Rail Tycoon — the vehicle list (W115): the player's own vehicles with name, kind, what each is
+// Rail Tycoon — the vehicle list: the player's own vehicles with name, kind, what each is
 // doing, profit this year and last year (losses in red) and age, sortable by number, profit and age.
 // A click on a row opens the vehicle's window and centres the view on it.
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'

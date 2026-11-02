@@ -430,8 +430,8 @@ export function rtVehicleSpriteName(model: RtVehicleModelId, direction: RtSprite
 
 /* ------------------------------------------------------------------------------------------
  * Map encoding bridge: the only place map bits become sprite names.
- * Slope and road bits come from shared/utils/rail-tycoon/map.ts. Track bits arrive with goal 03,
- * so the renderer (W103) passes that table to rtRailPiecesFromBits.
+ * Slope and road bits come from shared/utils/rail-tycoon/map.ts. Track bits are defined in
+ * track.ts, so the renderer passes that table to rtRailPiecesFromBits.
  * ---------------------------------------------------------------------------------------- */
 
 /** The slope name of an RtMap.tileSlope value (RtSlope corner bits plus RtSlope.steep). */
@@ -449,7 +449,7 @@ export function rtRoadSidesFromBits(bits: number): RtSideName[] {
     return RT_SIDE_NAMES.filter(side => bits & RT_ROAD_DIR_BIT[RtDir[side]]!)
 }
 
-/** The bit of each rail piece in a track-bit mask; the renderer supplies goal 03's encoding. */
+/** The bit of each rail piece in a track-bit mask; the renderer supplies track.ts's encoding. */
 export type RtTrackBitTable = Readonly<Record<RtRailPiece, number>>
 
 export function rtRailPiecesFromBits(bits: number, table: RtTrackBitTable): RtRailPiece[] {

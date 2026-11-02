@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { demolishTile } from '../../shared/utils/rail-tycoon/demolish'
-import { buildDepot, rtDepotPayload, rtDepotTrackFor } from '../../shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '../../shared/utils/rail-tycoon/map'
-import { decodeWorld, encodeWorld } from '../../shared/utils/rail-tycoon/save'
+import { demolishTile } from '#shared/utils/rail-tycoon/demolish'
+import { buildDepot, rtDepotPayload, rtDepotTrackFor } from '#shared/utils/rail-tycoon/depots'
+import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { decodeWorld, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import {
     RtSignalType,
     blockHasPathSignal,
@@ -19,8 +19,8 @@ import {
     rtSignalTypeAt,
     updateSignalStates,
     type RtTrainOnPiece
-} from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile, rtPlatformTrack, rtStationPayload } from '../../shared/utils/rail-tycoon/stations-build'
+} from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, RtStationTile, rtPlatformTrack, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
 import {
     RT_TRACKDIR_END,
     RtBuildError,
@@ -38,9 +38,9 @@ import {
     rtTrackdirPiece,
     rtTrackdirsEnteringWith,
     rtValidTrackdir
-} from '../../shared/utils/rail-tycoon/track'
-import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { RtOccupiedRegistry, RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/track'
+import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { RtOccupiedRegistry, RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 type XY = [number, number]
 
@@ -156,7 +156,7 @@ function fixtureA() {
 }
 
 describe('rail tycoon signals and reservations', () => {
-    describe('trackdirs and followTrack (W26)', () => {
+    describe('trackdirs and followTrack', () => {
         it('uses the original trackdir numbering and maps every trackdir to its piece', () => {
             expect(RtTrackdir).toEqual({ xNe: 0, ySe: 1, upperE: 2, lowerE: 3, leftS: 4, rightS: 5, xSw: 8, yNw: 9, upperW: 10, lowerW: 11, leftN: 12, rightN: 13 })
             for (let td = 0; td < 6; td++) {
@@ -184,7 +184,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(followTrack(edge, edge.idx(0, 5), 0, 0, true)).toBe(0)
         })
 
-        it('enters another company\'s rail only with sharing on (Q19b)', () => {
+        it('enters another company\'s rail only with sharing on', () => {
             const map = new RtMap(64)
             lay(map, 0, row(20, 4, 9))
             lay(map, 1, row(20, 10, 14))
@@ -231,7 +231,7 @@ describe('rail tycoon signals and reservations', () => {
         })
     })
 
-    describe('placeSignal (W27)', () => {
+    describe('placeSignal', () => {
         it('places a path signal on a straight and refuses platforms, junctions and crossings', () => {
             const { map, t } = fixtureA()
             const result = placeSignal(map, 0, t(20, 10), RtTrack.x, RtSignalType.path, true)
@@ -250,7 +250,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(placeSignal(map, 0, t(40, 40), RtTrack.x, RtSignalType.block, true)).toEqual({ ok: false, error: RtBuildError.conflict })
         })
 
-        it('gives two parallel diagonals a signal each and keeps the slots apart (AR-50)', () => {
+        it('gives two parallel diagonals a signal each and keeps the slots apart', () => {
             const map = new RtMap(64)
             const tile = map.idx(30, 30)
             expect(buildRail(map, 0, tile, RtTrack.upper, true).ok).toBe(true)
@@ -309,7 +309,7 @@ describe('rail tycoon signals and reservations', () => {
         })
     })
 
-    describe('block signal states (W28)', () => {
+    describe('block signal states', () => {
         /** A loop x 10 to 20, y 10 to 15, split into an east and a west block by signals at (15, 10) and (15, 15). */
         function loop() {
             const map = new RtMap(64)
@@ -341,7 +341,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtSignalGreen(map, t(15, 15), RtTrackdir.xNe)).toBe(false)
         })
 
-        it('keeps two parallel diagonals in their own blocks (AR-57)', () => {
+        it('keeps two parallel diagonals in their own blocks', () => {
             const map = new RtMap(64)
             lay(map, 0, [...row(30, 26, 30), ...column(30, 29, 26)])
             lay(map, 0, [...column(30, 34, 31), [30, 30], ...row(30, 31, 34)])
@@ -358,7 +358,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtSignalGreen(map, tile, RtTrackdir.upperW)).toBe(true)
         })
 
-        it('runs a block through one parallel diagonal without the other (AR-57)', () => {
+        it('runs a block through one parallel diagonal without the other', () => {
             const map = new RtMap(64)
             lay(map, 0, [...row(30, 24, 30), ...column(30, 29, 24)])
             lay(map, 0, [...column(30, 36, 31), [30, 30], ...row(30, 31, 36)])
@@ -373,7 +373,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtSignalGreen(map, t(27, 30), RtTrackdir.xSw)).toBe(true)
         })
 
-        it('leaves the block in front of a depot green while a train stands inside (AR-57)', () => {
+        it('leaves the block in front of a depot green while a train stands inside', () => {
             const map = new RtMap(64)
             const depot = map.idx(40, 40)
             buildDepot(map, 0, depot, RtVehicleKind.rail, 0, true)
@@ -417,7 +417,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtDepotBlockOccupied(map, depot, top, false)).toBe(false)
         })
 
-        it('ignores a bus on a level crossing (AR-57)', () => {
+        it('ignores a bus on a level crossing', () => {
             const map = new RtMap(64)
             const crossing = map.idx(50, 45)
             map.setTile(crossing, RtTileKind.road, RT_OWNER_NONE, 1 | 4)
@@ -431,7 +431,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtSignalGreen(map, signal, RtTrackdir.xSw)).toBe(true)
         })
 
-        it('sets a new signal red at once in front of an occupied block, and refreshes after a removal or a deleted train (AR-59)', () => {
+        it('sets a new signal red at once in front of an occupied block, and refreshes after a removal or a deleted train', () => {
             const map = new RtMap(64)
             lay(map, 0, row(50, 2, 22))
             const t = (x: number) => map.idx(x, 50)
@@ -482,8 +482,8 @@ describe('rail tycoon signals and reservations', () => {
         })
     })
 
-    describe('path reservation (W29, W30)', () => {
-        it('waits while a block-signalled train stands on the merge, then reserves to the first safe waiting position (AR-62)', () => {
+    describe('path reservation', () => {
+        it('waits while a block-signalled train stands on the merge, then reserves to the first safe waiting position', () => {
             const { map, t, registry, t0, top } = fixtureA()
             registry.holdPiece(2, t(13, 10), RtTrack.x)
             expect(reservePath(map, t0, t0.route, 0, top, false)).toBe(0)
@@ -535,11 +535,11 @@ describe('rail tycoon signals and reservations', () => {
             expect(rtPieceReserved(map, t(15, 10), RtTrack.x)).toBe(false)
         })
 
-        it('lets only the first of two trains through the junction until it releases (W30)', () => {
+        it('lets only the first of two trains through the junction until it releases', () => {
             const { map, t, t0, t1, top } = fixtureA()
             expect(reservePath(map, t1, t1.route, 0, top, false)).toBe(10)
             expect(reservePath(map, t0, t0.route, 0, top, false)).toBe(0)
-            // a train never clears a piece it does not own (AR-63)
+            // a train never clears a piece it does not own
             expect(releaseReservation(map, t0, t(10, 10), RtTrack.x)).toBe(false)
             expect(rtPieceReserved(map, t(10, 10), RtTrack.x)).toBe(true)
             expect(releaseReservation(map, t1, t(8, 10), RtTrack.x)).toBe(true)
@@ -550,7 +550,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(reservePath(map, t0, t0.route, 0, top, false)).toBe(9)
         })
 
-        it('walks the first connecting piece for an orderless train (AR-134)', () => {
+        it('walks the first connecting piece for an orderless train', () => {
             const { map, registry, top } = fixtureA()
             // an orderless train at the branch path signal: up the branch, the corner, along the main line
             const branch = [...column(12, 16, 11), [12, 10] as XY, ...row(10, 13, 24)]
@@ -580,7 +580,7 @@ describe('rail tycoon signals and reservations', () => {
         })
     })
 
-    describe('reservation hooks for removals (AR-118)', () => {
+    describe('reservation hooks for removals', () => {
         it('re-reserves for the train inside the removal, so a lower-id train cannot take the freed path', () => {
             const { map, t, registry, t0, t1, top } = fixtureA()
             expect(reservePath(map, t1, t1.route, 0, top, false)).toBe(10)
@@ -619,7 +619,7 @@ describe('rail tycoon signals and reservations', () => {
         })
     })
 
-    describe('blockHasPathSignal (W28, AR-68, AR-88)', () => {
+    describe('blockHasPathSignal', () => {
         function lines() {
             const map = new RtMap(64)
             lay(map, 0, row(55, 4, 20))
@@ -657,7 +657,7 @@ describe('rail tycoon signals and reservations', () => {
             expect(blockHasPathSignal(map, t(10, 57), RtTrackdir.xSw, false)).toBe(true)
         })
 
-        it('answers the same on a world that has run and on a copy decoded from its snapshot (AR-88)', () => {
+        it('answers the same on a world that has run and on a copy decoded from its snapshot', () => {
             const { map, t } = lines()
             const company = rtNewCompany(0, 'Alpha', 0, 0)
             const world = new RtWorld({

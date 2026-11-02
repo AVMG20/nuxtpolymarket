@@ -1,8 +1,8 @@
 /**
- * Rail Tycoon money rules: delivery payment (W43), loans (W44), month-end finance and bankruptcy
- * (W45) and infrastructure-sharing fees (W145). Money is a safe integer in the smallest unit and
+ * Rail Tycoon money rules: delivery payment, loans, month-end finance and bankruptcy
+ * and infrastructure-sharing fees. Money is a safe integer in the smallest unit and
  * every result is an integer. The payment curve, cumulative interest and the bankruptcy line mimic
- * the original game's behaviour (decision Q15); sharing fees are this plan's own design (Q19b).
+ * the original game's behaviour; sharing fees are this plan's own design.
  */
 import { RT_CARGO_IDS, RT_CATALOG } from './catalog'
 import type { RtCompany, RtFinance, RtInfrastructure, RtWorldSettings } from './types'
@@ -30,7 +30,7 @@ const INCOME_CATEGORIES: ReadonlySet<keyof RtFinance> = new Set<keyof RtFinance>
 /**
  * Books one money movement: `amount` is the signed change to the company's cash (income positive,
  * cost negative, a refund positive in its cost category). It lands in the current year's category and
- * in the current month's income or expense total, which monthlyFinance pushes at month end (AR-73).
+ * in the current month's income or expense total, which monthlyFinance pushes at month end.
  */
 export function bookMoney(company: RtCompany, category: keyof RtFinance, amount: number): void {
     if (amount === 0) return
@@ -44,7 +44,7 @@ export function bookMoney(company: RtCompany, category: keyof RtFinance, amount:
 }
 
 // ---------------------------------------------------------------------------------------------
-// W43: delivery payment
+// Delivery payment
 // ---------------------------------------------------------------------------------------------
 
 /** Manhattan distance in tiles between two tile indices (y * side + x) on a map of `side` tiles. */
@@ -94,7 +94,7 @@ export function deliveryPayment(cargoId: number, amount: number, distanceTiles: 
 }
 
 // ---------------------------------------------------------------------------------------------
-// W44: loans
+// Loans
 // ---------------------------------------------------------------------------------------------
 
 /** Why a loan change was refused. */
@@ -134,7 +134,7 @@ export function changeLoan(company: RtCompany, steps: number): RtLoanResult {
 }
 
 // ---------------------------------------------------------------------------------------------
-// W45: month-end finance
+// Month-end finance
 // ---------------------------------------------------------------------------------------------
 
 /** Outcome of a month end: nothing to report, the company-in-trouble warning, or the reset. */
@@ -209,7 +209,7 @@ export function monthlyFinance(company: RtCompany, monthIndex: number, runningCo
 }
 
 // ---------------------------------------------------------------------------------------------
-// W145: infrastructure sharing
+// Infrastructure sharing
 // ---------------------------------------------------------------------------------------------
 
 /** What a sharing fee pays for. */

@@ -1,5 +1,5 @@
 /**
- * RtRoom (goal 13) with a fake clock and timers, an in-memory store and fake peers that decode every
+ * RtRoom with a fake clock and timers, an in-memory store and fake peers that decode every
  * frame and replay the stamped stream into their own RtWorld, the way the client lockstep does: at
  * tick T compare the server hash for T, apply every command stamped T in arrival order, then step.
  */
@@ -48,7 +48,7 @@ beforeAll(() => {
     for (let tile = 0; tile < 64 * 64 && BUILD_TILE < 0; tile++) {
         if (applyCommand(world, 1, { kind: RtCommandKind.buildRail, tile, piece: 0 }, false).ok) BUILD_TILE = tile
     }
-    // a company that built, went bankrupt and was reset (W63): same id, fresh start (AR-89)
+    // a company that built, went bankrupt and was reset: same id, fresh start
     const reset = decodeWorldOrThrow(BASE)
     expect(applyCommand(reset, 1, { kind: RtCommandKind.buildRail, tile: BUILD_TILE, piece: 0 }, true).ok).toBe(true)
     expect(reset.resetCompany(1)).toBe(true)
@@ -256,9 +256,9 @@ afterEach(() => {
     vi.useRealTimers()
 })
 
-/* ---- W89 ---- */
+/* ---- Open ---- */
 
-describe('RtRoom.open (W89)', () => {
+describe('RtRoom.open', () => {
     it('loads the world as saved and never simulates the time it was away', async () => {
         const { room } = await openRoom()
         const tick = room.world.tick
@@ -279,9 +279,9 @@ describe('RtRoom.open (W89)', () => {
     })
 })
 
-/* ---- W90 ---- */
+/* ---- Attach, loaded, resync ---- */
 
-describe('RtRoom.attach (W90)', () => {
+describe('RtRoom.attach', () => {
     it('a spectator alone never starts ticking', async () => {
         const { room } = await openRoom()
         const tick = room.world.tick
@@ -292,7 +292,7 @@ describe('RtRoom.attach (W90)', () => {
         expect(peer.of('opened')[0]).toMatchObject({ role: 'spectator', company: null, owner: false, inviteCode: null })
     })
 
-    it('sends the invite code to the owner and players only (AR-64)', async () => {
+    it('sends the invite code to the owner and players only', async () => {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         const second = attach(room, SECOND, PLAYER(1))
@@ -302,7 +302,7 @@ describe('RtRoom.attach (W90)', () => {
         expect(watcher.of('opened')[0]!.inviteCode).toBeNull()
     })
 
-    it('a peer attached while three commands are queued reaches the room hash after they execute (AR-3)', async () => {
+    it('a peer attached while three commands are queued reaches the room hash after they execute', async () => {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         vi.advanceTimersByTime(TICK * 5)
@@ -351,7 +351,7 @@ describe('RtRoom.attach (W90)', () => {
         expect(room.isRunning).toBe(true)
     })
 
-    it('a spectator loads without pausing, and one user pauses at most once per window (AR-90)', async () => {
+    it('a spectator loads without pausing, and one user pauses at most once per window', async () => {
         const { room } = await openRoom()
         attach(room, OWNER, PLAYER(0))
         attach(room, STRANGER, SPECTATOR, { loaded: false })
@@ -372,7 +372,7 @@ describe('RtRoom.attach (W90)', () => {
         expect(room.isRunning).toBe(true)
     })
 
-    it('join pauses take at most a tenth of the wall time (AR-90)', async () => {
+    it('join pauses take at most a tenth of the wall time', async () => {
         const { room } = await openRoom()
         attach(room, OWNER, PLAYER(0))
         // four joiners that never load spend 54 s of the 60 s budget
@@ -394,7 +394,7 @@ describe('RtRoom.attach (W90)', () => {
         expect(room.isRunning).toBe(true)
     })
 
-    it('commands stamped around an attach or a resync reach the peer after its snapshot, in order (AR-83)', async () => {
+    it('commands stamped around an attach or a resync reach the peer after its snapshot, in order', async () => {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         const second = attach(room, SECOND, PLAYER(1))
@@ -423,7 +423,7 @@ describe('RtRoom.attach (W90)', () => {
         expectInSync(room, owner, second, late)
     })
 
-    it('a client built from a fresh paused room keeps the server hash once a player attaches (AR-47)', async () => {
+    it('a client built from a fresh paused room keeps the server hash once a player attaches', async () => {
         const { room } = await openRoom()
         const watcher = attach(room, STRANGER, SPECTATOR)
         const owner = attach(room, OWNER, PLAYER(0))
@@ -442,9 +442,9 @@ describe('RtRoom.attach (W90)', () => {
     })
 })
 
-/* ---- W91 ---- */
+/* ---- Detach ---- */
 
-describe('RtRoom.detach (W91)', () => {
+describe('RtRoom.detach', () => {
     it('the last player leaving runs the command stamped ahead, pauses, and writes one leave checkpoint', async () => {
         const { room, store, onIdle } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
@@ -490,7 +490,7 @@ describe('RtRoom.detach (W91)', () => {
         expect(room.world.tick).toBe(tick + 1)
     })
 
-    it('a detach while a periodic write is in flight stores the leave-time state with no 409 and no unload (AR-35)', async () => {
+    it('a detach while a periodic write is in flight stores the leave-time state with no 409 and no unload', async () => {
         const { room, store, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0), { replay: false })
         const gate = deferred()
@@ -525,9 +525,9 @@ describe('RtRoom.detach (W91)', () => {
     })
 })
 
-/* ---- W92 ---- */
+/* ---- Submit ---- */
 
-describe('RtRoom.submit (W92)', () => {
+describe('RtRoom.submit', () => {
     async function race(first: 'owner' | 'second') {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
@@ -608,7 +608,7 @@ describe('RtRoom.submit (W92)', () => {
         expect(room.submit(again, 0, rename('After A Second'))).toBe(true)
     })
 
-    it('a company reset by bankruptcy keeps its id and builds again (AR-89)', async () => {
+    it('a company reset by bankruptcy keeps its id and builds again', async () => {
         const { room } = await openRoom(RESET_BASE)
         const second = attach(room, SECOND, PLAYER(1))
         const build: RtCommand = { kind: RtCommandKind.buildRail, tile: BUILD_TILE, piece: 0 }
@@ -620,9 +620,9 @@ describe('RtRoom.submit (W92)', () => {
     })
 })
 
-/* ---- W93 ---- */
+/* ---- The tick ---- */
 
-describe('RtRoom.tickOnce (W93)', () => {
+describe('RtRoom.tickOnce', () => {
     it('runs 37 steps a second and a late timer catches up at most 4 per callback', async () => {
         const { room } = await openRoom()
         attach(room, OWNER, PLAYER(0), { replay: false })
@@ -641,7 +641,7 @@ describe('RtRoom.tickOnce (W93)', () => {
         expect(room.world.tick - before).toBe(4 + 3 + 4)
     })
 
-    it('never steps past the hub\'s step budget (AR-14)', async () => {
+    it('never steps past the hub\'s step budget', async () => {
         const { room, budget } = await openRoom()
         attach(room, OWNER, PLAYER(0), { replay: false })
         budget.left = 0
@@ -695,7 +695,7 @@ describe('RtRoom.tickOnce (W93)', () => {
         expect(room.revision).toBe(2)
     })
 
-    it('a throwing step unloads the room and leaves the stored save unchanged (AR-12)', async () => {
+    it('a throwing step unloads the room and leaves the stored save unchanged', async () => {
         const { room, store, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         const watcher = attach(room, STRANGER, SPECTATOR)
@@ -713,7 +713,7 @@ describe('RtRoom.tickOnce (W93)', () => {
         expect(room.submit(owner, 1, borrow())).toBe(false)
     })
 
-    it('refuses to write bytes that do not decode to the live world, keeps the save and unloads (AR-80)', async () => {
+    it('refuses to write bytes that do not decode to the live world, keeps the save and unloads', async () => {
         const { room, store, deps, log, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         const watcher = attach(room, STRANGER, SPECTATOR)
@@ -736,7 +736,7 @@ describe('RtRoom.tickOnce (W93)', () => {
         expect(refusals[0]![1]).toContain(`tick ${room.world.tick}`)
     })
 
-    it('refuses to write a save over RT_MAX_SAVE_BYTES compressed (AR-80)', async () => {
+    it('refuses to write a save over RT_MAX_SAVE_BYTES compressed', async () => {
         const { room, store, deps, log, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0), { replay: false })
         const watcher = attach(room, STRANGER, SPECTATOR, { replay: false })
@@ -752,9 +752,9 @@ describe('RtRoom.tickOnce (W93)', () => {
     })
 })
 
-/* ---- W94 ---- */
+/* ---- Stop ---- */
 
-describe('RtRoom.stop (W94)', () => {
+describe('RtRoom.stop', () => {
     it('only the owner stops; then commands are refused, the tick stands still and spectators still get the snapshot', async () => {
         const { room, store } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
@@ -790,10 +790,10 @@ describe('RtRoom.stop (W94)', () => {
     })
 })
 
-/* ---- W140 ---- */
+/* ---- Live join ---- */
 
-describe('RtRoom.join (W140)', () => {
-    it('an existing member gets their company back and nothing is stamped (AR-32)', async () => {
+describe('RtRoom.join', () => {
+    it('an existing member gets their company back and nothing is stamped', async () => {
         const { room, store } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         expect(await room.join(SECOND, 'Second')).toEqual({ ok: true, companyId: 1, existing: true })
@@ -831,7 +831,7 @@ describe('RtRoom.join (W140)', () => {
         expectInSync(room, owner, watcher, joiner)
     })
 
-    it('a live join into a paused room with only a spectator keeps the spectator in sync (AR-31)', async () => {
+    it('a live join into a paused room with only a spectator keeps the spectator in sync', async () => {
         const { room, store } = await openRoom()
         const watcher = attach(room, STRANGER, SPECTATOR)
         const tick = room.world.tick
@@ -848,7 +848,7 @@ describe('RtRoom.join (W140)', () => {
         expectInSync(room, watcher, joiner, fresh)
     })
 
-    it('a paused-room join applies the commands already queued for that tick first, as every peer will (AR-47)', async () => {
+    it('a paused-room join applies the commands already queued for that tick first, as every peer will', async () => {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         vi.advanceTimersByTime(TICK * 2)
@@ -874,7 +874,7 @@ describe('RtRoom.join (W140)', () => {
         expectInSync(room, owner, second)
     })
 
-    it('with the owner loading, a friend joins and opens at the same tick and gets their own company (AR-111)', async () => {
+    it('with the owner loading, a friend joins and opens at the same tick and gets their own company', async () => {
         const { room } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0), { loaded: false })
         const tick = room.world.tick
@@ -903,7 +903,7 @@ describe('RtRoom.join (W140)', () => {
         expectInSync(room, owner, friend, second, third)
     })
 
-    it('a failing member insert unloads the room and the stored save holds no new company (AR-32)', async () => {
+    it('a failing member insert unloads the room and the stored save holds no new company', async () => {
         const { room, store, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0))
         vi.advanceTimersByTime(TICK * 3)

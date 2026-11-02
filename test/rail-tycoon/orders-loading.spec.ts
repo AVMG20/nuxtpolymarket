@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
-import { demolishTile } from '../../shared/utils/rail-tycoon/demolish'
-import { buildDepot } from '../../shared/utils/rail-tycoon/depots'
-import { deliveryPayment, stationSharingShare } from '../../shared/utils/rail-tycoon/economy'
-import { rtLoadHooks } from '../../shared/utils/rail-tycoon/loading'
-import { RtDir, RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
+import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
+import { demolishTile } from '#shared/utils/rail-tycoon/demolish'
+import { buildDepot } from '#shared/utils/rail-tycoon/depots'
+import { deliveryPayment, stationSharingShare } from '#shared/utils/rail-tycoon/economy'
+import { rtLoadHooks } from '#shared/utils/rail-tycoon/loading'
+import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import {
     RT_MAX_ORDERS,
     RtOrderError,
@@ -12,11 +12,11 @@ import {
     rtCurrentOrder,
     rtReplaceOrders,
     validateOrders
-} from '../../shared/utils/rail-tycoon/orders'
-import { RtSignalType, placeSignal, updateSignalStates } from '../../shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile, buildRailStation, buildRoadStop } from '../../shared/utils/rail-tycoon/stations-build'
-import { RT_ROAD_X, RtBuildError, buildRail, rtPieceBetween } from '../../shared/utils/rail-tycoon/track'
-import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '../../shared/utils/rail-tycoon/train'
+} from '#shared/utils/rail-tycoon/orders'
+import { RtSignalType, placeSignal, updateSignalStates } from '#shared/utils/rail-tycoon/signals'
+import { RtAxis, RtStationTile, buildRailStation, buildRoadStop } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_X, RtBuildError, buildRail, rtPieceBetween } from '#shared/utils/rail-tycoon/track'
+import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import {
     RT_NONE,
     RT_OWNER_NONE,
@@ -28,9 +28,9 @@ import {
     type RtStation,
     type RtTown,
     type RtVehicle
-} from '../../shared/utils/rail-tycoon/types'
-import { buyVehicle, createVehicle } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/types'
+import { buyVehicle, createVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const M = RT_CATALOG.vehicles.models
 const ME = 0
@@ -87,7 +87,7 @@ function train(id: number, orders: RtOrder[], orderIndex = 0): RtVehicle {
 }
 
 describe('rail tycoon orders and loading', () => {
-    describe('advanceOrder (W50)', () => {
+    describe('advanceOrder', () => {
         it('a three-order list cycles A, B, C, A', () => {
             const { map, stations, ids } = setup()
             const v = train(0, [station(ids.a!), station(ids.b!), station(ids.c!)])
@@ -116,7 +116,7 @@ describe('rail tycoon orders and loading', () => {
             expect(advanceOrder(onA, stations, map)!.target).toBe(ids.c)
         })
 
-        it('a vehicle whose last order is removed keeps driving with no destination (AR-126)', () => {
+        it('a vehicle whose last order is removed keeps driving with no destination', () => {
             const { map, stations, ids } = setup()
             const v = train(0, [station(ids.a!)])
             for (const tile of [map.idx(10, 10), map.idx(11, 10)]) {
@@ -151,7 +151,7 @@ describe('rail tycoon orders and loading', () => {
         })
     })
 
-    describe('validateOrders (W50)', () => {
+    describe('validateOrders', () => {
         it('accepts own stations and depots with load flags and returns fresh copies', () => {
             const { map, stations, ids } = setup()
             const input = [station(ids.a!, RtOrderFlag.fullLoad), station(ids.b!, RtOrderFlag.unload), depot(ids.ownDepot!)]
@@ -162,7 +162,7 @@ describe('rail tycoon orders and loading', () => {
             expect(result.orders[0]!.target).toBe(ids.a)
         })
 
-        it('with sharing off an order to another company\'s station or depot is refused (Q19b)', () => {
+        it('with sharing off an order to another company\'s station or depot is refused', () => {
             const { map, stations, ids } = setup()
             const v = train(0, [])
             expect(validateOrders([station(ids.a!), station(ids.rivalRail!)], stations, map, ME, false, v))
@@ -171,7 +171,7 @@ describe('rail tycoon orders and loading', () => {
                 .toEqual({ ok: false, error: RtOrderError.notOwner, index: 0 })
         })
 
-        it('with sharing on another company\'s station and depot validate, but full load there is refused (AR-102)', () => {
+        it('with sharing on another company\'s station and depot validate, but full load there is refused', () => {
             const { map, stations, ids } = setup()
             const v = train(0, [])
             expect(validateOrders([station(ids.rivalRail!, RtOrderFlag.unload), depot(ids.rivalDepot!)], stations, map, ME, true, v).ok).toBe(true)
@@ -206,7 +206,7 @@ describe('rail tycoon orders and loading', () => {
                 .toEqual({ ok: false, error: RtOrderError.tooMany, index: -1 })
         })
 
-        it('refuses hostile payloads without throwing (W148)', () => {
+        it('refuses hostile payloads without throwing', () => {
             const { map, stations, ids } = setup()
             const v = train(0, [])
             const throwing = new Proxy({}, { get() { throw new Error('trap') } })
@@ -243,8 +243,8 @@ describe('rail tycoon orders and loading', () => {
 })
 
 /* ------------------------------------------------------------------------------------------
- * W55: orders and loading on running trains. Every vehicle is stepped in id order each tick, as
- * RtWorld.step (W57) will.
+ * Orders and loading on running trains. Every vehicle is stepped in id order each tick, as
+ * RtWorld.step will.
  * ---------------------------------------------------------------------------------------- */
 
 type XY = [number, number]
@@ -410,8 +410,8 @@ function countPasses(w: RtWorld, train: RtVehicle, from: number, to: number, tic
     return { passes, moving }
 }
 
-describe('rail tycoon orders and loading on running trains (W55)', () => {
-    it('a train delivering coal to another company\'s station pays it the station share and keeps the rest (Q19b)', () => {
+describe('rail tycoon orders and loading on running trains', () => {
+    it('a train delivering coal to another company\'s station pays it the station share and keeps the rest', () => {
         const { aboard, source, distance, pickup, delta, profit } = coalRun(ME, ME, RIVAL)
         expect(aboard).toHaveLength(1)
         expect(aboard[0]).toMatchObject({ cargo: COAL, count: 40, sourceTile: source, sourceStation: pickup.id, transitPeriods: 0 })
@@ -426,7 +426,7 @@ describe('rail tycoon orders and loading on running trains (W55)', () => {
         expect(profit).toBe(payment - share)
     })
 
-    it('with sharing off the same order to another company\'s station is refused (Q19b)', () => {
+    it('with sharing off the same order to another company\'s station is refused', () => {
         const w = net(false)
         const own = railStation(w, ME, [10, 10], RtAxis.x, 3)
         const rival = railStation(w, RIVAL, [34, 10], RtAxis.x, 3)
@@ -436,7 +436,7 @@ describe('rail tycoon orders and loading on running trains (W55)', () => {
         expect(v.orders).toEqual([])
     })
 
-    it('coal picked up at company A\'s station by company B\'s train and dropped at B\'s pays A the station share (AR-72)', () => {
+    it('coal picked up at company A\'s station by company B\'s train and dropped at B\'s pays A the station share', () => {
         const { aboard, distance, delta, profit } = coalRun(RIVAL, ME, RIVAL)
         expect(aboard).toHaveLength(1)
         expect(aboard[0]!.count).toBe(40)
@@ -450,7 +450,7 @@ describe('rail tycoon orders and loading on running trains (W55)', () => {
         expect(profit).toBe(payment - share)
     })
 
-    it('a train whose only target station is demolished keeps running round the loop and through a path signal (AR-126, AR-134)', () => {
+    it('a train whose only target station is demolished keeps running round the loop and through a path signal', () => {
         const w = net(false)
         const { spur, train, signalTile, pastSignal } = loopWithSpur(w)
         dispatch(w, train, [station(spur.id)])
@@ -469,7 +469,7 @@ describe('rail tycoon orders and loading on running trains (W55)', () => {
         expect(train.stopped).toBe(false)
     })
 
-    it('setOrders with an empty list on a running train leaves it running, through the path signal (AR-126, AR-134)', () => {
+    it('setOrders with an empty list on a running train leaves it running, through the path signal', () => {
         const w = net(false)
         const { spur, train, signalTile, pastSignal } = loopWithSpur(w)
         dispatch(w, train, [station(spur.id)])

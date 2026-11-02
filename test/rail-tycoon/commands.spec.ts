@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
+import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import {
     RT_SERVER_COMPANY,
     RtCommandError,
@@ -8,14 +8,14 @@ import {
     decodeCommand,
     encodeCommand,
     type RtCommand
-} from '../../shared/utils/rail-tycoon/commands'
-import { RtOrderError } from '../../shared/utils/rail-tycoon/orders'
-import { RtRng } from '../../shared/utils/rail-tycoon/rng'
-import { stepRoadVehicle } from '../../shared/utils/rail-tycoon/road-vehicle'
-import { RtSignalType, rtSignalGreen, rtSignalOnTrackdir } from '../../shared/utils/rail-tycoon/signals'
-import { RtDir, RtMap, RtTileKind } from '../../shared/utils/rail-tycoon/map'
-import { decodeWorldOrThrow, encodeWorld } from '../../shared/utils/rail-tycoon/save'
-import { RtAxis } from '../../shared/utils/rail-tycoon/stations-build'
+} from '#shared/utils/rail-tycoon/commands'
+import { RtOrderError } from '#shared/utils/rail-tycoon/orders'
+import { SeededRandom } from '#shared/utils/random'
+import { stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
+import { RtSignalType, rtSignalGreen, rtSignalOnTrackdir } from '#shared/utils/rail-tycoon/signals'
+import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
 import {
     RT_ROAD_X,
     RtTrack,
@@ -24,11 +24,11 @@ import {
     rtRailTilePieces,
     rtTrackdirOf,
     type RtTrack as Track
-} from '../../shared/utils/rail-tycoon/track'
-import { rtRemoveTrain, stepTrain } from '../../shared/utils/rail-tycoon/train'
-import { RT_NONE, RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '../../shared/utils/rail-tycoon/types'
-import { rtVehicleSellValue } from '../../shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+} from '#shared/utils/rail-tycoon/track'
+import { rtRemoveTrain, stepTrain } from '#shared/utils/rail-tycoon/train'
+import { RT_NONE, RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
+import { rtVehicleSellValue } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const ME = 0
 const RIVAL = 1
@@ -87,7 +87,7 @@ function run(w: RtWorld, ticks: number, until: () => boolean): void {
     }
 }
 
-describe('rail tycoon applyCommand (W59)', () => {
+describe('rail tycoon applyCommand', () => {
     it('refuses building beyond the money without changing the world; validating never changes it', () => {
         const w = world()
         const company = w.company(ME)!
@@ -104,7 +104,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         expect(company.monthExpenses).toBe(-cost)
     })
 
-    it('a 100-tile rail line builds as one command, and with money for 40 tiles builds 40 and stops (AR-37)', () => {
+    it('a 100-tile rail line builds as one command, and with money for 40 tiles builds 40 and stops', () => {
         const w = world()
         const cost = railCost(w, 2, 10)
         const line: RtCommand = { kind: K.buildRailLine, tile: at(w, 2, 10), endTile: at(w, 61, 10), trackdir: rtTrackdirOf(RtTrack.x, true) }
@@ -120,7 +120,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         expect(poor.map.kind[at(poor, 42, 20)]).toBe(RtTileKind.clear)
     })
 
-    it('a line over existing own track continues past it charging only new pieces, and stops at a foreign tile (AR-49)', () => {
+    it('a line over existing own track continues past it charging only new pieces, and stops at a foreign tile', () => {
         const w = world()
         const cost = railCost(w, 2, 10)
         for (const x of [5, 6, 7]) must(w, ME, { kind: K.buildRail, tile: at(w, x, 10), piece: RtTrack.x })
@@ -175,7 +175,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         expect(company.financeThisYear.newVehicles).toBe(-bought.cost + refund)
     })
 
-    it('foundCompany is the server\'s alone and adds exactly one company with a clamped name (AR-2, AR-76)', () => {
+    it('foundCompany is the server\'s alone and adds exactly one company with a clamped name', () => {
         const w = world()
         const name = '🚂'.repeat(30)
         refused(w, ME, { kind: K.foundCompany, name, colour: 3 }, RtCommandError.noCompany)
@@ -189,7 +189,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         refused(w, 6, { kind: K.buildRail, tile: at(w, 1, 1), piece: RtTrack.x }, RtCommandError.noCompany)
     })
 
-    it('refuses every command on another company\'s vehicle with the hash unchanged (AR-45)', () => {
+    it('refuses every command on another company\'s vehicle with the hash unchanged', () => {
         const w = world()
         must(w, ME, { kind: K.buildRailLine, tile: at(w, 6, 10), endTile: at(w, 40, 10), trackdir: rtTrackdirOf(RtTrack.x, true) })
         const v = train(w, ME, 5, 10, RtDir.sw)
@@ -203,7 +203,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         ] as RtCommand[]) refused(w, RIVAL, command, RtCommandError.notOwner)
     })
 
-    it('removing rail under a train is refused, and an area drag stops at the train\'s tile (AR-44)', () => {
+    it('removing rail under a train is refused, and an area drag stops at the train\'s tile', () => {
         const w = world()
         must(w, ME, { kind: K.buildRailLine, tile: at(w, 6, 10), endTile: at(w, 40, 10), trackdir: rtTrackdirOf(RtTrack.x, true) })
         const v = train(w, ME, 5, 10, RtDir.sw)
@@ -278,7 +278,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         expect(v.stopped).toBe(true)
     })
 
-    it('a train on another company\'s track cannot be stopped there, not even with only its tail on it (AR-102, AR-115)', () => {
+    it('a train on another company\'s track cannot be stopped there, not even with only its tail on it', () => {
         const w = world(true)
         must(w, ME, { kind: K.buildRailLine, tile: at(w, 6, 10), endTile: at(w, 20, 10), trackdir: rtTrackdirOf(RtTrack.x, true) })
         must(w, RIVAL, { kind: K.buildRailLine, tile: at(w, 21, 10), endTile: at(w, 40, 10), trackdir: rtTrackdirOf(RtTrack.x, true) })
@@ -339,7 +339,7 @@ describe('rail tycoon applyCommand (W59)', () => {
         refused(w, ME, { kind: K.renameCompany, name: '   ' }, RtCommandError.invalid)
     })
 
-    it('refuses hostile payloads without throwing or changing the world (W148)', () => {
+    it('refuses hostile payloads without throwing or changing the world', () => {
         const w = world()
         const trap = new Proxy({}, { get() { throw new Error('trap') } })
         const before = w.hash()
@@ -380,7 +380,7 @@ function parkAt(w: RtWorld, v: RtVehicle, x: number): void {
     run(w, 400, () => v.speed === 0)
 }
 
-describe('rail tycoon commands (W65)', () => {
+describe('rail tycoon commands', () => {
     it('foundCompany on twin worlds at the same tick keeps their hashes equal', () => {
         const [a, b] = [world(), world()]
         a.tick = b.tick = 1234
@@ -424,7 +424,7 @@ describe('rail tycoon commands (W65)', () => {
         expect(w.map.kind[at(w, 7, 11)]).toBe(RtTileKind.tree)
     })
 
-    it('removing road under a moving bus is refused with the hash unchanged (AR-44)', () => {
+    it('removing road under a moving bus is refused with the hash unchanged', () => {
         const w = world()
         must(w, ME, { kind: K.buildRoadLine, tile: at(w, 6, 10), endTile: at(w, 40, 10) })
         must(w, ME, { kind: K.buildDepot, tile: at(w, 5, 10), vehicleKind: RtVehicleKind.road, facing: RtDir.sw })
@@ -439,7 +439,7 @@ describe('rail tycoon commands (W65)', () => {
         refused(w, ME, { kind: K.demolish, tile: bus.tiles[0]! }, RtCommandError.conflict)
     })
 
-    it('a signal placed before a free block shows green and before an occupied one red, in the same command (AR-59)', () => {
+    it('a signal placed before a free block shows green and before an occupied one red, in the same command', () => {
         const w = world()
         line(w, ME, 6, 40)
         const v = train(w, ME, 5, 10, RtDir.sw)
@@ -451,7 +451,7 @@ describe('rail tycoon commands (W65)', () => {
         expect(rtSignalGreen(w.map, at(w, 20, 10), EAST ^ 8)).toBe(true)
     })
 
-    it('removing rail that splits a block leaves both new blocks\' signals right (AR-59)', () => {
+    it('removing rail that splits a block leaves both new blocks\' signals right', () => {
         const w = world()
         line(w, ME, 6, 40)
         const v = train(w, ME, 5, 10, RtDir.sw)
@@ -470,7 +470,7 @@ describe('rail tycoon commands (W65)', () => {
         expect(rtSignalGreen(w.map, at(w, 15, 10), EAST)).toBe(true)
     })
 
-    it('a depot order to another company\'s depot services the train, which pays the fee and drives on (AR-71, Q19b)', () => {
+    it('a depot order to another company\'s depot services the train, which pays the fee and drives on', () => {
         const w = world(true)
         line(w, ME, 6, 40)
         must(w, RIVAL, { kind: K.buildDepot, tile: at(w, 41, 10), vehicleKind: RtVehicleKind.rail, facing: RtDir.ne })
@@ -487,7 +487,7 @@ describe('rail tycoon commands (W65)', () => {
         expect(v.stopped).toBe(false)
     })
 
-    it('sendToDepot never picks another company\'s depot (Q19b)', () => {
+    it('sendToDepot never picks another company\'s depot', () => {
         const w = world(true)
         line(w, ME, 6, 40)
         must(w, ME, { kind: K.buildDepot, tile: at(w, 5, 10), vehicleKind: RtVehicleKind.rail, facing: RtDir.sw })
@@ -504,7 +504,7 @@ describe('rail tycoon commands (W65)', () => {
         refused(w, ME, { kind: K.sendToDepot, vehicle: v.id }, RtCommandError.noDepot)
     })
 
-    it('a 30-emoji company name is stored clamped and the world and command still encode (AR-76)', () => {
+    it('a 30-emoji company name is stored clamped and the world and command still encode', () => {
         const w = world()
         const name = '🚄'.repeat(30)
         must(w, ME, { kind: K.renameCompany, name })
@@ -515,7 +515,7 @@ describe('rail tycoon commands (W65)', () => {
         expect(decodeCommand(encodeCommand({ kind: K.renameCompany, name }))).toEqual({ kind: K.renameCompany, name: stored })
     })
 
-    it('buyVehicle at the per-company cap and a station at maxStations are refused with the hash unchanged (AR-78)', () => {
+    it('buyVehicle at the per-company cap and a station at maxStations are refused with the hash unchanged', () => {
         const w = world(false, 128)
         w.company(ME)!.money = 1e12
         must(w, ME, { kind: K.buildDepot, tile: at(w, 120, 120), vehicleKind: RtVehicleKind.road, facing: RtDir.ne })
@@ -535,7 +535,7 @@ describe('rail tycoon commands (W65)', () => {
         refused(w, RIVAL, { kind: K.buildRoadStop, tile: at(w, 100, 104), stop: 1 }, RtCommandError.limit)
     })
 
-    it('buyVehicle one wagon past maxTrainLength is refused with the hash unchanged (AR-91)', () => {
+    it('buyVehicle one wagon past maxTrainLength is refused with the hash unchanged', () => {
         const w = world()
         must(w, ME, { kind: K.buildDepot, tile: at(w, 5, 9), vehicleKind: RtVehicleKind.rail, facing: RtDir.sw })
         const most = RT_CATALOG.vehicles.maxTrainVehicles - 1
@@ -544,7 +544,7 @@ describe('rail tycoon commands (W65)', () => {
         refused(w, ME, { kind: K.buyVehicle, depot: at(w, 5, 9), model: ENGINE, wagons: wagons(most + 1) }, RtCommandError.limit)
     })
 
-    it('a full-load order at a competitor\'s station is refused (AR-102)', () => {
+    it('a full-load order at a competitor\'s station is refused', () => {
         const w = world(true)
         must(w, RIVAL, { kind: K.buildRailStation, tile: at(w, 30, 10), axis: RtAxis.x, tracks: 1, length: 3 })
         must(w, ME, { kind: K.buildDepot, tile: at(w, 5, 9), vehicleKind: RtVehicleKind.rail, facing: RtDir.sw })
@@ -587,7 +587,7 @@ const VARIANTS: RtCommand[] = [
     { kind: K.foundCompany, name: 'Joiner', colour: RT_CATALOG.companies.colours.length - 1 }
 ]
 
-describe('rail tycoon command codec (W60, W61)', () => {
+describe('rail tycoon command codec', () => {
     it('covers every command kind', () => {
         expect(new Set(VARIANTS.map(c => c.kind))).toEqual(new Set(Object.values(K)))
     })
@@ -601,7 +601,7 @@ describe('rail tycoon command codec (W60, W61)', () => {
         }
     })
 
-    it('every variant but setOrders and renameCompany encodes under 64 bytes; a drag is fixed size (AR-37)', () => {
+    it('every variant but setOrders and renameCompany encodes under 64 bytes; a drag is fixed size', () => {
         for (const command of VARIANTS) {
             if (command.kind === K.setOrders || command.kind === K.renameCompany) continue
             expect(encodeCommand(command).length).toBeLessThan(64)
@@ -610,7 +610,7 @@ describe('rail tycoon command codec (W60, W61)', () => {
         expect(encodeCommand({ kind: K.demolishArea, tile: 0, endTile: 0 }).length).toBe(9)
     })
 
-    it('a name is clamped to maxNameBytes on encode and refused past it on decode (AR-76)', () => {
+    it('a name is clamped to maxNameBytes on encode and refused past it on decode', () => {
         const bytes = encodeCommand({ kind: K.renameCompany, name: '🚂'.repeat(30) })
         const decoded = decodeCommand(bytes) as { name: string }
         expect(new TextEncoder().encode(decoded.name).length).toBeLessThanOrEqual(RT_CATALOG.caps.maxNameBytes)
@@ -627,7 +627,7 @@ describe('rail tycoon command codec (W60, W61)', () => {
         for (let kind = Object.keys(K).length; kind < 256; kind++) expect(decodeCommand(new Uint8Array([kind, 0, 0, 0, 0, 0]))).toBeNull()
     })
 
-    it('refuses out-of-range fields: tiles past the map, long lines, wide areas, 255 wagons (AR-37, AR-91, AR-96)', () => {
+    it('refuses out-of-range fields: tiles past the map, long lines, wide areas, 255 wagons', () => {
         const tile = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, n >>> 24]
         expect(decodeCommand(new Uint8Array([K.demolish, ...tile(64 * 64)]), 64)).toBeNull()
         expect(decodeCommand(new Uint8Array([K.demolish, ...tile(64 * 64 - 1)]), 64)).not.toBeNull()
@@ -656,13 +656,13 @@ describe('rail tycoon command codec (W60, W61)', () => {
     })
 
     it('1000 random byte arrays decode to null or a command that re-encodes to the same bytes, never throwing', () => {
-        const rng = new RtRng(4242)
+        const rng = new SeededRandom(4242)
         let decoded = 0
         for (let k = 0; k < 1000; k++) {
-            const bytes = new Uint8Array(rng.int(0, 24))
-            for (let i = 0; i < bytes.length; i++) bytes[i] = rng.int(0, 255)
+            const bytes = new Uint8Array(rng.randomInt(0, 24))
+            for (let i = 0; i < bytes.length; i++) bytes[i] = rng.randomInt(0, 255)
             // a valid kind more often, so the field checks are reached
-            if (bytes.length > 0 && rng.chance(3, 4)) bytes[0] = rng.int(0, 22)
+            if (bytes.length > 0 && rng.randomRatio(3, 4)) bytes[0] = rng.randomInt(0, 22)
             const command = decodeCommand(bytes)
             if (command === null) continue
             decoded++
