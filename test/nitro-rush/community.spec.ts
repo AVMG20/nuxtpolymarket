@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ownTrackEntries } from '../../app/utils/nitro-rush/community'
+import { ownTrackEntries, sortCommunity, voteCounts, voteScore } from '../../app/utils/nitro-rush/community'
 import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
 import { compileCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 
@@ -13,7 +13,8 @@ const published = (id: string, sections = RING, name = 'Ring'): NrPublishedTrack
     closed: true,
     sections,
     author: 'me',
-    summary: { trackId: `pub-${id}`, entries: 0, record: null, myLapMs: null }
+    summary: { trackId: `pub-${id}`, entries: 0, record: null, myLapMs: null },
+    votes: { up: 0, down: 0, myVote: 0 }
 })
 const entries = (here: CustomTrack[], mine: NrPublishedTrack[]) => ownTrackEntries(
     here,
@@ -44,5 +45,31 @@ describe('my tracks', () => {
         const list = entries([local('a')], [published('a'), published('elsewhere', LONG_RING, 'Far')])
         expect(list.map(e => e.track.id)).toEqual(['custom-a', 'custom-elsewhere'])
         expect(list[1]).toMatchObject({ change: null, playId: 'pub-elsewhere', track: { name: 'Far', sections: LONG_RING } })
+    })
+})
+
+describe('community sort', () => {
+    const voted = (id: string, up: number, down: number) => ({ track: { ...published(id), votes: { up, down, myVote: 0 as const } } })
+    // The server sends the list newest first.
+    const list = [voted('new', 1, 0), voted('mid', 5, 1), voted('old', 3, 0), voted('oldest', 0, 2)]
+
+    it('keeps the server\'s newest-first order by default', () => {
+        expect(sortCommunity(list, 'newest').map(e => e.track.id)).toEqual(['pub-new', 'pub-mid', 'pub-old', 'pub-oldest'])
+    })
+
+    it('ranks by up minus down, ties newest first, and leaves the list it was given alone', () => {
+        expect(sortCommunity(list, 'popular').map(e => e.track.id)).toEqual(['pub-mid', 'pub-old', 'pub-new', 'pub-oldest'])
+        const tied = [voted('a', 2, 1), voted('b', 1, 0), voted('c', 4, 3)]
+        expect(sortCommunity(tied, 'popular').map(e => e.track.id)).toEqual(['pub-a', 'pub-b', 'pub-c'])
+        expect(list[0]!.track.id).toBe('pub-new')
+    })
+})
+
+describe('vote chip', () => {
+    it('shows the net score, below zero too, with the up and down votes behind it', () => {
+        expect(voteScore({ up: 4, down: 1, myVote: 0 })).toBe(3)
+        expect(voteScore({ up: 0, down: 1, myVote: 0 })).toBe(-1)
+        expect(voteCounts({ up: 4, down: 1, myVote: 0 })).toBe('4 up · 1 down')
+        expect(voteCounts({ up: 0, down: 0, myVote: 1 })).toBe('0 up · 0 down')
     })
 })

@@ -29,7 +29,8 @@ export interface NrBoard {
 export interface NrTrackSummary {
     trackId: string
     entries: number
-    record: { name: string, lapMs: number } | null
+    /** `mine` follows the board's ranking, so an equal time set later doesn't count as the record. */
+    record: { name: string, lapMs: number, mine: boolean } | null
     myLapMs: number | null
 }
 
@@ -61,13 +62,13 @@ function nrMinLapMs(def: TrackDef) {
     return ms
 }
 
-/** A ghost the server will keep: on a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. */
-export function validGhost(def: TrackDef | null, ghost: unknown, standing: unknown): NrGhost & { trackId: string } | null {
+/** A ghost the server will keep: on a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. Pass `minLapMs` for a course with no id yet. */
+export function validGhost(def: TrackDef | null, ghost: unknown, standing: unknown, minLapMs?: number): NrGhost & { trackId: string } | null {
     if (!def || typeof standing !== 'boolean') return null
     if ((standing && def.closed === false) || !decodeGhost(ghost)) return null
     // Only the fields a ghost has, so nothing else rides into the row.
     const { v, hz, end, o, d } = ghost as StoredGhost
-    if (end < nrMinLapMs(def)) return null
+    if (end < (minLapMs ?? nrMinLapMs(def))) return null
     return { trackId: def.id, ghost: { v, hz, end, o, d }, standing }
 }
 
@@ -179,7 +180,7 @@ export async function nrTrackSummaries(userId: string, trackIds: string[] = TRAC
         return {
             trackId,
             entries: top ? Number(top.entries) : 0,
-            record: top ? { name: top.name, lapMs: Number(top.lap_ms) } : null,
+            record: top ? { name: top.name, lapMs: Number(top.lap_ms), mine: top.user_id === userId } : null,
             myLapMs: mine ? Number(mine.lap_ms) : null
         }
     })

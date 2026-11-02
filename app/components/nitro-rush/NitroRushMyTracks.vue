@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import type { CustomTrackEntry } from '~/utils/nitro-rush/types'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import { GHOST_MAX_SECONDS } from '#shared/utils/nitro-rush/ghost'
 
 /** The player's own courses: drive, edit, and publish them for everyone to race. */
-defineProps<{
+const props = defineProps<{
     trackId: string
     tracks: CustomTrackEntry[]
     summaries: Record<string, NrTrackSummary>
-    best: (id: string) => number | null
     busy: string | null
+    /** Whether the player has a lap with a ghost on this local course. */
+    hasLap: (id: string) => boolean
+    /** Its lap kept no ghost for being too long, rather than for a respawn. */
+    lapTooLong: (id: string) => boolean
 }>()
 const emit = defineEmits<{ select: [id: string], build: [id?: string], publish: [id: string], unpublish: [id: string] }>()
 
@@ -19,9 +23,15 @@ let confirmTimer: ReturnType<typeof setTimeout> | undefined
 
 const PUBLISH_LABEL = { new: 'PUBLISH', rename: 'UPDATE NAME', replace: 'PUBLISH CHANGES' } as const
 
+/** A new road goes up with the builder's lap on it; a rename keeps the board it has. */
+const needsLap = (c: CustomTrackEntry) => (c.change === 'new' || c.change === 'replace') && !props.hasLap(c.track.id)
+
+const lapHint = (c: CustomTrackEntry) => props.lapTooLong(c.track.id) ? 'LAP TOO LONG TO PUBLISH' : 'DRIVE A LAP FIRST'
+
 function status(c: CustomTrackEntry) {
     if (!c.def) return 'UNFINISHED'
-    if (!c.published) return 'ONLY ON THIS DEVICE'
+    if (!c.published) return needsLap(c) ? lapHint(c) : 'ONLY ON THIS DEVICE'
+    if (needsLap(c)) return `CHANGED · ${lapHint(c)}`
     const racers = c.published.summary.entries
     const times = `${racers} ${racers === 1 ? 'RACER' : 'RACERS'}`
     return c.change === 'replace' ? `CHANGED SINCE PUBLISHED · ${times}` : `PUBLISHED · ${times}`
@@ -69,7 +79,6 @@ onBeforeUnmount(() => clearTimeout(confirmTimer))
             :active="c.playId === trackId"
             :has-board="hasBoard(c)"
             :record="summaries[c.playId]?.record ?? null"
-            :best="best(c.playId)"
             @select="$emit('select', c.playId)"
           />
           <button v-else class="nr-track" @click="$emit('build', c.track.id)">
@@ -88,8 +97,9 @@ onBeforeUnmount(() => clearTimeout(confirmTimer))
           <button
             v-if="c.change"
             class="nr-ghost nr-small"
-            :class="{ 'is-danger': isArmed(c, 'publish') }"
-            :disabled="!!busy"
+            :class="{ 'is-danger': isArmed(c, 'publish'), 'is-locked': needsLap(c) }"
+            :disabled="!!busy || needsLap(c)"
+            :title="needsLap(c) ? (lapTooLong(c.track.id) ? `Drive a lap under ${GHOST_MAX_SECONDS / 60} minutes first` : 'Drive one clean lap first') : undefined"
             @click="act(c, 'publish')"
           >
             {{ isArmed(c, 'publish') ? 'CLEARS TIMES · TAP AGAIN' : PUBLISH_LABEL[c.change] }}

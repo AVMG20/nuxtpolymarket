@@ -49,7 +49,7 @@ function onServerRecord(id: string) {
     if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
 }
 
-const { board, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
+const { board, boardLoading, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
 const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
 const community = useNitroRushCommunity(custom, addSummaries)
 const ownEntries = community.entries
@@ -175,7 +175,9 @@ async function publishCustom(sourceId: string) {
     if (!entry) return
     audio.ui()
     const old = entry.published?.id
-    const id = await community.publish(entry.track)
+    // The lap set on this road here: a changed road wipes it, so it can't be one from before the edit.
+    const r = records.value[sourceId]
+    const id = await community.publish(entry.track, r?.ghost ? { ghost: r.ghost, standing: !!r.ghostStanding } : null)
     if (!id) return
     if (old && old !== id) forgetRecord(old)
     // On the engine under its old id, or as the local course that now has a board: drive the published copy.
@@ -442,6 +444,9 @@ onBeforeUnmount(() => {
         v-if="phase === 'attract' && screen === 'select'"
         :track-id="trackId"
         :track-name="trackName"
+        :track-def="trackDef"
+        :board="board"
+        :board-loading="boardLoading"
         :paint="paint"
         :is-touch="isTouch"
         :records="records"
@@ -449,6 +454,7 @@ onBeforeUnmount(() => {
         :custom-tracks="ownEntries"
         :community-tracks="community.communityEntries.value"
         :busy="community.busy.value"
+        :voting="community.voting.value"
         @back="backToTitle"
         @select="selectTrack"
         @paint="setPaint"
@@ -456,6 +462,7 @@ onBeforeUnmount(() => {
         @build="openBuilder"
         @publish="publishCustom"
         @unpublish="unpublishCustom"
+        @vote="community.vote"
       />
     </Transition>
     <Transition name="nr-fade">

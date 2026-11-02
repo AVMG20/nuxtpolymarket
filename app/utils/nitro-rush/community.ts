@@ -1,5 +1,5 @@
 import type { CustomTrackEntry } from './types'
-import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
+import type { NrPublishedTrack, NrTrackVotes } from '#server/utils/nitro-rush-tracks'
 import { sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -28,4 +28,18 @@ export function ownTrackEntries(
         return [{ track, def, published, change: null, playId: published.id }]
     })
     return [...here, ...elsewhere]
+}
+
+export type CommunitySort = 'newest' | 'popular'
+
+/** Net votes, which the chips show and Popular sorts by. */
+export const voteScore = (v: NrTrackVotes) => v.up - v.down
+export const trackScore = (t: NrPublishedTrack) => voteScore(t.votes)
+
+export const voteCounts = (v: NrTrackVotes) => `${v.up} up · ${v.down} down`
+
+/** The community list in the chosen order; it comes newest first and the sort is stable, so ties stay newest first. */
+export function sortCommunity<T extends { track: NrPublishedTrack }>(entries: T[], sort: CommunitySort): T[] {
+    if (sort === 'newest') return entries
+    return [...entries].sort((a, b) => trackScore(b.track) - trackScore(a.track))
 }

@@ -6,7 +6,6 @@ import type { NrTrackSummary } from '#server/utils/nitro-rush'
 defineProps<{
     trackId: string
     summaries: Record<string, NrTrackSummary>
-    best: (id: string) => number | null
 }>()
 defineEmits<{ select: [id: string] }>()
 
@@ -30,7 +29,6 @@ const trackGroups = TRACK_GROUPS
           :active="t.id === trackId"
           has-board
           :record="summaries[t.id]?.record ?? null"
-          :best="best(t.id)"
           @select="$emit('select', t.id)"
         />
       </div>

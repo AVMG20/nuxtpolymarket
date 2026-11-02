@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision, smallint, primaryKey, check } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
@@ -2693,6 +2693,17 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
 }, t => [
   uniqueIndex('nitro_rush_tracks_author_source_idx').on(t.authorId, t.sourceId),
   index('nitro_rush_tracks_published_idx').on(t.publishedAt)
+])
+
+// Nitro Rush: one up (+1) or down (-1) vote per player on a published course; they go with the course.
+export const nitroRushTrackVotes = pgTable('nitro_rush_track_votes', {
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull().references(() => nitroRushTracks.id, { onDelete: 'cascade' }),
+  value: smallint('value').notNull()
+}, t => [
+  primaryKey({ columns: [t.userId, t.trackId] }),
+  index('nitro_rush_track_votes_track_idx').on(t.trackId),
+  check('nitro_rush_track_votes_value_check', sql`${t.value} in (-1, 1)`)
 ])
 
 // Nitro Rush: the ghost each player races on a course, so it follows them to any

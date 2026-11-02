@@ -87,9 +87,22 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
     it('sums up each course with its record and the viewer\'s own best', async () => {
         const EMPTY = `${TRACK}-empty`
         const [track, empty] = await nrTrackSummaries(A, [TRACK, EMPTY])
-        expect(track).toEqual({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000 }, myLapMs: 26_900 })
+        expect(track).toEqual({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000, mine: false }, myLapMs: 26_900 })
         expect(empty).toEqual({ trackId: EMPTY, entries: 0, record: null, myLapMs: null })
         expect((await nrTrackSummaries(B, [TRACK]))[0]!.myLapMs).toBe(25_000)
+        expect((await nrTrackSummaries(B, [TRACK]))[0]!.record?.mine).toBe(true)
+    })
+
+    it('gives the record to whoever set the time first when a later lap ties it', async () => {
+        const TIE = `${TRACK}-tie`
+        await submitNrLap(A, TIE, 30_000)
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await submitNrLap(B, TIE, 30_000)
+        expect((await nrTrackSummaries(A, [TIE]))[0]!.record?.mine).toBe(true)
+        expect((await nrTrackSummaries(B, [TIE]))[0]!.record?.mine).toBe(false)
+        await submitNrLap(B, TIE, 29_999)
+        expect((await nrTrackSummaries(A, [TIE]))[0]!.record?.mine).toBe(false)
+        expect((await nrTrackSummaries(B, [TIE]))[0]!.record?.mine).toBe(true)
     })
 
     it('settles a burst of parallel ghosts on the fastest', async () => {

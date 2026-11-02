@@ -229,6 +229,9 @@
     cursor: wait;
 }
 
+/* Waiting on the player, not the server. */
+.nr-root .nr-ghost.is-locked:disabled { cursor: not-allowed; }
+
 .nr-root .nr-menu {
     position: absolute;
     right: 0;
@@ -354,6 +357,15 @@
 
 .nr-root .nr-track-times dd.is-you { color: var(--nr-violet); }
 
+/* Smaller than the time and centred on it, so the row keeps its height with or without one. */
+.nr-root .nr-crown {
+    display: inline-flex;
+    align-self: center;
+    width: 0.8em;
+    height: 0.8em;
+    color: var(--nr-gold);
+}
+
 .nr-root .nr-track-holder {
     min-width: 0;
     overflow: hidden;
@@ -401,6 +413,151 @@
 .nr-root .nr-ghost.is-danger {
     border-color: var(--nr-red);
     background: rgb(255 59 92 / 0.2);
+}
+
+.nr-root .nr-seg {
+    display: flex;
+    flex-shrink: 0;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.3);
+}
+
+.nr-root .nr-seg-btn {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgb(255 255 255 / 0.6);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nr-root .nr-seg-btn:hover { color: #fff; }
+
+.nr-root .nr-seg-btn.is-active {
+    color: #fff;
+    background: rgb(255 43 214 / 0.22);
+    box-shadow: inset 0 0 0 1px var(--nr-pink);
+}
+
+.nr-root .nr-vote {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    border: 1px solid rgb(255 255 255 / 0.2);
+    background: rgb(255 255 255 / 0.04);
+}
+
+.nr-root .nr-vote-btn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    color: rgb(255 255 255 / 0.55);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nr-root .nr-vote-btn:hover { color: #fff; background: rgb(255 255 255 / 0.1); }
+.nr-root .nr-vote-btn.is-up { color: var(--nr-cyan); background: rgb(61 242 255 / 0.16); }
+.nr-root .nr-vote-btn.is-down { color: var(--nr-red); background: rgb(255 59 92 / 0.18); }
+/* Stays at full strength while a vote is in flight, so the lit button doesn't flicker. */
+.nr-root .nr-vote-btn:disabled { cursor: wait; }
+
+.nr-root .nr-vote-score {
+    min-width: 2ch;
+    text-align: center;
+    font-size: 13px;
+    color: #fff;
+}
+
+.nr-root .nr-score {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 3px;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-score.is-down { color: rgb(255 59 92 / 0.7); }
+
+/* Room for all five rows from the start, so the panel keeps its height while a board loads. */
+.nr-root .nr-board {
+    min-height: 100px;
+    transition: opacity 0.15s;
+}
+
+.nr-root .nr-board.is-loading { opacity: 0.45; }
+
+.nr-root .nr-board-row {
+    display: grid;
+    grid-template-columns: 1.5em minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 8px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 6px;
+}
+
+.nr-root .nr-board-row.is-you { background: rgb(180 107 255 / 0.14); }
+
+.nr-root .nr-board-rank {
+    text-align: right;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-board-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.8);
+}
+
+.nr-root .nr-board-time {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--nr-gold);
+}
+
+.nr-root .nr-board-row.is-you .nr-board-name,
+.nr-root .nr-board-row.is-you .nr-board-time { color: var(--nr-violet); }
+
+/* The viewer's own row, set off from the top 5 above it. */
+.nr-root .nr-board-own {
+    position: relative;
+    margin-top: 9px;
+}
+
+.nr-root .nr-board-own::before {
+    content: '';
+    position: absolute;
+    inset: -5px 0 auto;
+    border-top: 1px solid rgb(255 255 255 / 0.15);
+}
+
+.nr-root .nr-board-empty {
+    padding: 2px 6px;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgb(255 255 255 / 0.5);
 }
 
 .nr-root .nr-fade-enter-active, .nr-root .nr-fade-leave-active { transition: opacity 0.35s; }

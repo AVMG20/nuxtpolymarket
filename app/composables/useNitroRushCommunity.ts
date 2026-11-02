@@ -1,7 +1,7 @@
 import { ownTrackEntries } from '~/utils/nitro-rush/community'
 import type { CommunityTrackEntry } from '~/utils/nitro-rush/types'
-import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
-import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import type { NrPublishedTrack, NrVote } from '#server/utils/nitro-rush-tracks'
+import type { NrGhost, NrTrackSummary } from '#server/utils/nitro-rush'
 import { compileCustomTrack, isSectionId, type CompiledCustomTrack, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -21,6 +21,8 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
     const mine = ref<NrPublishedTrack[]>([])
     /** The course being published or taken down, by its local id. */
     const busy = ref<string | null>(null)
+    /** Community courses with a vote in flight, by published id. */
+    const voting = ref(new Set<string>())
     // A published id never changes road, so each compiles once.
     const defs = new Map<string, TrackDef | null>()
 
@@ -61,12 +63,12 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         return t ? compile(t) : null
     }
 
-    /** Publishes or updates the course; answers with its published id, or null when it failed. */
-    async function publish(track: CustomTrack): Promise<string | null> {
+    /** Publishes or updates the course with the builder's lap on it; answers with its published id, or null when it failed. */
+    async function publish(track: CustomTrack, lap: NrGhost | null): Promise<string | null> {
         if (busy.value) return null
         busy.value = track.id
         try {
-            const { id } = await apiPost('/api/nitro-rush/publish', { track })
+            const { id } = await apiPost('/api/nitro-rush/publish', { track, ...lap })
             await load()
             return id
         } catch (e) {
@@ -92,5 +94,34 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         }
     }
 
-    return { communityEntries, entries, busy, load, trackDef, publish, unpublish }
+    // Looked up by id each time, since a reload can swap the list while a vote is in flight.
+    const communityTrack = (id: string) => community.value.find(t => t.id === id)
+
+    /** Sets the player's vote on a community course, shown at once and put back if the server refuses it. */
+    async function vote(trackId: string, value: NrVote) {
+        const track = communityTrack(trackId)
+        // One vote per course at a time, so a quick second tap can't land before the first.
+        if (!track || voting.value.has(trackId)) return
+        const before = { ...track.votes }
+        const was = before.myVote
+        track.votes = {
+            up: before.up - (was === 1 ? 1 : 0) + (value === 1 ? 1 : 0),
+            down: before.down - (was === -1 ? 1 : 0) + (value === -1 ? 1 : 0),
+            myVote: value
+        }
+        voting.value.add(trackId)
+        try {
+            const res = await apiPost('/api/nitro-rush/vote', { trackId, vote: value })
+            const now = communityTrack(trackId)
+            if (now) now.votes = { up: res.up, down: res.down, myVote: res.myVote }
+        } catch (e) {
+            const now = communityTrack(trackId)
+            if (now) now.votes = before
+            toast.add({ title: apiErrorMessage(e, 'Vote not saved'), color: 'warning' })
+        } finally {
+            voting.value.delete(trackId)
+        }
+    }
+
+    return { communityEntries, entries, busy, voting, load, trackDef, publish, unpublish, vote }
 }
