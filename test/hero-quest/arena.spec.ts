@@ -16,6 +16,7 @@ import {
     rankStandings,
     ratingIn,
     rollStanding,
+    sameOpponents,
     seasonRewardFor
 } from '#shared/utils/hero-quest/arena'
 import { runArenaDummy, runDuel } from '#shared/utils/hero-quest/duel'
@@ -94,6 +95,13 @@ describe('hero-quest arena', () => {
 
         it('keeps an out-of-range pick inside the pool', () => {
             expect(drawCandidates(['a'], () => 99)).toEqual(['a', ...Array.from({ length: ARENA_CANDIDATE_COUNT - 1 }, () => null)])
+        })
+
+        it('sees a reshuffle of the same opponents as no new list', () => {
+            expect(sameOpponents(['a', null, null], [null, 'a', null])).toBe(true)
+            expect(sameOpponents(['a', 'b', null], ['b', null, 'a'])).toBe(true)
+            expect(sameOpponents(['a', null, null], ['a', 'b', null])).toBe(false)
+            expect(sameOpponents(['a', null, null], [])).toBe(false)
         })
     })
 

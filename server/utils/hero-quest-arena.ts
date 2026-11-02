@@ -50,6 +50,7 @@ import {
     refreshPrice,
     refreshesOn,
     rollStanding,
+    sameOpponents,
     seasonRewardFor,
     defenseTraitBoard,
     defenseTraitsFrom,
@@ -69,6 +70,7 @@ import type { HeroSnapshot, OwnedCopy } from '#shared/utils/hero-quest/types'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import {
+    ARENA_CANDIDATE_COUNT,
     ARENA_FREE_ATTEMPTS_PER_DAY,
     ARENA_FREE_REFRESHES_PER_DAY,
     ARENA_LEADERBOARD_NEIGHBORS,
@@ -103,12 +105,20 @@ function standingWrites(standing: ArenaStanding) {
 /**
  * The defender as they are fought: their class, level, Passive Skill Tree, Shop and whole collection
  * as they stand now, with the stored defence (its Traits included) fielded in place of whatever they
- * play with live (§1). Wealth-neutral, as the defender's banked Gold has nothing to do with a fight
- * they are not at. `liveTraits` is only read for a defence stored without its own board.
+ * play with live (§1), or the live party and Trait board when they never set one. Wealth-neutral, as
+ * the defender's banked Gold has nothing to do with a fight they are not at. `liveTraits` is only
+ * read for a player without a defence, or with one stored without its own board.
  */
-export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, liveTraits: TraitBoard = []): HeroSnapshot | null {
+export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, liveTraits: TraitBoard = []): HeroSnapshot {
     const defended = withDefenseLoadout(state)
-    return defended ? heroSnapshotOf(defended, shopLevels, collections, undefined, defenseTraitBoard(state.defenseLoadout!, liveTraits)) : null
+    return defended
+        ? heroSnapshotOf(defended, shopLevels, collections, undefined, defenseTraitBoard(state.defenseLoadout!, liveTraits))
+        : heroSnapshotOf(state, shopLevels, collections, undefined, liveTraits)
+}
+
+/** Whether a defender is fought with their live Trait board: no defence, or one stored without its own. */
+function readsLiveTraits(state: HqStateRow): boolean {
+    return !state.defenseLoadout?.traits
 }
 
 /** What the defence's stats are read off: the account's progress as it stands. */
@@ -131,13 +141,13 @@ export function defenseGpnNow(state: HqStateRow, progress: DefenderProgress): st
 
 /**
  * Several defenders' progress at once, for the opponent list: one query a table for all of them
- * rather than three a defender. The live Trait board is read only for a defence without its own.
+ * rather than three a defender. The live Trait board is read only where `readsLiveTraits`.
  */
 async function defendersProgress(executor: DbExecutor, states: readonly HqStateRow[]): Promise<Map<string, DefenderProgress>> {
     const ids = states.map(state => state.userId)
     const progress = new Map<string, DefenderProgress>(ids.map(id => [id, { shopLevels: {}, collections: emptyCollections(), traits: [] }]))
     if (ids.length === 0) return progress
-    const liveTraitIds = states.filter(state => state.defenseLoadout && !state.defenseLoadout.traits).map(state => state.userId)
+    const liveTraitIds = states.filter(readsLiveTraits).map(state => state.userId)
     const [shops, owned, slots] = await Promise.all([
         executor.select().from(hqShopUpgrades).where(inArray(hqShopUpgrades.userId, ids)),
         executor.select().from(hqCollection).where(inArray(hqCollection.userId, ids)),
@@ -286,10 +296,12 @@ export async function claimSeasonRewards(tx: DbExecutor, userId: string) {
 // ── The opponent list ──────────────────────────────────────────────────────────────
 
 /**
- * The players a list is drawn from (§2): everyone else with a defence whose Rating this season is
+ * The players a list is drawn from (§2): everyone else in the Arena whose Rating this season is
  * within `ARENA_MATCH_BAND_RATING` of the attacker's, a row not yet rolled into the season counting
- * at `ARENA_RATING_START` (the user's call, 2026-10-10: the band is on Rating, not GPN). The band is
- * held only here, when the list is drawn: whoever is on it stays attackable until it is redrawn.
+ * at `ARENA_RATING_START` (the user's call, 2026-10-10: the band is on Rating, not GPN). In the Arena
+ * is a set defence or a list of their own, which the first visit draws; one without a defence is
+ * fought with their live party (the user's call, 2026-10-29). The band is held only here, when the
+ * list is drawn: whoever is on it stays attackable until it is redrawn.
  */
 async function candidatePool(executor: DbExecutor, userId: string, rating: number, season: number): Promise<string[]> {
     const band = matchBand(rating)
@@ -298,17 +310,23 @@ async function candidatePool(executor: DbExecutor, userId: string, rating: numbe
         .from(hqState)
         .where(and(
             ne(hqState.userId, userId),
-            isNotNull(hqState.defenseLoadout),
+            or(isNotNull(hqState.defenseLoadout), sql`jsonb_array_length(${hqState.arenaCandidates}) > 0`),
             sql`${current} between ${band.lo} and ${band.hi}`
         ))
     return rows.map(row => row.userId)
 }
 
-/** A fresh list for the attacker at `rating`: in-band players at random, then in-band bots, dummies for the rest (§2a). */
-async function drawFor(executor: DbExecutor, userId: string, rating: number, season: number): Promise<(string | null)[]> {
+/**
+ * A fresh list for the attacker at `rating`: in-band players at random, then in-band bots, dummies
+ * for the rest (§2a). `fixed` when the band holds no more than the list does, so any redraw is the same.
+ */
+async function drawFor(executor: DbExecutor, userId: string, rating: number, season: number) {
     const pool = await candidatePool(executor, userId, rating, season)
     const bots = arenaBots().filter(bot => inMatchBand(rating, bot.rating)).map(bot => bot.id)
-    return drawCandidates(pool, n => randomInt(0, n - 1), bots)
+    return {
+        candidates: drawCandidates(pool, n => randomInt(0, n - 1), bots),
+        fixed: pool.length + bots.length <= ARENA_CANDIDATE_COUNT
+    }
 }
 
 export interface ArenaCandidate {
@@ -319,7 +337,7 @@ export interface ArenaCandidate {
     name: string
     rating: number | null
     defenseGpn: string | null
-    /** The defence they field, for the card: the Hero's class and row, then each Champion and its row. */
+    /** The defence they field (their live party without one), for the card: the Hero's class and row, then each Champion and its row. */
     classId: string | null
     heroRow: 'front' | 'back' | null
     champions: { id: string, row: 'front' | 'back' }[]
@@ -333,8 +351,7 @@ export async function serializeCandidates(executor: DbExecutor, candidates: read
             .from(hqState).innerJoin(user, eq(user.id, hqState.userId)).where(inArray(hqState.userId, ids))
         : []
     // each defence's GPN at its owner's progress now, not as it stood when it was set (issue #32)
-    const defended = rows.map(row => row.state).filter(state => state.defenseLoadout)
-    const progress = await defendersProgress(executor, defended)
+    const progress = await defendersProgress(executor, rows.map(row => row.state))
     return candidates.map((id, slot) => {
         const bot = id === null ? undefined : getArenaBot(id)
         if (bot) {
@@ -342,18 +359,19 @@ export async function serializeCandidates(executor: DbExecutor, candidates: read
             return { slot, id: bot.id, dummy: false, name: bot.name, rating: bot.rating, defenseGpn: gpn, ...enemyOf(hero) }
         }
         const row = id === null ? undefined : rows.find(r => r.state.userId === id)
-        if (id === null || !row?.state.defenseLoadout) {
+        if (id === null || !row) {
             return { slot, id: id ?? ARENA_DUMMY_ID, dummy: id === null, name: id === null ? 'Training Dummy' : 'Gone', rating: null, defenseGpn: null, classId: null, heroRow: null, champions: [] }
         }
         const state = row.state
-        const defense = state.defenseLoadout!
+        const defense = withDefenseLoadout(state) ?? state
+        const { shopLevels, collections, traits } = progress.get(id)!
         return {
             slot,
             id,
             dummy: false,
             name: row.name,
             rating: rollStanding(standingOf(state), season).rating,
-            defenseGpn: defenseGpnNow(state, progress.get(id)!),
+            defenseGpn: globalPower(defenseSnapshotOf(state, shopLevels, collections, traits)).gpn.toString(),
             classId: state.heroNodeId,
             heroRow: defense.formation.hero ?? null,
             champions: defense.partyChampionIds.map(c => ({ id: c, row: defense.formation[c] ?? 'front' }))
@@ -373,7 +391,7 @@ export async function getCandidates(userId: string, now: number) {
         const season = arenaSeasonAt(now)
         let candidates = state.arenaCandidates
         if (candidates.length === 0) {
-            candidates = await drawFor(tx, userId, ratingIn(standingOf(state), season), season)
+            candidates = (await drawFor(tx, userId, ratingIn(standingOf(state), season), season)).candidates
             await tx.update(hqState).set({ arenaCandidates: candidates }).where(eq(hqState.userId, userId))
         }
         return serializeCandidates(tx, candidates, season)
@@ -383,16 +401,20 @@ export async function getCandidates(userId: string, now: number) {
 /**
  * Redraw the list (§2): free `ARENA_FREE_REFRESHES_PER_DAY` times a UTC day, then 5, 10, 20, … Gems
  * (the user's call, 2026-10-10). The day's count is read and written under the row lock, so a burst
- * prices each redraw at its own rung.
+ * prices each redraw at its own rung. A band too thin to draw anyone new refuses the refresh before
+ * it is counted or paid for (the user's call, 2026-10-29).
  */
 export async function refreshCandidates(userId: string, now: number) {
     return db.transaction(async (tx) => {
         const state = await lockOwn(tx, userId)
+        const season = arenaSeasonAt(now)
+        const { candidates, fixed } = await drawFor(tx, userId, ratingIn(standingOf(state), season), season)
+        if (fixed && sameOpponents(candidates, state.arenaCandidates)) {
+            throw createError({ statusCode: 400, statusMessage: 'No other opponents are in your Rating range right now' })
+        }
         const today = refreshesOn(refreshesOf(state), ladderDateKey(now))
         const price = refreshPrice(today.used)
         if (price > 0) await debitGems(userId, price, tx)
-        const season = arenaSeasonAt(now)
-        const candidates = await drawFor(tx, userId, ratingIn(standingOf(state), season), season)
         await tx.update(hqState)
             .set({ arenaCandidates: candidates, arenaRefreshDate: today.date, arenaRefreshesToday: today.used + 1 })
             .where(eq(hqState.userId, userId))
@@ -483,7 +505,7 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         throw createError({ statusCode: 409, statusMessage: 'The opponent list changed; pick again' })
     }
     const defender = player ? locked.get(listed) ?? null : null
-    if (player && !defender?.defenseLoadout) throw createError({ statusCode: 400, statusMessage: 'That opponent has no defence any more' })
+    if (player && !defender) throw createError({ statusCode: 400, statusMessage: 'That opponent is gone' })
 
     // a closed season takes no more matches: its standings are written (`closeSeason` locks these
     // rows, so a match ahead of it is in them), and a row already rolled past it can't take one either
@@ -513,13 +535,13 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         if (bot) {
             defenderHero = botDefense(bot).hero
         } else {
-            // the defence's own Traits; the live board only for one stored before they were kept with it
+            // the defence's own Traits; the live board without a defence, or for one stored before they were kept with it
             const [shop, collections, traits] = await Promise.all([
                 getShopLevels(listed, tx),
                 getCollections(listed, tx),
-                defender!.defenseLoadout!.traits ? [] : getTraitBoard(listed, tx)
+                readsLiveTraits(defender!) ? getTraitBoard(listed, tx) : []
             ])
-            defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)!
+            defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)
         }
         fight = runDuel({ attacker: hero, defender: defenderHero, seed })
         enemy = enemyOf(defenderHero)
@@ -531,7 +553,7 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     const elo = dummy ? null : eloUpdate(attackerStanding.rating, bot ? bot.rating : rollStanding(standingOf(defender!), season).rating, won)
     const medals = medalsFor(won, elo?.expectedAttacker ?? null)
     // a fresh list after every attack, drawn on the Rating it ends at, so the same three can't be farmed
-    const candidates = await drawFor(tx, userId, (elo?.attacker.after ?? attackerStanding.rating), season)
+    const { candidates } = await drawFor(tx, userId, (elo?.attacker.after ?? attackerStanding.rating), season)
 
     // a dummy fight never touches the ladder, and is no match for the season's standings
     const attackerAfter: ArenaStanding = elo
