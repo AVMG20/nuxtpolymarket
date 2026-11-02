@@ -37,6 +37,11 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         return m
     })
 
+    /** The walk up to the cursor with `id` laid on the end, as if it went in there. */
+    function walkUpTo(id: SectionId) {
+        return walkCustomTrack({ ...initial.value, sections: [...sections.value.slice(0, cursor.value + 1), id], closed: closed.value })
+    }
+
     function edit(next: Partial<CustomTrack>, nextCursor = cursor.value) {
         history.push({ track: draft.value, cursor: cursor.value })
         if (history.length > MAX_UNDO) history.shift()
@@ -85,5 +90,5 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         canUndo.value = history.length > 0
     }
 
-    return { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, moveTo, setClosed, setName, select, undo }
+    return { draft, cursor, walk, compiled, gap, full, length, canUndo, walkUpTo, insert, removeAt, moveTo, setClosed, setName, select, undo }
 }

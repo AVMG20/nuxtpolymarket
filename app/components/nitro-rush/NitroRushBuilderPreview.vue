@@ -12,6 +12,8 @@ const props = defineProps<{
     /** Loops show where the road has to come back to. */
     loop: boolean
     selected: number | null
+    /** The piece about to be built. */
+    ghost: LayoutWalk | null
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
 
@@ -51,12 +53,20 @@ function resetView() {
     preview?.resetView()
 }
 
+/** The ghost as a course to draw, with where it ends. */
+const ghostCourse = computed(() => {
+    const def = props.ghost && draftTrackDef(props.ghost, false)
+    return def ? { def, end: props.ghost!.end } : null
+})
+
 watch(course, c => preview?.setCourse(c, range.value))
 watch(range, r => preview?.setSelected(r))
+watch(ghostCourse, g => preview?.setGhost(g))
 
 onMounted(() => {
     preview = new BuilderPreview(host.value!)
     preview.setCourse(course.value, range.value)
+    preview.setGhost(ghostCourse.value)
 })
 
 onBeforeUnmount(() => {

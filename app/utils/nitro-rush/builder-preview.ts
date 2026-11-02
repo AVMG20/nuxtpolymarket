@@ -1,16 +1,19 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { buildStage, CourseMaterials, layCourse, type PreviewCourse } from './builder-course'
+import { buildStage, CourseMaterials, endMarker, layCourse, type PreviewCourse } from './builder-course'
 import { NEON_PINK } from './config'
 import { AdaptiveResolution } from './resolution'
 import { ribbon } from './road-geometry'
 import { ROAD_TILE_LENGTH } from './textures'
 import { worldKit } from './world-kit'
-import { Track } from '#shared/utils/nitro-rush/track'
+import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 const FOV = 50
 /** Courses smaller than this still frame as if they were this wide, so one section isn't blown up. */
 const MIN_RADIUS = 60
+const GHOST_COLOR = 0x3df2ff
+/** Above the road it may overlap when a piece goes in mid-course, and the selection's highlight. */
+const GHOST_LIFT = 0.08
 
 /** The track builder's 3D view: the road laid so far with its real walls, deck and pillars, orbited with the mouse or touch. */
 export class BuilderPreview {
@@ -24,11 +27,13 @@ export class BuilderPreview {
     private readonly stage: { dispose(): void }
     private readonly mats = new CourseMaterials()
     private readonly selectMat = new THREE.MeshBasicMaterial({ color: NEON_PINK, transparent: true, opacity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false })
+    private readonly ghostMat = new THREE.MeshBasicMaterial({ color: GHOST_COLOR, transparent: true, opacity: 0.45, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false })
     private readonly raycaster = new THREE.Raycaster()
     private course = new THREE.Group()
     private courseParts: { dispose(): void }[] = []
     private deck: THREE.Mesh | null = null
     private selection: THREE.Mesh | null = null
+    private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh } | null = null
     private track: Track | null = null
     /** Until the player turns the view themselves, it reframes as the course grows. */
     private userMoved = false
@@ -90,6 +95,19 @@ export class BuilderPreview {
         this.course.add(this.selection)
     }
 
+    /** Shows the piece about to be built, or nothing; it isn't part of the road, so it survives the road's rebuilds. */
+    setGhost(ghost: { def: TrackDef, end: NonNullable<PreviewCourse['end']> } | null) {
+        this.clearGhost()
+        if (ghost) {
+            const track = new Track(ghost.def)
+            const deck = new THREE.Mesh(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, GHOST_LIFT, ROAD_TILE_LENGTH), this.ghostMat)
+            const marker = endMarker(ghost.end, this.mats.markerGeo, this.ghostMat)
+            this.scene.add(deck, marker)
+            this.ghost = { track, deck, marker }
+        }
+        if (!this.userMoved) this.frameCourse()
+    }
+
     /** The walk point under a spot on screen, if it's on the road. */
     pick(clientX: number, clientY: number): number | null {
         const track = this.track
@@ -113,9 +131,11 @@ export class BuilderPreview {
         this.resizeObserver.disconnect()
         this.controls.dispose()
         this.clearCourse()
+        this.clearGhost()
         this.stage.dispose()
         this.mats.dispose()
         this.selectMat.dispose()
+        this.ghostMat.dispose()
         // Each switch to 3D makes a context; browsers cap them, so free this one now rather than at GC.
         this.renderer.forceContextLoss()
         this.renderer.dispose()
@@ -133,14 +153,20 @@ export class BuilderPreview {
         this.track = null
     }
 
+    private clearGhost() {
+        if (!this.ghost) return
+        this.scene.remove(this.ghost.deck, this.ghost.marker)
+        this.ghost.deck.geometry.dispose()
+        this.ghost = null
+    }
+
     private frameCourse() {
         const box = new THREE.Box3()
-        const track = this.track
-        if (track) {
+        const tracks = [this.track, this.ghost?.track].filter(t => !!t)
+        for (const track of tracks) {
             for (let i = 0; i < track.n; i++) box.expandByPoint(new THREE.Vector3(track.xs[i], track.ys[i], track.zs[i]))
-        } else {
-            box.expandByPoint(new THREE.Vector3())
         }
+        if (!tracks.length) box.expandByPoint(new THREE.Vector3())
         const centre = box.getCenter(new THREE.Vector3())
         const radius = Math.max(MIN_RADIUS, box.getSize(new THREE.Vector3()).length() / 2)
         const distance = radius / Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * 1.05

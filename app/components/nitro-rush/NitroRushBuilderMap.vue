@@ -8,6 +8,8 @@ const props = defineProps<{
     closed: boolean
     halfWidth: number
     selected: number | null
+    /** The piece about to be built. */
+    ghost: LayoutWalk | null
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
 
@@ -23,6 +25,7 @@ const TOP = 24
 const GROUND = [61, 242, 255] as const
 const HIGH = [255, 210, 61] as const
 const PINK = '#ff2bd6'
+const GHOST = 'rgba(61, 242, 255, 0.5)'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
 /** Grid steps in metres, the finest whose cells are at least this many CSS px wide. */
 const GRID_STEPS = [10, 50, 250, 1000]
@@ -84,13 +87,15 @@ function draw() {
     const dpr = w / Math.max(1, el.clientWidth)
     const { pts, end, lines } = props.walk
     const hw = props.halfWidth
+    const ghost = props.ghost
+    const ghostPath: readonly (readonly [number, number])[] = ghost ? [...ghost.pts, [ghost.end.x, ghost.end.z]] : []
 
     // Fit the course, the origin and the end, keeping the aspect ratio.
     let minX = Math.min(0, end.x)
     let maxX = Math.max(0, end.x)
     let minZ = Math.min(0, end.z)
     let maxZ = Math.max(0, end.z)
-    for (const [x, z] of pts) {
+    for (const [x, z] of [...pts, ...ghostPath]) {
         minX = Math.min(minX, x)
         maxX = Math.max(maxX, x)
         minZ = Math.min(minZ, z)
@@ -197,6 +202,18 @@ function draw() {
     ctx.lineWidth = dpr
     ctx.strokeStyle = OUTLINE
     ctx.stroke()
+
+    if (ghost) {
+        ctx.strokeStyle = GHOST
+        ctx.lineWidth = road
+        ctx.lineCap = 'butt'
+        ctx.beginPath()
+        ghostPath.forEach(([x, z], i) => i ? ctx.lineTo(sx(x), sy(z)) : ctx.moveTo(sx(x), sy(z)))
+        ctx.stroke()
+        chevron(ctx, sx(ghost.end.x), sy(ghost.end.z), ghost.end.heading, marker)
+        ctx.fillStyle = GHOST
+        ctx.fill()
+    }
 }
 
 function resize() {
@@ -237,7 +254,7 @@ function onClick(e: MouseEvent) {
     if (best) emit('pick', best.piece)
 }
 
-watch(() => [props.walk, props.closed, props.halfWidth, props.selected], draw)
+watch(() => [props.walk, props.closed, props.halfWidth, props.selected, props.ghost], draw)
 
 onMounted(() => {
     resize()

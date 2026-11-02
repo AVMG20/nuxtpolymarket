@@ -42,6 +42,15 @@ export class CourseMaterials {
     }
 }
 
+/** A marker over where a road ends; a draft's road stops at the ground, so its marker does too. */
+export function endMarker(end: NonNullable<PreviewCourse['end']>, geometry: THREE.BufferGeometry, material: THREE.Material) {
+    const marker = new THREE.Mesh(geometry, material)
+    marker.position.set(end.x, Math.max(0, end.y) + MARKER_LIFT, end.z)
+    // Layout headings turn right with +; three's y rotation turns left.
+    marker.rotation.y = -end.heading
+    return marker
+}
+
 /** The road with its real walls, deck and pillars, its lines and markers; returns the deck, which is what picking hits. */
 export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'end' | 'showOrigin'>, mats: CourseMaterials, { endWalls = true } = {}) {
     const { track, group } = kit
@@ -52,13 +61,7 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
         const s = track.cum[Math.min(line.at, track.n - 1)]!
         kit.add(ribbon(track, s - 1.2, s + 1.2, -track.halfWidth, track.halfWidth, 0.02, 2.4), mats.lines[line.type])
     }
-    if (course.end) {
-        const marker = new THREE.Mesh(mats.markerGeo, mats.marker)
-        marker.position.set(course.end.x, course.end.y + MARKER_LIFT, course.end.z)
-        // Layout headings turn right with +; three's y rotation turns left.
-        marker.rotation.y = -course.end.heading
-        group.add(marker)
-    }
+    if (course.end) group.add(endMarker(course.end, mats.markerGeo, mats.marker))
     if (course.showOrigin) {
         const origin = new THREE.Mesh(mats.markerGeo, mats.origin)
         origin.position.set(0, MARKER_LIFT, 0)

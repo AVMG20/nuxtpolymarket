@@ -17,11 +17,24 @@ const emit = defineEmits<{
     delete: [id: string]
 }>()
 
-const { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, removeAt, moveTo, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+const { draft, cursor, walk, compiled, gap, full, length, canUndo, walkUpTo, insert, removeAt, moveTo, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
 
-/** The top-down map, or the course in 3D; remembered in this browser. */
-const view = ref<'map' | '3d'>(readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: 'map' }).view === '3d' ? '3d' : 'map')
-watch(view, v => writeStorage(STORAGE_KEYS.builderView, { view: v }))
+/** The top-down map or the course in 3D, and picking sections from cards or building a piece at a time; remembered in this browser. */
+const remembered = readStorage<{ view: string, mode: string }>(STORAGE_KEYS.builderView, { view: 'map', mode: 'pick' })
+const view = ref<'map' | '3d'>(remembered.view === '3d' ? '3d' : 'map')
+const mode = ref<'pick' | 'build'>(remembered.mode === 'build' ? 'build' : 'pick')
+watch([view, mode], ([v, m]) => writeStorage(STORAGE_KEYS.builderView, { view: v, mode: m }))
+
+const building = computed(() => mode.value === 'build')
+const { choice, next, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert }, building)
+
+/** Building is seen best in 3D, so it opens there; the map stays a click away. */
+function startBuilding() {
+    if (building.value) return
+    mode.value = 'build'
+    view.value = '3d'
+}
+
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
 const closes = computed(() => draft.value.closed && !!compiled.value.def)
@@ -123,6 +136,7 @@ onBeforeUnmount(() => {
             :closes="closes"
             :loop="draft.closed"
             :selected="cursor >= 0 ? cursor : null"
+            :ghost="ghost"
             @pick="select"
           />
           <NitroRushBuilderMap
@@ -132,6 +146,7 @@ onBeforeUnmount(() => {
             :closed="draft.closed"
             :half-width="ROAD.halfWidth"
             :selected="cursor >= 0 ? cursor : null"
+            :ghost="ghost"
             @pick="select"
           />
           <div class="nr-toggle is-small absolute right-2.5 top-2.5" role="radiogroup" aria-label="Builder view">
@@ -145,8 +160,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="nr-card nr-card-tight min-w-0 text-left lg:col-start-1 lg:row-start-2">
-        <NitroRushBuilderPalette :disabled="full" @add="insert" />
+      <div class="nr-card nr-card-tight relative flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
+        <div class="nr-toggle is-small self-start lg:absolute lg:right-3.5 lg:top-3.5 lg:z-10" role="radiogroup" aria-label="How to add sections">
+          <button role="radio" :aria-checked="!building" :class="{ 'is-active': !building }" @click="mode = 'pick'">PICK</button>
+          <button role="radio" :aria-checked="building" :class="{ 'is-active': building }" @click="startBuilding">BUILD</button>
+        </div>
+        <NitroRushBuilderConstruct v-if="building" class="lg:pr-40" :choice="choice" :next="next" :disabled="full" @pick="pick" @build="build" />
+        <NitroRushBuilderPalette v-else :disabled="full" @add="insert" />
       </div>
 
       <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0">

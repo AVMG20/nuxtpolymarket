@@ -204,6 +204,50 @@
     font-size: 13px;
 }
 
+.nr-root .nr-toggle.is-row {
+    display: flex;
+}
+
+.nr-root .nr-toggle.is-row button {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    padding: 4px 8px;
+}
+
+.nr-root .nr-construct {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+}
+
+.nr-root .nr-construct-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Doubled up because nr-play's size comes from a sheet that loads after this one. */
+.nr-root .nr-construct .nr-construct-build {
+    display: flex;
+    flex: 1 1 10rem;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 16px;
+    font-size: 18px;
+    line-height: 1.1;
+}
+
+.nr-root .nr-construct-next {
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 600;
+    letter-spacing: 0;
+    white-space: nowrap;
+}
+
 .nr-root .nr-toggle button.is-active {
     color: #fff;
     background: rgb(255 43 214 / 0.3);
