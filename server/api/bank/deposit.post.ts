@@ -1,7 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { bankState, transactions, user } from '#server/database/schema'
+import { bankState, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { debit } from '#server/utils/balance'
 import { getLockedBankState, parseBankAmount, settleBankState, writeBankHistory } from '#server/utils/bank'
 import { nextMaxPrincipal } from '#shared/utils/gamelogic/bank'
 
@@ -11,8 +12,8 @@ export default defineEventHandler(async (event) => {
   const repayDebt = body?.repayDebt === true
 
   await db.transaction(async (tx) => {
-    const [currentUser] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId)).for('update')
-    if (!currentUser) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+    // User row first, then bank_state — the project-wide lock order.
+    await tx.select({ id: user.id }).from(user).where(eq(user.id, userId)).for('update')
 
     const settled = await settleBankState(tx, await getLockedBankState(tx, userId))
     const currentBalance = parseFloat(settled.balance)
@@ -20,7 +21,7 @@ export default defineEventHandler(async (event) => {
     const amount = repayDebt
       ? parseBankAmount((-currentBalance).toFixed(4))
       : parseBankAmount(body?.amount)
-    if (parseFloat(currentUser.balance) < amount) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+    await debit(userId, amount.toFixed(4), 'bank', tx)
 
     const debtPayment = Math.min(amount, Math.max(0, -currentBalance))
     const savingsAdded = amount - debtPayment
@@ -29,8 +30,6 @@ export default defineEventHandler(async (event) => {
     const maxPrincipal = nextMaxPrincipal(parseFloat(settled.maxPrincipal), principal)
 
     await tx.update(bankState).set({ balance: newBalance.toFixed(4), principal: principal.toFixed(4), maxPrincipal: maxPrincipal.toFixed(4), loanPrincipal: newBalance >= 0 ? '0' : settled.loanPrincipal, lastSettledAt: new Date() }).where(eq(bankState.id, settled.id))
-    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'debit', category: 'bank' })
-    await tx.update(user).set({ balance: sql`${user.balance} - ${amount.toFixed(4)}::numeric` }).where(eq(user.id, userId))
     await writeBankHistory(tx, userId, newBalance, 'deposit', amount)
   })
   return { ok: true }
