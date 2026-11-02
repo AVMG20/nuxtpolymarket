@@ -100,7 +100,9 @@ const LEVEL_WEIGHT = 4
 const DEFAULT_RUN_UP = 30
 const DEFAULT_RUN_OFF = 150
 /** Faster than the car can ever average (its nitro top speed is ~103 m/s), so the server can refuse impossible laps. */
-const SPEED_CEILING = 110
+export const SPEED_CEILING = 110
+/** Below the gap's deck by this much, a car that missed the landing has fallen. */
+export const FALL_DEPTH = 6
 
 export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU)
 

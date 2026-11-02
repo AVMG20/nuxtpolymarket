@@ -4,7 +4,7 @@ import {
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
 } from './config'
-import { headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
+import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -80,8 +80,6 @@ const CAR_HALF_LENGTH = 2.25
 /** Wheel the drift button needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
 const GRAVITY = 9.81
-/** Below the gap's deck by this much, a car that missed the landing has fallen. */
-const FALL_DEPTH = 6
 /** Speed kept when a car on rails grazes a wall, per unit of the hit. */
 const RAIL_WALL_BOUNCE = 0.3
 const railFrame = newTrackFrame()
