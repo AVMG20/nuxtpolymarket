@@ -431,9 +431,6 @@ function onPointerDown(e: PointerEvent) {
 function onPointerMove(e: PointerEvent) {
   if (!renderer) return
   const p = local(e)
-  pointerX = p.x
-  pointerY = p.y
-  pointerInside = true
   if (drag && drag.id === e.pointerId) {
     if (!drag.moved && Math.hypot(p.x - drag.startX, p.y - drag.startY) > CLICK_SLOP) drag.moved = true
     if (drag.mode === 'click' && drag.moved) drag.mode = 'scroll'
@@ -475,8 +472,21 @@ function onPointerCancel(e: PointerEvent) {
 }
 
 function onPointerLeave() {
-  pointerInside = false
   if (!drag) cursorNote.value = null
+}
+
+// Edge scrolling follows the pointer over the whole view: the toolbar and the status bar cover the
+// map's top and bottom edge zones, so the canvas alone never sees the pointer there.
+function onViewPointerMove(e: PointerEvent) {
+  if (!renderer) return
+  const p = local(e)
+  pointerX = p.x
+  pointerY = p.y
+  pointerInside = true
+}
+
+function onViewPointerLeave() {
+  pointerInside = false
 }
 
 function onWheel(e: WheelEvent) {
@@ -697,7 +707,7 @@ const stopNotice = computed(() => {
 </script>
 
 <template>
-  <div class="rt-view" @contextmenu.prevent>
+  <div class="rt-view" @contextmenu.prevent @pointermove="onViewPointerMove" @pointerleave="onViewPointerLeave">
     <div ref="host" class="rt-canvas" />
 
     <div class="rt-top">
