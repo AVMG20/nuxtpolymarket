@@ -81,7 +81,7 @@ const props = withDefaults(defineProps<{
     ghostRadius?: { radius: number, kind: 'good' | 'bad' } | null
     /**
      * Who actually supplies the selected workshop. Each route lights its road
-     * and rings its supplier, tinted by what survives the trip; hovering a
+     * and ghosts its supplier, tinted by what survives the trip; hovering a
      * supplier labels its delivery. Empty for anything that hauls nothing in.
      */
     supplyRoutes?: SceneSupplyRoute[]
@@ -93,7 +93,7 @@ const props = withDefaults(defineProps<{
     movingId?: string | null
     /** Tint the ground by terrain type. Off, the scene looks exactly as it always does. */
     terrainOverlay?: boolean
-    /** Every building in the current selection — each wears a ring. */
+    /** Every building in the current selection — each turns into a blue ghost. */
     selectedIds?: string[]
     /** A whole selection following the cursor, offsets relative to the anchor tile. */
     moveGhosts?: SceneMoveGhost[] | null
@@ -1461,16 +1461,6 @@ function rebuildGhostRadius() {
     fxGroup.add(ghostRadiusMesh)
 }
 
-// ─── Selection ring ──────────────────────────────────────────────────────────
-
-const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.55, 0.68, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
-)
-ring.rotation.x = -Math.PI / 2
-ring.visible = false
-fxGroup.add(ring)
-
 const hoverTile = new THREE.Mesh(
     new THREE.PlaneGeometry(0.96, 0.96),
     new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22, depthWrite: false })
@@ -1479,39 +1469,20 @@ hoverTile.rotation.x = -Math.PI / 2
 hoverTile.visible = false
 fxGroup.add(hoverTile)
 
-// ─── Selection rings ─────────────────────────────────────────────────────────
-// One ring per selected building, pooled: a marquee over a full plot can select
-// sixty of them, and sixty ring meshes built per pointermove would be absurd.
-
-const selectionGroup = new THREE.Group()
-fxGroup.add(selectionGroup)
-const selectionRingGeo = new THREE.RingGeometry(0.5, 0.62, 24)
-const selectionRingMat = new THREE.MeshBasicMaterial({ color: 0x6fd3ff, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false })
-const selectionRings: THREE.Mesh[] = []
+// ─── Selection ───────────────────────────────────────────────────────────────
+// Every selected building turns into a blue ghost (see syncBuildingGhosts).
 
 /** Ids the marquee is currently over — drawn like a selection while the drag lasts. */
 const marqueeIds = new Set<string>()
 
-function syncSelectionRings() {
+const SELECTION_COLOR = new THREE.Color(0x4aa8ff)
+
+/** The single selection, the group selection and whatever the marquee is over. */
+function selectionIds(): Set<string> {
     const ids = new Set<string>(props.selectedIds)
+    if (props.selectedBuildingId) ids.add(props.selectedBuildingId)
     for (const id of marqueeIds) ids.add(id)
-    let i = 0
-    for (const id of ids) {
-        const e = entries.get(id)
-        if (!e) continue
-        let ring = selectionRings[i]
-        if (!ring) {
-            ring = new THREE.Mesh(selectionRingGeo, selectionRingMat)
-            ring.rotation.x = -Math.PI / 2
-            selectionGroup.add(ring)
-            selectionRings.push(ring)
-        }
-        ring.visible = true
-        ring.position.set(e.group.position.x, 0.325, e.group.position.z)
-        ring.scale.setScalar(townBuildingSize(e.data.type))
-        i++
-    }
-    for (let j = i; j < selectionRings.length; j++) selectionRings[j]!.visible = false
+    return ids
 }
 
 // ─── Drag pads ───────────────────────────────────────────────────────────────
@@ -1640,21 +1611,22 @@ function syncSupplyRoutes(ms: number) {
         v.mesh.visible = true
     })
     for (let i = routes.length; i < routeVisuals.length; i++) routeVisuals[i]!.mesh.visible = false
-    syncSupplierGhosts(ms)
+    syncBuildingGhosts(ms)
 }
 
-// A supplier wears its route's colour as a see-through ghost: easy to find from
-// any camera angle, where a ring on the ground hides behind the model itself.
-interface SupplierGhost {
+// A selected building turns blue and a supplier wears its route's colour, both
+// as a see-through ghost: easy to find from any camera angle, where a ring on
+// the ground hides behind the model itself.
+interface BuildingGhost {
     model: THREE.Group
     swaps: { mesh: THREE.Mesh, original: THREE.Material }[]
     /** Each clone with the colour it was painted, so the tint is mixed fresh every frame. */
     mats: { mat: THREE.MeshStandardMaterial, base: THREE.Color }[]
 }
-const supplierGhosts = new Map<string, SupplierGhost>()
+const buildingGhosts = new Map<string, BuildingGhost>()
 
-function ghostSupplier(e: BuildingEntry): SupplierGhost {
-    const g: SupplierGhost = { model: e.model, swaps: [], mats: [] }
+function ghostBuilding(e: BuildingEntry): BuildingGhost {
+    const g: BuildingGhost = { model: e.model, swaps: [], mats: [] }
     // Static parts share cached materials, so each one is cloned once per model.
     const clones = new Map<THREE.Material, THREE.MeshStandardMaterial>()
     e.model.traverse((o) => {
@@ -1677,39 +1649,53 @@ function ghostSupplier(e: BuildingEntry): SupplierGhost {
     return g
 }
 
-function releaseSupplierGhost(g: SupplierGhost) {
+function releaseBuildingGhost(g: BuildingGhost) {
     for (const s of g.swaps) s.mesh.material = s.original
     for (const m of g.mats) m.mat.dispose()
 }
 
-function syncSupplierGhosts(ms: number) {
+function paintGhost(g: BuildingGhost, color: THREE.Color, mix: number, intensity: number) {
+    for (const { mat, base } of g.mats) {
+        mat.color.copy(base).lerp(color, mix)
+        mat.emissive.copy(color)
+        mat.emissiveIntensity = intensity
+    }
+}
+
+function syncBuildingGhosts(ms: number) {
     const routes = props.supplyRoutes
-    for (const [id, g] of supplierGhosts) {
+    const selected = selectionIds()
+    // Two goods from one supplier: the first route's colour wins.
+    const supplied = new Map<string, SceneSupplyRoute>()
+    for (const r of routes) if (!supplied.has(r.producerId)) supplied.set(r.producerId, r)
+    for (const [id, g] of buildingGhosts) {
         const e = entries.get(id)
-        // Gone, no longer a supplier, or re-modelled (a level-up swaps the artwork).
-        if (!e || e.model !== g.model || !routes.some(r => r.producerId === id)) {
-            releaseSupplierGhost(g)
-            supplierGhosts.delete(id)
+        // Gone, no longer selected or a supplier, or re-modelled (a level-up swaps the artwork).
+        if (!e || e.model !== g.model || (!selected.has(id) && !supplied.has(id))) {
+            releaseBuildingGhost(g)
+            buildingGhosts.delete(id)
         }
     }
     const pulse = props.reducedMotion ? 0 : Math.sin(ms / 350) * 0.1
-    for (const r of routes) {
-        const e = entries.get(r.producerId)
-        if (!e || e.data.type === 'road') continue
-        let g = supplierGhosts.get(r.producerId)
+    const ghostFor = (id: string) => {
+        const e = entries.get(id)
+        if (!e) return null
+        let g = buildingGhosts.get(id)
         if (!g) {
-            g = ghostSupplier(e)
-            supplierGhosts.set(r.producerId, g)
-        } else if (routes.find(x => x.producerId === r.producerId) !== r) {
-            // Two goods from one supplier: the first route's colour wins.
-            continue
+            g = ghostBuilding(e)
+            buildingGhosts.set(id, g)
         }
-        const color = routeColor(Math.max(0, r.path.length - 1))
-        for (const { mat, base } of g.mats) {
-            mat.color.copy(base).lerp(color, 0.45)
-            mat.emissive.copy(color)
-            mat.emissiveIntensity = 0.5 + pulse
-        }
+        return g
+    }
+    // The selection wins over a route colour.
+    for (const id of selected) {
+        const g = ghostFor(id)
+        if (g) paintGhost(g, SELECTION_COLOR, 0.6, 0.6 + pulse)
+    }
+    for (const [id, r] of supplied) {
+        if (selected.has(id) || entries.get(id)?.data.type === 'road') continue
+        const g = ghostFor(id)
+        if (g) paintGhost(g, routeColor(Math.max(0, r.path.length - 1)), 0.45, 0.5 + pulse)
     }
 }
 
@@ -3576,21 +3562,10 @@ function frame(ms: number) {
     }
 
     endBoostFx(ms, still)
-    syncSelectionRings()
-    // Per frame, like the selection rings: both track live model positions, so
-    // a route stays on its supplier while that supplier is being dragged.
+    // Per frame: routes track live model positions, so a route stays on its
+    // supplier while that supplier is being dragged, and the ghosts follow
+    // the selection and any level-up that swaps a model.
     syncSupplyRoutes(ms)
-
-    // Selection ring.
-    const sel = props.selectedBuildingId ? entries.get(props.selectedBuildingId) : null
-    if (sel) {
-        ring.visible = true
-        ring.position.set(sel.group.position.x, 0.32, sel.group.position.z)
-        const s = (still ? 1 : 1 + Math.sin(ms / 300) * 0.05) * townBuildingSize(sel.data.type)
-        ring.scale.set(s, s, s)
-    } else {
-        ring.visible = false
-    }
 
     if (!still) {
         for (const c of clouds) {
@@ -3701,8 +3676,8 @@ onBeforeUnmount(() => {
     for (const p of popups) p.el.remove()
     disposeMoveGhosts()
     hideMarquee()
-    selectionRingGeo.dispose()
-    selectionRingMat.dispose()
+    for (const g of buildingGhosts.values()) releaseBuildingGhost(g)
+    buildingGhosts.clear()
     padGeo.dispose()
     padOkMat.dispose()
     padBadMat.dispose()
