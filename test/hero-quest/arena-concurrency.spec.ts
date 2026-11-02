@@ -79,11 +79,28 @@ async function found(id: string, gems = 0) {
     await db.update(hqState).set({ heroLevel: LEVEL, arenaSeasonId: arenaSeasonAt(Date.now()), arenaRating: RATING }).where(eq(hqState.userId, id))
 }
 
+/** A Rating with more bots in band than the list holds, so a refresh can always draw a new list. */
+async function inBotBand(id: string) {
+    await db.update(hqState).set({ arenaRating: arenaBots()[1]!.rating }).where(eq(hqState.userId, id))
+}
+
 const stateOf = async (id: string) => (await db.select().from(hqState).where(eq(hqState.userId, id)))[0]!
 const gemsOf = async (id: string) => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, id)))[0]!.gems
 
 function attack(id: string, opponent: string, now = Date.now()) {
     return db.transaction(tx => attackArena(tx, id, 0, opponent, 0, now))
+}
+
+/** Attack `opponent` wherever the list shows it, picking again when another attack redrew the list first. */
+async function attackListed(id: string, opponent: string) {
+    for (;;) {
+        const slot = (await stateOf(id)).arenaCandidates.indexOf(opponent)
+        try {
+            return await db.transaction(tx => attackArena(tx, id, slot, opponent, 0, Date.now()))
+        } catch (e) {
+            if ((e as { statusCode?: number }).statusCode !== 409) throw e
+        }
+    }
 }
 
 describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
@@ -173,7 +190,8 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             await getCandidates(SECOND, Date.now())
             expect((await stateOf(ATTACKER)).arenaCandidates[0]).toBe(DEFENDER)
 
-            const result = await burst(2 * ARENA_FREE_ATTEMPTS_PER_DAY, i => attack(i % 2 ? SECOND : ATTACKER, DEFENDER))
+            // the attackers are in each other's band too, so each redraw may move the defender to another slot
+            const result = await burst(2 * ARENA_FREE_ATTEMPTS_PER_DAY, i => attackListed(i % 2 ? SECOND : ATTACKER, DEFENDER))
 
             expect(result.ok).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
             const defender = await stateOf(DEFENDER)
@@ -244,6 +262,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
         it('prices an extra attack or a redraw that read the clock before midnight at today\'s rung (issue #30)', async () => {
             await found(ATTACKER, extraAttemptPrice(0) + extraAttemptPrice(1) + refreshPrice(2))
+            await inBotBand(ATTACKER)
             await db.transaction(tx => buyAttempt(tx, ATTACKER, Date.now()))
             await refreshCandidates(ATTACKER, Date.now())
             await refreshCandidates(ATTACKER, Date.now())
@@ -261,9 +280,45 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(await gemsOf(ATTACKER)).toBe(0)
         })
 
+        it('refuses a refresh that can\'t change the list, without counting or charging it', async () => {
+            await found(ATTACKER, refreshPrice(0) + refreshPrice(1) + refreshPrice(2))
+            await found(DEFENDER)
+            await db.transaction(tx => setDefense(tx, DEFENDER))
+            await getCandidates(ATTACKER, Date.now())
+
+            await expect(refreshCandidates(ATTACKER, Date.now())).rejects.toMatchObject({ statusCode: 400 })
+
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaCandidates).toContain(DEFENDER)
+            expect(state.arenaRefreshesToday).toBe(0)
+            expect(await gemsOf(ATTACKER)).toBe(refreshPrice(0) + refreshPrice(1) + refreshPrice(2))
+        })
+
+        it('draws a player who never set a defence once they have opened the Arena, and fights their live party', async () => {
+            await found(ATTACKER)
+            await found(DEFENDER)
+            // never set a defence, but has opened the Arena (the first visit draws their own list)
+            await getCandidates(DEFENDER, Date.now())
+            const listed = await getCandidates(ATTACKER, Date.now())
+            const card = listed.find(c => c.id === DEFENDER)
+            expect(card?.name).not.toBe('Gone')
+            expect(card?.defenseGpn).not.toBeNull()
+
+            const result = await db.transaction(tx => attackArena(tx, ATTACKER, card!.slot, DEFENDER, 0, Date.now()))
+            expect(result.dummy).toBe(false)
+            expect(result.enemy?.champions.map(c => c.id)).toEqual((await stateOf(DEFENDER)).partyChampionIds)
+        })
+
+        it('leaves out a player who has never opened the Arena', async () => {
+            await found(ATTACKER)
+            await found(DEFENDER)
+            expect((await getCandidates(ATTACKER, Date.now())).some(c => c.id === DEFENDER)).toBe(false)
+        })
+
         it('gives two refreshes free, then charges each at its own rung, never past the Gems held', async () => {
             // the two free ones, then 5 and 10, and 4 over
             await found(ATTACKER, refreshPrice(2) + refreshPrice(3) + 4)
+            await inBotBand(ATTACKER)
 
             const result = await burst(8, () => refreshCandidates(ATTACKER, Date.now()))
 
