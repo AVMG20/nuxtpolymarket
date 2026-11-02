@@ -14,12 +14,12 @@ const props = defineProps<{
     /** Its lap kept no ghost for being too long, rather than for a respawn. */
     lapTooLong: (id: string) => boolean
 }>()
-const emit = defineEmits<{ select: [id: string], build: [id?: string], publish: [id: string], unpublish: [id: string] }>()
+const emit = defineEmits<{ select: [id: string], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string] }>()
 
-/** How long a button waits for its second tap before a step that clears times. */
-const CONFIRM_MS = 3000
-const confirming = ref<{ id: string, action: 'publish' | 'unpublish' } | null>(null)
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
+type ConfirmedAction = 'publish' | 'unpublish' | 'delete'
+
+const { armed, tap, disarm } = useNitroRushConfirmTap()
+const confirmKey = (c: CustomTrackEntry, action: ConfirmedAction) => `${c.track.id}:${action}`
 
 const PUBLISH_LABEL = { new: 'PUBLISH', rename: 'UPDATE NAME', replace: 'PUBLISH CHANGES' } as const
 
@@ -37,27 +37,24 @@ function status(c: CustomTrackEntry) {
     return c.change === 'replace' ? `CHANGED SINCE PUBLISHED · ${times}` : `PUBLISHED · ${times}`
 }
 
+const isArmed = (c: CustomTrackEntry, action: ConfirmedAction) => armed.value === confirmKey(c, action)
+const hasTimes = (c: CustomTrackEntry) => !!c.published?.summary.entries
+
 /** Taps that would clear other players' times need a second tap. */
 function act(c: CustomTrackEntry, action: 'publish' | 'unpublish') {
-    const clears = (action === 'unpublish' || c.change === 'replace') && !!c.published?.summary.entries
-    const armed = confirming.value?.id === c.track.id && confirming.value.action === action
-    clearTimeout(confirmTimer)
-    if (clears && !armed) {
-        confirming.value = { id: c.track.id, action }
-        confirmTimer = setTimeout(() => {
-            confirming.value = null
-        }, CONFIRM_MS)
-        return
-    }
-    confirming.value = null
+    const clears = (action === 'unpublish' || c.change === 'replace') && hasTimes(c)
+    if (clears && !tap(confirmKey(c, action))) return
+    disarm()
     if (action === 'publish') emit('publish', c.track.id)
     else emit('unpublish', c.track.id)
 }
 
-const isArmed = (c: CustomTrackEntry, action: 'publish' | 'unpublish') => confirming.value?.id === c.track.id && confirming.value.action === action
-const hasBoard = (c: CustomTrackEntry) => c.playId !== c.track.id
+/** There's no getting a deleted course back, so it always takes a second tap. */
+function askDelete(c: CustomTrackEntry) {
+    if (tap(confirmKey(c, 'delete'))) emit('delete', c.track.id)
+}
 
-onBeforeUnmount(() => clearTimeout(confirmTimer))
+const hasBoard = (c: CustomTrackEntry) => c.playId !== c.track.id
 </script>
 
 <template>
@@ -72,7 +69,7 @@ onBeforeUnmount(() => clearTimeout(confirmTimer))
         <span class="nr-track-name">TRACK BUILDER</span>
       </button>
       <div v-for="c in tracks" :key="c.track.id" class="flex flex-col gap-1.5">
-        <div class="relative">
+        <div class="nr-own-track relative">
           <NitroRushTrackCard
             v-if="c.def"
             :track="c.def"
@@ -81,16 +78,29 @@ onBeforeUnmount(() => clearTimeout(confirmTimer))
             :record="summaries[c.playId]?.record ?? null"
             @select="$emit('select', c.playId)"
           />
-          <button v-else class="nr-track" @click="$emit('build', c.track.id)">
+          <button v-else class="nr-track" :disabled="!!busy" @click="$emit('build', c.track.id)">
             <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-construction" class="size-7" /></span>
             <span class="min-w-0 flex-1">
               <span class="nr-track-name block">{{ c.track.name }}</span>
               <span class="nr-track-holder block">UNFINISHED</span>
             </span>
           </button>
-          <button v-if="c.def" class="nr-icon-btn nr-track-edit" :aria-label="`Edit ${c.track.name}`" title="Edit in the track builder" @click="$emit('build', c.track.id)">
-            <UIcon name="i-lucide-pencil" class="size-4" />
-          </button>
+          <div class="nr-track-tools">
+            <button
+              class="nr-icon-btn nr-track-delete"
+              :class="{ 'is-armed': isArmed(c, 'delete') }"
+              :disabled="!!busy"
+              :aria-label="isArmed(c, 'delete') ? `Tap again to delete ${c.track.name}` : `Delete ${c.track.name}`"
+              title="Delete this track"
+              @click="askDelete(c)"
+            >
+              <template v-if="isArmed(c, 'delete')">{{ hasTimes(c) ? 'CLEARS TIMES · TAP AGAIN' : 'TAP AGAIN' }}</template>
+              <UIcon v-else name="i-lucide-trash-2" class="size-4" />
+            </button>
+            <button v-if="c.def" class="nr-icon-btn" :disabled="!!busy" :aria-label="`Edit ${c.track.name}`" title="Edit in the track builder" @click="$emit('build', c.track.id)">
+              <UIcon name="i-lucide-pencil" class="size-4" />
+            </button>
+          </div>
         </div>
         <div v-if="c.def" class="nr-track-actions">
           <span class="nr-track-holder flex-1">{{ status(c) }}</span>

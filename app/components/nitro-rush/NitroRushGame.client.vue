@@ -53,6 +53,18 @@ const { board, boardLoading, summaries, loadBoard, loadSummaries, addSummaries, 
 const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
 const community = useNitroRushCommunity(custom, addSummaries)
 const ownEntries = community.entries
+const ownTracks = useNitroRushOwnTrackActions({
+    ownEntry: community.ownEntry,
+    publishTrack: community.publish,
+    unpublishTrack: community.unpublish,
+    removeTrack: custom.remove,
+    records,
+    forgetRecord,
+    trackId,
+    resolveTrack,
+    loadTrack,
+    click: () => audio.ui()
+})
 
 /** Other players on this course, as live ghost cars. */
 const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
@@ -100,7 +112,7 @@ function resolveTrack(id: string): TrackDef | null {
 
 /** The id a course of the player's is driven under: its published copy's while that matches. */
 function playIdOf(sourceId: string) {
-    return ownEntries.value.find(e => e.track.id === sourceId)?.playId ?? sourceId
+    return community.ownEntry(sourceId)?.playId ?? sourceId
 }
 
 /** Mirrors the course on the engine, and its record, into the UI. */
@@ -131,7 +143,7 @@ function selectTrack(id: string) {
 
 function openBuilder(id?: string) {
     audio.ui()
-    building.value = (id ? ownEntries.value.find(e => e.track.id === id)?.track : null) ?? newCustomTrack()
+    building.value = (id ? community.ownEntry(id)?.track : null) ?? newCustomTrack()
     screen.value = 'builder'
 }
 
@@ -162,34 +174,9 @@ function onBuilderDrive(t: CustomTrack) {
 
 function onBuilderDelete(id: string) {
     audio.ui()
-    custom.remove(id)
-    forgetRecord(id)
-    if (id === trackId.value) loadTrack(TRACKS[0]!)
+    ownTracks.removeLocal(id)
     building.value = null
     screen.value = 'select'
-}
-
-/** Publishes the player's course, or updates its published copy; a changed road starts a fresh board under a new id. */
-async function publishCustom(sourceId: string) {
-    const entry = ownEntries.value.find(e => e.track.id === sourceId)
-    if (!entry) return
-    audio.ui()
-    const old = entry.published?.id
-    // The lap set on this road here: a changed road wipes it, so it can't be one from before the edit.
-    const r = records.value[sourceId]
-    const id = await community.publish(entry.track, r?.ghost ? { ghost: r.ghost, standing: !!r.ghostStanding } : null)
-    if (!id) return
-    if (old && old !== id) forgetRecord(old)
-    // On the engine under its old id, or as the local course that now has a board: drive the published copy.
-    if (trackId.value === old || trackId.value === sourceId) loadTrack(resolveTrack(id) ?? entry.def ?? TRACKS[0]!)
-}
-
-async function unpublishCustom(sourceId: string) {
-    const old = ownEntries.value.find(e => e.track.id === sourceId)?.published?.id
-    audio.ui()
-    if (!old || !(await community.unpublish(sourceId))) return
-    forgetRecord(old)
-    if (trackId.value === old) loadTrack(resolveTrack(sourceId) ?? TRACKS[0]!)
 }
 
 /** Clears a pause and any held controls before the run restarts or ends. */
@@ -200,6 +187,8 @@ function unpause() {
 }
 
 function play() {
+    // A publish or delete in flight may still move the engine off this course.
+    if (community.busy.value) return
     audio.unlock()
     audio.startMusic()
     audio.ui()
@@ -460,8 +449,9 @@ onBeforeUnmount(() => {
         @paint="setPaint"
         @start="play"
         @build="openBuilder"
-        @publish="publishCustom"
-        @unpublish="unpublishCustom"
+        @publish="ownTracks.publish"
+        @unpublish="ownTracks.unpublish"
+        @delete="ownTracks.deleteTrack"
         @vote="community.vote"
       />
     </Transition>

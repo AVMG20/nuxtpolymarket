@@ -40,8 +40,7 @@ const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk
 const closes = computed(() => draft.value.closed && !!compiled.value.def)
 
 const dirty = computed(() => draft.value !== props.track)
-const confirmingDelete = ref(false)
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
+const { armed, tap } = useNitroRushConfirmTap()
 
 const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
@@ -72,15 +71,7 @@ function drive() {
 }
 
 function askDelete() {
-    if (confirmingDelete.value) {
-        emit('delete', draft.value.id)
-        return
-    }
-    confirmingDelete.value = true
-    clearTimeout(confirmTimer)
-    confirmTimer = setTimeout(() => {
-        confirmingDelete.value = false
-    }, 3000)
+    if (tap('delete')) emit('delete', draft.value.id)
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -100,10 +91,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 onMounted(() => window.addEventListener('keydown', onKeyDown))
-onBeforeUnmount(() => {
-    window.removeEventListener('keydown', onKeyDown)
-    clearTimeout(confirmTimer)
-})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 </script>
 
 <template>
@@ -189,8 +177,8 @@ onBeforeUnmount(() => {
           <UIcon name="i-lucide-flag" class="size-5" />
           DRIVE IT
         </button>
-        <button v-if="saved" class="nr-ghost" :class="{ 'is-danger': confirmingDelete }" @click="askDelete">
-          {{ confirmingDelete ? 'Tap again to delete' : 'Delete track' }}
+        <button v-if="saved" class="nr-ghost" :class="{ 'is-danger': armed }" @click="askDelete">
+          {{ armed ? 'Tap again to delete' : 'Delete track' }}
         </button>
       </div>
     </div>

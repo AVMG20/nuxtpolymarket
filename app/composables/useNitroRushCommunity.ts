@@ -45,6 +45,7 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
     }))
 
     const entries = computed(() => ownTrackEntries(own.tracks.value, mine.value, t => own.compile(t).def, compile))
+    const ownEntry = (sourceId: string) => entries.value.find(e => e.track.id === sourceId)
 
     async function load() {
         try {
@@ -83,7 +84,12 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         if (busy.value) return false
         busy.value = sourceId
         try {
-            await apiPost('/api/nitro-rush/unpublish', { sourceId })
+            // A 404 means another device took it down already: done, the list here was just stale.
+            await apiPost('/api/nitro-rush/unpublish', { sourceId }).catch((e) => {
+                if ((e as { statusCode?: number }).statusCode !== 404) throw e
+            })
+            // Off the list now, since a failed reload keeps what it had.
+            mine.value = mine.value.filter(p => p.sourceId !== sourceId)
             await load()
             return true
         } catch (e) {
@@ -123,5 +129,5 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         }
     }
 
-    return { communityEntries, entries, busy, voting, load, trackDef, publish, unpublish, vote }
+    return { communityEntries, entries, ownEntry, busy, voting, load, trackDef, publish, unpublish, vote }
 }

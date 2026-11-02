@@ -313,13 +313,35 @@
 
 .nr-root .nr-track-new:hover { background: rgb(61 242 255 / 0.1); }
 
-/* Sits over a custom track's card, clear of its name and length. */
-.nr-root .nr-track-edit {
+/* The tools get their own column, so a record or long name never runs under them. */
+.nr-root .nr-own-track .nr-track {
+    padding-right: 44px;
+}
+
+.nr-root .nr-track-tools {
     position: absolute;
     right: 8px;
     bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.nr-root .nr-track-tools .nr-icon-btn {
     width: 28px;
     height: 28px;
+}
+
+.nr-root .nr-track-tools .nr-track-delete.is-armed {
+    width: auto;
+    padding: 0 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    border-color: var(--nr-red);
+    /* Solid: it opens over the card's record. */
+    background: #7a1830;
 }
 
 .nr-root .nr-track-name {

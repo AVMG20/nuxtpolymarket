@@ -31,7 +31,7 @@ const props = defineProps<{
     /** Community courses with a vote in flight. */
     voting: Set<string>
 }>()
-defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], vote: [id: string, value: NrVote] }>()
+defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
 
 type Tab = 'tracks' | 'community' | 'mine'
 const TABS: readonly { id: Tab, label: string }[] = [
@@ -97,6 +97,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
             @build="$emit('build', $event)"
             @publish="$emit('publish', $event)"
             @unpublish="$emit('unpublish', $event)"
+            @delete="$emit('delete', $event)"
           />
         </div>
       </div>
