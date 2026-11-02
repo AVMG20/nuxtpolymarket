@@ -13,17 +13,28 @@ function assertAmount(amount: string) {
   }
 }
 
+export interface CreditOptions {
+  /**
+   * The player's own money coming back (escrow returns, change, cancelled
+   * orders), so the bank never garnishes it. Lets a refund keep the game's one
+   * category instead of needing a `:refund` suffix.
+   */
+  refund?: boolean
+}
+
 /**
  * Money coming back that the player already owned is not an earning: refunds,
  * escrow returns and crash-recovery payouts must not be garnished, or a
- * cancelled order would cost 10% to place.
+ * cancelled order would cost 10% to place. Older callers still mark this in the
+ * category; new ones pass `{ refund: true }`.
  */
-function isEarning(category?: string) {
+function isEarning(category?: string, options?: CreditOptions) {
+  if (options?.refund) return false
   if (!category) return true
   return !/refund|recovery|cancel|^bank/.test(category)
 }
 
-async function applyCredit(ex: DbExecutor, userId: string, amount: string, category?: string) {
+async function applyCredit(ex: DbExecutor, userId: string, amount: string, category?: string, options?: CreditOptions) {
   await ex.insert(transactions).values({ userId, amount, type: 'credit', category })
   const [updated] = await ex.update(user)
     .set({ balance: sql`${user.balance} + ${amount}::numeric` })
@@ -32,7 +43,7 @@ async function applyCredit(ex: DbExecutor, userId: string, amount: string, categ
 
   // The wallet row is locked above before bank_state is touched below — that
   // order is what keeps the garnish from deadlocking against the bank endpoints.
-  if (!isEarning(category)) return updated!.balance
+  if (!isEarning(category, options)) return updated!.balance
   const garnished = await applyBankGarnish(ex, userId, Number(amount))
   if (garnished <= 0) return updated!.balance
 
@@ -59,10 +70,10 @@ async function applyDebit(ex: DbExecutor, userId: string, amount: string, catego
   return updated.balance
 }
 
-export async function credit(userId: string, amount: string, category?: string, tx?: DbExecutor) {
+export async function credit(userId: string, amount: string, category?: string, tx?: DbExecutor, options?: CreditOptions) {
   assertAmount(amount)
-  if (tx) return applyCredit(tx, userId, amount, category)
-  return db.transaction(t => applyCredit(t, userId, amount, category))
+  if (tx) return applyCredit(tx, userId, amount, category, options)
+  return db.transaction(t => applyCredit(t, userId, amount, category, options))
 }
 
 export async function debit(userId: string, amount: string, category?: string, tx?: DbExecutor) {

@@ -108,7 +108,7 @@ export async function placeGemOrder(
         if (side === 'buy') {
             await debit(userId, gemOrderTotal(price, quantity).toFixed(4), 'gem exchange', tx)
         } else {
-            await debitGems(userId, quantity, 'gem exchange:escrow', tx)
+            await debitGems(userId, quantity, 'gem exchange', tx)
         }
 
         const opposite = side === 'buy' ? 'sell' : 'buy'
@@ -191,13 +191,13 @@ async function applyFill(
     const fillTotal = gemOrderTotal(fill.price, fill.quantity)
     if (takerSide === 'buy') {
         const change = gemOrderTotal(takerLimitPrice, fill.quantity) - fillTotal
-        if (change > 0) await credit(takerId, change.toFixed(4), 'gem exchange', tx)
-        await creditGems(takerId, fill.quantity, 'gem exchange:fill', tx)
+        if (change > 0) await credit(takerId, change.toFixed(4), 'gem exchange', tx, { refund: true })
+        await creditGems(takerId, fill.quantity, 'gem exchange', tx)
         await credit(fill.userId, fillTotal.toFixed(4), 'gem exchange', tx)
     } else {
         // Resting buyer escrowed exactly fill.price per gem — no change due.
         await credit(takerId, fillTotal.toFixed(4), 'gem exchange', tx)
-        await creditGems(fill.userId, fill.quantity, 'gem exchange:fill', tx)
+        await creditGems(fill.userId, fill.quantity, 'gem exchange', tx)
     }
 
     await tx.insert(gemTrades).values({
@@ -227,9 +227,9 @@ export async function cancelGemOrder(userId: string, orderId: string) {
         const remaining = order.quantity - order.filled
         if (remaining > 0) {
             if (order.side === 'buy') {
-                await credit(userId, gemOrderTotal(parseFloat(order.price), remaining).toFixed(4), 'gem exchange', tx)
+                await credit(userId, gemOrderTotal(parseFloat(order.price), remaining).toFixed(4), 'gem exchange', tx, { refund: true })
             } else {
-                await creditGems(userId, remaining, 'gem exchange:refund', tx)
+                await creditGems(userId, remaining, 'gem exchange', tx)
             }
         }
 

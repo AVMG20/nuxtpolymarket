@@ -88,8 +88,9 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '100.0000', 'shapezz:weapon-refund')
         await credit(USER_ID, '100.0000', 'live-blackjack:recovery')
         await credit(USER_ID, '100.0000', 'bank')
+        await credit(USER_ID, '100.0000', 'gem exchange', undefined, { refund: true })
 
-        expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(300, 4)
+        expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(400, 4)
         expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 2)
         expect(await garnishRows()).toHaveLength(0)
     })
