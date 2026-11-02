@@ -15,6 +15,7 @@ describe('custom track sections', () => {
     /** Small courses that between them lay every section in the catalogue. */
     const courses = [
         loop(RECTANGLE),
+        loop(['start', 'straight-10', 'straight-10', 'right-tight', 'right-tight', 'straight-20', 'straight-20', 'right-tight', 'right-tight']),
         loop(['start', 'straight-100', 'right-hairpin', 'straight-100', 'straight-20', 'right-hairpin']),
         loop(['start', 'straight-100', 'left-hairpin', 'straight-100', 'straight-20', 'left-hairpin']),
         sprint(['straight-20', 'start', 'straight-100', 'left-spiral-up', 'straight-100', 'left-wide', 'ramp-down', 'finish', 'straight-200']),

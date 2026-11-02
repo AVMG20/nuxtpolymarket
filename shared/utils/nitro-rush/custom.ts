@@ -53,6 +53,7 @@ const helix = (turn: Turn, rise: number, share: keyof typeof SPIRAL_SHARE = 1): 
 
 /** Every section a player can lay, in palette order within each category. Ids are stored: never rename one; a replaced one goes in REPLACED. */
 export const SECTIONS = {
+    'straight-10': run(10),
     'straight-20': run(20),
     'straight-60': run(60),
     'straight-100': run(100),
