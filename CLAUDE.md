@@ -37,7 +37,7 @@ if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Una
 
 Import with `#server/…` and `#shared/…` aliases.
 
-**Balance**: `server/utils/balance.ts` has `credit`, `debit`, `creditGems`, `debitGems`, `getBalance` and `getHistory`. Amounts are numeric strings (`'25.50'`), with an optional category (`'game:dice'`). `debit`/`debitGems` throw 400 when the user can't afford it, so don't pre-check. Each write logs a `transactions` row. **Inside a `db.transaction()` that holds a lock, pass `tx` as the last argument**, otherwise the write uses a second connection and deadlocks.
+**Balance**: `server/utils/balance.ts` has `credit`, `debit`, `creditGems`, `debitGems`, `getBalance` and `getHistory`. Coin amounts are numeric strings (`'25.50'`) with an optional category (`'game:dice'`); gem amounts are integers with a required category. Use the game's coin prefix for its gem category so the audit groups both under one game. `debit`/`debitGems` throw 400 when the user can't afford it, so don't pre-check. Each write logs a `transactions` row, and gem rows carry `currency: 'gems'`. **Never update `user.balance` or `user.gems` directly**, and filter every query that sums `transactions.amount` on `currency`, since coin and gem amounts never add up. **Inside a `db.transaction()` that holds a lock, pass `tx` as the last argument**, otherwise the write uses a second connection and deadlocks.
 
 ### Concurrency: never read-then-write value
 
