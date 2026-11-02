@@ -1,7 +1,7 @@
 /**
  * Cuts the sprites Rail Tycoon draws from OpenGFX (GPL-2.0) into one atlas.
  *
- *   bun run rail-tycoon:sprites [--source <opengfx checkout>] [--out <dir>]
+ *   bun scripts/rail-tycoon/extract-opengfx.ts [--source <opengfx checkout>] [--out <dir>]
  *
  * OpenGFX is cloned (or an existing clone reused) at a pinned commit. Nothing from that
  * repository is executed: this script reads its pnml sprite definitions and 8-bit palette
@@ -1010,7 +1010,7 @@ function buildReadme(commit: string, commitDate: string, credits: string): strin
         '',
         'Corresponding source: that script, in this repository, together with OpenGFX at',
         `commit \`${commit}\` (committed ${commitDate}) from ${OPENGFX_URL}.`,
-        'Run `bun run rail-tycoon:sprites` to rebuild these files; the same commit gives',
+        'Run `bun scripts/rail-tycoon/extract-opengfx.ts` to rebuild these files; the same commit gives',
         'byte-identical output.',
         '',
         '## OpenGFX credits',

@@ -25,7 +25,7 @@ converted to RGBA, with the company-colour pixels written to `mask.png`, by
 
 Corresponding source: that script, in this repository, together with OpenGFX at
 commit `bdea55136ab72c9acd69c8fc761bd8088398bef1` (committed 2026-10-24T15:43:50Z) from https://github.com/OpenTTD/OpenGFX.
-Run `bun run rail-tycoon:sprites` to rebuild these files; the same commit gives
+Run `bun scripts/rail-tycoon/extract-opengfx.ts` to rebuild these files; the same commit gives
 byte-identical output.
 
 ## OpenGFX credits

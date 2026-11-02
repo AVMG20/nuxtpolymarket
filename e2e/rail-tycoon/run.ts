@@ -2,7 +2,7 @@
  * Runs the Rail Tycoon browser stories (e2e/rail-tycoon/*.e2e.ts) one after another against the
  * server under test (RT_E2E_URL, http://p{n}.localhost:3010 by default; never the main dev server).
  *
- *   bun run e2e:rail-tycoon [name filter ...]
+ *   bun e2e/rail-tycoon/run.ts [name filter ...]
  *
  * Each story is a module whose default export is an async function taking nothing; it throws to fail.
  */

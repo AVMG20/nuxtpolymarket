@@ -13,9 +13,7 @@
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
     "typecheck": "NODE_ENV=production nuxt prepare && bun check --no-script -b -p tsconfig.check.json && vue-tsc -p .nuxt/tsconfig.app.json --noEmit",
-    "test": "bun --bun vitest run",
-    "rail-tycoon:sprites": "bun scripts/rail-tycoon/extract-opengfx.ts",
-    "e2e:rail-tycoon": "bun e2e/rail-tycoon/run.ts"
+    "test": "bun --bun vitest run"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
