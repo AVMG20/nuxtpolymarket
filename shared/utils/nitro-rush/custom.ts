@@ -150,6 +150,18 @@ export function walkCustomTrack(t: CustomTrack): LayoutWalk {
     return walkLayout(customLayout(t))
 }
 
+/** The same walk with every height passed through `f`. */
+export function mapWalkHeights(walk: LayoutWalk, f: (y: number) => number): LayoutWalk {
+    return { ...walk, ys: walk.ys.map(f), end: { ...walk.end, y: f(walk.end.y) } }
+}
+
+/** One section on its own, raised so a downhill piece keeps its drop instead of being cut off at the ground. */
+export function sectionWalk(id: SectionId): LayoutWalk {
+    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }))
+    const lift = Math.max(0, -Math.min(walk.end.y, ...walk.ys))
+    return mapWalkHeights(walk, y => y + lift)
+}
+
 /** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right) and metres to come down. */
 export function loopGap(walk: LayoutWalk) {
     const { x, z, heading, y } = walk.end

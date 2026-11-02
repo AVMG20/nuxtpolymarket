@@ -110,34 +110,31 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="flex flex-col gap-3 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
-      <div class="nr-card nr-card-tight text-left lg:min-h-0 lg:overflow-y-auto">
-        <NitroRushBuilderPalette :disabled="full" @add="insert" />
-        <p v-if="full" class="mt-3 text-[11px] font-semibold text-white/60 [font-family:system-ui,sans-serif]">That's the most sections a track can have.</p>
-      </div>
-
-      <div class="nr-card nr-card-map relative min-h-80 lg:min-h-0">
-        <NitroRushBuilderPreview
-          v-if="view === '3d'"
-          class="absolute inset-0"
-          :walk="walk"
-          :closes="closes"
-          :loop="draft.closed"
-          :selected="cursor >= 0 ? cursor : null"
-          @pick="select"
-        />
-        <NitroRushBuilderMap
-          v-else
-          class="absolute inset-0"
-          :walk="walk"
-          :closed="draft.closed"
-          :half-width="ROAD.halfWidth"
-          :selected="cursor >= 0 ? cursor : null"
-          @pick="select"
-        />
-        <div class="nr-toggle is-small absolute right-2.5 top-2.5" role="radiogroup" aria-label="Builder view">
-          <button role="radio" :aria-checked="view === 'map'" :class="{ 'is-active': view === 'map' }" @click="view = 'map'">MAP</button>
-          <button role="radio" :aria-checked="view === '3d'" :class="{ 'is-active': view === '3d' }" @click="view = '3d'">3D</button>
+    <div class="flex flex-col gap-3 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_17rem] lg:grid-rows-[minmax(0,1fr)_auto]">
+      <div class="nr-card nr-card-map flex min-h-80 flex-col lg:min-h-0">
+        <div class="relative min-h-0 flex-1">
+          <NitroRushBuilderPreview
+            v-if="view === '3d'"
+            class="absolute inset-0"
+            :walk="walk"
+            :closes="closes"
+            :loop="draft.closed"
+            :selected="cursor >= 0 ? cursor : null"
+            @pick="select"
+          />
+          <NitroRushBuilderMap
+            v-else
+            class="absolute inset-0"
+            :walk="walk"
+            :closed="draft.closed"
+            :half-width="ROAD.halfWidth"
+            :selected="cursor >= 0 ? cursor : null"
+            @pick="select"
+          />
+          <div class="nr-toggle is-small absolute right-2.5 top-2.5" role="radiogroup" aria-label="Builder view">
+            <button role="radio" :aria-checked="view === 'map'" :class="{ 'is-active': view === 'map' }" @click="view = 'map'">MAP</button>
+            <button role="radio" :aria-checked="view === '3d'" :class="{ 'is-active': view === '3d' }" @click="view = '3d'">3D</button>
+          </div>
         </div>
         <div class="nr-build-status" :class="{ 'is-ok': status.ok }">
           <UIcon :name="status.ok ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'" class="size-4 shrink-0" />
@@ -145,7 +142,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:min-h-0">
+      <div class="nr-card nr-card-tight min-w-0 text-left lg:col-start-1 lg:row-start-2">
+        <NitroRushBuilderPalette :disabled="full" @add="insert" />
+      </div>
+
+      <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0">
         <div class="nr-toggle" role="radiogroup" aria-label="Course type">
           <button role="radio" :aria-checked="draft.closed" :class="{ 'is-active': draft.closed }" @click="setClosed(true)">LOOP</button>
           <button role="radio" :aria-checked="!draft.closed" :class="{ 'is-active': !draft.closed }" @click="setClosed(false)">SPRINT</button>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { BuilderPreview, type PreviewCourse } from '~/utils/nitro-rush/builder-preview'
+import type { PreviewCourse } from '~/utils/nitro-rush/builder-course'
+import { BuilderPreview } from '~/utils/nitro-rush/builder-preview'
 import { draftTrackDef, pieceAt } from '#shared/utils/nitro-rush/custom'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 

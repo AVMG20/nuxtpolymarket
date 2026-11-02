@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, pieceAt, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, pieceAt, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId, sectionWalk } from '#shared/utils/nitro-rush/custom'
 import { GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
@@ -47,6 +47,18 @@ describe('custom track sections', () => {
             if (miss(x) > 1e-6 || miss(z) > 1e-6) off.push(`${id} ends at (${x.toFixed(2)}, ${z.toFixed(2)})`)
         }
         expect(off).toEqual([])
+    })
+
+    it('shows every section on its own, without cutting a downhill off at the ground', () => {
+        for (const id of Object.keys(SECTIONS) as SectionId[]) {
+            const walk = sectionWalk(id)
+            expect(Math.min(walk.end.y, ...walk.ys), id).toBeCloseTo(0)
+            expect(new Track(draftTrackDef(walk, false)!).n, id).toBeGreaterThan(1)
+        }
+        const down = sectionWalk('ramp-down')
+        expect(down.ys[0]).toBeCloseTo(12)
+        expect(down.end.y).toBeCloseTo(0)
+        expect(sectionWalk('ramp-up').ys[0]).toBe(0)
     })
 
     it('closes a figure eight of half and quarter spirals', () => {

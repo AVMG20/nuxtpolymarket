@@ -149,8 +149,8 @@ export function buildTrackside({ track, own, add }: WorldKit) {
     for (const at of lines) add(ribbon(track, at - 1.2, at + 1.2, -hw, hw, 0.016, 2.4), checkerMat)
 }
 
-/** Concrete walls with a neon band, the raised road's deck and pillars, and an open course's end walls. */
-export function buildBarriers({ track, group, own, add, instanced }: WorldKit, concrete: THREE.Texture) {
+/** Concrete walls with a neon band, the raised road's deck and pillars, and an open course's end walls unless left out. */
+export function buildBarriers({ track, group, own, add, instanced }: WorldKit, concrete: THREE.Texture, { endWalls = true } = {}) {
     const wall = track.wallOffset
     const L = track.length
     // The walls' outer foot: where the deck ends and the end walls reach.
@@ -191,7 +191,7 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
     }
 
     // An open course is closed off at both ends by the same wall, run straight across.
-    if (!track.closed) {
+    if (endWalls && !track.closed) {
         const span = edge * 2
         const barrierGeo = own(new THREE.BoxGeometry(span, 0.86, WALL_BASE_HALF * 2).translate(0, 0.43, 0))
         const bandGeo = own(new THREE.PlaneGeometry(span - 1.3, 0.26))

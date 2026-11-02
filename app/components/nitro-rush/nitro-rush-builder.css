@@ -1,8 +1,8 @@
-/* The track builder: its palette, piece list, map card and status. Loaded by NitroRushBuilder. */
+/* The track builder: its section bar, piece list, map card and status. Loaded by NitroRushBuilder. */
 
-.nr-root .nr-card-tight { padding: 14px; }
+.nr-root .nr-card.nr-card-tight { padding: 14px; }
 
-.nr-root .nr-card-map {
+.nr-root .nr-card.nr-card-map {
     padding: 0;
     overflow: hidden;
     background:
@@ -30,7 +30,7 @@
     transform: none;
 }
 
-/* Builder palette, piece list and status: system type, since they're dense tool UI. */
+/* Section bar, piece list and status: system type, since they're dense tool UI. */
 .nr-root .nr-section,
 .nr-root .nr-piece {
     display: flex;
@@ -51,6 +51,62 @@
 
 .nr-root .nr-section:hover:not(:disabled),
 .nr-root .nr-piece:hover { background: rgb(61 242 255 / 0.12); border-color: rgb(61 242 255 / 0.4); }
+
+.nr-root .nr-section-strip {
+    display: flex;
+    gap: 8px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+}
+
+.nr-root .nr-section {
+    flex: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    width: 7.5rem;
+    padding: 4px;
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.nr-root .nr-section-thumb {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 8 / 5;
+    overflow: hidden;
+    border-radius: 5px;
+    color: rgb(255 255 255 / 0.35);
+    background: #0d0a22;
+}
+
+.nr-root .nr-section-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Two lines held open, so the cards line up however long their names run. */
+.nr-root .nr-section-name {
+    display: -webkit-box;
+    min-height: 2.4em;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+/* Scrolls inside the bar on a phone, where five tabs don't fit across. */
+.nr-root .nr-tabs.is-compact {
+    max-width: 100%;
+    padding: 3px;
+    overflow-x: auto;
+    border-radius: 11px;
+    scrollbar-width: none;
+}
+
+.nr-root .nr-tabs.is-compact .nr-tab { flex: none; padding: 4px 8px; border-radius: 8px; font-size: 13px; }
 
 .nr-root .nr-piece.is-active {
     background: rgb(255 43 214 / 0.18);
@@ -147,11 +203,9 @@
 }
 
 .nr-root .nr-build-status {
-    position: absolute;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
     display: flex;
+    flex: none;
+    margin: 10px;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
@@ -162,7 +216,6 @@
     color: var(--nr-gold);
     background: rgb(5 5 20 / 0.75);
     border: 1px solid rgb(255 210 61 / 0.35);
-    pointer-events: none;
 }
 
 .nr-root .nr-build-status.is-ok {
