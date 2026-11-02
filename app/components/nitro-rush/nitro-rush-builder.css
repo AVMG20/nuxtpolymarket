@@ -120,6 +120,14 @@
     color: rgb(255 255 255 / 0.45);
 }
 
+.nr-root .nr-piece-tag {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.7em;
+    letter-spacing: 0.08em;
+    color: var(--nr-pink);
+}
+
 .nr-root .nr-piece-grip {
     display: grid;
     place-items: center;

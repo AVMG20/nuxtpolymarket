@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { COUNTDOWN_SECONDS } from './config'
-import { newTrackPoint, wrapAngle, type Track } from '#shared/utils/nitro-rush/track'
+import { wrapAngle, type Track } from '#shared/utils/nitro-rush/track'
 import type { Phase } from './types'
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
@@ -13,6 +13,8 @@ export interface CameraSubject {
     z: number
     /** Distance along the course, for the road heights behind and ahead. */
     along: number
+    /** Across the road, to read a bank's surface at the car's own line. */
+    lateral: number
     heading: number
     travel: number
     slip: number
@@ -57,7 +59,6 @@ export class ChaseCamera {
     private readonly chaseLook = new THREE.Vector3()
     private readonly orbitPos = new THREE.Vector3()
     private readonly orbitLook = new THREE.Vector3()
-    private readonly tmpP = newTrackPoint()
     private readonly carFwd = new THREE.Vector3()
     private readonly carUp = new THREE.Vector3()
     private readonly wantUp = new THREE.Vector3()
@@ -104,8 +105,9 @@ export class ChaseCamera {
             chaseLook.copy(car.pos).addScaledVector(f, 9).addScaledVector(u, 1.1)
         } else {
             // Heights from the road behind and ahead, so the camera tips up a climb and down a drop; in the air, from the car.
-            const roadBehind = car.airborne ? y : this.track.pointAt(car.along - back, this.tmpP).y
-            const roadAhead = car.airborne ? y : this.track.pointAt(car.along + 9, this.tmpP).y
+            // Read on the car's own line: off-centre on a bank's raised side, the centre's height would put the camera under the deck.
+            const roadBehind = car.airborne ? y : this.track.surfaceAt(car.along - back, car.lateral)
+            const roadAhead = car.airborne ? y : this.track.surfaceAt(car.along + 9, car.lateral)
             chasePos.set(x - fx * back, roadBehind + 2.4 + car.speedK * 0.2, z - fz * back)
             chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
         }

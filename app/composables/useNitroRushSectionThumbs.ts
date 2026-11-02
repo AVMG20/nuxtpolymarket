@@ -1,7 +1,7 @@
 import { PAINT_BUDGET_MS, PAINT_REST_MS, SectionThumbPainter } from '~/utils/nitro-rush/section-thumbs'
-import { SECTIONS, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { PALETTE_SECTIONS, type SectionId } from '#shared/utils/nitro-rush/custom'
 
-const IDS = Object.keys(SECTIONS) as SectionId[]
+const IDS = PALETTE_SECTIONS.map(([id]) => id)
 /** Kept for the session: sections never change, so opening the builder again repaints nothing. */
 const thumbs = shallowReactive<Partial<Record<SectionId, string>>>({})
 

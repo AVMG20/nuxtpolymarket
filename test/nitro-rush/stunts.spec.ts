@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildTrack, corkscrew, corner, finish, jump, looping, LOOPING_SHIFT, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { BANK_LENGTH, buildTrack, corkscrew, corner, finish, jump, looping, LOOPING_SHIFT, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
+import { compileCustomTrack } from '#shared/utils/nitro-rush/custom'
 import { Track, wrapAngle } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 import { botInput, createCar, stepCar, type CarState, type StepEvents } from '../../app/utils/nitro-rush/physics'
@@ -146,6 +147,23 @@ describe('stunt physics', () => {
         expect(events.some(e => e.landed > 0)).toBe(true)
         expect(events.some(e => e.fell)).toBe(false)
         expect(car.airborne).toBe(false)
+    })
+
+    it('lands on a bank\'s surface, not at its centre\'s height', () => {
+        const t = new Track(compileCustomTrack({ id: 'custom-bank', name: 'Bank', closed: false, sections: ['straight-20', 'start', 'straight-100', 'bank-right', 'straight-200', 'bank-flat', 'finish', 'straight-200'] }).def!)
+        const s = t.startS + 10 + 100 + BANK_LENGTH + 100
+        const fall = (lateral: number) => {
+            const car = createCar(t, s, lateral)
+            car.airborne = true
+            car.vy = 0
+            car.y = t.surfaceAt(s, lateral) + 0.5
+            let steps = 0
+            while (!stepCar(car, coast(), t, 1 / HZ).landed && steps < HZ * 2) steps++
+            return steps / HZ
+        }
+        // Half a metre takes about a third of a second, from either side, though the centre is metres away.
+        for (const lateral of [-8, 8]) expect(fall(lateral)).toBeLessThan(0.45)
+        expect(t.surfaceAt(s, -8) - t.surfaceAt(s, 0)).toBeGreaterThan(3)
     })
 
     it('drops a car too slow for the gap into it', () => {

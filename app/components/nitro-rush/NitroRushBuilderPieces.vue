@@ -4,6 +4,8 @@ import { SECTIONS, type SectionId } from '#shared/utils/nitro-rush/custom'
 /** The course's sections in driving order; the selected one is where new sections go in after. Drag a grip to move a section. */
 const props = defineProps<{
     sections: SectionId[]
+    /** Per section: it starts out on a bank, so a straight or a bend comes out banked. */
+    banked: boolean[]
     cursor: number
 }>()
 const emit = defineEmits<{ select: [i: number], move: [from: number, to: number], remove: [i: number] }>()
@@ -100,6 +102,7 @@ const dropAfterLast = (i: number) => !!drag.value && i === props.sections.length
         <span class="nr-piece-index tabular-nums">{{ i + 1 }}</span>
         <UIcon :name="SECTIONS[id].icon" class="size-4 shrink-0" />
         <span class="truncate">{{ SECTIONS[id].label }}</span>
+        <span v-if="banked[i] && cursor !== i && SECTIONS[id].category !== 'banks'" class="nr-piece-tag">BANKED</span>
       </button>
       <template v-if="cursor === i && !drag">
         <button class="nr-piece-tool" :disabled="i === 0" aria-label="Move earlier" @click="$emit('move', i, i - 1)">

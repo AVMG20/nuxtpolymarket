@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, pieceAt, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId, sectionWalk } from '#shared/utils/nitro-rush/custom'
-import { GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
-import { Track } from '#shared/utils/nitro-rush/track'
+import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, PALETTE_SECTIONS, pieceAt, sanitizeCustomTrack, sectionWalk, SECTIONS, startsBanked, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { BANK_LENGTH, GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
+import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 const course = (closed: boolean, sections: SectionId[]): CustomTrack => ({ id: 'custom-test', name: 'Test', closed, sections })
@@ -24,7 +24,8 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-100', 'looping-left', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-down', 'straight-60', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-down', 'straight-60', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200'])
+        sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-tight', 'bank-flat', 'straight-60', 'bank-right', 'right-wide', 'bank-flat', 'finish', 'straight-200'])
     ]
 
     it('can each be laid in a course that compiles', () => {
@@ -96,6 +97,133 @@ describe('custom track sections', () => {
         expect(isSectionId('straight-100')).toBe(true)
         for (const id of ['nope', '__proto__', 'toString', 'constructor', 'hasOwnProperty', '', 7, null, undefined, {}]) {
             expect(isSectionId(id)).toBe(false)
+        }
+    })
+})
+
+describe('banks', () => {
+    const edge = wallFoot(10.6)
+    /** Height of the road's outer foot on `side` at each point. */
+    const edgeHeights = (t: Track, side: number) => Array.from({ length: t.n }, (_, i) => t.ys[i]! + t.right[i * 3 + 1]! * side * edge)
+    const lowest = (t: Track) => Array.from({ length: t.n }, (_, i) => Math.min(edgeHeights(t, -1)[i]!, edgeHeights(t, 1)[i]!))
+    const tilted = (t: Track, s: number) => Math.abs(t.frameAt(s).ry)
+    const banked = (sections: SectionId[]) => {
+        const { def, error } = compileCustomTrack(sprint(['straight-20', 'start', 'straight-60', ...sections, 'finish', 'straight-200']))
+        expect(error, sections.join(', ')).toBeNull()
+        return new Track(def!)
+    }
+
+    it('keeps the low edge on the ground and raises the other, whichever way it leans', () => {
+        for (const [section, low] of [['bank-left', -1], ['bank-right', 1]] as [SectionId, number][]) {
+            const t = banked([section, 'straight-100', 'left-tight', 'straight-60', 'right-tight', 'straight-60', 'bank-flat'])
+            for (const y of lowest(t)) {
+                expect(y).toBeGreaterThan(-0.05)
+                expect(y).toBeLessThan(0.05)
+            }
+            const mid = t.segmentAt(t.startS + 60 + BANK_LENGTH + 50)
+            expect(edgeHeights(t, low)[mid]).toBeCloseTo(0, 1)
+            expect(edgeHeights(t, -low)[mid]).toBeCloseTo(2 * edge * Math.sin(25 * Math.PI / 180), 0)
+        }
+    })
+
+    it('banks what follows on its own, until a bank to flat levels it', () => {
+        const t = banked(['bank-right', 'straight-100', 'right-tight', 'straight-20', 'bank-flat', 'straight-20'])
+        const at = t.startS + 10 + 60
+        expect(tilted(t, at - 5)).toBe(0)
+        // Halfway through the roll, and right over on the straight and round the bend.
+        expect(tilted(t, at + BANK_LENGTH / 2)).toBeGreaterThan(0.1)
+        const full = Math.sin(25 * Math.PI / 180)
+        expect(tilted(t, at + BANK_LENGTH + 50)).toBeCloseTo(full, 1)
+        expect(tilted(t, at + BANK_LENGTH + 100 + 40)).toBeCloseTo(full, 1)
+        expect(tilted(t, t.finishS - 10)).toBe(0)
+        expect(t.pointAt(t.finishS - 10).y).toBe(0)
+    })
+
+    it('leans a banked corner the bank\'s way, so a corner away from it runs off-camber', () => {
+        const lean = (section: SectionId) => {
+            const f = banked([section, 'right-tight', 'bank-flat']).frameAt(20 + 20 + 60 + BANK_LENGTH + 30)
+            return f.ux * f.rx + f.uz * f.rz
+        }
+        expect(lean('bank-right')).toBeGreaterThan(0.3)
+        expect(lean('bank-left')).toBeLessThan(-0.3)
+    })
+
+    it('rolls straight across from one bank to the other', () => {
+        const t = banked(['bank-left', 'straight-20', 'bank-right', 'straight-20', 'bank-flat'])
+        for (const y of lowest(t)) expect(Math.abs(y)).toBeLessThan(0.05)
+        // Through level the road's height eases rather than kinks, which stepped its grade by about 0.5.
+        const crossing = banked(['bank-left', 'bank-right', 'bank-flat'])
+        for (let i = 1; i < crossing.n; i++) expect(Math.abs(crossing.grades[i]! - crossing.grades[i - 1]!)).toBeLessThan(0.1)
+    })
+
+    it('banks a ramp and holds the low edge to the road\'s height, not the ground', () => {
+        const walk = walkCustomTrack(sprint(['ramp-up', 'bank-left', 'straight-20']))
+        expect(walk.end.y - walk.end.lift).toBeCloseTo(12)
+        expect(walk.end.lift).toBeCloseTo(edge * Math.sin(25 * Math.PI / 180))
+        expect(banked(['ramp-up', 'bank-left', 'ramp-down', 'bank-flat']).pointAt(0).y).toBe(0)
+    })
+
+    it('still stops a banked ramp going under the ground, lifted centre or not', () => {
+        expect(compileCustomTrack(sprint(['straight-20', 'start', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200'])).error).toBeTruthy()
+        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200'])).error).toMatch(/below the ground/)
+    })
+
+    it('has to level out before a course ends', () => {
+        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'finish', 'bank-flat', 'straight-200'])).error).toMatch(/level the road out before a finish line/)
+        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'finish', 'straight-100', 'bank-left'])).error).toMatch(/level out before it ends/)
+        const open = ['start', 'straight-60', 'bank-right', 'right-tight', 'right-tight', 'straight-60', 'straight-60', 'right-tight', 'right-tight'] as SectionId[]
+        const { error } = compileCustomTrack(loop(open))
+        expect(error).toMatch(/closing the loop|level out/)
+    })
+
+    it('refuses stunts and lines on a bank, naming what to level out for', () => {
+        const on = (piece: SectionId) => compileCustomTrack(sprint(['straight-20', 'start', 'bank-left', 'straight-20', piece, 'straight-100', 'bank-flat', 'finish', 'straight-200'])).error
+        expect(on('jump')).toMatch(/before a jump/)
+        expect(on('looping-left')).toMatch(/before a looping/)
+        expect(on('corkscrew-right')).toMatch(/before a corkscrew/)
+        expect(on('checkpoint')).toMatch(/before a checkpoint/)
+        expect(walkCustomTrack(sprint(['bank-left', 'jump'])).onBank).toBe('a jump')
+        expect(walkCustomTrack(sprint(['bank-left', 'bank-flat', 'jump'])).onBank).toBeNull()
+    })
+
+    it('closes a loop through a bank, and tells a loop still banked to level', () => {
+        const home: SectionId[] = ['start', 'straight-60', 'bank-right', 'right-tight', 'right-tight', 'bank-flat', 'straight-60', 'straight-20', 'right-tight', 'right-tight']
+        const { def, error } = compileCustomTrack(loop(home))
+        expect(error).toBeNull()
+        expect(new Track(def!).ys.some(y => y > 4)).toBe(true)
+        const gap = loopGap(walkCustomTrack(loop(['start', 'bank-right'])))
+        expect(gap.bank).toBeCloseTo(25)
+        expect(gap.climb).toBeCloseTo(0)
+        expect(loopGap(walkCustomTrack(loop(home))).bank).toBe(0)
+    })
+
+    it('measures a crossing from a bank\'s raised edge, not its centre', () => {
+        // The upper road crosses 12 m up and 130 m along: clear of the lower one's centre on a bank, but not of its raised edge.
+        const over = (under: SectionId[]) => compileCustomTrack(sprint(['straight-20', 'start', ...under, 'right-hairpin', 'ramp-up', 'right-tight', 'straight-200', 'finish', 'straight-100'])).error
+        expect(over(['straight-200', 'straight-100'])).toBeNull()
+        expect(over(['straight-60', 'bank-right', 'straight-20', 'bank-flat', 'straight-100'])).toMatch(/passes .* from another stretch/)
+    })
+
+    it('marks the sections that start on a bank', () => {
+        const walk = walkCustomTrack(sprint(['straight-20', 'bank-left', 'straight-20', 'left-tight', 'bank-flat', 'straight-20']))
+        expect([0, 1, 2, 3, 4, 5].map(i => startsBanked(walk, i))).toEqual([false, false, true, true, true, false])
+    })
+
+    it('draws a bank to flat from its bank, and leaves the old banked corners off the palette', () => {
+        const walk = sectionWalk('bank-flat')
+        expect(walk.lifts[0]).toBeGreaterThan(4)
+        expect(walk.end.bank).toBe(0)
+        expect(walk.end.y).toBe(0)
+        const ids = PALETTE_SECTIONS.map(([id]) => id)
+        expect(ids).toEqual(expect.arrayContaining(['bank-left', 'bank-right', 'bank-flat']))
+        expect(ids).not.toContain('left-banked')
+        expect(ids).not.toContain('right-banked')
+        expect(isSectionId('left-banked')).toBe(true)
+    })
+
+    it('keeps the old banked corners on the ground too', () => {
+        for (const id of ['left-banked', 'right-banked'] as SectionId[]) {
+            for (const y of lowest(banked([id, 'straight-60']))) expect(Math.abs(y)).toBeLessThan(0.05)
         }
     })
 })

@@ -26,6 +26,13 @@ describe('ghost drive check', () => {
         expect(ghostDrivesTrack(stunts, drive(stunts))).toBe(true)
     })
 
+    it('passes a real lap round a bank, and a banked loop', () => {
+        const sprint = trackOf(false, ['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-wide', 'straight-60', 'right-wide', 'bank-flat', 'finish', 'straight-200'])
+        expect(ghostDrivesTrack(sprint, drive(sprint))).toBe(true)
+        const banked = trackOf(true, ['start', 'straight-60', 'bank-right', 'right-tight', 'right-tight', 'bank-flat', 'straight-60', 'straight-20', 'right-tight', 'right-tight'])
+        expect(ghostDrivesTrack(banked, drive(banked, 1))).toBe(true)
+    })
+
     it('fails a ghost that stands still on the grid', () => {
         expect(ghostDrivesTrack(loop, edit(flying, 1, () => at(flying.data, 0)))).toBe(false)
     })

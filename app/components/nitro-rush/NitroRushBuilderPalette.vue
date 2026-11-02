@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { SECTION_CATEGORIES, SECTIONS, type SectionCategory, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { PALETTE_SECTIONS, SECTION_CATEGORIES, type SectionCategory, type SectionId } from '#shared/utils/nitro-rush/custom'
 
 /** The pre-built sections as pictures, by category; picking one lays it after the cursor. */
 defineProps<{ disabled: boolean }>()
 defineEmits<{ add: [id: SectionId] }>()
 
 const category = ref<SectionCategory>(SECTION_CATEGORIES[0]!.id)
-const ENTRIES = Object.entries(SECTIONS) as [SectionId, (typeof SECTIONS)[SectionId]][]
-const shown = computed(() => ENTRIES.filter(([, s]) => s.category === category.value))
+const shown = computed(() => PALETTE_SECTIONS.filter(([, s]) => s.category === category.value))
 const thumbs = useNitroRushSectionThumbs(() => shown.value.map(([id]) => id))
 const strip = ref<HTMLElement | null>(null)
 

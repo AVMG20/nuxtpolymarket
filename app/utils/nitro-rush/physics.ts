@@ -286,7 +286,8 @@ function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
     }
     car.vy -= GRAVITY * dt
     car.y += car.vy * dt
-    if (!gap && car.y <= p.y) {
+    // A bank tips the surface under the car away from the centre's height; on the road, y goes back to the centre's, which project picks a level by.
+    if (!gap && car.y <= track.surfaceAt(p.s, p.lateral)) {
         ev.landed = Math.max(0, -car.vy)
         car.y = p.y
         car.vy = 0

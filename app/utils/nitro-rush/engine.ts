@@ -630,7 +630,7 @@ export class NitroRushEngine {
         this.car.animate(dt, s, this.latAcc, this.longAcc, racing && this.controls.throttle)
 
         this.cam.update(dt, this.time, {
-            x, y, z, along, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK: this.nitroK, latAcc: this.latAcc,
+            x, y, z, along, lateral: this.drawn.lateral, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK: this.nitroK, latAcc: this.latAcc,
             pos: this.drawnPos, quat: this.drawnQuat, onRail: s.onRail, airborne: s.airborne
         }, shotFor(this.phase, this.countdown, this.time - this.finishedAt))
         const blend = this.cam.blend

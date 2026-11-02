@@ -3,10 +3,10 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { BILLBOARD_ADS, bannerTexture, billboardTexture } from './signs'
 import { NEON_PINK } from './config'
 import { radialTexture } from './textures'
-import { DECK_DEPTH, roadAbove, WALL_BASE_HALF } from './road-geometry'
+import { DECK_DEPTH, roadAbove } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
-import { headingOf } from '#shared/utils/nitro-rush/track'
+import { headingOf, WALL_BASE_HALF } from '#shared/utils/nitro-rush/track'
 
 /** The race venue round the road: floodlights, the arches over the lines and billboards. */
 

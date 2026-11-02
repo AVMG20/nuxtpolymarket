@@ -2,10 +2,10 @@ import * as THREE from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { NEON_PINK } from './config'
 import { checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
-import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, sweep, WALL_BASE_HALF } from './road-geometry'
+import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, sweep } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
-import { headingOf } from '#shared/utils/nitro-rush/track'
+import { headingOf, newTrackFrame, WALL_BASE_HALF, wallFoot } from '#shared/utils/nitro-rush/track'
 
 /** Kerbs only go where the line turns tighter than this (radians per metre). */
 const KERB_MIN_CURVATURE = 0.004
@@ -153,8 +153,8 @@ export function buildTrackside({ track, own, add }: WorldKit) {
 export function buildBarriers({ track, group, own, add, instanced }: WorldKit, concrete: THREE.Texture, { endWalls = true } = {}) {
     const wall = track.wallOffset
     const L = track.length
-    // The walls' outer foot: where the deck ends and the end walls reach.
-    const edge = wall + WALL_BASE_HALF * 2
+    // Where the deck ends and the end walls reach.
+    const edge = wallFoot(wall)
     const jersey: [number, number][] = [[0, 0], [0.64, 0], [0.64, 0.08], [0.49, 0.26], [0.41, 0.86], [0.23, 0.86], [0.15, 0.26], [0, 0.08], [0, 0]]
     const wallMat = own(new THREE.MeshStandardMaterial({ map: concrete, color: 0xb8b4ac, roughness: 0.92, side: THREE.DoubleSide }))
     for (const side of [-1, 1]) add(sweep(track, side, edge, jersey), wallMat)
@@ -166,21 +166,25 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
     if (track.elevated) {
         for (const side of [-1, 1]) add(sweep(track, side, edge, [[0, 0], [0, -DECK_DEPTH], [edge, -DECK_DEPTH]]), wallMat)
         const spots: THREE.Matrix4[] = []
-        const p = { x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 }
+        const f = newTrackFrame()
         for (let s = PILLAR_SPACING / 2; s < L; s += PILLAR_SPACING) {
-            track.pointAt(s, p)
-            const top = p.y - DECK_DEPTH
-            // Loopings, corkscrews, banks and gaps carry themselves.
-            if (top < 0.3 || !track.plainRoadAt(s)) continue
+            // Loopings, corkscrews and gaps carry themselves.
+            if (!track.solidRoadAt(s)) continue
+            track.frameAt(s, f)
+            // Right's reach across the plan: a bank draws its edges in.
+            const across = Math.hypot(f.rx, f.rz)
             for (const side of [-1, 1]) {
-                const lat = side * (edge + PILLAR_SIZE / 2)
-                const x = p.x - p.tz * lat
-                const z = p.z + p.tx * lat
+                // A bank's raised edge stands on pillars; its low edge lies on the ground and needs none.
+                const top = f.y + f.ry * side * edge - DECK_DEPTH
+                if (top < 0.3) continue
+                const lat = side * (edge * across + PILLAR_SIZE / 2)
+                const x = f.x + f.rx / across * lat
+                const z = f.z + f.rz / across * lat
                 // A pillar may stand beside a lower level, as in a spiral, but never on its road.
-                if (roadBelow(track, x, z, wall + 0.5, p.y - MIN_CLEARANCE / 2)) continue
+                if (roadBelow(track, x, z, wall + 0.5, f.y - MIN_CLEARANCE / 2)) continue
                 spots.push(new THREE.Matrix4().compose(
                     new THREE.Vector3(x, 0, z),
-                    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingOf(p.tx, p.tz)),
+                    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingOf(f.tx, f.tz)),
                     new THREE.Vector3(1, top, 1)
                 ))
             }
@@ -203,6 +207,8 @@ export function buildBarriers({ track, group, own, add, instanced }: WorldKit, c
             const g = new THREE.Group()
             g.position.set(p.x + p.tx * out * WALL_BASE_HALF, p.y, p.z + p.tz * out * WALL_BASE_HALF)
             g.rotation.y = headingOf(p.tx, p.tz)
+            // A draft can stop on a bank: the wall lies across the road as it's tipped there.
+            g.rotateZ(Math.asin(track.frameAt(end).ry))
             g.add(new THREE.Mesh(barrierGeo, wallMat))
             const band = new THREE.Mesh(bandGeo, bandMat)
             band.position.set(0, 0.6, out * (WALL_BASE_HALF + 0.02))

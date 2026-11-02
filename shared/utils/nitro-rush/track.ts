@@ -15,7 +15,7 @@
  * Courses are laid out from blocks in `layout.ts` and registered in
  * `tracks.ts`; this file only sees the sampled line they compile to.
  *
- * The road can climb: each point has a height, and the road is level across.
+ * The road can climb: each point has a height, measured at the centreline.
  * `s` stays a distance over the ground plan, which the gentle grades keep
  * within a fraction of a percent of the distance driven.
  *
@@ -103,6 +103,10 @@ const DEFAULT_RUN_OFF = 150
 export const SPEED_CEILING = 110
 /** Below the gap's deck by this much, a car that missed the landing has fallen. */
 export const FALL_DEPTH = 6
+/** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
+export const WALL_BASE_HALF = 0.32
+/** Centreline to the walls' outer foot: where the deck ends, and the edge a bank pivots on. */
+export const wallFoot = (wallOffset: number) => wallOffset + WALL_BASE_HALF * 2
 
 export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU)
 
@@ -147,6 +151,7 @@ export class Track {
     readonly gaps: readonly (readonly [number, number])[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
+    private readonly scratchFrame = newTrackFrame()
 
     constructor(def: TrackDef) {
         this.def = def
@@ -262,6 +267,12 @@ export class Track {
         return this.plainAt(i) && this.plainAt((i + 1) % this.n) && !this.gapAt(s)
     }
 
+    /** Road at `s` that stands on pillars when raised: no rails or gap, though it may bank. */
+    solidRoadAt(s: number) {
+        const i = this.segmentAt(s)
+        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s)
+    }
+
     /** True over a jump's gap, where there's no road. */
     gapAt(s: number) {
         return this.gaps.length > 0 && within(this.gaps, this.wrapS(s))
@@ -302,6 +313,12 @@ export class Track {
         out.uy = y / l
         out.uz = z / l
         return out
+    }
+
+    /** The road's height `lateral` across from the centre at `s`: off it on a bank. */
+    surfaceAt(s: number, lateral: number) {
+        const f = this.frameAt(s, this.scratchFrame)
+        return f.y + f.ry * lateral
     }
 
     get halfWidth() {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { shotFor } from '../../app/utils/nitro-rush/camera'
+import * as THREE from 'three'
+import { trackOf } from './bot-lap'
+import { ChaseCamera, shotFor } from '../../app/utils/nitro-rush/camera'
+import { poseCar } from '../../app/utils/nitro-rush/car-pose'
+import { createCar, slipAngle, stepCar } from '../../app/utils/nitro-rush/physics'
 import { COUNTDOWN_SECONDS } from '../../app/utils/nitro-rush/config'
 import { AdaptiveResolution } from '../../app/utils/nitro-rush/resolution'
 
@@ -35,6 +39,32 @@ describe('adaptive resolution', () => {
         const r = new AdaptiveResolution(1)
         expect(run(r, 1 / 60, 30)).toBe(false)
         expect(r.ratio).toBe(1.5)
+    })
+})
+
+describe('chase camera on a bank', () => {
+    it('stays over the road when the car runs along the raised side', () => {
+        const track = trackOf(false, ['straight-20', 'start', 'straight-200', 'bank-right', 'straight-200', 'bank-flat', 'finish', 'straight-200'])
+        const cam = new ChaseCamera(track)
+        cam.setViewport(1440, 900)
+        // Up by the left wall, the high side of a bank that's low on the right.
+        const car = createCar(track, track.startS, -8)
+        cam.cut(car.heading)
+        const pos = new THREE.Vector3()
+        const quat = new THREE.Quaternion()
+        const dt = 1 / 120
+        let lowest = Infinity
+        while (car.proj.s < track.finishS) {
+            stepCar(car, { throttle: 1, brake: 0, steer: 0, drift: false }, track, dt)
+            const { x, z, y, heading, travel, rel, vy, speed, onRail, airborne, proj: { s: along, lateral } } = car
+            poseCar(track, { x, z, y, along, lateral, heading, rel, vy, speed, onRail, airborne }, pos, quat)
+            cam.update(dt, 0, { x, y: pos.y, z, along, lateral, heading, travel, slip: slipAngle(car), speed, speedK: 0.5, nitroK: 0, latAcc: 0, pos, quat, onRail, airborne }, { target: 1, snap: true })
+            const at = cam.camera.position
+            const under = track.project(at.x, at.z, car.proj.seg)
+            const f = track.frameAt(under.s)
+            lowest = Math.min(lowest, at.y - (f.y + f.ry * under.lateral / Math.hypot(f.rx, f.rz)))
+        }
+        expect(lowest).toBeGreaterThan(0.5)
     })
 })
 

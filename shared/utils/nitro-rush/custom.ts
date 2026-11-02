@@ -1,4 +1,4 @@
-import { buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, spiral, start, straight, TrackLayoutError, walkLayout, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, spiral, start, straight, TrackLayoutError, walkLayout, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
@@ -8,18 +8,23 @@ import { ROAD } from './tracks'
  * pieces the game already knows how to drive and draw.
  */
 
-export type SectionCategory = 'straights' | 'bends' | 'climbs' | 'stunts' | 'lines'
+export type SectionCategory = 'straights' | 'bends' | 'banks' | 'climbs' | 'stunts' | 'lines'
 
 export interface Section {
     label: string
     category: SectionCategory
     icon: string
     piece: TrackPiece
+    /** Drawn on its own from this bank, in degrees, as the piece needs one to come off. */
+    fromBank?: number
+    /** Off the palette; saved courses still lay it. */
+    retired?: true
 }
 
 export const SECTION_CATEGORIES: readonly { id: SectionCategory, name: string }[] = [
     { id: 'straights', name: 'Straights' },
     { id: 'bends', name: 'Bends' },
+    { id: 'banks', name: 'Banks' },
     { id: 'climbs', name: 'Climbs' },
     { id: 'stunts', name: 'Stunts' },
     { id: 'lines', name: 'Lines' }
@@ -39,6 +44,8 @@ const bend = (turn: Turn, name: string, radius: number, angle = 90, bank = 0): S
     icon: angle === 180 ? ICONS[turn].hairpin : ICONS[turn].bend,
     piece: corner(turn, radius, angle, bank)
 })
+/** How far a bank piece tips the road. */
+const BANK_ANGLE = 25
 const stunt = (label: string, icon: string, piece: TrackPiece): Section => ({ label, category: 'stunts', icon, piece })
 const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
 /** On a grid multiple, so a half or quarter spiral ends on the grid and a loop can still close. */
@@ -62,12 +69,15 @@ export const SECTIONS = {
     'left-wide': bend('left', 'wide', 80),
     'left-eighth': bend('left', '45°', 60, 45),
     'left-hairpin': bend('left', 'hairpin', 30, 180),
-    'left-banked': bend('left', 'banked', 60, 90, 25),
+    'left-banked': { ...bend('left', 'banked', 60, 90, BANK_ANGLE), retired: true },
     'right-tight': bend('right', 'tight', 40),
     'right-wide': bend('right', 'wide', 80),
     'right-eighth': bend('right', '45°', 60, 45),
     'right-hairpin': bend('right', 'hairpin', 30, 180),
-    'right-banked': bend('right', 'banked', 60, 90, 25),
+    'right-banked': { ...bend('right', 'banked', 60, 90, BANK_ANGLE), retired: true },
+    'bank-left': { label: 'Flat to bank left', category: 'banks', icon: 'i-lucide-arrow-up-right', piece: bankTo(-BANK_ANGLE) },
+    'bank-right': { label: 'Flat to bank right', category: 'banks', icon: 'i-lucide-arrow-up-left', piece: bankTo(BANK_ANGLE) },
+    'bank-flat': { label: 'Bank to flat', category: 'banks', icon: 'i-lucide-arrow-down-to-line', piece: bankTo(0), fromBank: BANK_ANGLE },
     'ramp-up': { label: 'Ramp up', category: 'climbs', icon: 'i-lucide-trending-up', piece: ramp(150, 12) },
     'ramp-down': { label: 'Ramp down', category: 'climbs', icon: 'i-lucide-trending-down', piece: ramp(150, -12) },
     'steep-up': { label: 'Steep ramp up', category: 'climbs', icon: 'i-lucide-mountain', piece: ramp(80, 12) },
@@ -96,6 +106,9 @@ export const SECTIONS = {
 } satisfies Record<string, Section>
 
 export type SectionId = keyof typeof SECTIONS
+
+/** What a player can pick from, in palette order. */
+export const PALETTE_SECTIONS = (Object.entries(SECTIONS) as [SectionId, Section][]).filter(([, s]) => !s.retired)
 
 export const isSectionId = (id: unknown): id is SectionId => typeof id === 'string' && Object.hasOwn(SECTIONS, id)
 
@@ -158,16 +171,20 @@ export function mapWalkHeights(walk: LayoutWalk, f: (y: number) => number): Layo
 
 /** One section on its own, raised so a downhill piece keeps its drop instead of being cut off at the ground. */
 export function sectionWalk(id: SectionId): LayoutWalk {
-    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }))
+    const section: Section = SECTIONS[id]
+    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.fromBank)
     const lift = Math.max(0, -Math.min(walk.end.y, ...walk.ys))
     return mapWalkHeights(walk, y => y + lift)
 }
 
-/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right) and metres to come down. */
+/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down and the bank left to level. */
 export function loopGap(walk: LayoutWalk) {
-    const { x, z, heading, y } = walk.end
-    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y }
+    const { x, z, heading, y, lift, bank } = walk.end
+    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y - lift, bank }
 }
+
+/** True for the piece at `index` when it starts out on a bank: laid there, a plain straight or bend comes out banked. */
+export const startsBanked = (walk: LayoutWalk, index: number) => walk.lifts[walk.pieceStarts[index]!]! > 0
 
 /** The index of the piece holding walk point `i`. */
 export function pieceAt(walk: LayoutWalk, i: number) {

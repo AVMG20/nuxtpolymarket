@@ -1,10 +1,9 @@
 import * as THREE from 'three'
 import { buildStage, CourseMaterials, layCourse, MARKER_LIFT } from './builder-course'
-import { WALL_BASE_HALF } from './road-geometry'
 import { worldKit } from './world-kit'
 import { draftTrackDef, mapWalkHeights, sectionWalk, type SectionId } from '#shared/utils/nitro-rush/custom'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
-import { Track } from '#shared/utils/nitro-rush/track'
+import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
 
 const WIDTH = 320
 const HEIGHT = 200
@@ -42,15 +41,15 @@ export function fitView(points: readonly THREE.Vector3[], dir: THREE.Vector3, as
     return { centre, halfWidth: halfHeight * aspect, halfHeight }
 }
 
-/** A section as its card shows it; a looping keeps its true shape or its circle would come out an egg. */
+/** A section as its card shows it; a looping keeps its true shape or its circle would come out an egg, and a bank or its low edge would float. */
 export function cardWalk(id: SectionId): LayoutWalk {
     const walk = sectionWalk(id)
-    return walk.rails.length ? walk : mapWalkHeights(walk, y => y * HEIGHT_STRETCH)
+    return walk.rails.length || walk.lifts.some(Boolean) ? walk : mapWalkHeights(walk, y => y * HEIGHT_STRETCH)
 }
 
 /** The road's outer edges, the ground under them and the end marker: everything a card has to show. */
 export function cardExtent(track: Track, end: LayoutWalk['end']) {
-    const edge = track.wallOffset + WALL_BASE_HALF * 2
+    const edge = wallFoot(track.wallOffset)
     const points: THREE.Vector3[] = []
     for (let i = 0; i < track.n; i++) {
         const centre = new THREE.Vector3(track.xs[i], track.ys[i], track.zs[i])
