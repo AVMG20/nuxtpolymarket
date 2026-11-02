@@ -462,6 +462,7 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
 }
 
 // C0 and C1 controls, the characters rtCleanCompanyName drops from a company name
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f]/
 
 /** Why a world name cannot travel, or null. The byte cap and UTF-8 checks are the string codec's. */

@@ -688,7 +688,7 @@ interface RunOptions {
     /** Pathfinder nodes per tick (default the catalog's). */
     budget?: number
     /** Called after every tick; returning true ends the run early. */
-    each?: (tick: number) => boolean | void
+    each?: (tick: number) => unknown
 }
 
 /** Steps every vehicle in id order for up to `ticks` ticks, removing crashed ones whose time is up. */

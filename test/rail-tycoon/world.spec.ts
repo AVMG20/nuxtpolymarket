@@ -3,9 +3,12 @@ import { RT_CARGO_IDS, RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog
 import { chargeSharing, rtEmptyFinance, type RtSharingWorld } from '../../shared/utils/rail-tycoon/economy'
 import {
     RT_NONE,
+    RT_OWNER_NONE,
+    RtOrderKind,
     RtVehicleKind,
     RtVehicleState,
     type RtCompany,
+    type RtStation,
     type RtVehicle
 } from '../../shared/utils/rail-tycoon/types'
 import {
@@ -21,7 +24,6 @@ import {
 import { generateWorld } from '../../shared/utils/rail-tycoon/worldgen'
 import { RtReader, RtWriter } from '../../shared/utils/rail-tycoon/bytes'
 import { RT_FINANCE_KEYS, decodeWorldOrThrow, encodeWorld } from '../../shared/utils/rail-tycoon/save'
-import { RT_OWNER_NONE, RtOrderKind, type RtStation } from '../../shared/utils/rail-tycoon/types'
 import { RT_SERVER_COMPANY, RtCommandError, RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
 import { infrastructureUpkeep, monthlyInterest } from '../../shared/utils/rail-tycoon/economy'
 import { rtRecountInfrastructure } from '../../shared/utils/rail-tycoon/infrastructure'

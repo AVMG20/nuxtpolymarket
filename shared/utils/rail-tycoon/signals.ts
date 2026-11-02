@@ -187,7 +187,8 @@ export function placeSignal(map: RtMap, owner: number, tile: number, piece: numb
         return rtBuildOk(0)
     }
 
-    const free = (rtSignalSlot(payload, 0) & RT_SIGNAL_PIECE_MASK) === RT_SIGNAL_SLOT_EMPTY ? 0
+    const free = (rtSignalSlot(payload, 0) & RT_SIGNAL_PIECE_MASK) === RT_SIGNAL_SLOT_EMPTY
+        ? 0
         : (rtSignalSlot(payload, 1) & RT_SIGNAL_PIECE_MASK) === RT_SIGNAL_SLOT_EMPTY ? 1 : -1
     if (free < 0) return rtBuildFail(RtBuildError.conflict)
     if (apply === true) map.payload[tile] = rtWithSignalSlot(payload, free, piece | typeBit | BOTH_PRESENCE)

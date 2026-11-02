@@ -137,7 +137,7 @@ function statusOf(error: unknown): number | undefined {
 }
 
 function messageOf(error: unknown): string {
-    const message = (error as { statusMessage?: unknown, message?: unknown } | null)
+    const message = error as { statusMessage?: unknown, message?: unknown } | null
     const text = message?.statusMessage ?? message?.message
     return typeof text === 'string' ? text : ''
 }

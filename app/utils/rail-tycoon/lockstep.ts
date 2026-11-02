@@ -34,9 +34,9 @@ export interface RtLockstepEvents {
     dirty: number[]
     payment: RtPayment
     /** A vehicle was bought, sold or removed. */
-    vehicles: void
+    vehicles: undefined
     paused: RtPauseReason
-    resumed: void
+    resumed: undefined
     /** The receiver's role changed (a closed world makes everyone a spectator, AR-104). */
     role: RtRole
     resync: RtResyncReason

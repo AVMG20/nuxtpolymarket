@@ -34,7 +34,7 @@ export default async function smoke(): Promise<void> {
         }
     } finally {
         await harness.close()
-        const leftover = harness.leftoverPids()
-        if (leftover.length) throw new Error(`Chrome still running after close(): ${leftover.join(', ')}`)
     }
+    const leftover = harness.leftoverPids()
+    if (leftover.length) throw new Error(`Chrome still running after close(): ${leftover.join(', ')}`)
 }

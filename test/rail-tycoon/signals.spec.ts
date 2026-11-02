@@ -551,7 +551,7 @@ describe('rail tycoon signals and reservations', () => {
         })
 
         it('walks the first connecting piece for an orderless train (AR-134)', () => {
-            const { map, t, registry, top } = fixtureA()
+            const { map, registry, top } = fixtureA()
             // an orderless train at the branch path signal: up the branch, the corner, along the main line
             const branch = [...column(12, 16, 11), [12, 10] as XY, ...row(10, 13, 24)]
             const orderless = trainOn(map, registry, 7, branch, 2)

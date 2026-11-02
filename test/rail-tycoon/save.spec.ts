@@ -25,6 +25,7 @@ import {
     RtVehicleState,
     type RtCargoPacket,
     type RtCompany,
+    type RtOrder,
     type RtStation,
     type RtVehicle
 } from '../../shared/utils/rail-tycoon/types'
@@ -34,7 +35,6 @@ import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtComma
 import { RtSignalType } from '../../shared/utils/rail-tycoon/signals'
 import { RtAxis, RtStationTile } from '../../shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtPieceBetween, rtTrackdirOf } from '../../shared/utils/rail-tycoon/track'
-import type { RtOrder } from '../../shared/utils/rail-tycoon/types'
 
 function company(id: number): RtCompany {
     return {

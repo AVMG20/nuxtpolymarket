@@ -323,7 +323,7 @@ function dispatch(world: RtWorld, v: RtVehicle, orders: RtOrder[]): void {
 }
 
 /** Steps every vehicle in id order for up to `ticks` ticks; `each` returning true ends the run early. */
-function run(world: RtWorld, ticks: number, hooks: RtTrainHooks, each: () => boolean | void): void {
+function run(world: RtWorld, ticks: number, hooks: RtTrainHooks, each: () => unknown): void {
     for (let t = 0; t < ticks; t++) {
         world.tick++
         world.pathNodesLeft = RT_CATALOG.pathfinder.pathNodesPerTick

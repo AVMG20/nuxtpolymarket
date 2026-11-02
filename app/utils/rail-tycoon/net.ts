@@ -46,9 +46,9 @@ export interface RtNetOptions {
 
 export interface RtNetEvents {
     message: RtServerMsg
-    open: void
+    open: undefined
     /** Open again after a drop: the view re-opens its world. */
-    reconnected: void
+    reconnected: undefined
     stopped: RtNetStopReason
     latency: number
 }

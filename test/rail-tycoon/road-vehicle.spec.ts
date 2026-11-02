@@ -68,7 +68,7 @@ function bus(w: RtWorld, depot: [number, number], facing: RtDir, orders: RtVehic
 
 const visit = (target: number) => ({ kind: RtOrderKind.gotoStation, target, flags: 0 })
 
-function run(w: RtWorld, ticks: number, hooks?: RtTrainHooks, each?: (tick: number) => boolean | void): void {
+function run(w: RtWorld, ticks: number, hooks?: RtTrainHooks, each?: (tick: number) => unknown): void {
     for (let t = 0; t < ticks; t++) {
         w.tick++
         w.pathNodesLeft = RT_CATALOG.pathfinder.pathNodesPerTick

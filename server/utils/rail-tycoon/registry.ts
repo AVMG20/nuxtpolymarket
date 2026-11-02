@@ -102,6 +102,7 @@ const RT_NAME_INPUT_UNITS = 256
 const RT_CREATE_LOCK_SPACE = 0x52545743
 
 // C0 and C1 controls, and lone surrogates: the wire refuses both in a world name (W84)
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const RT_CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f]/
 const RT_LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
