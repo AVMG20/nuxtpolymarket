@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, PALETTE_SECTIONS, pieceAt, sanitizeCustomTrack, sectionWalk, SECTIONS, startsBanked, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, PALETTE_SECTIONS, pieceAt, sanitizeCustomTrack, sectionWalk, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { BANK_LENGTH, GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
 import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
@@ -25,7 +25,11 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-down', 'straight-60', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-down', 'straight-60', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-tight', 'bank-flat', 'straight-60', 'bank-right', 'right-wide', 'bank-flat', 'finish', 'straight-200'])
+        sprint(['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-tight', 'bank-flat', 'straight-60', 'bank-right', 'right-wide', 'bank-flat', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'slope-up', 'straight-20', 'slope-up-steep', 'straight-20', 'slope-down', 'slope-down-steep', 'slope-flat', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'left-medium', 'straight-100', 'right-medium', 'straight-100', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'left-eighth-tight', 'straight-100', 'right-eighth-tight', 'straight-100', 'left-eighth-wide', 'straight-100', 'right-eighth-wide', 'straight-100', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200'])
     ]
 
     it('can each be laid in a course that compiles', () => {
@@ -182,8 +186,8 @@ describe('banks', () => {
         expect(on('looping-left')).toMatch(/before a looping/)
         expect(on('corkscrew-right')).toMatch(/before a corkscrew/)
         expect(on('checkpoint')).toMatch(/before a checkpoint/)
-        expect(walkCustomTrack(sprint(['bank-left', 'jump'])).onBank).toBe('a jump')
-        expect(walkCustomTrack(sprint(['bank-left', 'bank-flat', 'jump'])).onBank).toBeNull()
+        expect(walkCustomTrack(sprint(['bank-left', 'jump'])).notLevel).toBe('a jump')
+        expect(walkCustomTrack(sprint(['bank-left', 'bank-flat', 'jump'])).notLevel).toBeNull()
     })
 
     it('closes a loop through a bank, and tells a loop still banked to level', () => {
@@ -206,7 +210,7 @@ describe('banks', () => {
 
     it('marks the sections that start on a bank', () => {
         const walk = walkCustomTrack(sprint(['straight-20', 'bank-left', 'straight-20', 'left-tight', 'bank-flat', 'straight-20']))
-        expect([0, 1, 2, 3, 4, 5].map(i => startsBanked(walk, i))).toEqual([false, false, true, true, true, false])
+        expect([0, 1, 2, 3, 4, 5].map(i => walk.states[i]!.bank !== 0)).toEqual([false, false, true, true, true, false])
     })
 
     it('draws a bank to flat from its bank, and leaves the old banked corners off the palette', () => {

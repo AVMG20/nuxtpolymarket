@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { isTyping } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { MAX_NAME_LENGTH, MAX_SECTIONS, startsBanked, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { MAX_NAME_LENGTH, MAX_SECTIONS, rideTag, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { ROAD } from '#shared/utils/nitro-rush/tracks'
 
 /** The track builder: lay pre-built sections on a map until the course is drivable. */
@@ -22,7 +22,7 @@ const { draft, cursor, walk, compiled, gap, full, length, canUndo, insert, remov
 /** The top-down map, or the course in 3D; remembered in this browser. */
 const view = ref<'map' | '3d'>(readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: 'map' }).view === '3d' ? '3d' : 'map')
 watch(view, v => writeStorage(STORAGE_KEYS.builderView, { view: v }))
-const banked = computed(() => draft.value.sections.map((_, i) => startsBanked(walk.value, i)))
+const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
 const closes = computed(() => draft.value.closed && !!compiled.value.def)
 
@@ -33,11 +33,12 @@ let confirmTimer: ReturnType<typeof setTimeout> | undefined
 const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
     const g = gap.value
-    if (g && !walk.value.onBank && (g.distance > 0.5 || g.turn !== 0 || g.climb > 0.01 || g.bank !== 0)) {
+    if (g && !walk.value.notLevel && (g.distance > 0.5 || g.turn !== 0 || g.climb > 0.01 || g.bank !== 0 || g.grade !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
         if (g.turn) parts.push(`turn ${Math.abs(g.turn)}° ${g.turn > 0 ? 'right' : 'left'}`)
         if (g.climb > 0.01) parts.push(`${Math.round(g.climb)} m down`)
         if (g.bank !== 0) parts.push('level the bank')
+        if (g.grade !== 0) parts.push('level the slope')
         return { ok: false, text: `Join the road back up to the start: ${parts.join(', ')}` }
     }
     return { ok: false, text: friendly(compiled.value.error ?? '') }
@@ -158,7 +159,7 @@ onBeforeUnmount(() => {
           New sections go in after the highlighted one; drag a section's grip to move it.
         </p>
         <div class="max-h-64 min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-          <NitroRushBuilderPieces :sections="draft.sections" :banked="banked" :cursor="cursor" @select="select" @move="moveTo" @remove="removeAt" />
+          <NitroRushBuilderPieces :sections="draft.sections" :tags="tags" :cursor="cursor" @select="select" @move="moveTo" @remove="removeAt" />
         </div>
         <div class="flex items-baseline justify-between text-[11px] text-white/60 tabular-nums">
           <span>{{ (length / 1000).toFixed(2) }} KM</span>

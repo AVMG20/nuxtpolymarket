@@ -14,7 +14,8 @@ import { Track, wallFoot, type TrackDef, type TrackGroup } from './track'
  * short straights so the road comes back onto the grid, which lets a loop with
  * diagonals close on round lengths.
  *
- * Ramps and spirals change the road's height; every other piece holds it.
+ * Ramps and spirals change the road's height, and so does any piece laid on a
+ * slope, which bends snap to land on a whole metre; every other piece holds it.
  * A loop has to come back down to where it started, and wherever the road
  * passes over itself the levels must be far enough apart to drive under.
  *
@@ -27,6 +28,7 @@ import { Track, wallFoot, type TrackDef, type TrackGroup } from './track'
  *
  * A bank piece rolls the road and every piece after rides that bank until another
  * levels it; the low edge stays at the road's height, so it never cuts into the ground.
+ * A slope piece does the same with the road's grade, where a ramp comes back to level by itself.
  */
 
 export type LineBlock = 'start' | 'finish' | 'checkpoint'
@@ -35,6 +37,7 @@ export type TrackPiece =
     | { type: 'straight', length: number }
     | { type: 'corner', turn: 'left' | 'right', radius: number, angle: number, bank?: number }
     | { type: 'bank', to: number, length: number }
+    | { type: 'slope', to: number, length: number }
     | { type: 'ramp', length: number, rise: number }
     | { type: 'spiral', turn: 'left' | 'right', radius: number, angle: number, rise: number }
     | { type: 'jump', rise: number, gap: number }
@@ -80,6 +83,8 @@ export const CORKSCREW_AXIS = 10
 const BANK_EASE = 0.3
 /** A bank piece's length: a grid multiple so a loop can still close, and long enough that the high edge climbs no steeper than a steep ramp. */
 export const BANK_LENGTH = 60
+/** A slope piece's length: with grades in tenths, it and any grid-long straight on them rise whole metres. */
+export const SLOPE_LENGTH = 40
 const RADIANS = Math.PI / 180
 
 export const straight = (length: number): TrackPiece => ({ type: 'straight', length })
@@ -87,6 +92,8 @@ export const straight = (length: number): TrackPiece => ({ type: 'straight', len
 export const corner = (turn: 'left' | 'right', radius: number, angle = 90, bank = 0): TrackPiece => bank ? { type: 'corner', turn, radius, angle, bank } : { type: 'corner', turn, radius, angle }
 /** A short straight that rolls the road to `to` degrees, + low on the right, 0 level; what's laid after rides that bank. */
 export const bankTo = (to: number, length = BANK_LENGTH): TrackPiece => ({ type: 'bank', to, length })
+/** A short straight that eases the road onto the grade `to`, in metres per metre, + climbing; what's laid after holds it. */
+export const slopeTo = (to: number, length = SLOPE_LENGTH): TrackPiece => ({ type: 'slope', to, length })
 /** A straight that climbs `rise` metres, or falls with a negative rise. */
 export const ramp = (length: number, rise: number): TrackPiece => ({ type: 'ramp', length, rise })
 /** A bend of `angle` degrees climbing `rise` metres over the lot; past 360 it passes over itself. */
@@ -131,9 +138,15 @@ const rollAt = (from: number, to: number, t: number) => {
     if (from * to >= 0) return from + (to - from) * smooth(t)
     return t < 0.5 ? from * (1 - smooth(t * 2)) : to * smooth(t * 2 - 1)
 }
-/** What each piece that a bank can't carry is called: a level arch or a flight doesn't fit a tilted road. */
+/** What each piece that a bank or slope can't carry is called: a level arch or a flight doesn't fit a tilted road. */
 const NEEDS_LEVEL_ROAD: Partial<Record<TrackPiece['type'], string>> = {
     jump: 'a jump', looping: 'a looping', corkscrew: 'a corkscrew', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint'
+}
+
+/** What the road holds from one piece to the next: bank in degrees, + low on the right, and grade in metres per metre, + climbing. */
+export interface RoadState {
+    bank: number
+    grade: number
 }
 
 /** A layout's pieces walked into a sampled line, before any check that it makes a course. */
@@ -152,18 +165,20 @@ export interface LayoutWalk {
     lines: { type: LineBlock, at: number }[]
     /** The index of each piece's first point. */
     pieceStarts: number[]
-    /** Where the last piece ends; `y` is the centre's height, `lift` of it the bank's, and `bank` the degrees it's left on. */
-    end: { x: number, z: number, heading: number, y: number, lift: number, bank: number }
-    /** The first piece laid on a bank that can't be, which only a finished course minds. */
-    onBank: string | null
+    /** The state each piece starts out in. */
+    states: RoadState[]
+    /** Where the last piece ends and the state it leaves; `y` is the centre's height, `lift` of it the bank's. */
+    end: RoadState & { x: number, z: number, heading: number, y: number, lift: number }
+    /** The first piece laid on a bank or slope that can't be, which only a finished course minds. */
+    notLevel: string | null
 }
 
 /**
  * Lays the pieces end to end. Only a malformed piece throws: the walk itself
  * doesn't care whether the course closes, so a builder can draw it half done.
- * `startBank`, in degrees, is for drawing a piece on its own: a course starts level.
+ * `from` is for drawing a piece on its own: a course starts level.
  */
-export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
+export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): LayoutWalk {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
@@ -178,8 +193,10 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
     // Courses begin on the ground.
     let y = 0
     // The bank the road is on, in radians: + low on the right.
-    let roll = startBank * RADIANS
-    let onBank: string | null = null
+    let roll = (from.bank ?? 0) * RADIANS
+    // The grade the road holds.
+    let grade = from.grade ?? 0
+    let notLevel: string | null = null
     const edge = wallFoot(layout.wallOffset)
     const liftOf = (b: number) => edge * Math.abs(Math.sin(b))
 
@@ -194,16 +211,21 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
         const lift = liftOf(b)
         push(px, pz, low + lift, rolledUp(a, b), lift)
     }
-    /** A straight, climbing `rise` along `profile` (0 to 1 over the length) and rolling onto the bank `to`. */
-    const run = (length: number, rise = 0, profile = climbAt, to = roll) => {
+    /** A straight, climbing `rise` along `profile` (0 to 1 over the length) on top of the held grade, and rolling and easing onto the state it's given. */
+    const run = (length: number, { rise = 0, profile = climbAt, bank = roll, slope = grade } = {}) => {
         const n = Math.max(1, Math.round(length / STEP))
         const dx = Math.sin(h)
         const dz = -Math.cos(h)
-        for (let i = 0; i < n; i++) place(x + dx * length * i / n, z + dz * length * i / n, y + rise * profile(length * i / n, length), h, rollAt(roll, to, i / n))
+        const held = (d: number) => grade * d + (slope - grade) * d * d / (2 * length)
+        for (let i = 0; i < n; i++) {
+            const d = length * i / n
+            place(x + dx * d, z + dz * d, y + held(d) + rise * profile(d, length), h, rollAt(roll, bank, i / n))
+        }
         x += dx * length
         z += dz * length
-        y += rise
-        roll = to
+        y += rise + held(length)
+        roll = bank
+        grade = slope
     }
     const onAxis = (a: number) => Math.abs(Math.sin(2 * a)) < 1e-9
     // Metres from `v` on to the next grid line, going up.
@@ -213,29 +235,40 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
     }
     const bend = (side: number, radius: number, eighths: number, rise = 0, bank = 0) => {
         const out = h + side * Math.PI / 4 * eighths
-        if (onAxis(h) || !onAxis(out)) return turn(side, radius, eighths, rise, bank)
-        // Off a diagonal onto an axis: a diagonal straight first sets the cross-track coordinate, an axis straight after sets the other.
-        const [dx, dz] = [Math.sin(h), -Math.cos(h)]
-        const [ox, oz] = [Math.sin(out), -Math.cos(out)]
-        const cx = x + Math.cos(h) * radius * side
-        const cz = z + Math.sin(h) * radius * side
-        const ex = cx - Math.cos(out) * radius * side - layout.origin.x
-        const ez = cz - Math.sin(out) * radius * side - layout.origin.z
-        const alongX = Math.abs(ox) > 0.5
-        const cross = alongX ? ez : ex
-        const crossRate = alongX ? dz : dx
-        const before = toGrid(crossRate > 0 ? cross : -cross) / Math.abs(crossRate)
-        const along = (alongX ? ex + dx * before : ez + dz * before) * (alongX ? ox : oz)
-        const after = toGrid(along)
+        let before = 0
+        let after = 0
+        if (!onAxis(h) && onAxis(out)) {
+            // Off a diagonal onto an axis: a diagonal straight first sets the cross-track coordinate, an axis straight after sets the other.
+            const [dx, dz] = [Math.sin(h), -Math.cos(h)]
+            const [ox, oz] = [Math.sin(out), -Math.cos(out)]
+            const cx = x + Math.cos(h) * radius * side
+            const cz = z + Math.sin(h) * radius * side
+            const ex = cx - Math.cos(out) * radius * side - layout.origin.x
+            const ez = cz - Math.sin(out) * radius * side - layout.origin.z
+            const alongX = Math.abs(ox) > 0.5
+            const cross = alongX ? ez : ex
+            const crossRate = alongX ? dz : dx
+            before = toGrid(crossRate > 0 ? cross : -cross) / Math.abs(crossRate)
+            const along = (alongX ? ex + dx * before : ez + dz * before) * (alongX ? ox : oz)
+            after = toGrid(along)
+        }
+        const held = grade
+        // A bend's length is irrational: on a slope it lands on a whole metre, or a loop climbing and falling through different bends could never close.
+        if (held) {
+            const total = before + radius * Math.PI / 4 * eighths + after
+            grade = (Math.round(y + rise + held * total) - y - rise) / total
+        }
         pad(before)
         turn(side, radius, eighths, rise, bank)
         pad(after)
+        grade = held
     }
     // A sliver of a straight only stretches the segment it continues, so it leaves no near-zero segment behind.
     const pad = (length: number) => {
         if (length >= STEP / 2) return run(length)
         x += Math.sin(h) * length
         z -= Math.cos(h) * length
+        y += grade * length
     }
     const turn = (side: number, radius: number, eighths: number, rise = 0, bank = 0) => {
         // Right of the heading is (cos h, sin h); the centre lies `radius` toward the turn.
@@ -252,22 +285,23 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
             // The corner's own bank leans into the turn, rolling in and out at the ends, on top of the bank the road is on.
             const t = i / n
             const own = bank * RADIANS * smooth(Math.min(1, t / BANK_EASE, (1 - t) / BANK_EASE))
-            place(px, pz, y + rise * climbAt(length * i / n, length), a, roll + side * own)
+            const d = length * i / n
+            place(px, pz, y + grade * d + rise * climbAt(d, length), a, roll + side * own)
         }
         h += side * sweep
         const end = at(h)
         x = end[0]
         z = end[1]
-        y += rise
+        y += rise + grade * length
     }
 
     const jumpOver = (rise: number, gap: number) => {
         // The kicker steepens all the way to its lip, so the car leaves it climbing.
-        run(Math.ceil(2 * rise / KICKER_GRADE / GRID) * GRID, rise, (d, length) => (d / length) * (d / length))
+        run(Math.ceil(2 * rise / KICKER_GRADE / GRID) * GRID, { rise, profile: (d, length) => (d / length) * (d / length) })
         const from = pts.length
         run(gap)
         gaps.push([from, pts.length])
-        run(LANDING_LENGTH, -rise)
+        run(LANDING_LENGTH, { rise: -rise })
     }
     const loopOver = (side: number, radius: number) => {
         const [dx, dz] = [Math.sin(h), -Math.cos(h)]
@@ -308,9 +342,11 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
         return angle / 45
     }
     const pieceStarts: number[] = []
+    const states: RoadState[] = []
     for (const piece of layout.pieces) {
         pieceStarts.push(pts.length)
-        if (roll && !onBank) onBank = NEEDS_LEVEL_ROAD[piece.type] ?? null
+        states.push({ bank: roll / RADIANS, grade })
+        if ((roll || grade) && !notLevel) notLevel = NEEDS_LEVEL_ROAD[piece.type] ?? null
         if (piece.type === 'straight') {
             if (!(piece.length > 0)) fail('a straight needs a positive length')
             run(piece.length)
@@ -321,10 +357,14 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
         } else if (piece.type === 'bank') {
             if (!(piece.length > 0)) fail('a bank needs a positive length')
             if (!(Math.abs(piece.to) < 60)) fail('a bank tilts less than 60°')
-            run(piece.length, 0, climbAt, piece.to * RADIANS)
+            run(piece.length, { bank: piece.to * RADIANS })
+        } else if (piece.type === 'slope') {
+            if (!(piece.length > 0)) fail('a slope needs a positive length')
+            if (!(Math.abs(piece.to) < 0.5)) fail('a slope climbs less than 1 m in 2')
+            run(piece.length, { slope: piece.to })
         } else if (piece.type === 'ramp') {
             if (!(piece.length > EASE_LENGTH * 2)) fail(`a ramp needs to be longer than ${EASE_LENGTH * 2} m`)
-            run(piece.length, piece.rise)
+            run(piece.length, { rise: piece.rise })
         } else if (piece.type === 'spiral') {
             if (!(piece.radius > layout.wallOffset)) fail('a spiral must be wider than the track')
             bend(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), piece.rise)
@@ -343,7 +383,7 @@ export function walkLayout(layout: TrackLayout, startBank = 0): LayoutWalk {
             run(LINE_BLOCK_LENGTH / 2)
         }
     }
-    return { pts, ys, lifts, ups, rails, gaps, lines, pieceStarts, onBank, end: { x, z, heading: h, y: y + liftOf(roll), lift: liftOf(roll), bank: roll / RADIANS } }
+    return { pts, ys, lifts, ups, rails, gaps, lines, pieceStarts, states, notLevel, end: { x, z, heading: h, y: y + liftOf(roll), lift: liftOf(roll), bank: roll / RADIANS, grade } }
 }
 
 export function buildTrack(layout: TrackLayout): TrackDef {
@@ -351,8 +391,8 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
-    const { pts, ys, lifts, ups, rails, gaps, lines, onBank, end: { x, z, heading: h, y, lift, bank } } = walkLayout(layout)
-    if (onBank) fail(`level the road out before ${onBank}`)
+    const { pts, ys, lifts, ups, rails, gaps, lines, notLevel, end: { x, z, heading: h, y, lift, bank, grade } } = walkLayout(layout)
+    if (notLevel) fail(`level the road out before ${notLevel}`)
 
     const count = (type: LineBlock) => lines.filter(l => l.type === type).length
     if (count('start') !== 1) fail('needs exactly one start block')
@@ -365,7 +405,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     } else if (count('finish') !== 1) {
         fail('an open course needs exactly one finish block')
     }
-    if (bank) fail('the road has to level out before it ends')
+    if (bank || grade) fail('the road has to level out before it ends')
     if (!closed) {
         pts.push([x, z])
         ys.push(y)

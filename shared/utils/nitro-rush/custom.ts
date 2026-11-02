@@ -1,4 +1,4 @@
-import { bankTo, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, spiral, start, straight, TrackLayoutError, walkLayout, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
@@ -15,8 +15,8 @@ export interface Section {
     category: SectionCategory
     icon: string
     piece: TrackPiece
-    /** Drawn on its own from this bank, in degrees, as the piece needs one to come off. */
-    fromBank?: number
+    /** Drawn on its own from this state, as the piece needs one to come off. */
+    from?: Partial<RoadState>
     /** Off the palette; saved courses still lay it. */
     retired?: true
 }
@@ -46,6 +46,9 @@ const bend = (turn: Turn, name: string, radius: number, angle = 90, bank = 0): S
 })
 /** How far a bank piece tips the road. */
 const BANK_ANGLE = 25
+/** The grades a slope piece holds, in tenths so heights stay on whole metres. */
+const GENTLE_GRADE = 0.1
+const STEEP_GRADE = 0.2
 const stunt = (label: string, icon: string, piece: TrackPiece): Section => ({ label, category: 'stunts', icon, piece })
 const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
 /** On a grid multiple, so a half or quarter spiral ends on the grid and a loop can still close. */
@@ -67,17 +70,32 @@ export const SECTIONS = {
     'straight-200': run(200),
     'left-tight': bend('left', 'tight', 40),
     'left-wide': bend('left', 'wide', 80),
+    'left-medium': bend('left', 'medium', 60),
+    'left-eighth-tight': bend('left', 'tight 45°', 40, 45),
     'left-eighth': bend('left', '45°', 60, 45),
+    'left-eighth-wide': bend('left', 'wide 45°', 80, 45),
     'left-hairpin': bend('left', 'hairpin', 30, 180),
+    'left-hairpin-medium': bend('left', 'medium hairpin', 60, 180),
+    'left-hairpin-wide': bend('left', 'wide hairpin', 80, 180),
     'left-banked': { ...bend('left', 'banked', 60, 90, BANK_ANGLE), retired: true },
     'right-tight': bend('right', 'tight', 40),
     'right-wide': bend('right', 'wide', 80),
+    'right-medium': bend('right', 'medium', 60),
+    'right-eighth-tight': bend('right', 'tight 45°', 40, 45),
     'right-eighth': bend('right', '45°', 60, 45),
+    'right-eighth-wide': bend('right', 'wide 45°', 80, 45),
     'right-hairpin': bend('right', 'hairpin', 30, 180),
+    'right-hairpin-medium': bend('right', 'medium hairpin', 60, 180),
+    'right-hairpin-wide': bend('right', 'wide hairpin', 80, 180),
     'right-banked': { ...bend('right', 'banked', 60, 90, BANK_ANGLE), retired: true },
     'bank-left': { label: 'Flat to bank left', category: 'banks', icon: 'i-lucide-arrow-up-right', piece: bankTo(-BANK_ANGLE) },
     'bank-right': { label: 'Flat to bank right', category: 'banks', icon: 'i-lucide-arrow-up-left', piece: bankTo(BANK_ANGLE) },
-    'bank-flat': { label: 'Bank to flat', category: 'banks', icon: 'i-lucide-arrow-down-to-line', piece: bankTo(0), fromBank: BANK_ANGLE },
+    'bank-flat': { label: 'Bank to flat', category: 'banks', icon: 'i-lucide-arrow-down-to-line', piece: bankTo(0), from: { bank: BANK_ANGLE } },
+    'slope-up': { label: 'Slope up', category: 'climbs', icon: 'i-lucide-trending-up', piece: slopeTo(GENTLE_GRADE) },
+    'slope-up-steep': { label: 'Steep slope up', category: 'climbs', icon: 'i-lucide-mountain', piece: slopeTo(STEEP_GRADE) },
+    'slope-down': { label: 'Slope down', category: 'climbs', icon: 'i-lucide-trending-down', piece: slopeTo(-GENTLE_GRADE) },
+    'slope-down-steep': { label: 'Steep slope down', category: 'climbs', icon: 'i-lucide-mountain-snow', piece: slopeTo(-STEEP_GRADE) },
+    'slope-flat': { label: 'Slope to flat', category: 'climbs', icon: 'i-lucide-arrow-right-to-line', piece: slopeTo(0), from: { grade: GENTLE_GRADE } },
     'ramp-up': { label: 'Ramp up', category: 'climbs', icon: 'i-lucide-trending-up', piece: ramp(150, 12) },
     'ramp-down': { label: 'Ramp down', category: 'climbs', icon: 'i-lucide-trending-down', piece: ramp(150, -12) },
     'steep-up': { label: 'Steep ramp up', category: 'climbs', icon: 'i-lucide-mountain', piece: ramp(80, 12) },
@@ -172,19 +190,24 @@ export function mapWalkHeights(walk: LayoutWalk, f: (y: number) => number): Layo
 /** One section on its own, raised so a downhill piece keeps its drop instead of being cut off at the ground. */
 export function sectionWalk(id: SectionId): LayoutWalk {
     const section: Section = SECTIONS[id]
-    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.fromBank)
+    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.from)
     const lift = Math.max(0, -Math.min(walk.end.y, ...walk.ys))
     return mapWalkHeights(walk, y => y + lift)
 }
 
-/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down and the bank left to level. */
+/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down, and the bank and grade left to level. */
 export function loopGap(walk: LayoutWalk) {
-    const { x, z, heading, y, lift, bank } = walk.end
-    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y - lift, bank }
+    const { x, z, heading, y, lift, bank, grade } = walk.end
+    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y - lift, bank, grade }
 }
 
-/** True for the piece at `index` when it starts out on a bank: laid there, a plain straight or bend comes out banked. */
-export const startsBanked = (walk: LayoutWalk, index: number) => walk.lifts[walk.pieceStarts[index]!]! > 0
+/** How the state a section starts out in changes it, for its row in the list; a piece that sets that state itself doesn't ride it. */
+export function rideTag(id: SectionId, { bank, grade }: RoadState) {
+    const { type } = SECTIONS[id].piece
+    const tilt = bank && type !== 'bank' ? 'BANKED' : ''
+    const climb = grade && type !== 'slope' ? (grade > 0 ? 'UP' : 'DOWN') : ''
+    return [tilt, climb].filter(Boolean).join(' ')
+}
 
 /** The index of the piece holding walk point `i`. */
 export function pieceAt(walk: LayoutWalk, i: number) {
@@ -220,6 +243,23 @@ export function draftTrackDef(walk: LayoutWalk, closes: boolean): TrackDef | nul
     if (walk.gaps.length) def.gaps = walk.gaps
     if (!closes) def.closed = false
     return def
+}
+
+/** A walk's last piece cut out of it, as a course to draw on its own. */
+export function lastPieceWalk(walk: LayoutWalk): LayoutWalk {
+    const from = walk.pieceStarts[walk.pieceStarts.length - 1]!
+    return {
+        ...walk,
+        pts: walk.pts.slice(from),
+        ys: walk.ys.slice(from),
+        lifts: walk.lifts.slice(from),
+        ups: walk.ups.slice(from),
+        rails: [],
+        gaps: [],
+        lines: [],
+        pieceStarts: [0],
+        states: walk.states.slice(-1)
+    }
 }
 
 export type CompiledCustomTrack = { def: TrackDef, error: null } | { def: null, error: string }
