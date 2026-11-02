@@ -24,9 +24,9 @@ import {
     rtStationFootprint,
     type RtCommand
 } from '#shared/utils/rail-tycoon/commands'
-import { RtTileKind, type RtMap } from '#shared/utils/rail-tycoon/map'
+import { RtTileKind, type RtDir, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { RtSignalType, rtSignalTypeAt } from '#shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile, rtStationId } from '#shared/utils/rail-tycoon/stations-build'
+import { RtAxis, RtRoadStopShape, RtStationTile, rtBayShape, rtShapeIsBay, rtStationId } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RT_TRACK_COUNT, RtTrack, rtRailTilePieces } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
@@ -60,8 +60,35 @@ export interface RtPicked {
     id: number
 }
 
+/**
+ * The rail tool's direction, the original's four track buttons and autorail: on screen, x runs
+ * south-west to north-east, y north-west to south-east, horizontal is the upper and lower pieces and
+ * vertical the left and right ones. Autorail takes whichever piece the drag points along.
+ */
+export const RtRailDirection = { auto: 0, x: 1, y: 2, horizontal: 3, vertical: 4 } as const
+export type RtRailDirection = typeof RtRailDirection[keyof typeof RtRailDirection]
+
+const RAIL_DIRECTION_PIECES: readonly number[] = [
+    0x3f,
+    1 << RtTrack.x,
+    1 << RtTrack.y,
+    (1 << RtTrack.upper) | (1 << RtTrack.lower),
+    (1 << RtTrack.left) | (1 << RtTrack.right)
+]
+
+/** The piece bits a rail click or drag may start with in a direction. */
+export function rtRailDirectionPieces(direction: RtRailDirection): number {
+    return RAIL_DIRECTION_PIECES[direction] ?? 0x3f
+}
+
+/** The road tool's axis, the original's two road buttons and autoroad, which follows the longer drag. */
+export const RtRoadDirection = { auto: 0, x: 1, y: 2 } as const
+export type RtRoadDirection = typeof RtRoadDirection[keyof typeof RtRoadDirection]
+
 /** The toolbar's settings for the tools that take them. */
 export interface RtToolOptions {
+    railDirection: RtRailDirection
+    roadDirection: RtRoadDirection
     /** The signal type a click on an unsignalled piece places. */
     signalType: RtSignalType
     stationAxis: RtAxis
@@ -70,6 +97,8 @@ export interface RtToolOptions {
     /** Platform length in tiles, 1 to RT_MAX_PLATFORM_LENGTH. */
     stationLength: number
     stopType: typeof RtStationTile.bus | typeof RtStationTile.truck
+    /** The stop's shape (RtRoadStopShape): a bay facing a side or a drive-through stop along an axis; R turns it. */
+    stopShape: RtRoadStopShape
     depotKind: RtVehicleKind
     /** The side the depot's entrance faces (RtDir); R turns it. */
     depotFacing: number
@@ -98,7 +127,7 @@ export interface RtToolEvents {
     query: number
     picked: RtPicked
     /** Pick mode ended without a pick (Escape, or another tool chosen). */
-    pickEnd: void
+    pickEnd: undefined
     preview: RtToolPreview | null
     /** The selected tool changed, pick mode included. */
     tool: RtToolKind
@@ -161,15 +190,17 @@ export function rtNearestPiece(mask: number, at: RtSubTile = CENTRE): number {
  * The rail line from `start` towards `end` (W104 5.1): of the straight and diagonal lines starting
  * at `start`, the one passing nearest `end`, cut at its tile nearest `end`. On a tie a line whose
  * first piece is already on the start tile wins (dragging on from the end of a line extends it), then
- * the first piece nearest the pointer. Null when no line leaves the tile.
+ * the first piece nearest the pointer. Only lines whose first piece is in `pieces` count. Null when no
+ * line leaves the tile.
  */
-export function rtRailDrag(map: RtMap, start: number, end: number, at: RtSubTile = CENTRE): { endTile: number, trackdir: number } | null {
+export function rtRailDrag(map: RtMap, start: number, end: number, at: RtSubTile = CENTRE, pieces = 0x3f): { endTile: number, trackdir: number } | null {
     if (!map.validTile(start) || !map.validTile(end)) return null
     const [ex, ey] = [map.tileX(end), map.tileY(end)]
     const present = map.kind[start] === RtTileKind.rail ? rtRailTilePieces(map, start) : 0
     const max = rtLineMaxTiles(map)
     let best: { endTile: number, trackdir: number, score: number[] } | null = null
     for (const td of TRACKDIRS) {
+        if ((pieces & (1 << (td & 7))) === 0) continue
         const walk = rtRailLineWalk(map, start, td, max)
         if (walk.length < 2) continue
         let k = 0
@@ -196,11 +227,21 @@ function lexLess(a: number[], b: number[]): boolean {
     return false
 }
 
-/** The road line from `start` towards `end`: along the row or column with the longer drag, clamped to the line cap. */
-export function rtRoadDrag(map: RtMap, start: number, end: number): number {
+/** R on a road stop: a bay turns to face the next side clockwise, a drive-through stop to the other axis. */
+export function rtTurnRoadStopShape(shape: RtRoadStopShape): RtRoadStopShape {
+    if (rtShapeIsBay(shape)) return rtBayShape(((shape - RtRoadStopShape.bayNe + 1) & 3) as RtDir)
+    return shape === RtRoadStopShape.driveX ? RtRoadStopShape.driveY : RtRoadStopShape.driveX
+}
+
+/**
+ * The road line from `start` towards `end`: along the row or column with the longer drag (or the
+ * fixed axis), clamped to the line cap.
+ */
+export function rtRoadDrag(map: RtMap, start: number, end: number, direction: RtRoadDirection = RtRoadDirection.auto): number {
     const [x0, y0, x1, y1] = [map.tileX(start), map.tileY(start), map.tileX(end), map.tileY(end)]
     const max = rtLineMaxTiles(map) - 1
-    if (Math.abs(x1 - x0) >= Math.abs(y1 - y0)) {
+    const alongX = direction === RtRoadDirection.auto ? Math.abs(x1 - x0) >= Math.abs(y1 - y0) : direction === RtRoadDirection.x
+    if (alongX) {
         return map.idx(x0 + Math.sign(x1 - x0) * Math.min(max, Math.abs(x1 - x0)), y0)
     }
     return map.idx(x0, y0 + Math.sign(y1 - y0) * Math.min(max, Math.abs(y1 - y0)))
@@ -262,11 +303,14 @@ interface Gesture {
 export class RtTools {
     tool: RtToolKind = RtToolKind.none
     readonly options: RtToolOptions = {
+        railDirection: RtRailDirection.auto,
+        roadDirection: RtRoadDirection.auto,
         signalType: RtSignalType.path,
         stationAxis: RtAxis.x,
         stationTracks: 1,
         stationLength: 4,
         stopType: RtStationTile.bus,
+        stopShape: RtRoadStopShape.driveX,
         depotKind: RtVehicleKind.rail,
         depotFacing: 2
     }
@@ -339,7 +383,7 @@ export class RtTools {
         this.setPreview(this.hover !== RT_NONE ? this.hoverPreview(this.hover) : null)
     }
 
-    /** A key: R turns the depot or the station axis, Escape cancels the gesture or leaves pick mode. */
+    /** A key: R turns the depot, the station axis or the road stop, Escape cancels the gesture or leaves pick mode. */
     key(key: string): void {
         if (key === 'Escape') {
             if (this.gesture) this.cancel()
@@ -350,6 +394,7 @@ export class RtTools {
         if (key === 'r' || key === 'R') {
             if (this.tool === RtToolKind.depot) this.options.depotFacing = (this.options.depotFacing + 1) & 3
             else if (this.tool === RtToolKind.railStation) this.options.stationAxis = this.options.stationAxis === RtAxis.x ? RtAxis.y : RtAxis.x
+            else if (this.tool === RtToolKind.roadStop) this.options.stopShape = rtTurnRoadStopShape(this.options.stopShape)
             else return
             this.refresh()
         }
@@ -426,14 +471,15 @@ export class RtTools {
         let command: RtCommand | null = null
         let preview: RtToolPreview
         if (this.tool === RtToolKind.rail) {
+            const allowed = rtRailDirectionPieces(this.options.railDirection)
             if (tile === start) {
                 const present = map.kind[start] === RtTileKind.rail ? rtRailTilePieces(map, start) : 0
-                // a click on a tile: the free piece nearest the pointer (any piece once all six are there)
-                const piece = rtNearestPiece(~present & 0x3f, at)
+                // a click on a tile: the free allowed piece nearest the pointer (any allowed one once all are there)
+                const piece = rtNearestPiece((~present & allowed) || allowed, at)
                 command = { kind: RtCommandKind.buildRail, tile: start, piece }
                 preview = this.previewSingle(world, command, start)
             } else {
-                const line = rtRailDrag(map, start, tile, at)
+                const line = rtRailDrag(map, start, tile, at, allowed)
                 if (line) {
                     command = { kind: RtCommandKind.buildRailLine, tile: start, endTile: line.endTile, trackdir: line.trackdir }
                     const walk = rtRailLineWalk(map, start, line.trackdir, rtLineMaxTiles(map))
@@ -446,9 +492,16 @@ export class RtTools {
                 }
             }
         } else if (this.tool === RtToolKind.road) {
-            const endTile = rtRoadDrag(map, start, tile)
-            command = { kind: RtCommandKind.buildRoadLine, tile: start, endTile }
-            preview = this.previewRoad(world, start, endTile)
+            const direction = this.options.roadDirection
+            const endTile = rtRoadDrag(map, start, tile, direction)
+            if (endTile === start && direction !== RtRoadDirection.auto) {
+                // a click with a fixed axis builds that axis's straight piece
+                command = { kind: RtCommandKind.buildRoad, tile: start, bits: direction === RtRoadDirection.x ? RT_ROAD_X : RT_ROAD_Y }
+                preview = this.previewSingle(world, command, start)
+            } else {
+                command = { kind: RtCommandKind.buildRoadLine, tile: start, endTile }
+                preview = this.previewRoad(world, start, endTile)
+            }
         } else {
             const endTile = rtAreaDrag(map, start, tile)
             command = start === endTile ? { kind: RtCommandKind.demolish, tile: start } : { kind: RtCommandKind.demolishArea, tile: start, endTile }
@@ -530,7 +583,9 @@ export class RtTools {
             case RtToolKind.railStation:
                 return { kind: RtCommandKind.buildRailStation, tile, axis: o.stationAxis, tracks: o.stationTracks, length: o.stationLength }
             case RtToolKind.roadStop:
-                return { kind: RtCommandKind.buildRoadStop, tile, stop: o.stopType }
+                return o.stopShape === RtRoadStopShape.auto
+                    ? { kind: RtCommandKind.buildRoadStop, tile, stop: o.stopType }
+                    : { kind: RtCommandKind.buildRoadStop, tile, stop: o.stopType, shape: o.stopShape }
             case RtToolKind.depot:
                 return { kind: RtCommandKind.buildDepot, tile, vehicleKind: o.depotKind, facing: o.depotFacing }
             case RtToolKind.parking:

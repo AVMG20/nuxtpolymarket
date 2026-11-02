@@ -5,20 +5,25 @@
  *
  * Station payload (kind station):
  *   bits 0-15   station id
- *   bits 16-17  tile type (RtStationTile: rail platform, bus stop, truck stop)
+ *   bits 16-17  tile type (RtStationTile: rail platform, bus stop, truck stop; 3 is never used)
  *   bit  18     axis: 0 along x, 1 along y (the platform track, or the stop's road)
  *   bit  19     reservation of a platform tile (AR-100), set and checked by reservePath (W29)
- *   bits 20-23  unused, 0
- *   bits 24-31  road stops: owner of the road under the stop (RT_OWNER_NONE a town), restored on demolish
- * The tile's owner byte is the station owner. A road stop always carries the full straight road along
- * its axis; a platform the straight track along its axis.
+ *   bit  20     road stops: a bay stop (0 a drive-through stop)
+ *   bits 21-22  bay stops: the side the entrance faces (RtDir); the axis bit follows it
+ *   bit  23     unused, 0
+ *   bits 24-31  road stops: owner of the road under the stop (RT_OWNER_NONE a town), restored on demolish;
+ *               a bay's is its own owner
+ * The tile's owner byte is the station owner. A drive-through stop always carries the full straight
+ * road along its axis; a bay only the half towards its entrance, and it is a dead end with two bays
+ * side by side (the original's normal road stop). A platform carries the straight track along its axis.
+ * Payloads written before bays existed have bits 20-23 clear, so they read as drive-through stops.
  */
 
 import { clampUtf8 } from './bytes'
 import { RT_CARGO_IDS, RT_CATALOG } from './catalog'
 import { manhattan } from './economy'
-import { RtMap, RtTileKind } from './map'
-import { rtRoadBits } from './road'
+import { RT_ROAD_DIR_BIT, RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
+import { buildRoad, rtRoadBits } from './road'
 import {
     RT_ROAD_X,
     RT_ROAD_Y,
@@ -50,7 +55,28 @@ export const RT_STATION_ID_MASK = 0xffff
 export const RT_STATION_TYPE_SHIFT = 16
 export const RT_STATION_AXIS_BIT = 1 << 18
 export const RT_STATION_RESERVED_BIT = 1 << 19
+export const RT_STATION_BAY_BIT = 1 << 20
+export const RT_STATION_BAY_FACING_SHIFT = 21
 export const RT_STATION_ROAD_OWNER_SHIFT = 24
+
+/**
+ * The shape of a road stop a build asks for: auto is a drive-through stop along the road already
+ * there (the only shape before bays existed), driveX and driveY a drive-through stop along that
+ * axis, and bayNe to bayNw a bay whose entrance faces that side (RtDir order, bayNe + facing).
+ */
+export const RtRoadStopShape = { auto: 0, driveX: 1, driveY: 2, bayNe: 3, baySe: 4, baySw: 5, bayNw: 6 } as const
+export type RtRoadStopShape = typeof RtRoadStopShape[keyof typeof RtRoadStopShape]
+export const RT_ROAD_STOP_SHAPE_MAX = RtRoadStopShape.bayNw
+
+/** Whether a shape is a bay. */
+export function rtShapeIsBay(shape: number): boolean {
+    return shape >= RtRoadStopShape.bayNe && shape <= RtRoadStopShape.bayNw
+}
+
+/** The bay shape whose entrance faces `facing`. */
+export function rtBayShape(facing: RtDir): RtRoadStopShape {
+    return (RtRoadStopShape.bayNe + (facing & 3)) as RtRoadStopShape
+}
 
 /** Most platforms and longest platform one rail station build may make. */
 export const RT_MAX_PLATFORMS = 4
@@ -80,9 +106,75 @@ export function rtPlatformTrack(payload: number): RtTrack {
     return rtStationAxis(payload) === RtAxis.y ? RtTrack.y : RtTrack.x
 }
 
-/** Road bits a road stop carries: the full straight along its axis. */
+/** A bay stop's payload: the axis bit follows the facing, and its road is its owner's. */
+export function rtBayPayload(id: number, type: RtStationTile, facing: RtDir, owner: number): number {
+    return (rtStationPayload(id, type, (facing & 1) === 0 ? RtAxis.x : RtAxis.y, owner)
+        | RT_STATION_BAY_BIT
+        | ((facing & 3) << RT_STATION_BAY_FACING_SHIFT)) >>> 0
+}
+
+/** Whether a station tile payload is a bay stop. */
+export function rtRoadStopIsBay(payload: number): boolean {
+    return (payload & RT_STATION_BAY_BIT) !== 0 && rtStationTileType(payload) !== RtStationTile.rail
+}
+
+/** The side a bay's entrance faces (meaningless for any other tile). */
+export function rtRoadStopFacing(payload: number): RtDir {
+    return ((payload >>> RT_STATION_BAY_FACING_SHIFT) & 3) as RtDir
+}
+
+/** The facing of the bay stop on a tile, or -1 when the tile is no bay. */
+export function rtBayFacingAt(map: RtMap, tile: number): number {
+    if (!map.validTile(tile) || map.kind[tile] !== RtTileKind.station) return -1
+    const payload = map.payload[tile]!
+    return rtRoadStopIsBay(payload) ? rtRoadStopFacing(payload) : -1
+}
+
+/** Road bits a road stop carries: a drive-through stop the full straight along its axis, a bay the half to its entrance. */
 export function rtRoadStopBits(payload: number): number {
+    if (rtRoadStopIsBay(payload)) return RT_ROAD_DIR_BIT[rtRoadStopFacing(payload)]!
     return rtStationAxis(payload) === RtAxis.y ? RT_ROAD_Y : RT_ROAD_X
+}
+
+/**
+ * The lane a road vehicle holds in each of a bay's two bays: the side of the tile the bay lies on,
+ * one of the two sides across the entrance (slot 0 the next side clockwise). Neither is a way out of
+ * the tile, so a lane alone tells a vehicle in a bay apart from one driving through.
+ */
+export function rtBayLane(facing: RtDir, slot: number): RtDir {
+    return ((facing + 1 + 2 * (slot & 1)) & 3) as RtDir
+}
+
+/** Which bay (0 or 1) a lane is in a bay facing `facing`, or -1 when it is no bay lane. */
+export function rtBaySlot(facing: RtDir, lane: number): number {
+    if (lane === rtBayLane(facing, 0)) return 0
+    if (lane === rtBayLane(facing, 1)) return 1
+    return -1
+}
+
+/**
+ * The side a road vehicle in `lane` leaves `tile` by: a bay is left by its entrance whichever bay it
+ * stands in, every other tile by the lane itself (a road vehicle's lane is its exit direction).
+ */
+export function rtRoadLaneExit(map: RtMap, tile: number, lane: number): number {
+    const facing = rtBayFacingAt(map, tile)
+    return facing >= 0 ? facing : lane
+}
+
+/**
+ * Whether a station tile's payload can exist (decodeWorld refuses a save holding one that cannot): a known tile
+ * type, no bay or reservation bit on the wrong kind, a bay's axis matching its facing and its road
+ * owned by its owner, and the unused bit clear.
+ */
+export function rtStationPayloadValid(payload: number, tileOwner: number): boolean {
+    const type = (payload >>> RT_STATION_TYPE_SHIFT) & 3
+    if (type > RtStationTile.truck || (payload & (1 << 23)) !== 0) return false
+    // a platform's road-owner byte means nothing and is left alone
+    if (type === RtStationTile.rail) return (payload & (0xf << 20)) === 0
+    if ((payload & RT_STATION_RESERVED_BIT) !== 0) return false
+    if ((payload & RT_STATION_BAY_BIT) === 0) return ((payload >>> RT_STATION_BAY_FACING_SHIFT) & 3) === 0
+    const facing = rtRoadStopFacing(payload)
+    return ((payload & RT_STATION_AXIS_BIT) !== 0) === ((facing & 1) === 1) && rtRoadStopRoadOwner(payload) === tileOwner
 }
 
 /** Owner of the road under a road stop (RT_OWNER_NONE a town road). */
@@ -354,46 +446,109 @@ export function buildRailStation(
  * W21: road stops
  * ---------------------------------------------------------------------------------------- */
 
+/** The road sides (RtDir) a stop of this shape opens to: a bay its entrance, a drive-through stop both ends. */
+export function rtRoadStopEntrances(shape: number, axis: RtAxis): RtDir[] {
+    if (rtShapeIsBay(shape)) return [((shape - RtRoadStopShape.bayNe) & 3) as RtDir]
+    return axis === RtAxis.y ? [1, 3] : [0, 2]
+}
+
 /**
- * Builds a drive-through bus or truck stop (`kind` RtStationTile.bus or .truck) on a straight own or
- * town road on flat land; a half road along one axis is completed at road cost, as the original. A
- * junction, a corner, other companies' roads, a level crossing and a vehicle on the tile (when
+ * Joins a new stop to the road outside each entrance, as the original's road stop tool does: a plain
+ * road tile there with road on it, own or a town's, gains the half pointing at the stop (road cost).
+ * A neighbour that cannot take it is left as it is. Returns the cost.
+ */
+function connectEntrances(map: RtMap, owner: number, tile: number, entrances: readonly RtDir[], apply: boolean): number {
+    let cost = 0
+    for (const side of entrances) {
+        const next = map.neighbour(tile, side)
+        if (next < 0 || map.kind[next] !== RtTileKind.road || rtRoadBits(map.payload[next]!) === 0) continue
+        const bit = RT_ROAD_DIR_BIT[rtReverseDir(side)]!
+        if ((map.payload[next]! & bit) !== 0) continue
+        const built = buildRoad(map, owner, next, bit, apply)
+        if (built.ok) cost += built.cost
+    }
+    return cost
+}
+
+/**
+ * Builds a bus or truck stop (`kind` RtStationTile.bus or .truck) of `shape` (RtRoadStopShape), as
+ * the original:
+ * - auto (the default, and every stop built before bays): a drive-through stop on a straight own or
+ *   town road on flat land, along the road; a half road along one axis is completed at road cost.
+ * - driveX, driveY: the same along that axis; a straight road the other way is refused with
+ *   wrongDirection. On flat clear land (trees cleared at catalog cost) it lays its own straight road
+ *   with it, at two road halves' cost, and joins the road at both ends (connectEntrances).
+ * - bayNe to bayNw: a bay on flat clear land, trees cleared, whose entrance faces that side and must
+ *   lie on the map; it joins the road outside its entrance.
+ * A junction, a corner, other companies' roads, a level crossing and a vehicle on the tile (when
  * occupied is given) are refused. Joins an adjoining own station or creates one, within stationSpread
- * (AR-101). The tile keeps its road (the full straight) and remembers the road owner, so demolishing
- * the stop gives a town road back to the town (AR-51). Returns the station id on success.
+ * (AR-101). A drive-through stop keeps its road and remembers the road owner, so demolishing it gives
+ * a town road back to the town (AR-51); a bay leaves clear land. Returns the station id on success.
  */
 export function buildRoadStop(
     map: RtMap, stations: RtStation[], towns: readonly RtTown[], owner: number, tile: number,
-    kind: number, apply: boolean, occupied?: RtOccupied
+    kind: number, apply: boolean, occupied?: RtOccupied, shape: number = RtRoadStopShape.auto
 ): RtBuildResult {
     if (!rtValidCompany(owner) || !map.validTile(tile) || !Array.isArray(stations) || !Array.isArray(towns)) {
         return rtBuildFail(RtBuildError.invalid)
     }
     if (kind !== RtStationTile.bus && kind !== RtStationTile.truck) return rtBuildFail(RtBuildError.invalid)
+    if (!Number.isInteger(shape) || shape < 0 || shape > RT_ROAD_STOP_SHAPE_MAX) return rtBuildFail(RtBuildError.invalid)
+    const bay = rtShapeIsBay(shape)
+    const wanted = shape === RtRoadStopShape.driveX ? RtAxis.x : shape === RtRoadStopShape.driveY ? RtAxis.y : -1
+    const prices = RT_CATALOG.construction
+    let cost = prices.roadStop
+    let roadOwner = owner
+    let axis: RtAxis
     switch (map.kind[tile]) {
-        case RtTileKind.road:
+        case RtTileKind.road: {
+            if (bay) return rtBuildFail(RtBuildError.occupied)
+            roadOwner = map.owner[tile]!
+            if (roadOwner !== owner && roadOwner !== RT_OWNER_NONE) return rtBuildFail(RtBuildError.notOwner)
+            const bits = rtRoadBits(map.payload[tile]!)
+            const along = (bits & ~RT_ROAD_X) === 0 ? RtAxis.x : (bits & ~RT_ROAD_Y) === 0 ? RtAxis.y : -1
+            if (bits === 0 || along < 0) return rtBuildFail(RtBuildError.conflict)
+            if (wanted >= 0 && wanted !== along) return rtBuildFail(RtBuildError.wrongDirection)
+            axis = along as RtAxis
+            cost += prices.road * (2 - rtBitCount(bits))
             break
+        }
         case RtTileKind.water:
             return rtBuildFail(RtBuildError.water)
+        case RtTileKind.clear:
+        case RtTileKind.coast:
+        case RtTileKind.tree:
+            // auto names no axis: on land without road it has nothing to follow
+            if (shape === RtRoadStopShape.auto) return rtBuildFail(RtBuildError.conflict)
+            axis = bay ? (((shape - RtRoadStopShape.bayNe) & 1) === 0 ? RtAxis.x : RtAxis.y) : wanted as RtAxis
+            if (!bay) cost += prices.road * 2
+            cost += rtClearingCost(map, tile)
+            break
+        case RtTileKind.station:
+        case RtTileKind.depot:
+            if (!bay) return rtBuildFail(RtBuildError.conflict)
+            return rtBuildFail(map.owner[tile] !== owner ? RtBuildError.notOwner : RtBuildError.occupied)
         default:
-            return rtBuildFail(RtBuildError.conflict)
+            return rtBuildFail(bay ? RtBuildError.occupied : RtBuildError.conflict)
     }
-    const roadOwner = map.owner[tile]!
-    if (roadOwner !== owner && roadOwner !== RT_OWNER_NONE) return rtBuildFail(RtBuildError.notOwner)
-    const bits = rtRoadBits(map.payload[tile]!)
-    const axis = (bits & ~RT_ROAD_X) === 0 ? RtAxis.x : (bits & ~RT_ROAD_Y) === 0 ? RtAxis.y : -1
-    if (bits === 0 || axis < 0) return rtBuildFail(RtBuildError.conflict)
     if (!map.isFlat(tile)) return rtBuildFail(RtBuildError.badSlope)
+    const facing = bay ? ((shape - RtRoadStopShape.bayNe) & 3) as RtDir : -1
+    if (bay && map.neighbour(tile, facing as RtDir) < 0) return rtBuildFail(RtBuildError.edge)
     if (occupied && occupied(tile)) return rtBuildFail(RtBuildError.conflict)
 
-    const prices = RT_CATALOG.construction
-    const cost = prices.roadStop + prices.road * (2 - rtBitCount(bits))
     const resolved = resolveStation(map, stations, towns, owner, [tile], tile)
     if (typeof resolved === 'number') return rtBuildFail(resolved)
     const { station, created } = resolved
+    // a stop on a road already there keeps its ends as they are; a new one joins the road around it
+    const entrances = map.kind[tile] === RtTileKind.road ? [] : rtRoadStopEntrances(shape, axis)
+    cost += connectEntrances(map, owner, tile, entrances, false)
     if (apply === true) {
-        map.setTile(tile, RtTileKind.station, owner, rtStationPayload(station.id, kind as RtStationTile, axis as RtAxis, roadOwner))
+        const payload = bay
+            ? rtBayPayload(station.id, kind as RtStationTile, facing as RtDir, owner)
+            : rtStationPayload(station.id, kind as RtStationTile, axis, roadOwner)
+        map.setTile(tile, RtTileKind.station, owner, payload)
         commitTiles(stations, station, created, [tile], kind as RtStationTile)
+        connectEntrances(map, owner, tile, entrances, true)
     }
     return rtBuildOk(cost, station.id)
 }

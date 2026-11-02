@@ -12,7 +12,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RT_ROAD_DIR_BIT, RtMap, RtTileKind, type RtDir } from './map'
+import { RT_ROAD_DIR_BIT, RtTileKind, type RtDir, type RtMap } from './map'
 import { RtBuildError, RtTrack, rtBuildFail, rtBuildOk, rtClearingCost, rtValidCompany, type RtBuildResult } from './track'
 import { RtVehicleKind } from './types'
 

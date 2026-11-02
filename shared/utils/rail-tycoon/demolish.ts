@@ -4,7 +4,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RtMap, RtTileKind } from './map'
+import { RtTileKind, type RtMap } from './map'
 import { rtDepotFacing, rtDepotReserved, rtDepotTrackFor } from './depots'
 import {
     RtStationTile,
@@ -13,6 +13,7 @@ import {
     rtPlatformReserved,
     rtPlatformTrack,
     rtRoadStopBits,
+    rtRoadStopIsBay,
     rtRoadStopRoadOwner,
     rtStationId,
     rtStationTileType
@@ -98,9 +99,10 @@ function detachTile(map: RtMap, stations: RtStation[], station: RtStation, tile:
 /**
  * Bulldozes one tile for a company. Trees: cleared at clearTrees per tree. Clear land and coast:
  * nothing to do, at no cost. An own rail station tile: taken out of its station (the station deleted
- * with its last tile) and left clear, at removeRailStation. An own road stop: taken out of its station,
- * leaving the straight road with the owner it had before the stop (a town road stays a town road,
- * AR-51), at removeRoadStop. An own depot: cleared at removeDepot. Station and depot tiles are refused
+ * with its last tile) and left clear, at removeRailStation. An own drive-through road stop: taken out of
+ * its station, leaving the straight road with the owner it had before the stop (a town road stays a
+ * town road, AR-51), at removeRoadStop; a bay stop goes with its road stub and leaves clear land, at
+ * the same price. An own depot: cleared at removeDepot. Station and depot tiles are refused
  * with conflict while occupied. Deleting a station or a depot deletes every order targeting it and,
  * for a station, clears the source station of packets loaded there (AR-69), given ctx.vehicles. A
  * reserved platform or depot tile first has the reserving train's reservation released ahead, and the
@@ -164,7 +166,8 @@ export function demolishTile(
     if (apply !== true) return rtBuildOk(cost)
 
     const train = releaseReserver(hooks, reserved, tile, rtPlatformTrack(payload))
-    if (isPlatform) map.setTile(tile, RtTileKind.clear, RT_OWNER_NONE, 0)
+    // a bay goes with its road stub, as the original; a drive-through stop leaves its road
+    if (isPlatform || rtRoadStopIsBay(payload)) map.setTile(tile, RtTileKind.clear, RT_OWNER_NONE, 0)
     else map.setTile(tile, RtTileKind.road, rtRoadStopRoadOwner(payload), rtRoadStopBits(payload))
     if (detachTile(map, stations, station, tile) && ctx.vehicles) {
         rtDeleteOrdersTo(ctx.vehicles, RtOrderKind.gotoStation, station.id)

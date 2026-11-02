@@ -11,8 +11,16 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RT_ROAD_DIR_BIT, RtMap, RtTileKind, rtReverseDir, type RtDir } from './map'
-import { RT_STATION_AXIS_BIT, RtStationTile, rtStationId, rtStationTileType } from './stations-build'
+import { RT_ROAD_DIR_BIT, RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
+import {
+    RT_STATION_AXIS_BIT,
+    RtStationTile,
+    rtRoadLaneExit,
+    rtRoadStopFacing,
+    rtRoadStopIsBay,
+    rtStationId,
+    rtStationTileType
+} from './stations-build'
 import { rtDepotFacing, rtDepotKind } from './depots'
 import { rtOneWayBlocked, rtPieceReserved, rtSignalGreen, rtSignalOnTrackdir, rtSignalTypeAt, RtSignalType } from './signals'
 import {
@@ -481,8 +489,8 @@ const ROAD_STRIDE = 4
 
 /**
  * Road bits a road vehicle can use on a tile: a road's bits whoever owns it, a level crossing's
- * straight, a drive-through stop's straight; a road depot's entrance only when it is a goal or the
- * start; nothing else.
+ * straight, a drive-through stop's straight; a road depot's entrance and a bay stop's entrance only
+ * when it is a goal or the start, so neither is ever a way through; nothing else.
  */
 function roadBitsAt(map: RtMap, tile: number, goals: Set<number>, start: number): number {
     const payload = map.payload[tile]!
@@ -494,6 +502,7 @@ function roadBitsAt(map: RtMap, tile: number, goals: Set<number>, start: number)
         case RtTileKind.station: {
             const type = rtStationTileType(payload)
             if (type === RtStationTile.rail) return 0
+            if (rtRoadStopIsBay(payload)) return goals.has(tile) || tile === start ? RT_ROAD_DIR_BIT[rtRoadStopFacing(payload)]! : 0
             return (payload & RT_STATION_AXIS_BIT) !== 0 ? RT_ROAD_Y : RT_ROAD_X
         }
         case RtTileKind.depot:
@@ -510,7 +519,9 @@ function roadBitsAt(map: RtMap, tile: number, goals: Set<number>, start: number)
  * roadSlopePenalty for a climb, roadCrossingPenalty for a level crossing and roadStopPenalty for a
  * road stop that is no goal. A vehicle may turn around in place on any tile at
  * RT_ROAD_TURN_AROUND_PENALTY, free at a dead end (AR-43), including on its start tile. Roads are
- * public, as the original: any company's road and drive-through stop can be driven. Same heap,
+ * public, as the original: any company's road and drive-through stop can be driven. A bay stop is
+ * entered only through its entrance and only as a goal; a vehicle standing in one leaves by its
+ * entrance whatever its fromDir (the lane of its bay). Same heap,
  * budgets and outcomes as findRailRoute. Never throws.
  */
 export function findRoadRoute(
@@ -559,9 +570,11 @@ export function findRoadRoute(
     }
 
     const startBits = roadBitsAt(map, fromTile, goals, fromTile)
-    const forward = fromTile * ROAD_STRIDE + fromDir
-    const turned = fromTile * ROAD_STRIDE + rtReverseDir(fromDir as RtDir)
-    const turnCost = (startBits & bitOf(fromDir)) === 0 ? 0 : RT_ROAD_TURN_AROUND_PENALTY
+    // a vehicle in a bay holds the lane of its bay; it leaves by the entrance whichever bay it is in
+    const exit = rtRoadLaneExit(map, fromTile, fromDir)
+    const forward = fromTile * ROAD_STRIDE + exit
+    const turned = fromTile * ROAD_STRIDE + rtReverseDir(exit as RtDir)
+    const turnCost = (startBits & bitOf(exit)) === 0 ? 0 : RT_ROAD_TURN_AROUND_PENALTY
     const found = search(map, graph, [[forward, 0], [turned, turnCost]], target, searchBudget, tickBudget)
     const route = found.path.map(node => (node % ROAD_STRIDE) as RtDir)
     const cap = RT_CATALOG.caps.maxRouteLength

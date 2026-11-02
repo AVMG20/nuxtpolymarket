@@ -25,7 +25,7 @@ import type { RtToolKind, RtTools } from './tools'
  * ---------------------------------------------------------------------------------------- */
 
 /** Every kind of game window; the page maps each to its component. */
-export const RT_WINDOW_KINDS = Object.freeze(['finances', 'buyVehicle', 'vehicleList', 'vehicle', 'station', 'minimap'] as const)
+export const RT_WINDOW_KINDS = Object.freeze(['finances', 'buyVehicle', 'vehicleList', 'vehicle', 'station', 'minimap', 'buildPicker'] as const)
 export type RtWindowKind = typeof RT_WINDOW_KINDS[number]
 
 export interface RtWindowEntry {
@@ -312,7 +312,8 @@ const COMMAND_ERRORS: readonly string[] = [
     'Those orders can\'t be used',
     'Can\'t change the loan',
     'No depot in reach',
-    'The vehicle can\'t do that now'
+    'The vehicle can\'t do that now',
+    'Road is in the wrong direction'
 ]
 
 export function rtCommandErrorText(code: number): string {

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
-import { RtCommandKind, applyCommand, rtRailLineWalk, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RtCommandError, RtCommandKind, applyCommand, rtRailLineWalk, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RtSignalType, rtSignalTypeAt } from '#shared/utils/rail-tycoon/signals'
-import { RtAxis, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
-import { RtTrack, rtRailTilePieces, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
+import { RtAxis, RtRoadStopShape, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_ROAD_Y, RtTrack, rtRailTilePieces, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { RT_CAMERA_ZOOMS, RtCamera, rtTileCorners } from '../../app/utils/rail-tycoon/camera'
-import { RtToolKind, RtTools, rtPointerTile, rtRailDrag, type RtPicked, type RtToolPreview } from '../../app/utils/rail-tycoon/tools'
+import { RtRailDirection, RtRoadDirection, RtToolKind, RtTools, rtPointerTile, rtRailDrag, type RtPicked, type RtToolPreview } from '../../app/utils/rail-tycoon/tools'
 
 /** A flat world: company 0 is the player, company 1 a rival. */
 function flatWorld(side = 128, sharing = false): RtWorld {
@@ -90,6 +90,45 @@ describe('RtTools (W104, W107)', () => {
         expect(r.preview()).toBeNull()
         must(w, 0, r.commands[0]!)
         expect(rtRailTilePieces(w.map, w.map.idx(60, 20))).toBe(1 << RtTrack.x)
+    })
+
+    it('a fixed track direction lays only its own pieces, on a click and along any drag', () => {
+        const w = flatWorld()
+        const r = rig(w)
+        r.tools.options.railDirection = RtRailDirection.y
+        r.tools.select(RtToolKind.rail)
+        // a drag that autorail would lay along x still goes along y
+        drag(r.tools, w.map.idx(20, 20), w.map.idx(40, 22))
+        const line = r.commands[0] as Extract<RtCommand, { kind: typeof RtCommandKind.buildRailLine }>
+        expect(line.trackdir & 7).toBe(RtTrack.y)
+
+        r.tools.options.railDirection = RtRailDirection.horizontal
+        drag(r.tools, w.map.idx(60, 60), w.map.idx(70, 70))
+        const diagonal = r.commands[1] as Extract<RtCommand, { kind: typeof RtCommandKind.buildRailLine }>
+        const walk = rtRailLineWalk(w.map, diagonal.tile, diagonal.trackdir, 256)
+        for (const step of walk.slice(0, 4)) expect([RtTrack.upper, RtTrack.lower]).toContain(step.piece)
+
+        // a click in the tile's centre, on the x and y lines, still lays a vertical piece
+        r.tools.options.railDirection = RtRailDirection.vertical
+        const tile = w.map.idx(90, 90)
+        r.tools.pointerDown(tile)
+        r.tools.pointerUp(tile)
+        const click = r.commands[2] as Extract<RtCommand, { kind: typeof RtCommandKind.buildRail }>
+        expect(click.kind).toBe(RtCommandKind.buildRail)
+        expect([RtTrack.left, RtTrack.right]).toContain(click.piece)
+    })
+
+    it('a fixed road axis holds the drag to that axis, and a click builds its straight piece', () => {
+        const w = flatWorld()
+        const r = rig(w)
+        r.tools.options.roadDirection = RtRoadDirection.y
+        r.tools.select(RtToolKind.road)
+        // autoroad would follow the longer x drag; the y axis keeps the start column
+        drag(r.tools, w.map.idx(20, 20), w.map.idx(30, 23))
+        expect(r.commands[0]).toEqual({ kind: RtCommandKind.buildRoadLine, tile: w.map.idx(20, 20), endTile: w.map.idx(20, 23) })
+        r.tools.pointerDown(w.map.idx(50, 50))
+        r.tools.pointerUp(w.map.idx(50, 50))
+        expect(r.commands[1]).toEqual({ kind: RtCommandKind.buildRoad, tile: w.map.idx(50, 50), bits: RT_ROAD_Y })
     })
 
     it('a slightly crooked drag snaps to the straight line; a diagonal drag lays alternating pieces', () => {
@@ -232,7 +271,7 @@ describe('RtTools (W104, W107)', () => {
         r.tools.select(RtToolKind.roadStop)
         must(w, 0, { kind: RtCommandKind.buildRoadLine, tile: w.map.idx(50, 50), endTile: w.map.idx(55, 50) })
         r.tools.pointerUp(w.map.idx(52, 50))
-        expect(r.commands[2]).toEqual({ kind: RtCommandKind.buildRoadStop, tile: w.map.idx(52, 50), stop: RtStationTile.bus })
+        expect(r.commands[2]).toEqual({ kind: RtCommandKind.buildRoadStop, tile: w.map.idx(52, 50), stop: RtStationTile.bus, shape: RtRoadStopShape.driveX })
         // parking: the dead end of a branch takes a spot, the middle of the branch does not (and shows why)
         must(w, 0, { kind: RtCommandKind.buildRailLine, tile: w.map.idx(60, 60), endTile: w.map.idx(66, 60), trackdir: rtTrackdirOf(RtTrack.x, true) })
         const branch = rtRailDrag(w.map, w.map.idx(63, 60), w.map.idx(63, 65))!
@@ -246,6 +285,38 @@ describe('RtTools (W104, W107)', () => {
         must(w, 0, r.commands[3]!)
         r.tools.pointerUp(w.map.idx(63, 65), undefined, true)
         expect(r.commands[4]).toEqual({ kind: RtCommandKind.removeSiding, tile: w.map.idx(63, 65) })
+    })
+
+    it('R turns a road stop: a bay to the next side, a drive-through stop to the other axis; the preview says why a stop is refused', () => {
+        const w = flatWorld()
+        const r = rig(w)
+        r.tools.select(RtToolKind.roadStop)
+        expect(r.tools.options.stopShape).toBe(RtRoadStopShape.driveX)
+        r.tools.key('r')
+        expect(r.tools.options.stopShape).toBe(RtRoadStopShape.driveY)
+        r.tools.key('R')
+        expect(r.tools.options.stopShape).toBe(RtRoadStopShape.driveX)
+        r.tools.options.stopShape = RtRoadStopShape.bayNw
+        r.tools.key('r')
+        expect(r.tools.options.stopShape).toBe(RtRoadStopShape.bayNe)
+        for (const shape of [RtRoadStopShape.baySe, RtRoadStopShape.baySw, RtRoadStopShape.bayNw]) {
+            r.tools.key('r')
+            expect(r.tools.options.stopShape).toBe(shape)
+        }
+        // a drive-through stop across a road: the hover preview carries the reason, and a click sends nothing
+        must(w, 0, { kind: RtCommandKind.buildRoadLine, tile: w.map.idx(50, 40), endTile: w.map.idx(50, 45) })
+        r.tools.options.stopShape = RtRoadStopShape.driveX
+        r.tools.pointerMove(w.map.idx(50, 42))
+        expect(r.preview()).toMatchObject({ ok: false, error: RtCommandError.wrongDirection, blocked: [w.map.idx(50, 42)] })
+        r.tools.pointerUp(w.map.idx(50, 42))
+        expect(r.commands).toEqual([])
+        // a bay on the road is refused too; a bay beside it is sent with its shape
+        r.tools.options.stopShape = RtRoadStopShape.baySw
+        r.tools.pointerMove(w.map.idx(50, 42))
+        expect(r.preview()).toMatchObject({ ok: false, error: RtCommandError.occupied })
+        r.tools.pointerUp(w.map.idx(49, 42))
+        expect(r.commands).toEqual([{ kind: RtCommandKind.buildRoadStop, tile: w.map.idx(49, 42), stop: RtStationTile.bus, shape: RtRoadStopShape.baySw }])
+        expect(r.preview()!.catchment.length).toBeGreaterThan(1)
     })
 
     it('query emits the clicked tile (AR-39)', () => {

@@ -11,6 +11,13 @@
  * roadBlockedTicks it drives through, as the original's last resort (AR-127). It turns round in its
  * tile at a road end, or at once when the best route starts behind it (AR-43), and waits before a
  * level crossing while the barriers are down (AR-60).
+ *
+ * A bay stop (the original's normal road stop) is a dead end with two bays side by side. A vehicle
+ * whose order names it drives in from the entrance only once a bay is free, taking that bay's lane
+ * (rtBayLane: claimed in the occupied registry, which is how the next vehicle sees it full). Its
+ * progress runs in and back out as a U: it halts at BAY_STOP, the bay's far end, loads there, turns
+ * and drives out by the entrance it came in by. With both bays taken the next one waits at the end of
+ * the road tile outside, its lane on that tile free for the vehicles leaving.
  */
 
 import { RT_CATALOG } from './catalog'
@@ -19,7 +26,16 @@ import { RT_ROAD_DIR_BIT, RtDir, RtTileKind, rtReverseDir, type RtMap } from './
 import { advanceOrder, rtCurrentOrder } from './orders'
 import { findRoadRoute, rtDepotTarget, rtStationRoadTarget, RtRouteOutcome, type RtRouteTarget } from './pathfinder'
 import { rtPieceReserved } from './signals'
-import { RT_STATION_AXIS_BIT, RtStationTile, rtStationId, rtStationTileType } from './stations-build'
+import {
+    RT_STATION_AXIS_BIT,
+    RtStationTile,
+    rtBayFacingAt,
+    rtBayLane,
+    rtRoadLaneExit,
+    rtRoadStopIsBay,
+    rtStationId,
+    rtStationTileType
+} from './stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadBits, rtIsCrossing, rtTrackdirExitDir } from './track'
 import type { RtTrainHooks } from './train'
 import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from './types'
@@ -42,12 +58,18 @@ const TILE = M.subTileUnits
 const GAP = M.roadLaneGap
 /** Body length: the vehicle holds the tile behind its head until the head is this far in. */
 const BODY = M.roadLaneGap
+/** Where in a bay a vehicle halts to load: the far end of the bay, half way round its U (also past BODY, so its tail is in). */
+export const RT_BAY_STOP = TILE >> 1
+const BAY_STOP = RT_BAY_STOP
 
 function bitOf(dir: number): number {
     return RT_ROAD_DIR_BIT[dir]!
 }
 
-/** Road bits a road vehicle can drive on a tile: road, a level crossing's straight, a drive-through stop's straight. */
+/**
+ * Road bits any road vehicle can drive on a tile: road, a level crossing's straight, a drive-through
+ * stop's straight. A bay has none here: only the vehicle it serves may enter it (enterBits).
+ */
 function roadBits(map: RtMap, tile: number): number {
     const payload = map.payload[tile]!
     switch (map.kind[tile]) {
@@ -56,7 +78,7 @@ function roadBits(map: RtMap, tile: number): number {
         case RtTileKind.rail:
             return rtIsCrossing(payload) ? rtCrossingRoadBits(payload) : 0
         case RtTileKind.station:
-            if (rtStationTileType(payload) === RtStationTile.rail) return 0
+            if (rtStationTileType(payload) === RtStationTile.rail || rtRoadStopIsBay(payload)) return 0
             return (payload & RT_STATION_AXIS_BIT) !== 0 ? RT_ROAD_Y : RT_ROAD_X
         default:
             return 0
@@ -91,6 +113,27 @@ function isStopOf(map: RtMap, tile: number, station: number, type: RtStationTile
     if (station === RT_NONE || !map.validTile(tile) || map.kind[tile] !== RtTileKind.station) return false
     const payload = map.payload[tile]!
     return rtStationTileType(payload) === type && rtStationId(payload) === station
+}
+
+/** Road bits the vehicle may drive into on a tile: roadBits, plus a bay's entrance when the bay is its stop. */
+function enterBits(map: RtMap, vehicle: RtVehicle, tile: number): number {
+    const facing = rtBayFacingAt(map, tile)
+    if (facing < 0) return roadBits(map, tile)
+    return isStopOf(map, tile, targetStation(vehicle), stopType(vehicle)) ? bitOf(facing) : 0
+}
+
+/** The lowest free bay (0 or 1) of the bay stop on `tile` facing `facing`, or -1 when both are taken. */
+function freeBay(world: RtWorld, tile: number, facing: number): number {
+    for (let slot = 0; slot < 2; slot++) {
+        if (world.occupied.roadVehiclesInLane(tile, rtBayLane(facing as RtDir, slot)).length === 0) return slot
+    }
+    return -1
+}
+
+/** The progress at which the vehicle halts in its head tile when that is a bay it is to load at, else -1. */
+function bayHalt(map: RtMap, vehicle: RtVehicle, station: number, type: RtStationTile): number {
+    const head = vehicle.tiles[0]!
+    return rtBayFacingAt(map, head) >= 0 && isStopOf(map, head, station, type) && vehicle.progress <= BAY_STOP ? BAY_STOP : -1
 }
 
 /** Whether the vehicle may drive into its target road depot from `from` along `dir`. */
@@ -152,6 +195,8 @@ function dropTail(world: RtWorld, vehicle: RtVehicle): void {
 
 /** Turns the vehicle round in its head tile (AR-43): it continues in the other lane from where it stands. */
 function turnAround(world: RtWorld, vehicle: RtVehicle): void {
+    // in a bay the U is the way out already
+    if (rtBayFacingAt(world.map, vehicle.tiles[0]!) >= 0) return
     dropTail(world, vehicle)
     const tile = vehicle.tiles[0]!
     const lane = vehicle.pieces[0]!
@@ -220,15 +265,16 @@ function nextTile(world: RtWorld, vehicle: RtVehicle): { next: number, bits: num
     const map = world.map
     const head = vehicle.tiles[0]!
     const lane = vehicle.pieces[0]!
-    // a depot is left by its entrance only
+    // a depot and a bay are left by their entrance only, a bay from either bay
+    const exit = rtRoadLaneExit(map, head, lane)
     const open = map.kind[head] === RtTileKind.depot
         ? rtDepotFacing(map.payload[head]!) === lane
-        : (roadBits(map, head) & bitOf(lane)) !== 0
+        : rtBayFacingAt(map, head) >= 0 || (roadBits(map, head) & bitOf(lane)) !== 0
     if (!open) return { next: -1, bits: 0 }
-    const next = map.neighbour(head, lane as RtDir)
+    const next = map.neighbour(head, exit as RtDir)
     if (next < 0) return { next: -1, bits: 0 }
-    const bits = roadBits(map, next)
-    if ((bits & bitOf(rtReverseDir(lane as RtDir))) === 0) return { next: -1, bits: 0 }
+    const bits = enterBits(map, vehicle, next)
+    if ((bits & bitOf(rtReverseDir(exit as RtDir))) === 0) return { next: -1, bits: 0 }
     return { next, bits }
 }
 
@@ -255,9 +301,10 @@ function room(world: RtWorld, vehicle: RtVehicle): number {
         nearest = Math.min(nearest, distance)
     }
     const { next, bits } = nextTile(world, vehicle)
-    if (next >= 0) {
+    // a bay ahead is no lane to queue in: tryEnter takes a free bay or waits
+    if (next >= 0 && rtBayFacingAt(world.map, next) < 0) {
         const planned = plannedLane(vehicle, bits)
-        const lane2 = planned >= 0 ? planned : fallbackLane(bits, lane)
+        const lane2 = planned >= 0 ? planned : fallbackLane(bits, rtRoadLaneExit(world.map, head, lane))
         for (const id of world.occupied.roadVehiclesInLane(next, lane2)) {
             const other = world.vehicle(id)
             if (!other || id === vehicle.id || other.tiles[0] !== next) continue
@@ -308,24 +355,39 @@ const enum Enter { entered, held, depot, turned }
 function tryEnter(world: RtWorld, vehicle: RtVehicle): Enter {
     const map = world.map
     const head = vehicle.tiles[0]!
-    const lane = vehicle.pieces[0]!
-    const next = map.neighbour(head, lane as RtDir)
-    if (depotAhead(map, vehicle, next, lane)) {
+    const exit = rtRoadLaneExit(map, head, vehicle.pieces[0]!)
+    const next = map.neighbour(head, exit as RtDir)
+    if (depotAhead(map, vehicle, next, exit)) {
         enterDepot(world, vehicle, next)
         return Enter.depot
     }
-    const ahead = nextTile(world, vehicle)
-    if (ahead.next < 0) {
-        turnAround(world, vehicle)
-        return Enter.turned
-    }
-    if (rtCrossingBarred(world, ahead.next)) {
+    const hold = (): Enter => {
         vehicle.speed = 0
         vehicle.subspeed = 0
         return Enter.held
     }
-    const { lane: newLane, fromRoute } = chooseLane(vehicle, ahead.bits, lane)
-    const fromLane = lane
+    const ahead = nextTile(world, vehicle)
+    if (ahead.next < 0) {
+        // shut in a bay (its road outside is gone): it waits there, the U already turned it
+        if (rtBayFacingAt(map, head) >= 0) return hold()
+        turnAround(world, vehicle)
+        return Enter.turned
+    }
+    if (rtCrossingBarred(world, ahead.next)) return hold()
+    let newLane: number
+    let fromRoute: boolean
+    const facing = rtBayFacingAt(map, ahead.next)
+    if (facing >= 0) {
+        // into a bay stop: the lowest free bay, claimed by holding its lane; both full, it waits outside
+        const slot = freeBay(world, ahead.next, facing)
+        if (slot < 0) return hold()
+        newLane = rtBayLane(facing as RtDir, slot)
+        fromRoute = plannedLane(vehicle, ahead.bits) >= 0
+        if (!fromRoute && vehicle.routeIndex < vehicle.route.length) vehicle.routeTick = RT_NONE
+    } else {
+        ({ lane: newLane, fromRoute } = chooseLane(vehicle, ahead.bits, exit))
+    }
+    const fromLane = exit
     vehicle.tiles.unshift(ahead.next)
     vehicle.pieces.unshift(newLane)
     vehicle.direction = newLane
@@ -349,18 +411,27 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle): Enter {
     return Enter.entered
 }
 
-/** Whether the vehicle must stand still at the end of its head tile: its stop, or a road end it turns at. */
-function stopsAtTileEnd(world: RtWorld, vehicle: RtVehicle): boolean {
+/**
+ * Where in its head tile the vehicle must stand still: its bay's halt (bayHalt), the end of its
+ * drive-through stop or of a road end it turns at; -1 when it drives on.
+ */
+function haltPoint(world: RtWorld, vehicle: RtVehicle): number {
+    const map = world.map
     const head = vehicle.tiles[0]!
-    if (isStopOf(world.map, head, targetStation(vehicle), stopType(vehicle))) return true
+    const station = targetStation(vehicle)
+    const type = stopType(vehicle)
+    if (rtBayFacingAt(map, head) >= 0) return bayHalt(map, vehicle, station, type)
+    if (isStopOf(map, head, station, type)) return TILE
+    const exit = rtRoadLaneExit(map, head, vehicle.pieces[0]!)
     const { next } = nextTile(world, vehicle)
-    return next < 0 && !depotAhead(world.map, vehicle, world.map.neighbour(head, vehicle.pieces[0]! as RtDir), vehicle.pieces[0]!)
+    return next < 0 && !depotAhead(map, vehicle, map.neighbour(head, exit as RtDir), exit) ? TILE : -1
 }
 
 /** Speed for this tick: road acceleration toward the model's top speed, slowing in the last tile before a stop. */
 function updateSpeed(world: RtWorld, vehicle: RtVehicle): void {
     let limit = vehicle.stopped ? 0 : rtConsistMaxSpeed(vehicle.consist)
-    if (limit > 0 && stopsAtTileEnd(world, vehicle)) limit = Math.min(limit, Math.max(4, Math.floor((TILE - vehicle.progress) / 24)))
+    const halt = limit > 0 ? haltPoint(world, vehicle) : -1
+    if (halt >= 0) limit = Math.min(limit, Math.max(4, Math.floor((halt - vehicle.progress) / 24)))
     if (vehicle.speed > limit) {
         vehicle.speed = limit
         vehicle.subspeed = 0
@@ -458,13 +529,20 @@ export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRo
         const space = through ? Infinity : room(world, vehicle)
         if (space <= 0) break
         if (vehicle.progress < TILE) {
-            const step = Math.min(budget, TILE - vehicle.progress, space)
+            const halt = bayHalt(world.map, vehicle, station, type)
+            const end = halt >= 0 ? halt : TILE
+            const step = Math.min(budget, end - vehicle.progress, space)
             vehicle.progress += step
             budget -= step
             if (vehicle.tiles.length > 1 && vehicle.progress >= BODY) dropTail(world, vehicle)
+            if (halt >= 0 && vehicle.progress === halt) {
+                arrive(vehicle, station)
+                break
+            }
             if (vehicle.progress < TILE) continue
         }
-        if (isStopOf(world.map, vehicle.tiles[0]!, station, type)) {
+        // a drive-through stop is loaded at its far end; a bay only at its halt, above
+        if (rtBayFacingAt(world.map, vehicle.tiles[0]!) < 0 && isStopOf(world.map, vehicle.tiles[0]!, station, type)) {
             arrive(vehicle, station)
             break
         }

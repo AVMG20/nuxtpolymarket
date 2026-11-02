@@ -11,7 +11,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RtMap, RtTileKind, rtReverseDir, type RtDir } from './map'
+import { RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
 import { findRailRoute, RtRouteOutcome, type RtRouteTarget } from './pathfinder'
 import { rtPieceReserved } from './signals'
 import {

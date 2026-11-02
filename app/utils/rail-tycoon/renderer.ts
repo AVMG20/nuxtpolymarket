@@ -19,10 +19,23 @@
 import type { Application, Container, Graphics, GraphicsContext, Sprite, Text } from 'pixi.js'
 import { RT_CATALOG, RT_INDUSTRY_TYPE_IDS, RT_VEHICLE_MODEL_IDS } from '#shared/utils/rail-tycoon/catalog'
 import { rtDepotFacing, rtDepotKind } from '#shared/utils/rail-tycoon/depots'
-import { RtTileKind, rtTreeCount, rtTreeStage, rtTreeType, type RtMap } from '#shared/utils/rail-tycoon/map'
+import { RtTileKind, rtTreeCount, rtTreeStage, rtTreeType, type RtDir, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { rtRoadBits } from '#shared/utils/rail-tycoon/road'
 import { rtIsSiding } from '#shared/utils/rail-tycoon/sidings'
-import { RtAxis, RtStationTile, rtStationAxis, rtStationId, rtStationTileType } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_BAY_STOP } from '#shared/utils/rail-tycoon/road-vehicle'
+import {
+    RtAxis,
+    RtStationTile,
+    rtBayFacingAt,
+    rtBaySlot,
+    rtRoadStopBits,
+    rtRoadStopFacing,
+    rtRoadStopIsBay,
+    rtRoadStopRoadOwner,
+    rtStationAxis,
+    rtStationId,
+    rtStationTileType
+} from '#shared/utils/rail-tycoon/stations-build'
 import {
     RT_SIGNAL_ASPECT_SHIFT,
     RT_SIGNAL_PATH,
@@ -396,9 +409,16 @@ export function rtTileDrawList(world: RtDrawWorld, tile: number, lookup: RtSprit
                 part(names.rear, at, colour)
                 part(names.front, at, colour)
             } else {
-                const names = rtRoadStopSpriteNames(type === RtStationTile.bus ? 'bus' : 'truck', axis === 'y' ? 'nw' : 'ne')
-                ground(names[0]!, at, colour)
-                for (const name of names.slice(1)) part(name, at, colour)
+                // a bay on its own ground by its entrance; a drive-through stop on its straight road
+                // under the ne or nw bay's shelters, so the two read apart
+                const bay = rtRoadStopIsBay(payload)
+                const facing = bay ? RT_SIDE_NAMES[rtRoadStopFacing(payload)]! : axis === 'y' ? 'nw' : 'ne'
+                const names = rtRoadStopSpriteNames(type === RtStationTile.bus ? 'bus' : 'truck', facing)
+                const road = bay ? null : rtRoadSpriteName(rtRoadStopRoadOwner(payload) === RT_OWNER_NONE ? 'town' : 'grass', rtRoadSidesFromBits(rtRoadStopBits(payload)), 'flat')
+                if (road && lookup.has(road)) ground(road, at)
+                else ground(names[0]!, at, colour)
+                // a lorry bay's part b is the depot wall across its far end, which a road runs through here
+                for (const name of names.slice(1)) if (bay || type !== RtStationTile.truck || !name.endsWith('.b')) part(name, at, colour)
             }
             break
         }
@@ -488,6 +508,8 @@ export function rtVehicleParts(map: RtMap, vehicle: RtVehicle): RtVehiclePart[] 
     const { tiles, pieces } = vehicle
     if (tiles.length === 0 || tiles.length !== pieces.length || !map.validTile(tiles[0]!)) return parts
     if (vehicle.kind === RtVehicleKind.road) {
+        const bay = rtBayPart(map, vehicle)
+        if (bay) return [bay]
         const dir = pieces[0]! & 3
         const a = EDGE_MID[(dir + 2) & 3]!
         const b = EDGE_MID[dir]!
@@ -519,6 +541,43 @@ export function rtVehicleParts(map: RtMap, vehicle: RtVehicle): RtVehiclePart[] 
         parts.push({ index: k, model: vehicle.consist[k]!, tile, lx, ly, height: rtStandHeight(map, tile, lx, ly), direction: rtTrackdirDirection(td) })
     }
     return parts
+}
+
+/** How deep into a bay (tile widths from the entrance) a vehicle halts to load. */
+export const RT_BAY_DEPTH = 0.62
+
+/**
+ * Where a road vehicle whose head stands in a bay stop is drawn, or null when it is not in one. Its
+ * bay's lane names the side of the tile the bay lies on (rtBayLane); its progress runs in to
+ * RT_BAY_STOP, the halt at RT_BAY_DEPTH, and back out to the entrance, facing in on the way in and
+ * out on the way out, so it turns round where it loaded.
+ */
+export function rtBayPart(map: RtMap, vehicle: RtVehicle): RtVehiclePart | null {
+    const tile = vehicle.tiles[0]!
+    const facing = rtBayFacingAt(map, tile)
+    if (facing < 0) return null
+    const slot = rtBaySlot(facing as RtDir, vehicle.pieces[0]!)
+    const entry = EDGE_MID[facing]!
+    const back = EDGE_MID[(facing + 2) & 3]!
+    const progress = Math.min(Math.max(vehicle.progress, 0), RT_CATALOG.movement.subTileUnits)
+    const inbound = progress <= RT_BAY_STOP
+    const depth = RT_BAY_DEPTH * (inbound ? progress : RT_CATALOG.movement.subTileUnits - progress) / RT_BAY_STOP
+    // across the tile towards its bay's side; a lane that is no bay (a hostile save) keeps to the middle
+    const side = EDGE_MID[vehicle.pieces[0]! & 3]!
+    const sx = slot < 0 ? 0 : (side[0] - 0.5) * 2 * RT_ROAD_LANE_OFFSET
+    const sy = slot < 0 ? 0 : (side[1] - 0.5) * 2 * RT_ROAD_LANE_OFFSET
+    const lx = entry[0] + (back[0] - entry[0]) * depth + sx
+    const ly = entry[1] + (back[1] - entry[1]) * depth + sy
+    const heading = inbound ? (facing + 2) & 3 : facing
+    return {
+        index: 0,
+        model: vehicle.consist[0] ?? vehicle.model,
+        tile,
+        lx,
+        ly,
+        height: rtStandHeight(map, tile, lx, ly),
+        direction: 1 + 2 * heading
+    }
 }
 
 /** A vehicle window badge (W150): parked in a spot, or stopped and still travelling to find one. */

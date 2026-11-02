@@ -19,7 +19,16 @@ import { findRailRoute, findRoadRoute, RtRouteOutcome } from './pathfinder'
 import { buildRoad, removeRoad } from './road'
 import { buildSiding, removeSiding, rtCanReverse } from './sidings'
 import { placeSignal, rtReservationHooks, RtSignalType, updateSignalStates, type RtTrainOnPiece } from './signals'
-import { buildRailStation, buildRoadStop, RT_MAX_PLATFORM_LENGTH, RT_MAX_PLATFORMS, RtAxis, RtStationTile } from './stations-build'
+import {
+    buildRailStation,
+    buildRoadStop,
+    RT_MAX_PLATFORM_LENGTH,
+    RT_MAX_PLATFORMS,
+    RT_ROAD_STOP_SHAPE_MAX,
+    RtAxis,
+    RtRoadStopShape,
+    RtStationTile
+} from './stations-build'
 import {
     buildRail,
     removeRail,
@@ -80,7 +89,11 @@ export type RtCommand =
     | { kind: typeof RtCommandKind.buildRoadLine, tile: number, endTile: number }
     | { kind: typeof RtCommandKind.removeRoad, tile: number, bits: number }
     | { kind: typeof RtCommandKind.buildRailStation, tile: number, axis: number, tracks: number, length: number }
-    | { kind: typeof RtCommandKind.buildRoadStop, tile: number, stop: number }
+    /**
+     * A bus or truck stop; shape is an RtRoadStopShape, auto (a drive-through stop along the road there)
+     * when left out, as every stop command before bays.
+     */
+    | { kind: typeof RtCommandKind.buildRoadStop, tile: number, stop: number, shape?: number }
     | { kind: typeof RtCommandKind.buildDepot, tile: number, vehicleKind: number, facing: number }
     | { kind: typeof RtCommandKind.placeSignal, tile: number, piece: number, signalType: number }
     | { kind: typeof RtCommandKind.demolish, tile: number }
@@ -494,8 +507,10 @@ function buildCommand(world: RtWorld, company: RtCompany, command: RtCommand, ap
         }
         case RtCommandKind.buildRoadStop: {
             if (command.stop !== RtStationTile.bus && command.stop !== RtStationTile.truck) return fail(RtCommandError.invalid)
-            return single(company, apply, touched, [command.tile], a => withStations(world, list =>
-                buildRoadStop(map, list, world.townList(), owner, command.tile, command.stop, a, occupied)))
+            const shape = command.shape ?? RtRoadStopShape.auto
+            if (!isInt(shape) || shape < 0 || shape > RT_ROAD_STOP_SHAPE_MAX) return fail(RtCommandError.invalid)
+            return single(company, apply, touched, roadStopTiles(map, command.tile), a => withStations(world, list =>
+                buildRoadStop(map, list, world.townList(), owner, command.tile, command.stop, a, occupied, shape)))
         }
         case RtCommandKind.demolish:
             if (!map.validTile(command.tile)) return fail(RtCommandError.invalid)
@@ -606,14 +621,27 @@ function commandTiles(world: RtWorld, command: RtCommand): number[] {
             return areaTiles(world, command.tile, command.endTile) ?? []
         case RtCommandKind.buildRailStation:
             return rtStationFootprint(world.map, command.tile, command.axis, command.tracks, command.length)
+        case RtCommandKind.buildRoadStop:
+            return roadStopTiles(world.map, command.tile)
         default:
             return 'tile' in command ? [command.tile] : []
     }
 }
 
+/** A road stop's tile and the four around it, whose road a new stop may join (connectEntrances). */
+function roadStopTiles(map: RtMap, tile: number): number[] {
+    if (!map.validTile(tile)) return [tile]
+    const tiles = [tile]
+    for (let dir = 0; dir < 4; dir++) {
+        const next = map.neighbour(tile, dir as RtDir)
+        if (next >= 0) tiles.push(next)
+    }
+    return tiles
+}
+
 /** Every integer field a build command carries, checked before any rule sees it. */
 const TILE_FIELDS = ['tile', 'endTile'] as const
-const INT_FIELDS = ['piece', 'trackdir', 'bits', 'axis', 'tracks', 'length', 'stop', 'vehicleKind', 'facing', 'signalType'] as const
+const INT_FIELDS = ['piece', 'trackdir', 'bits', 'axis', 'tracks', 'length', 'stop', 'shape', 'vehicleKind', 'facing', 'signalType'] as const
 
 function wellFormed(world: RtWorld, command: RtCommand): boolean {
     const fields = command as unknown as Record<string, unknown>
@@ -697,6 +725,13 @@ const NAME_BYTES = RT_CATALOG.caps.maxNameBytes
 const MAX_WAGONS = RT_CATALOG.vehicles.maxTrainVehicles - 1
 
 /**
+ * buildRoadStop's one byte: bits 0-1 the stop type, bits 2-4 the RtRoadStopShape, bits 5-7 zero. A
+ * stop command from before bays has shape 0 (auto) there and decodes as it always did.
+ */
+const ROAD_STOP_TYPE_MASK = 3
+const ROAD_STOP_SHAPE_SHIFT = 2
+
+/**
  * Encodes a command. A name is clamped to maxNameBytes first; anything else decodeCommand would
  * refuse throws RangeError, so a peer never sends bytes the others drop.
  */
@@ -732,7 +767,7 @@ export function encodeCommand(command: RtCommand): Uint8Array {
             break
         case RtCommandKind.buildRoadStop:
             w.u32(command.tile)
-            w.u8(command.stop)
+            w.u8(command.stop | ((command.shape ?? RtRoadStopShape.auto) << ROAD_STOP_SHAPE_SHIFT))
             break
         case RtCommandKind.buildDepot:
             w.u32(command.tile)
@@ -888,9 +923,13 @@ function readCommand(r: RtReader, side: number | undefined): RtCommand {
         }
         case RtCommandKind.buildRoadStop: {
             const at = tile()
-            const stop = u8Max(r, RtStationTile.truck, 'stop')
-            if (stop === RtStationTile.rail) throw new RtBadData('a rail platform is no road stop')
-            return { kind, tile: at, stop }
+            const packed = r.u8()
+            const stop = packed & ROAD_STOP_TYPE_MASK
+            const shape = packed >>> ROAD_STOP_SHAPE_SHIFT
+            if (stop === RtStationTile.rail || stop > RtStationTile.truck) throw new RtBadData(`stop ${stop} is no road stop`)
+            if (shape > RT_ROAD_STOP_SHAPE_MAX) throw new RtBadData(`road stop shape ${shape}`)
+            // a stop without a shape is the old command, byte for byte
+            return shape === RtRoadStopShape.auto ? { kind, tile: at, stop } : { kind, tile: at, stop, shape }
         }
         case RtCommandKind.buildDepot:
             return { kind, tile: tile(), vehicleKind: u8Max(r, RtVehicleKind.road, 'vehicle kind'), facing: u8Max(r, 3, 'facing') }

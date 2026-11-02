@@ -52,6 +52,7 @@ import {
 } from './types'
 import { RT_ROAD_LANES, RtWorld, type RtTrackdirPiece } from './world'
 import { rtRebuildStationIndex } from './stations'
+import { rtStationPayloadValid } from './stations-build'
 import { rtRecountInfrastructure } from './infrastructure'
 import { rtClearSignalCache } from './signals'
 
@@ -865,6 +866,7 @@ export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
     for (let i = 0; i < map.tileCount; i++) {
         const owner = map.owner[i]!
         if (owner !== RT_OWNER_NONE && (owner >= maxCompanies || !ctx.companies[owner])) bad(`tile ${i} owner ${owner} is not a company`)
+        if (map.kind[i] === RtTileKind.station && !rtStationPayloadValid(map.payload[i]!, owner)) bad(`tile ${i} station payload ${map.payload[i]}`)
     }
     const towns = readList(ctx, RT_SAVE_BOUNDS.towns, 'towns', readTown, ctx.towns)
     const industries = readList(ctx, RT_SAVE_BOUNDS.industries, 'industries', readIndustry, [])

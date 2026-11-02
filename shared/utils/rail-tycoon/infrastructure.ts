@@ -5,7 +5,7 @@
  * what a command's tiles counted before it ran and adding what they count after (applyCommand, W59).
  */
 
-import { RtMap, RtTileKind } from './map'
+import { RtTileKind, type RtMap } from './map'
 import { RtStationTile, rtRoadStopBits, rtRoadStopRoadOwner, rtStationTileType } from './stations-build'
 import {
     RT_TRACK_COUNT,

@@ -2,8 +2,7 @@
 // Rail Tycoon — the top icon toolbar (W110): zoom, the windows, the rail and road build tools with
 // their options, demolish, query, and the world menu. Spectators see only zoom, the windows they can
 // use and leave (AR-104). There is no station list in version 1; stations open by a query click (AR-38).
-import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
-import { RT_MAX_PLATFORMS, RT_MAX_PLATFORM_LENGTH, RtAxis, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
+import { RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import { RtToolKind } from '~/utils/rail-tycoon/tools'
 import { useRtGame, useRtWindows, type RtWindowKind } from '~/utils/rail-tycoon/windows'
@@ -109,58 +108,20 @@ function pickTool(button: ToolButton) {
   optionsVersion.value++
 }
 
-function changeOption(apply: () => void) {
-  apply()
-  optionsVersion.value++
-  game.refreshTool()
-}
+// ─── The build picker ────────────────────────────────────────────────────
+// The tools with choices open the picker window, as the original; another tool or none closes it,
+// and closing the window puts the tool away.
 
-const stationTracks = computed(() => {
-  void optionsVersion.value
-  return options.stationTracks
-})
-const stationLength = computed(() => {
-  void optionsVersion.value
-  return options.stationLength
-})
-const stationAxis = computed(() => {
-  void optionsVersion.value
-  return options.stationAxis
-})
-const signalType = computed(() => {
-  void optionsVersion.value
-  return options.signalType
+const PICKER_TOOLS: readonly string[] = ['rail', 'road', 'railStation', 'railDepot', 'signal', 'busStop', 'truckStop', 'roadDepot']
+
+watch(activeId, (id) => {
+  if (id !== null && PICKER_TOOLS.includes(id) && canBuild.value) windows.open('buildPicker')
+  else windows.close('buildPicker')
 })
 
-function stepTracks(step: number) {
-  changeOption(() => {
-    options.stationTracks = Math.min(RT_MAX_PLATFORMS, Math.max(1, options.stationTracks + step))
-  })
-}
-
-function stepLength(step: number) {
-  changeOption(() => {
-    options.stationLength = Math.min(RT_MAX_PLATFORM_LENGTH, Math.max(1, options.stationLength + step))
-  })
-}
-
-function turnStation() {
-  changeOption(() => {
-    options.stationAxis = options.stationAxis === RtAxis.x ? RtAxis.y : RtAxis.x
-  })
-}
-
-function turnDepot() {
-  changeOption(() => {
-    options.depotFacing = (options.depotFacing + 1) & 3
-  })
-}
-
-function setSignalType(type: RtSignalType) {
-  changeOption(() => {
-    options.signalType = type
-  })
-}
+watch(() => windows.isOpen('buildPicker'), (open) => {
+  if (!open && activeId.value !== null && PICKER_TOOLS.includes(activeId.value)) game.selectTool(RtToolKind.none)
+})
 
 function openWindow(kind: RtWindowKind) {
   windows.open(kind)
@@ -354,57 +315,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-    <div v-if="canBuild && (activeId === 'railStation' || activeId === 'signal' || activeId === 'railDepot' || activeId === 'roadDepot')" class="rt-tb-options">
-      <template v-if="activeId === 'railStation'">
-        <span class="rt-tb-opt-label">Platforms</span>
-        <button type="button" class="rt-tb-opt" aria-label="Fewer platforms" :disabled="stationTracks <= 1" @click="stepTracks(-1)">
-          <UIcon name="i-lucide-minus" class="size-3.5" />
-        </button>
-        <span class="rt-tb-opt-value">{{ stationTracks }}</span>
-        <button type="button" class="rt-tb-opt" aria-label="More platforms" :disabled="stationTracks >= RT_MAX_PLATFORMS" @click="stepTracks(1)">
-          <UIcon name="i-lucide-plus" class="size-3.5" />
-        </button>
-        <span class="rt-tb-opt-label">Length</span>
-        <button type="button" class="rt-tb-opt" aria-label="Shorter platforms" :disabled="stationLength <= 1" @click="stepLength(-1)">
-          <UIcon name="i-lucide-minus" class="size-3.5" />
-        </button>
-        <span class="rt-tb-opt-value">{{ stationLength }}</span>
-        <button type="button" class="rt-tb-opt" aria-label="Longer platforms" :disabled="stationLength >= RT_MAX_PLATFORM_LENGTH" @click="stepLength(1)">
-          <UIcon name="i-lucide-plus" class="size-3.5" />
-        </button>
-        <button type="button" class="rt-tb-opt rt-tb-opt-wide" @click="turnStation">
-          <UIcon :name="stationAxis === RtAxis.x ? 'i-lucide-arrow-left-right' : 'i-lucide-arrow-up-down'" class="size-3.5" />
-          Turn (R)
-        </button>
-      </template>
-      <template v-else-if="activeId === 'signal'">
-        <span class="rt-tb-opt-label">Signal</span>
-        <button
-          type="button"
-          class="rt-tb-opt rt-tb-opt-wide"
-          :class="{ 'rt-tb-opt-on': signalType === RtSignalType.block }"
-          :aria-pressed="signalType === RtSignalType.block"
-          @click="setSignalType(RtSignalType.block)"
-        >
-          Block
-        </button>
-        <button
-          type="button"
-          class="rt-tb-opt rt-tb-opt-wide"
-          :class="{ 'rt-tb-opt-on': signalType === RtSignalType.path }"
-          :aria-pressed="signalType === RtSignalType.path"
-          @click="setSignalType(RtSignalType.path)"
-        >
-          Path
-        </button>
-      </template>
-      <template v-else>
-        <button type="button" class="rt-tb-opt rt-tb-opt-wide" @click="turnDepot">
-          <UIcon name="i-lucide-rotate-cw" class="size-3.5" />
-          Turn depot (R)
-        </button>
-      </template>
-    </div>
   </div>
 </template>
 
@@ -484,56 +394,5 @@ onBeforeUnmount(() => {
 }
 .rt-tb-item-danger {
   color: #ff9a8a;
-}
-/* fixed, so the toolbar's horizontal scroll does not clip it */
-.rt-tb-options {
-  position: fixed;
-  z-index: 25;
-  top: var(--rt-toolbar-h, 40px);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: calc(100vw - 16px);
-  padding: 4px 8px;
-  border: 1px solid #14120e;
-  border-top: none;
-  background: #3a352c;
-  color: #ece6d6;
-  font-size: 12px;
-  box-shadow: inset 1px 0 0 #6b6455, 0 4px 10px rgba(0, 0, 0, 0.4);
-}
-.rt-tb-opt-label {
-  margin: 0 2px 0 6px;
-  color: #cfc8b6;
-}
-.rt-tb-opt-value {
-  min-width: 14px;
-  font-weight: 700;
-  text-align: center;
-}
-.rt-tb-opt {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 22px;
-  height: 22px;
-  border: 1px solid #201d17;
-  background: #4a4438;
-  color: inherit;
-  cursor: pointer;
-}
-.rt-tb-opt-wide {
-  padding: 0 8px;
-}
-.rt-tb-opt:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.rt-tb-opt-on {
-  background: #26221b;
-  color: #ffd84a;
 }
 </style>

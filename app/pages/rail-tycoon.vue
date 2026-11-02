@@ -17,6 +17,7 @@ import RtBuyVehicleWindow from '~/components/rail-tycoon/RtBuyVehicleWindow.vue'
 import RtFinancesWindow from '~/components/rail-tycoon/RtFinancesWindow.vue'
 import RtGameView from '~/components/rail-tycoon/RtGameView.client.vue'
 import RtMinimap from '~/components/rail-tycoon/RtMinimap.vue'
+import RtBuildPicker from '~/components/rail-tycoon/RtBuildPicker.vue'
 import RtStationWindow from '~/components/rail-tycoon/RtStationWindow.vue'
 import RtStatusBar from '~/components/rail-tycoon/RtStatusBar.vue'
 import RtToolbar from '~/components/rail-tycoon/RtToolbar.vue'
@@ -44,7 +45,8 @@ const WINDOWS: Record<RtWindowKind, Component> = {
   vehicleList: RtVehicleListWindow,
   vehicle: RtVehicleWindow,
   station: RtStationWindow,
-  minimap: RtMinimap
+  minimap: RtMinimap,
+  buildPicker: RtBuildPicker
 }
 
 /** The world in the URL, when it is shaped like a world id. */

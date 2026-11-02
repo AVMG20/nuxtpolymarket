@@ -8,7 +8,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind } from './map'
+import { RT_ROAD_DIR_BIT, RtDir, RtTileKind, type RtMap } from './map'
 import {
     RT_ROAD_X,
     RT_ROAD_Y,

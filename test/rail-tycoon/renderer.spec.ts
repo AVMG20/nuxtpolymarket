@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { RtMap, RtTileKind, rtTreePayload } from '#shared/utils/rail-tycoon/map'
 import { rtDepotPayload } from '#shared/utils/rail-tycoon/depots'
 import { RT_RAIL_SIDING } from '#shared/utils/rail-tycoon/sidings'
-import { RtAxis, RtStationTile, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
+import { RtAxis, RtStationTile, rtBayLane, rtBayPayload, rtStationPayload } from '#shared/utils/rail-tycoon/stations-build'
+import { RT_BAY_STOP } from '#shared/utils/rail-tycoon/road-vehicle'
 import {
     RT_SIGNAL_ASPECT_SHIFT,
     RT_SIGNAL_PATH,
@@ -284,9 +285,19 @@ describe('rtTileDrawList', () => {
     it('draws a road stop and a depot from their parts', () => {
         const { world, map } = fixture()
         const stop = map.idx(2, 2)
+        // a drive-through stop: its straight road under the nw bay's shelters
         map.setTile(stop, RtTileKind.station, 0, rtStationPayload(1, RtStationTile.bus, RtAxis.y))
-        expect(names(rtTileDrawList(world, stop, lookup), true)).toEqual(['roadstop.bus.nw.ground'])
+        expect(names(rtTileDrawList(world, stop, lookup), true)).toEqual(['road.grass.se-nw'])
         expect(names(rtTileDrawList(world, stop, lookup), false)).toEqual(['roadstop.bus.nw.a', 'roadstop.bus.nw.b', 'roadstop.bus.nw.c'])
+        map.setTile(stop, RtTileKind.station, 0, rtStationPayload(1, RtStationTile.truck, RtAxis.x, RT_OWNER_NONE))
+        expect(names(rtTileDrawList(world, stop, lookup), true)).toEqual(['road.town.ne-sw'])
+        expect(names(rtTileDrawList(world, stop, lookup), false)).toEqual(['roadstop.truck.ne.a', 'roadstop.truck.ne.c'])
+        // a bay: its own ground and parts by its entrance, all three parts
+        for (const [facing, side] of [[0, 'ne'], [1, 'se'], [2, 'sw'], [3, 'nw']] as const) {
+            map.setTile(stop, RtTileKind.station, 0, rtBayPayload(1, RtStationTile.truck, facing, 0))
+            expect(names(rtTileDrawList(world, stop, lookup), true)).toEqual([`roadstop.truck.${side}.ground`])
+            expect(names(rtTileDrawList(world, stop, lookup), false)).toEqual(['a', 'b', 'c'].map(part => `roadstop.truck.${side}.${part}`))
+        }
         const depot = map.idx(4, 2)
         map.setTile(depot, RtTileKind.depot, 0, rtDepotPayload(RtVehicleKind.rail, 1))
         const items = rtTileDrawList(world, depot, lookup)
@@ -355,6 +366,38 @@ describe('signal and vehicle positions', () => {
         // heading south-east (+y): the right-hand lane is +x
         expect(part).toMatchObject({ tile, ly: 0.5, direction: 3 })
         expect(part!.lx).toBeGreaterThan(0.5)
+    })
+
+    it('draws a road vehicle in a bay inside the bay: in towards the halt, beside the other bay, and back out', () => {
+        const { map } = fixture()
+        const tile = map.idx(5, 5)
+        const TILE = RT_CATALOG.movement.subTileUnits
+        // a bay whose entrance faces south-west (+x): bay 0 lies towards nw (-y), bay 1 towards se (+y)
+        map.setTile(tile, RtTileKind.station, 0, rtBayPayload(1, RtStationTile.bus, 2, 0))
+        const at = (slot: number, progress: number) => rtVehicleParts(map, train({
+            kind: RtVehicleKind.road, consist: [7], tiles: [tile], pieces: [rtBayLane(2, slot)], progress
+        }))[0]!
+        const entering = at(0, 0)
+        const halted = at(0, RT_BAY_STOP)
+        const other = at(1, RT_BAY_STOP)
+        const leaving = at(0, TILE - 1)
+        expect(entering.tile).toBe(tile)
+        // in from the entrance edge (x = 1) towards the back, facing in (north-east, -x), out facing south-west
+        expect(entering.lx).toBeGreaterThan(0.9)
+        expect(halted.lx).toBeLessThan(0.5)
+        expect(halted.direction).toBe(1 + 2 * 0)
+        expect(leaving.direction).toBe(1 + 2 * 2)
+        expect(leaving.lx).toBeGreaterThan(0.9)
+        // the two bays side by side, both inside the tile
+        expect(halted.ly).toBeLessThan(0.5)
+        expect(other.ly).toBeGreaterThan(0.5)
+        expect(other.lx).toBe(halted.lx)
+        for (const part of [entering, halted, other, leaving]) {
+            expect(part.lx).toBeGreaterThanOrEqual(0)
+            expect(part.lx).toBeLessThanOrEqual(1)
+            expect(part.ly).toBeGreaterThan(0)
+            expect(part.ly).toBeLessThan(1)
+        }
     })
 
     it('badges a parked train and one still looking for a spot', () => {

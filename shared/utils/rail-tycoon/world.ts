@@ -11,13 +11,14 @@ import { clampUtf8 } from './bytes'
 import { RT_CATALOG } from './catalog'
 import { rtClearPacketSource, rtDeleteOrdersTo } from './demolish'
 import { bookMoney, monthlyFinance, rtEmptyFinance } from './economy'
-import { RT_MAP_SIDES, RtMap, RtTileKind } from './map'
+import { RT_MAP_SIDES, RtTileKind, type RtMap } from './map'
 import { RtRng } from './rng'
 import { releaseAllFor, rtReleaseAhead, rtReservedAhead, updateSignalStates } from './signals'
 import {
     RT_STATION_ROAD_OWNER_SHIFT,
     RtStationTile,
     rtRoadStopBits,
+    rtRoadStopIsBay,
     rtRoadStopRoadOwner,
     rtStationId,
     rtStationTileType
@@ -690,7 +691,7 @@ export function rtCleanCompanyName(name: unknown): string {
         const code = char.codePointAt(0)!
         if (code < 0x20 || (code >= 0x7f && code < 0xa0)) continue
         if (clean === '' && char.trim() === '') continue
-        clean +=code >= 0xd800 && code <= 0xdfff ? '�' : char
+        clean += code >= 0xd800 && code <= 0xdfff ? '�' : char
         // stop early on hostile input: the clamp keeps at most maxNameBytes anyway
         if (clean.length > RT_CATALOG.caps.maxNameBytes * 2) break
     }
@@ -1085,7 +1086,7 @@ export class RtWorld {
             for (const tile of station.tiles) {
                 if (!map.validTile(tile) || map.kind[tile] !== RtTileKind.station || rtStationId(map.payload[tile]!) !== station.id) continue
                 const payload = map.payload[tile]!
-                if (rtStationTileType(payload) === RtStationTile.rail) {
+                if (rtStationTileType(payload) === RtStationTile.rail || rtRoadStopIsBay(payload)) {
                     map.setTile(tile, RtTileKind.clear, RT_OWNER_NONE, 0)
                 } else {
                     const roadOwner = rtRoadStopRoadOwner(payload)

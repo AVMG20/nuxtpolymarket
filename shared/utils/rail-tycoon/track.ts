@@ -16,7 +16,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind, rtReverseDir, rtTreeCount } from './map'
+import { RT_ROAD_DIR_BIT, RtDir, RtTileKind, rtReverseDir, rtTreeCount, type RtMap } from './map'
 import { RT_OWNER_NONE, type RtVehicle } from './types'
 
 /* ------------------------------------------------------------------------------------------
@@ -44,7 +44,12 @@ export const RtBuildError = {
     /** A parameter is out of range or names nothing there (hostile or stale input). */
     invalid: 8,
     /** A world cap (RT_CATALOG.caps) would be exceeded. */
-    limit: 9
+    limit: 9,
+    /**
+     * The road runs the other way: a drive-through stop across a road. 16, past RtCommandError's own
+     * codes (10 to 15), since the codes go out on the wire.
+     */
+    wrongDirection: 16
 } as const
 export type RtBuildError = typeof RtBuildError[keyof typeof RtBuildError]
 

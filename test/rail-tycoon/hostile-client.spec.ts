@@ -40,7 +40,7 @@ import {
 } from '#shared/utils/rail-tycoon/protocol'
 import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
-import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
+import { RtAxis, RtRoadStopShape } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
@@ -515,6 +515,12 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
         cmd({ kind: K.buildRoadLine, tile: at(15, 10), endTile: at(25, 10) })
         cmd({ kind: K.buildRailStation, tile: at(18, 10), axis: RtAxis.x, tracks: 1, length: 3 })
         cmd({ kind: K.buildRoadStop, tile: honestRail, stop: 0 })
+        // road stop shapes: a bay or a drive-through stop on the honest rail, and bytes past every encoder check
+        cmd({ kind: K.buildRoadStop, tile: honestRail, stop: 1, shape: RtRoadStopShape.bayNe })
+        cmd({ kind: K.buildRoadStop, tile: honestRail, stop: 2, shape: RtRoadStopShape.driveX })
+        for (const [i, packed] of [1 | (7 << 2), 2 | (31 << 2), 0 | (3 << 2), 3 | (1 << 2), 0xff, 1 | (1 << 5)].entries()) {
+            frames.push(commandFrame(20 + i, rawCommand(K.buildRoadStop, [at(30, 30)], [packed])))
+        }
         cmd({ kind: K.buildDepot, tile: honestRail, vehicleKind: RtVehicleKind.rail, facing: RtDir.sw })
         cmd({ kind: K.placeSignal, tile: honestRail, piece: RtTrack.x, signalType: RtSignalType.block })
         cmd({ kind: K.demolish, tile: honestRail })
@@ -703,7 +709,9 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
                 case 4: return { kind: K.buildRoadLine, tile: t, endTile: near(t) }
                 case 5: return { kind: K.removeRoad, tile: t, bits: int(0, 16) }
                 case 6: return { kind: K.buildRailStation, tile: t, axis: int(0, 2), tracks: int(0, 9), length: int(0, 17) }
-                case 7: return { kind: K.buildRoadStop, tile: t, stop: int(0, 3) }
+                case 7: return rand() < 0.5
+                    ? { kind: K.buildRoadStop, tile: t, stop: int(0, 3) }
+                    : { kind: K.buildRoadStop, tile: t, stop: int(0, 3), shape: int(0, 8) }
                 case 8: return { kind: K.buildDepot, tile: t, vehicleKind: int(0, 2), facing: int(0, 4) }
                 case 9: return { kind: K.placeSignal, tile: t, piece: int(0, 6), signalType: int(0, 4) }
                 case 10: return { kind: K.demolish, tile: t }
