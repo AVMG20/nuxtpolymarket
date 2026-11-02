@@ -54,6 +54,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     HackOps: 'idle',
     Colony: 'idle',
     Polytown: 'idle',
+    'Hero Quest': 'idle',
     // Not in the sidebar: lootboxes drop on a timer rather than being bought,
     // so they read as idle emission rather than a wager.
     Lootbox: 'idle',
