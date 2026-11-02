@@ -1182,7 +1182,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const refunds = await db.select().from(transactions)
                 .where(and(eq(transactions.userId, BUYER), eq(transactions.type, 'credit')))
             expect(refunds).toHaveLength(1)
-            expect(refunds[0]!.category).toMatch(/refund/)
+            expect(refunds[0]!.category).toBe('polytown')
+            expect(refunds[0]!.refund).toBe(true)
             expect(await getBalance(BUYER)).toBe(coins(PURSE))
         })
 

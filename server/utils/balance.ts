@@ -1,4 +1,4 @@
-import { eq, and, gte, like, sql, desc } from 'drizzle-orm'
+import { eq, and, gte, sql, desc } from 'drizzle-orm'
 import { db, type DbExecutor } from '../database'
 import { user, transactions } from '../database/schema'
 import { applyBankGarnish } from './bank'
@@ -15,27 +15,17 @@ function assertAmount(amount: string) {
 
 export interface CreditOptions {
   /**
-   * The player's own money coming back (escrow returns, change, cancelled
-   * orders), so the bank never garnishes it. Lets a refund keep the game's one
-   * category instead of needing a `:refund` suffix.
+   * The player's own money coming back: escrow returns, change on a cheaper
+   * fill, cancelled orders, crash-recovery refunds, bank withdrawals. The row is
+   * flagged `refund` so it never counts as income, and the bank never garnishes
+   * it, or a cancelled order would cost 10% to place.
    */
   refund?: boolean
 }
 
-/**
- * Money coming back that the player already owned is not an earning: refunds,
- * escrow returns and crash-recovery payouts must not be garnished, or a
- * cancelled order would cost 10% to place. Older callers still mark this in the
- * category; new ones pass `{ refund: true }`.
- */
-function isEarning(category?: string, options?: CreditOptions) {
-  if (options?.refund) return false
-  if (!category) return true
-  return !/refund|recovery|cancel|^bank/.test(category)
-}
-
 async function applyCredit(ex: DbExecutor, userId: string, amount: string, category?: string, options?: CreditOptions) {
-  await ex.insert(transactions).values({ userId, amount, type: 'credit', category })
+  const refund = options?.refund === true
+  await ex.insert(transactions).values({ userId, amount, type: 'credit', category, refund })
   const [updated] = await ex.update(user)
     .set({ balance: sql`${user.balance} + ${amount}::numeric` })
     .where(eq(user.id, userId))
@@ -43,7 +33,7 @@ async function applyCredit(ex: DbExecutor, userId: string, amount: string, categ
 
   // The wallet row is locked above before bank_state is touched below — that
   // order is what keeps the garnish from deadlocking against the bank endpoints.
-  if (!isEarning(category, options)) return updated!.balance
+  if (refund) return updated!.balance
   const garnished = await applyBankGarnish(ex, userId, Number(amount))
   if (garnished <= 0) return updated!.balance
 
@@ -52,7 +42,7 @@ async function applyCredit(ex: DbExecutor, userId: string, amount: string, categ
     .set({ balance: sql`${user.balance} - ${levy}::numeric` })
     .where(eq(user.id, userId))
     .returning({ balance: user.balance })
-  await ex.insert(transactions).values({ userId, amount: levy, type: 'debit', category: 'bank:garnish' })
+  await ex.insert(transactions).values({ userId, amount: levy, type: 'debit', category: 'bank' })
   return afterLevy!.balance
 }
 
@@ -116,9 +106,9 @@ async function applyCreditGems(ex: DbExecutor, userId: string, count: number, ca
 }
 
 /**
- * Spend gems and log a `currency: 'gems'` ledger row under `category`, which
- * uses the same `game:detail` naming as the coin categories so the audit files
- * both under one game. Inside a locked `db.transaction()`, pass `tx`.
+ * Spend gems and log a `currency: 'gems'` ledger row under `category`, the
+ * game's one plain name, the same as its coin rows. Inside a locked
+ * `db.transaction()`, pass `tx`.
  */
 export async function debitGems(userId: string, cost: number, category: string, tx?: DbExecutor) {
     assertGemCount(cost)
@@ -164,10 +154,9 @@ export async function getBalance(userId: string) {
   return result?.balance ?? '0'
 }
 
-// Today's profit or loss across one game's ledger rows, matched on a category
-// prefix so a game's sub-categories ('foo:double', 'foo:refund') all count. The
-// day boundary is the database's, so every player rolls over at the same moment.
-export async function getDailyNet(userId: string, categoryPrefix: string) {
+// Today's coin profit or loss across one game's ledger rows, refunds included.
+// The day boundary is the database's, so every player rolls over at the same moment.
+export async function getDailyNet(userId: string, category: string) {
   const [row] = await db
     .select({
       net: sql<string>`coalesce(sum(case when ${transactions.type} = 'credit' then ${transactions.amount} else -${transactions.amount} end), 0)`,
@@ -176,7 +165,7 @@ export async function getDailyNet(userId: string, categoryPrefix: string) {
     .where(and(
       eq(transactions.userId, userId),
       eq(transactions.currency, 'coins'),
-      like(transactions.category, `${categoryPrefix}%`),
+      eq(transactions.category, category),
       sql`${transactions.createdAt} >= date_trunc('day', localtimestamp)`
     ))
   return Number(row?.net ?? 0)

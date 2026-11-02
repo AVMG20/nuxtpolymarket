@@ -18,7 +18,7 @@ export default defineEventHandler(async (event): Promise<{
     const [[vendor], [packs]] = await Promise.all([
         db.select({ total: sum(transactions.amount), n: count() })
             .from(transactions)
-            .where(and(eq(transactions.category, 'tcg:vendor'), eq(transactions.currency, 'coins'))),
+            .where(and(eq(transactions.category, 'tcg vendor'), eq(transactions.currency, 'coins'))),
         db.select({ total: sum(tcgSet.packsSold) }).from(tcgSet)
     ])
 

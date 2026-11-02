@@ -49,7 +49,7 @@ export default defineEventHandler(async (event) => {
         if (!debugMode && !useFreeCredit && PATHWARDEN_BOOSTS[boostId].currency === 'gems') {
             await debitGems(userId, cost, 'pathwarden', tx)
         } else if (!debugMode && !useFreeCredit) {
-            await debit(userId, cost.toFixed(4), 'pathwarden:boost', tx)
+            await debit(userId, cost.toFixed(4), 'pathwarden', tx)
         }
         const [updated] = await tx.update(pathwardenState)
             .set({

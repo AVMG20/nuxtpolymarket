@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
         const cost = meadowbrawlPetCost(def, level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: `${def.name} is already at max level` })
 
-        await debit(userId, cost.toFixed(4), 'meadowbrawl:pet', tx)
+        await debit(userId, cost.toFixed(4), 'meadowbrawl', tx)
         const petLevels = { ...state.petLevels, [def.id]: level + 1 }
         // Adopting the first pet also fields it, so the player isn't left
         // with a companion sitting idle in the lobby.

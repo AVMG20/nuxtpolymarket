@@ -76,14 +76,6 @@ import {
 } from '#shared/utils/gamelogic/town-boosts'
 
 const CATEGORY = 'polytown'
-/**
- * Coins returning to the player who escrowed them: change on a cheaper fill,
- * and the refund on a cancelled order. Tagged so the bank does not garnish
- * money the player never earned — see isEarning in server/utils/balance.ts.
- */
-const CATEGORY_REFUND = 'polytown:refund'
-/** Market-day coins on top of a town-hall sale. */
-const CATEGORY_MARKET_DAY = 'polytown:market-day'
 
 // App-unique advisory lock keys. Plot claiming serializes on one global key so
 // spiral indexes never collide; each resource book gets its own key so matching
@@ -1756,7 +1748,7 @@ async function payMarketBonus(tx: DbExecutor, userId: string, hallTotal: number,
     await tx.update(townState)
         .set({ marketBoostBonusLeft: sql`greatest(0, ${townState.marketBoostBonusLeft} - ${bonus.toFixed(4)}::numeric)` })
         .where(eq(townState.id, state.id))
-    await credit(userId, bonus.toFixed(4), CATEGORY_MARKET_DAY, tx)
+    await credit(userId, bonus.toFixed(4), CATEGORY, tx)
     return bonus
 }
 
@@ -1980,7 +1972,8 @@ export async function placeTownOrder(
             if (side === 'buy') {
                 const change = townOrderTotal(price, fill.quantity) - fillTotal
                 await addInventory(tx, userId, resource, fill.quantity)
-                if (change > 0) await credit(userId, change.toFixed(4), CATEGORY_REFUND, tx)
+                // Change on a cheaper fill is the player's own escrow coming back.
+                if (change > 0) await credit(userId, change.toFixed(4), CATEGORY, tx, { refund: true })
                 await credit(fill.userId, fillTotal.toFixed(4), CATEGORY, tx)
             } else {
                 await addInventory(tx, fill.userId, resource, fill.quantity)
@@ -2045,7 +2038,7 @@ export async function cancelTownOrder(userId: string, orderId: string) {
         if (remaining > 0) {
             await lockTownForMarket(tx, userId)
             if (order.side === 'buy') {
-                await credit(userId, townOrderTotal(parseFloat(order.price), remaining).toFixed(4), CATEGORY_REFUND, tx)
+                await credit(userId, townOrderTotal(parseFloat(order.price), remaining).toFixed(4), CATEGORY, tx, { refund: true })
             } else {
                 await addInventory(tx, userId, existing.resource, remaining)
             }

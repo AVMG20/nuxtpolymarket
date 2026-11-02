@@ -13,7 +13,6 @@ import {
 } from '#server/utils/audit'
 import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { GENRES, prefixesForGenre } from '#shared/utils/game-genres'
-import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { cleanupUser, seedUser } from '../setup/db-helpers'
 
 // The admin audit reads build their CASE and IN clauses from the shared genre tables.
@@ -56,7 +55,7 @@ async function seedLedger() {
     })))
     await db.insert(transactions).values([
         { userId: LEDGER_USER, amount: '7', type: 'credit', category: GEM_ONLY_CATEGORY, currency: 'gems' },
-        { userId: LEDGER_USER, amount: '7', type: 'credit', category: 'miner:gem-seed', currency: 'gems' }
+        { userId: LEDGER_USER, amount: '7', type: 'credit', category: 'miner', currency: 'gems' }
     ])
 }
 

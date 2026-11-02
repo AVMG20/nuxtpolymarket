@@ -39,8 +39,8 @@ export default defineEventHandler(async (event) => {
       loanPrincipal: newBalance < 0 ? newLoanPrincipal.toFixed(4) : '0',
       lastSettledAt: new Date()
     }).where(eq(bankState.id, settled.id))
-    // A 'bank' credit is the player's own money coming back, so it is never garnished.
-    await credit(userId, amount.toFixed(4), 'bank', tx)
+    // A withdrawal is the player's own money coming back, so it is never garnished.
+    await credit(userId, amount.toFixed(4), 'bank', tx, { refund: true })
     await writeBankHistory(tx, userId, newBalance, 'withdraw', amount)
   })
   return { ok: true }

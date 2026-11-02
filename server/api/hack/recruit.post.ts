@@ -32,9 +32,9 @@ export default defineEventHandler(async (event) => {
         const active = activeCount < state.rosterSlots
 
         if (tier.currency === 'cash') {
-            await debit(userId, tier.cost.toFixed(4), 'HackOps', tx)
+            await debit(userId, tier.cost.toFixed(4), 'hackops', tx)
         } else {
-            await debitGems(userId, tier.cost, 'HackOps', tx)
+            await debitGems(userId, tier.cost, 'hackops', tx)
         }
 
         const rarity = rollRarity(tier.weights)

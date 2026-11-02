@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
         const cost = firewallMainframeCost(firewallMainframe(upgradeId), level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Upgrade is already maxed' })
 
-        await debit(userId, cost.toFixed(4), 'firewall:mainframe', tx)
+        await debit(userId, cost.toFixed(4), 'firewall', tx)
         const [updated] = await tx.update(firewallState)
             .set({ [column]: level + 1 })
             .where(eq(firewallState.userId, userId))

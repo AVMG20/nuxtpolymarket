@@ -57,7 +57,7 @@ export default defineEventHandler(async (event) => {
             .where(eq(pathwardenState.userId, userId))
         await tx.delete(pathwardenRuns).where(eq(pathwardenRuns.userId, userId))
         if (result.coins > 0) {
-            await credit(userId, result.coins.toFixed(4), 'pathwarden:cashout', tx)
+            await credit(userId, result.coins.toFixed(4), 'pathwarden', tx)
         }
         return {
             reason: result.reason,

@@ -88,9 +88,9 @@ export default defineEventHandler(async (event) => {
     }
 
     if (reward.success) {
-      await credit(userId, reward.cash.toFixed(4), 'HackOps', tx)
+      await credit(userId, reward.cash.toFixed(4), 'hackops', tx)
       if (reward.gems > 0) {
-        await creditGems(userId, reward.gems, 'HackOps', tx)
+        await creditGems(userId, reward.gems, 'hackops', tx)
       }
     }
 

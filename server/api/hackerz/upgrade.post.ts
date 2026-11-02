@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
         const cost = hackerzMainframeCost(hackerzMainframe(upgradeId), level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Upgrade is already maxed' })
 
-        await debit(userId, cost.toFixed(4), 'hackerz:mainframe', tx)
+        await debit(userId, cost.toFixed(4), 'hackerz', tx)
         const [updated] = await tx.update(hackerzState)
             .set({ [column]: level + 1 })
             .where(eq(hackerzState.userId, userId))

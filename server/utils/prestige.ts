@@ -265,7 +265,7 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
 
         // The row is locked, so these are exactly what the wallet holds and
         // both land on zero.
-        const category = `prestige:${tier.level}`
+        const category = 'prestige'
         if (parseFloat(locked.balance) > 0) await debit(userId, locked.balance, category, tx)
         if (locked.gems > 0) await debitGems(userId, locked.gems, category, tx)
 

@@ -103,8 +103,8 @@ export async function grantVoidStarterKit(userId: string) {
 export async function voidCharge(tx: DbExecutor, userId: string, stores: Record<string, number>, price: VoidPrice) {
     const held = voidCleanBundle(stores)
     if (!voidCanAfford(held, price.resources)) throw createError({ statusCode: 400, statusMessage: 'Not enough materials' })
-    if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'game:void', tx)
-    if (price.gems > 0) await debitGems(userId, price.gems, 'game:void', tx)
+    if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'void', tx)
+    if (price.gems > 0) await debitGems(userId, price.gems, 'void', tx)
     return voidSubtractBundle(held, price.resources)
 }
 
@@ -335,7 +335,7 @@ export async function voidSell(userId: string, resource: VoidResourceId, request
             resources: voidCleanBundle({ ...held, [resource]: available - amount }),
             totalSold: s.totalSold + payout
         }).where(eq(voidState.userId, userId))
-        await credit(userId, payout.toFixed(4), 'game:void', tx)
+        await credit(userId, payout.toFixed(4), 'void', tx)
         return { resource, amount, payout }
     })
 }
@@ -346,7 +346,7 @@ export async function voidBuyTrade(userId: string) {
         const s = await getLockedVoidState(tx, userId)
         const cost = voidTradeCost(s.tradeLevel)
         if (cost === null || s.tradeLevel >= VOID_TRADE_MAX_LEVEL) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
-        await debit(userId, cost.toFixed(4), 'game:void', tx)
+        await debit(userId, cost.toFixed(4), 'void', tx)
         await tx.update(voidState).set({ tradeLevel: s.tradeLevel + 1 }).where(eq(voidState.userId, userId))
         return { level: s.tradeLevel + 1 }
     })
@@ -392,7 +392,7 @@ export async function voidClaimContract(userId: string, index: number) {
             pilotXp: s.pilotXp + contract.xp,
             totalSold: s.totalSold + contract.coins
         }).where(eq(voidState.userId, userId))
-        await credit(userId, contract.coins.toFixed(4), 'game:void', tx)
+        await credit(userId, contract.coins.toFixed(4), 'void', tx)
         return { contract }
     })
 }

@@ -30,7 +30,7 @@ import {
     type TownStreakScale
 } from '#shared/utils/gamelogic/town-streak'
 
-const CATEGORY = 'polytown:streak'
+const CATEGORY = 'polytown'
 
 type StreakRow = typeof townStreak.$inferSelect
 

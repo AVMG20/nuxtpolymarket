@@ -98,6 +98,9 @@ export const transactions = pgTable(
     // move `user.gems` and carry a whole number. Every sum over `amount` has to
     // filter on this, or gems get counted as coins.
     currency: text('currency').$type<Currency>().notNull().default('coins'),
+    // A credit that returns the player's own money (escrow, change, cancelled
+    // orders, crash refunds, bank withdrawals). Never income, never garnished.
+    refund: boolean('refund').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
   table => [

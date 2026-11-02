@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
 
         const owned = Array.from(new Set(['bolt', 'mortar', 'frost', ...(state.ownedDefenseIds ?? [])]))
         if (owned.includes(blueprint.id)) throw createError({ statusCode: 400, statusMessage: 'Blueprint already owned' })
-        if (!debugMode) await debit(userId, blueprint.coinCost.toFixed(4), 'pathwarden:defense', tx)
+        if (!debugMode) await debit(userId, blueprint.coinCost.toFixed(4), 'pathwarden', tx)
         await tx.update(pathwardenState)
             .set({ ownedDefenseIds: [...owned, blueprint.id] })
             .where(eq(pathwardenState.userId, userId))

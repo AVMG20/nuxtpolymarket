@@ -72,7 +72,7 @@ export async function submitForGrading(
         // the lifecycle claim back with the transaction.
         if (!claimed!.condition) badRequest('This copy predates the condition model')
 
-        await debit(userId, fee.toFixed(4), 'tcg:grading', tx)
+        await debit(userId, fee.toFixed(4), 'tcg', tx)
 
         const [row] = await tx.insert(tcgSubmission).values({
             copyId,

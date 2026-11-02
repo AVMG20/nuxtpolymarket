@@ -35,7 +35,7 @@ export default defineEventHandler(async (event) => {
         if (body.currency === 'gems') {
             await debitGems(userId, PATHWARDEN_ABANDON_COST_GEMS, 'pathwarden', tx)
         } else {
-            await debit(userId, coinCost.toFixed(4), 'pathwarden:abandon', tx)
+            await debit(userId, coinCost.toFixed(4), 'pathwarden', tx)
         }
         await tx.delete(pathwardenRuns).where(eq(pathwardenRuns.userId, userId))
         await tx.update(pathwardenState)

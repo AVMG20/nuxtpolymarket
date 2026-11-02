@@ -31,7 +31,7 @@ async function sweep() {
 
     // Refunded under the game's own category so analytics stays one row per game.
     for (const wager of claimed) {
-        await credit(wager.userId, wager.amount, wager.game)
+        await credit(wager.userId, wager.amount, wager.game, undefined, { refund: true })
     }
     if (claimed.length) {
         console.log(`[live-table] refunded ${claimed.length} orphaned wager(s)`)

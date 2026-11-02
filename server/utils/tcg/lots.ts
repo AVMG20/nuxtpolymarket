@@ -131,8 +131,8 @@ export async function buyLot(userId: string, lotId: string): Promise<LotPurchase
 
         const price = parseFloat(claimed!.price)
         const proceeds = sellerProceeds(price)
-        await debit(userId, price.toFixed(4), 'tcg:market', tx)
-        await credit(claimed!.sellerId, proceeds.toFixed(4), 'tcg:market', tx)
+        await debit(userId, price.toFixed(4), 'tcg', tx)
+        await credit(claimed!.sellerId, proceeds.toFixed(4), 'tcg', tx)
 
         await tx.update(tcgCopy).set({ ownerId: userId }).where(inArray(tcgCopy.id, copyIds))
         await tx.insert(tcgCopyTransfer).values(copyIds.map(copyId => ({

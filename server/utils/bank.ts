@@ -219,7 +219,7 @@ export async function repayBailout(userId: string) {
     if (!isBailoutActive(bailout, now)) throw createError({ statusCode: 400, statusMessage: 'No bail-out to repay' })
 
     const owed = round(bailoutRemaining(bailout))
-    await debit(userId, owed.toFixed(4), 'bank:bailout-repayment', tx)
+    await debit(userId, owed.toFixed(4), 'bank', tx)
 
     const [updated] = await tx.update(bankState)
       .set({ bailoutRepaid: round(bailout.repaid + owed).toFixed(4), bailoutUntil: null })

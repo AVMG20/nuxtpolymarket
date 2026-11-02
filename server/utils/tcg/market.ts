@@ -156,8 +156,8 @@ export async function buyListing(userId: string, listingId: string): Promise<Pur
         // The 5% difference is BURNED: debited from the buyer, never credited
         // to anyone (§7.6). Never accumulateRake — the host's rakeback would
         // leak a fifth of the sink back out.
-        await debit(userId, price.toFixed(4), 'tcg:market', tx)
-        await credit(claimed!.sellerId, proceeds.toFixed(4), 'tcg:market', tx)
+        await debit(userId, price.toFixed(4), 'tcg', tx)
+        await credit(claimed!.sellerId, proceeds.toFixed(4), 'tcg', tx)
 
         // Snapshot the grade as sold: the copy can be cracked later and the
         // sales history must not mutate under it.

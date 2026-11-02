@@ -16,7 +16,7 @@ import {
 } from '#shared/utils/gamelogic/town-contracts'
 
 /** Prefixed `polytown` so analytics group it with the rest of the town's income. Garnished like any earning. */
-const CATEGORY = 'polytown:contract'
+const CATEGORY = 'polytown'
 
 const CONTRACT_ID = /^[0-9a-f-]{36}$/i
 

@@ -1408,7 +1408,7 @@ export async function buyLadderSeals(
     if (total > maxGold) {
         throw createError({ statusCode: 409, statusMessage: 'The Seal price has gone up, check it and try again' })
     }
-    await debit(userId, total.toFixed(4), `hero-quest:${system}-seals`, tx)
+    await debit(userId, total.toFixed(4), 'hero-quest', tx)
     await tx.update(hqState)
         .set({
             ...sealGrant(system, count),
@@ -2053,7 +2053,7 @@ export async function buyShopTrack(tx: DbExecutor, userId: string, upgradeId: Sh
         await tx.update(hqState).set({ voidShards: remaining! }).where(eq(hqState.userId, userId))
     } else if (track.currency === 'gold') {
         // `debit` guards the balance in its own WHERE and throws 400 when short, on this tx for the lock
-        balance = await debit(userId, cost.toFixed(4), 'hero-quest:shop', tx)
+        balance = await debit(userId, cost.toFixed(4), 'hero-quest', tx)
     } else {
         // `debitGems` guards `gems >= cost` in its own WHERE and throws 400 otherwise, so the
         // check and the spend are one statement. The tx is threaded because this transaction

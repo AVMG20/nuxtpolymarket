@@ -95,7 +95,7 @@ export async function createOffer(userId: string, input: TradeOfferInput): Promi
         // Escrow the sweetener up front. debit throws 400 when the sender
         // cannot cover it, so an underfunded offer is never created.
         if (senderCoins > 0) {
-            await debit(userId, senderCoins.toFixed(4), 'tcg:market', tx)
+            await debit(userId, senderCoins.toFixed(4), 'tcg', tx)
         }
 
         const [offer] = await tx.insert(tcgTradeOffer).values({
@@ -129,7 +129,7 @@ async function releaseEscrow(tx: Tx, offer: { id: string, fromUserId: string, se
     const held = parseFloat(offer.senderEscrow)
     if (held <= 0) return
     await clearEscrow(tx, offer.id)
-    await credit(offer.fromUserId, held.toFixed(4), 'tcg:market', tx)
+    await credit(offer.fromUserId, held.toFixed(4), 'tcg', tx, { refund: true })
 }
 
 /** The offer no longer holds anything: released to the sender, or consumed. */
@@ -216,12 +216,12 @@ export async function acceptOffer(userId: string, offerId: string): Promise<void
             // which is the whole amount for offers made before escrow existed,
             // and zero for every offer since.
             const owed = senderCoins - parseFloat(claimed!.senderEscrow)
-            if (owed > 0) await debit(claimed!.fromUserId, owed.toFixed(4), 'tcg:market', tx)
+            if (owed > 0) await debit(claimed!.fromUserId, owed.toFixed(4), 'tcg', tx)
             await clearEscrow(tx, claimed!.id)
-            await credit(claimed!.toUserId, sellerProceeds(senderCoins).toFixed(4), 'tcg:market', tx)
+            await credit(claimed!.toUserId, sellerProceeds(senderCoins).toFixed(4), 'tcg', tx)
         } else if (receiverCoins > 0) {
-            await debit(claimed!.toUserId, receiverCoins.toFixed(4), 'tcg:market', tx)
-            await credit(claimed!.fromUserId, sellerProceeds(receiverCoins).toFixed(4), 'tcg:market', tx)
+            await debit(claimed!.toUserId, receiverCoins.toFixed(4), 'tcg', tx)
+            await credit(claimed!.fromUserId, sellerProceeds(receiverCoins).toFixed(4), 'tcg', tx)
         }
 
         for (const item of items) {

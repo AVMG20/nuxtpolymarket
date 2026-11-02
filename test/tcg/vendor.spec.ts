@@ -160,12 +160,12 @@ describe.skipIf(SKIP)('tcg vendor integration', () => {
             .rejects.toMatchObject({ statusCode: 400 })
     })
 
-    it('payouts land in the ledger under tcg:vendor', async () => {
+    it('payouts land in the ledger under tcg vendor', async () => {
         const copyId = await seedCopy(USERS.owner)
         await vendorCopy(USERS.owner, copyId, 42)
         const { transactions } = await import('#server/database/schema')
         const rows = await db.select().from(transactions)
-            .where(and(eq(transactions.userId, USERS.owner), eq(transactions.category, 'tcg:vendor')))
+            .where(and(eq(transactions.userId, USERS.owner), eq(transactions.category, 'tcg vendor')))
         expect(rows.length).toBeGreaterThan(0)
         expect(rows.some(row => parseFloat(row.amount) === 42)).toBe(true)
     })

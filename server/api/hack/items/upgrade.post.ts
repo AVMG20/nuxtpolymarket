@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
         )
         const cost = itemUpgradeCostForLevels(item.itemLevel, levels)
 
-        await debitGems(userId, cost, 'HackOps', tx)
+        await debitGems(userId, cost, 'hackops', tx)
         const [updated] = await tx.update(hackItems)
             .set({ itemLevel: item.itemLevel + levels })
             .where(eq(hackItems.id, itemId))

@@ -43,15 +43,15 @@ describe.skipIf(SKIP)('gems concurrency', () => {
     it('logs one gems ledger row per spend and credit, and none for a rejected spend', async () => {
         await seedUser(USER_ID, { gems: 10 })
 
-        await creditGems(USER_ID, 5, 'test:credit')
-        await debitGems(USER_ID, 12, 'test:debit')
-        await expect(debitGems(USER_ID, 50, 'test:debit')).rejects.toThrow()
+        await creditGems(USER_ID, 5, 'test')
+        await debitGems(USER_ID, 12, 'test')
+        await expect(debitGems(USER_ID, 50, 'test')).rejects.toThrow()
 
         const rows = await db.select().from(transactions)
             .where(and(eq(transactions.userId, USER_ID), eq(transactions.currency, 'gems')))
         expect(rows.map(r => [r.type, Number(r.amount), r.category]).sort()).toEqual([
-            ['credit', 5, 'test:credit'],
-            ['debit', 12, 'test:debit']
+            ['credit', 5, 'test'],
+            ['debit', 12, 'test']
         ])
         expect(await getGems()).toBe(3)
     })

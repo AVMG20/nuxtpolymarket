@@ -40,8 +40,8 @@ export default defineEventHandler(async (event) => {
 
         // Refund and purchase are recorded separately, but inside the same
         // transaction — if the debit fails everything rolls back together.
-        if (refund > 0) await credit(userId, refund.toFixed(4), 'shapezz:weapon-refund', tx)
-        if (weapon.cost > 0) await debit(userId, weapon.cost.toFixed(4), 'shapezz:weapon', tx)
+        if (refund > 0) await credit(userId, refund.toFixed(4), 'shapezz', tx, { refund: true })
+        if (weapon.cost > 0) await debit(userId, weapon.cost.toFixed(4), 'shapezz', tx)
 
         const columns = SHAPEZZ_WEAPON_COLUMNS[weaponType]
         await tx.update(shapezzState).set({
