@@ -1,0 +1,8 @@
+# Folders and files that never need hot reload; the dev server's watchers skip them.
+/.plans/
+/.nuxt-rt-*/
+/test/
+/e2e/
+/scripts/
+/docs/
+/DECISIONS.json
