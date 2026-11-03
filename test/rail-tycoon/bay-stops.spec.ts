@@ -38,7 +38,7 @@ import { RT_ROAD_X, RT_ROAD_Y, RtBuildError } from '#shared/utils/rail-tycoon/tr
 import type { RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import { RT_OWNER_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 
 const C = RT_CATALOG.construction
 const TILE = RT_CATALOG.movement.subTileUnits
@@ -57,10 +57,8 @@ function town(map: RtMap): RtTown {
 
 function world(): RtWorld {
     const map = new RtMap(64)
-    const w = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing: false }, map, rngState: 5, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Bays', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [town(map)], industries: [], stations: [], vehicles: []
+    const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, {
+        map, rngState: 5, companies: [rtNewCompany(ME, 'Bays', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)], towns: [town(map)]
     })
     for (const company of w.companyList()) company.money = 50_000_000
     return w
@@ -437,17 +435,18 @@ describe('bay road stops: determinism and saves', () => {
 
     it('a save written before bays existed decodes, hashes and runs on exactly as it did', () => {
         // written by the code at the commit before bay stops: buses between three drive-through stops,
-        // saved at tick 3000; that code read hash 117096413 there and 2550752929 2000 ticks on
+        // saved at tick 3000; that code read hash 117096413 there and 2550752929 2000 ticks on, the same
+        // states the hash through the save writer (since the hash refactor) reads as the values below
         const bytes = new Uint8Array(readFileSync(resolve(import.meta.dirname, 'fixtures/pre-bay-stops.rtsave')))
         const w = decodeWorld(bytes)!
         expect(w).not.toBeNull()
-        expect(w.hash()).toBe(117096413)
+        expect(w.hash()).toBe(2015245567)
         expect(encodeWorld(w)).toEqual(bytes)
         const stops = Array.from(w.map.payload).filter((p, i) => w.map.kind[i] === RtTileKind.station)
         expect(stops.length).toBe(3)
         expect(stops.every(p => !rtRoadStopIsBay(p))).toBe(true)
         for (let t = 0; t < 2000; t++) w.step()
-        expect(w.hash()).toBe(2550752929)
+        expect(w.hash()).toBe(1056351647)
     })
 
     it('a save holding a station payload that cannot exist is refused', () => {

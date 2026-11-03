@@ -7,6 +7,7 @@
 
 import { RtTileKind, type RtMap } from './map'
 import { RtStationTile, rtRoadStopBits, rtRoadStopRoadOwner, rtStationTileType } from './stations-build'
+import { rtRoadBits } from './tile-payloads'
 import {
     RT_TRACK_COUNT,
     rtBitCount,
@@ -59,7 +60,7 @@ function addTile(world: RtInfrastructureWorld, tile: number, sign: number): void
             break
         }
         case RtTileKind.road:
-            add(owner, 'roadPieces', rtBitCount(payload & 15))
+            add(owner, 'roadPieces', rtBitCount(rtRoadBits(payload)))
             break
         case RtTileKind.station:
             add(owner, 'stationTiles', 1)

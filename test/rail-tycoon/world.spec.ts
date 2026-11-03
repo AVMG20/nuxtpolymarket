@@ -11,26 +11,23 @@ import {
     type RtStation,
     type RtVehicle
 } from '#shared/utils/rail-tycoon/types'
+import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/occupied'
+import { rtCleanCompanyName, rtNameSkeleton } from '#shared/utils/rail-tycoon/company-names'
 import {
-    RtOccupiedRegistry,
     RtWorld,
-    rtCleanCompanyName,
-    rtNameSkeleton,
     rtLowestFreeId,
-    rtNewCompany,
-    rtStartDate,
-    rtWalkSavedState,
-    type RtStateSink
+    rtNewCompany
 } from '#shared/utils/rail-tycoon/world'
+import { rtWriteSavedState, type RtSaveSink } from '#shared/utils/rail-tycoon/save-write'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { RtReader, RtWriter } from '#shared/utils/rail-tycoon/bytes'
-import { RT_FINANCE_KEYS, decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { RT_FINANCE_KEYS, RT_SAVE_MAGIC, decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RT_SERVER_COMPANY, RtCommandError, RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { infrastructureUpkeep, monthlyInterest } from '#shared/utils/rail-tycoon/economy'
 import { rtRecountInfrastructure } from '#shared/utils/rail-tycoon/infrastructure'
 import { rtPieceReserved, rtReservedAhead } from '#shared/utils/rail-tycoon/signals'
 import { stationsAround } from '#shared/utils/rail-tycoon/stations'
-import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtDir, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RtAxis, RtStationTile, rtRoadStopRoadOwner } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtRailPieceReserved, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { stepTrain } from '#shared/utils/rail-tycoon/train'
@@ -315,6 +312,15 @@ function mutate(holder: Holder, key: string | number, path: string[]): () => voi
 }
 
 /** The save bytes as a string to compare, or null when the mutated world breaks a save bound. */
+function hashed(world: RtWorld): number | null {
+    try {
+        return world.hash()
+    } catch (e) {
+        if (e instanceof RangeError) return null
+        throw e
+    }
+}
+
 function saved(world: RtWorld): string | null {
     try {
         return encodeWorld(world).join(',')
@@ -353,13 +359,16 @@ describe('RtWorld.hash', () => {
             eachLeaf(entities[0], [kind], (holder, key, path) => {
                 const where = path.join('.')
                 const undo = mutate(holder, key, path)
-                const changed = world.hash()
+                const changed = hashed(world)
                 const bytes = saved(world)
                 undo()
                 expect(world.hash(), `restored ${where}`).toBe(base)
+                // a mutation that breaks a save bound fails the hash as it fails the save (only the
+                // writer also range-checks each value)
+                if (changed === null) expect(bytes, `save refuses ${where} as the hash does`).toBeNull()
                 const derived = path.some(part => DERIVED.has(part))
                 if (derived) expect(changed, `derived ${where}`).toBe(base)
-                else expect(changed, `saved ${where}`).not.toBe(base)
+                else if (changed !== null) expect(changed, `saved ${where}`).not.toBe(base)
                 if (bytes !== null) {
                     expect(bytes !== baseBytes, `save and hash agree on ${where}`).toBe(!derived)
                     againstSave++
@@ -450,18 +459,18 @@ describe('RtWorld.hash', () => {
         expect(b.hash()).toBe(a.hash())
     })
 
-    it('walks the settings and map first, then entities, in one fixed order with signed values marked', () => {
-        const kinds: string[] = []
-        const record = (out: string[]): RtStateSink => ({
-            uint: value => {
-                if (value < 0) throw new RangeError(`negative uint ${value}`)
-                out.push('u')
+    it('hashes exactly what a save holds after its header, settings and map first, in one fixed order', () => {
+        const record = (out: string[]): RtSaveSink => ({
+            u8: () => { out.push('u8') },
+            u16: () => { out.push('u16') },
+            u32: () => { out.push('u32') },
+            varint: value => {
+                if (value < 0) throw new RangeError(`negative varint ${value}`)
+                out.push('v')
             },
-            int: () => { out.push('i') },
-            bool: () => { out.push('b') },
-            str: () => { out.push('s') },
-            u8s: () => { out.push('a8') },
-            u32s: () => { out.push('a32') }
+            svarint: () => { out.push('s') },
+            bytes: () => { out.push('bytes') },
+            str: () => { out.push('str') }
         })
         const world = populated()
         const train = world.vehicle(0)!
@@ -470,11 +479,15 @@ describe('RtWorld.hash', () => {
         train.cargo[0]!.sourceStation = RT_NONE
         train.orders[0]!.target = RT_NONE
         world.station(0)!.town = RT_NONE
-        rtWalkSavedState(world, record(kinds))
-        expect(kinds.slice(0, 7)).toEqual(['u', 'u', 'b', 'a8', 'a8', 'a8', 'a32'])
+        const calls: string[] = []
+        rtWriteSavedState(record(calls), world)
+        expect(calls.slice(0, 5)).toEqual(['u16', 'u8', 'u8', 'v', 'bytes'])
         const again: string[] = []
-        rtWalkSavedState(world, record(again))
-        expect(again).toEqual(kinds)
+        rtWriteSavedState(record(again), world)
+        expect(again).toEqual(calls)
+        const w = new RtWriter()
+        rtWriteSavedState(w, world)
+        expect(w.finish()).toEqual(encodeWorld(world).subarray(RT_SAVE_MAGIC.length + 2))
         expect(RT_FINANCE_KEYS).toEqual(Object.keys(rtEmptyFinance()))
     })
 })
@@ -602,10 +615,8 @@ describe('RtWorld.resetCompany', () => {
     const EAST = rtTrackdirOf(RtTrack.x, true)
 
     function built() {
-        const w = new RtWorld({
-            settings: { side: 64, maxCompanies: 8, sharing: true }, map: new RtMap(64), rngState: 3, tick: 900, date: rtStartDate(),
-            pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Doomed', 2, 0), rtNewCompany(RIVAL, 'Rival', 5, 0)],
-            towns: [], industries: [], stations: [], vehicles: []
+        const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: true }, {
+            rngState: 3, tick: 900, companies: [rtNewCompany(ME, 'Doomed', 2, 0), rtNewCompany(RIVAL, 'Rival', 5, 0)]
         })
         for (const c of w.companyList()) c.money = 10_000_000
         const at = (x: number, y: number) => w.map.idx(x, y)
@@ -818,10 +829,7 @@ describe('RtWorld.step', () => {
     })
 
     it('a scripted network earns once its train has made two round trips; after every command the kept state matches a rescan; no tick overspends its search budget', () => {
-        const w = new RtWorld({
-            settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 11, tick: 0, date: rtStartDate(),
-            pathfinderCursor: 0, companies: [], towns: [], industries: [], stations: [], vehicles: []
-        })
+        const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, { rngState: 11 })
         // houses round both ends, so passengers come and go. Houses hand cargo only to a station a train
         // has called at, so the first round trip runs empty: the line is short enough for a second one
         for (const [cx, cy] of [[6, 13], [22, 13]]) {
@@ -867,9 +875,8 @@ describe('RtWorld.step', () => {
     })
 
     it('after a company reset another company\'s bus on its former road keeps running and arrives', () => {
-        const w = new RtWorld({
-            settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 4, tick: 0, date: rtStartDate(),
-            pathfinderCursor: 0, companies: [rtNewCompany(0, 'Roads', 0, 0), rtNewCompany(1, 'Buses', 1, 0)], towns: [], industries: [], stations: [], vehicles: []
+        const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, {
+            rngState: 4, companies: [rtNewCompany(0, 'Roads', 0, 0), rtNewCompany(1, 'Buses', 1, 0)]
         })
         const at = (x: number) => w.map.idx(x, 20)
         // town road at both ends, company 0's road between
@@ -899,10 +906,9 @@ describe('RtWorld.step', () => {
     })
 
     it('across 1 January every company rolls this year into last year and every vehicle its profit', () => {
-        const w = new RtWorld({
-            settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 4, tick: 74 * 1000,
-            date: { day: 31, month: 11, year: 1955 }, pathfinderCursor: 0,
-            companies: [rtNewCompany(0, 'Roller', 0, 0), rtNewCompany(1, 'Other', 1, 0)], towns: [], industries: [], stations: [], vehicles: []
+        const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, {
+            rngState: 4, tick: 74 * 1000, date: { day: 31, month: 11, year: 1955 },
+            companies: [rtNewCompany(0, 'Roller', 0, 0), rtNewCompany(1, 'Other', 1, 0)]
         })
         applyCommand(w, 0, { kind: RtCommandKind.buildDepot, tile: w.map.idx(5, 5), vehicleKind: RtVehicleKind.rail, facing: RtDir.sw }, true)
         const v = w.vehicle(applyCommand(w, 0, { kind: RtCommandKind.buyVehicle, depot: w.map.idx(5, 5), model: 0, wagons: [] }, true) as unknown as number)

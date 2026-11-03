@@ -29,7 +29,7 @@ import { encodeWorld } from '../../shared/utils/rail-tycoon/save'
 import { RtAxis } from '../../shared/utils/rail-tycoon/stations-build'
 import { RtTrack } from '../../shared/utils/rail-tycoon/track'
 import { RtOrderKind, RtVehicleKind, RtVehicleState } from '../../shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '../../shared/utils/rail-tycoon/world'
 import { generateWorld } from '../../shared/utils/rail-tycoon/worldgen'
 
 const TICK_MS = RT_CATALOG.time.tickMs
@@ -86,18 +86,12 @@ function sites(seed: number) {
  */
 function buildWorld(seed: number, companies: number, perCompany: number): { world: RtWorld, trains: number } {
     const layout = generateWorld(seed, { side: 256, towns: 28, industryDensity: 2 })
-    const world = new RtWorld({
-        settings: { side: 256, maxCompanies: 8, sharing: false },
+    const world = RtWorld.empty({ side: 256, maxCompanies: 8, sharing: false }, {
         map: layout.map,
         rngState: seed,
-        tick: 0,
-        date: rtStartDate(),
-        pathfinderCursor: 0,
         companies: Array.from({ length: companies }, (_, c) => rtNewCompany(c, `Company ${c}`, c, 0)),
         towns: layout.towns,
-        industries: layout.industries,
-        stations: [],
-        vehicles: []
+        industries: layout.industries
     })
     const map = world.map
     const next = sites(seed)

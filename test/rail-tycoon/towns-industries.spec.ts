@@ -39,18 +39,8 @@ function newIndustry(id: number, type: number, origin: number): RtIndustry {
 }
 
 function newWorld(map: RtMap, towns: RtTown[], industries: RtIndustry[] = [], seed = 1): RtWorld {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 2, sharing: true },
-        map,
-        rngState: seed,
-        tick: 0,
-        date: { day: 1, month: 0, year: 1950 },
-        pathfinderCursor: 0,
-        companies: [],
-        towns,
-        industries,
-        stations: [],
-        vehicles: []
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 2, sharing: true }, {
+        map, rngState: seed, date: { day: 1, month: 0, year: 1950 }, towns, industries
     })
     world.addCompany('A')
     return world

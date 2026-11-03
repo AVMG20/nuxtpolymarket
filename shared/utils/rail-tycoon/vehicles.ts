@@ -101,17 +101,31 @@ export function rtConsistWeight(consist: readonly number[]): number {
 }
 
 /**
+ * The most wagons the engine can pull: the longest consist that fits maxTrainLength tiles of
+ * halfTilesPerVehicle parts and maxTrainVehicles parts. 0 for anything not a locomotive.
+ */
+export function rtMaxWagons(engine: number): number {
+    const spec = RT_VEHICLE_MODELS[engine]
+    if (!spec || spec.role !== 'engine') return 0
+    const vehicles = RT_CATALOG.vehicles
+    const halfTiles = vehicles.maxTrainLength * 2
+    const wagonHalfTiles = Math.max(1, vehicles.halfTilesPerVehicle)
+    const byLength = Math.floor((halfTiles - rtConsistHalfTiles([engine])) / wagonHalfTiles)
+    return Math.max(0, Math.min(byLength, vehicles.maxTrainVehicles - 1))
+}
+
+/**
  * The consist a purchase builds, engine first, or the reason it cannot: invalid for an unknown
  * model, a wagon as the lead model, a part that is not a wagon, wagons behind a road vehicle or a
- * wagons value that is not an array; limit for more parts than maxTrainVehicles (maxTrainLength
- * tiles of half-tile vehicles). Never throws on hostile input.
+ * wagons value that is not an array; limit for more wagons than rtMaxWagons (maxTrainVehicles parts
+ * within maxTrainLength tiles). Never throws on hostile input.
  */
 export function rtPurchaseConsist(model: unknown, wagons: unknown): number[] | RtBuildError {
     const lead = rtModelSpec(model)
     if (!lead || lead.role === 'wagon') return RtBuildError.invalid
     if (!Array.isArray(wagons)) return RtBuildError.invalid
     if (lead.role === 'road') return wagons.length === 0 ? [lead.index] : RtBuildError.invalid
-    if (wagons.length + 1 > RT_CATALOG.vehicles.maxTrainVehicles) return RtBuildError.limit
+    if (wagons.length > rtMaxWagons(lead.index)) return RtBuildError.limit
     const consist = [lead.index]
     for (let k = 0; k < wagons.length; k++) {
         const spec = rtModelSpec(wagons[k])

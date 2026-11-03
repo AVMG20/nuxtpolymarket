@@ -9,7 +9,7 @@ import { RT_ROAD_X, RT_ROAD_Y, RtTrack, buildRail } from '#shared/utils/rail-tyc
 import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld } from '#shared/utils/rail-tycoon/world'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
 const ENGINE = RT_CATALOG.vehicles.models.expressEngine.index
@@ -25,10 +25,7 @@ function town(map: RtMap): RtTown {
 
 function world(): RtWorld {
     const map = new RtMap(64)
-    const w = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing: false }, map, rngState: 11, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [], towns: [town(map)], industries: [], stations: [], vehicles: []
-    })
+    const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, { map, rngState: 11, towns: [town(map)] })
     w.addCompany('Buses')
     return w
 }

@@ -6,7 +6,7 @@ import { rtClearPacketSource, rtDeleteOrdersTo } from '#shared/utils/rail-tycoon
 import { buildDepot } from '#shared/utils/rail-tycoon/depots'
 import { rtEmptyFinance } from '#shared/utils/rail-tycoon/economy'
 import { RT_GUNZIP_MAX_BYTES, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
-import { RT_ROAD_DIR_BIT, RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RT_ROAD_DIR_BIT, RtDir, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { SeededRandom } from '#shared/utils/random'
 import { buyVehicle, sellVehicle } from '#shared/utils/rail-tycoon/vehicles'
 import {
@@ -101,14 +101,11 @@ function busyWorld(side: number, vehicleCount: number): RtWorld {
 }
 
 function emptyWorld(): RtWorld {
-    return new RtWorld({
-        settings: { side: 64, maxCompanies: 4, sharing: false },
-        map: new RtMap(64),
+    return RtWorld.empty({ side: 64, maxCompanies: 4, sharing: false }, {
         rngState: 0xdeadbeef,
         tick: 987654321,
         date: { day: 14, month: 6, year: 1962 },
-        pathfinderCursor: 31,
-        companies: [], towns: [], industries: [], stations: [], vehicles: []
+        pathfinderCursor: 31
     })
 }
 
@@ -862,14 +859,11 @@ function capWorld(): RtWorld {
     const caps = RT_CATALOG.caps
     const side = 256
     const rng = new SeededRandom(0xca95)
-    const world = new RtWorld({
-        settings: { side, maxCompanies: caps.maxCompanies, sharing: true },
-        map: new RtMap(side),
+    const world = RtWorld.empty({ side, maxCompanies: caps.maxCompanies, sharing: true }, {
         rngState: 0x1234abcd,
         tick: 5_000_000,
         date: { day: 3, month: 4, year: 1999 },
-        pathfinderCursor: 1234,
-        companies: [], towns: [], industries: [], stations: [], vehicles: []
+        pathfinderCursor: 1234
     })
     for (let id = 0; id < caps.maxCompanies; id++) world.insertCompany(rtNewCompany(id, `Company ${id + 1}`, id, 0))
     const perCargo = () => RT_CARGO_IDS.map(() => rng.randomInt(0, 100_000))
@@ -1002,10 +996,9 @@ function expectLockstep(live: RtWorld, copy: RtWorld, ticks: number, commands?: 
  * reservations, and one is broken down.
  */
 function networkWorld(): RtWorld {
-    const world = new RtWorld({
-        settings: { side: 64, maxCompanies: 4, sharing: true }, map: new RtMap(64), rngState: 0x5eed, tick: 74 * 400,
-        date: { day: 24, month: 11, year: 1962 }, pathfinderCursor: 0,
-        companies: [rtNewCompany(0, 'Alpha', 0, 0), rtNewCompany(1, 'Beta', 1, 0)], towns: [], industries: [], stations: [], vehicles: []
+    const world = RtWorld.empty({ side: 64, maxCompanies: 4, sharing: true }, {
+        rngState: 0x5eed, tick: 74 * 400, date: { day: 24, month: 11, year: 1962 },
+        companies: [rtNewCompany(0, 'Alpha', 0, 0), rtNewCompany(1, 'Beta', 1, 0)]
     })
     const map = world.map
     const at = (x: number, y: number) => map.idx(x, y)

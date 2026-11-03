@@ -13,22 +13,19 @@
 import { RT_CATALOG } from './catalog'
 import { RT_ROAD_DIR_BIT, RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
 import {
-    RT_STATION_AXIS_BIT,
     RtStationTile,
+    rtBayFacingAt,
+    rtDrivableRoadBits,
     rtRoadLaneExit,
-    rtRoadStopFacing,
-    rtRoadStopIsBay,
+    rtRoadStopBits,
     rtStationId,
     rtStationTileType
 } from './stations-build'
 import { rtDepotFacing, rtDepotKind } from './depots'
 import { rtOneWayBlocked, rtPieceReserved, rtSignalGreen, rtSignalOnTrackdir, rtSignalTypeAt, RtSignalType } from './signals'
 import {
-    RT_ROAD_X,
-    RT_ROAD_Y,
     RT_TRACKDIR_END,
     followTrack,
-    rtCrossingRoadBits,
     rtIsCrossing,
     rtReverseTrackdir,
     rtTileCorners,
@@ -493,24 +490,13 @@ const ROAD_STRIDE = 4
  * when it is a goal or the start, so neither is ever a way through; nothing else.
  */
 function roadBitsAt(map: RtMap, tile: number, goals: Set<number>, start: number): number {
+    // a bay and a road depot are entered only as the search's start or goal
+    const bound = goals.has(tile) || tile === start
     const payload = map.payload[tile]!
-    switch (map.kind[tile]) {
-        case RtTileKind.road:
-            return payload & 15
-        case RtTileKind.rail:
-            return rtIsCrossing(payload) ? rtCrossingRoadBits(payload) : 0
-        case RtTileKind.station: {
-            const type = rtStationTileType(payload)
-            if (type === RtStationTile.rail) return 0
-            if (rtRoadStopIsBay(payload)) return goals.has(tile) || tile === start ? RT_ROAD_DIR_BIT[rtRoadStopFacing(payload)]! : 0
-            return (payload & RT_STATION_AXIS_BIT) !== 0 ? RT_ROAD_Y : RT_ROAD_X
-        }
-        case RtTileKind.depot:
-            if (rtDepotKind(payload) !== RtVehicleKind.road || (!goals.has(tile) && tile !== start)) return 0
-            return RT_ROAD_DIR_BIT[rtDepotFacing(payload)]!
-        default:
-            return 0
-    }
+    if (rtBayFacingAt(map, tile) >= 0) return bound ? rtRoadStopBits(payload) : 0
+    if (map.kind[tile] !== RtTileKind.depot) return rtDrivableRoadBits(map, tile)
+    if (rtDepotKind(payload) !== RtVehicleKind.road || !bound) return 0
+    return RT_ROAD_DIR_BIT[rtDepotFacing(payload)]!
 }
 
 /**

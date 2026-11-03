@@ -34,6 +34,7 @@ import {
     rtIsCrossing,
     rtPieceEdges,
     rtPieceTrackdirs,
+    rtRailCanExit,
     rtRailDepotFacing,
     rtRailPieceReserved,
     rtRailPieces,
@@ -92,6 +93,36 @@ export function rtSignalTypeAt(map: RtMap, tile: number, piece: number): number 
     const k = slotOf(payload, piece & 7)
     if (k < 0) return -1
     return (rtSignalSlot(payload, k) & RT_SIGNAL_PATH) !== 0 ? RtSignalType.path : RtSignalType.block
+}
+
+/** A signal on a rail tile as a reader sees it; both pairs are indexed by half: 0 the piece's trackdir, 1 its reverse. */
+export interface RtTileSignal {
+    piece: number
+    type: RtSignalType
+    /** Whether it faces trains travelling that way. */
+    faces: readonly [boolean, boolean]
+    /** Whether the side facing that way shows green. */
+    green: readonly [boolean, boolean]
+}
+
+/** The signals on a tile in slot order; none on a crossing or a tile that is not rail. */
+export function rtTileSignals(map: RtMap, tile: number): RtTileSignal[] {
+    if (!map.validTile(tile) || map.kind[tile] !== RtTileKind.rail) return []
+    const payload = map.payload[tile]!
+    if (rtIsCrossing(payload)) return []
+    const out: RtTileSignal[] = []
+    for (let k = 0; k < 2; k++) {
+        const slot = rtSignalSlot(payload, k)
+        const piece = slot & RT_SIGNAL_PIECE_MASK
+        if (piece >= RT_TRACK_COUNT) continue
+        out.push({
+            piece,
+            type: (slot & RT_SIGNAL_PATH) !== 0 ? RtSignalType.path : RtSignalType.block,
+            faces: [(slot & HALF_PRESENCE[0]) !== 0, (slot & HALF_PRESENCE[1]) !== 0],
+            green: [(slot & HALF_ASPECT[0]) !== 0, (slot & HALF_ASPECT[1]) !== 0]
+        })
+    }
+    return out
 }
 
 /** Whether a signal on the tile faces trains travelling `td` (governs them entering the tile). */
@@ -283,23 +314,15 @@ function floodBlock(map: RtMap, seedTile: number, seedPiece: number, seedTd: num
     /** Takes in a tile entered through `entry` (-1 for the seed tile itself). */
     const take = (tile: number, entry: number) => {
         const kind = map.kind[tile]
-        if (kind === RtTileKind.depot) {
-            const facing = rtRailDepotFacing(map, tile)
-            if (facing < 0) return
-            if (entry >= 0 && entry !== facing) return
-            addNode(tile, (facing & 1) === 0 ? RtTrack.x : RtTrack.y, true)
-            if (entry < 0) leave(tile, facing as RtDir)
-            return
-        }
-        if (kind === RtTileKind.station) {
+        if (kind === RtTileKind.depot || kind === RtTileKind.station) {
+            // a platform or rail depot holds one straight piece, and a depot opens at its entrance only
             const pieces = rtRailTilePieces(map, tile)
-            if (pieces === 0) return
+            if (pieces === 0 || (entry >= 0 && !rtRailCanExit(map, tile, entry as RtDir))) return
             const piece = pieces === 1 << RtTrack.x ? RtTrack.x : RtTrack.y
-            const [a, b] = rtPieceEdges(piece)
-            if (entry >= 0 && entry !== a && entry !== b) return
             addNode(tile, piece, true)
-            if (entry !== a) leave(tile, a)
-            if (entry !== b) leave(tile, b)
+            for (const edge of rtPieceEdges(piece)) {
+                if (edge !== entry && rtRailCanExit(map, tile, edge)) leave(tile, edge)
+            }
             return
         }
         if (kind !== RtTileKind.rail) return

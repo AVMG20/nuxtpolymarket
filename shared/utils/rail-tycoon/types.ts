@@ -355,3 +355,11 @@ export interface RtVehicle {
     /** Profit last year (money). */
     profitLastYear: number
 }
+
+/** What the simulation tells a watching client as it happens: not state, never saved or hashed. */
+export interface RtWorldEvents {
+    /** A delivery paid the vehicle's owner; `profit` is the vehicle's share after station sharing. */
+    payment(vehicle: RtVehicle, profit: number): void
+    /** A vehicle was added or removed. */
+    vehicles(): void
+}

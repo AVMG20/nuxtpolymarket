@@ -16,7 +16,7 @@ import { RT_CATALOG } from './catalog'
 import { chargeSharing, railSharingFee } from './economy'
 import { rtIsForeignCrossing } from './inspector'
 import { RtTileKind, type RtMap } from './map'
-import { advanceOrder, rtCurrentOrder } from './orders'
+import { rtCurrentOrder } from './orders'
 import { findRailRoute, rtDepotTarget, rtStationRailTarget, RtRouteOutcome, type RtRouteTarget } from './pathfinder'
 import { RtParkingOutcome, findParkingTarget, rtCanReverse, rtIsSiding } from './sidings'
 import {
@@ -33,8 +33,7 @@ import {
     rtSignalOnTrackdir,
     rtSignalTypeAt,
     RtSignalType,
-    updateSignalStates,
-    type RtTrainOnPiece
+    updateSignalStates
 } from './signals'
 import { RtStationTile, rtStationId, rtStationTileType } from './stations-build'
 import {
@@ -55,29 +54,29 @@ import {
     rtConsistMaxSpeed,
     rtConsistPower,
     rtConsistWeight,
-    rtCountRunningTick,
-    rtServiceInDepot
+    rtCountRunningTick
 } from './vehicles'
+import {
+    rtArriveInDepot,
+    rtCompactRoute,
+    rtCrashCountdown,
+    rtJustLeft,
+    rtLoadTick,
+    rtSetRoute,
+    rtStateOf,
+    type RtVehicleHooks,
+    type RtVehicleStepResult
+} from './vehicle-common'
 import type { RtWorld } from './world'
 
-/** What happens at a station stop (loading.ts supplies it). Without hooks a stop ends on the next tick. */
-export interface RtTrainHooks {
-    /** The head stopped at the end of its target platform. */
-    arrive?(world: RtWorld, vehicle: RtVehicle, station: number): void
-    /** One loading step; true when the train may leave. */
-    loadStep?(world: RtWorld, vehicle: RtVehicle): boolean
-}
-
-export interface RtTrainStepResult {
-    /** A crashed train whose crash period ran out: the caller removes it (rtRemoveTrain). */
-    remove: boolean
-    /** The train ran a route search this tick (for RtWorld.step's round-robin cursor). */
-    searched: boolean
-}
+export type RtTrainHooks = RtVehicleHooks
+export type RtTrainStepResult = RtVehicleStepResult
 
 const M = RT_CATALOG.movement
 const SIG = RT_CATALOG.signals
 const PF = RT_CATALOG.pathfinder
+/** Bound on the tiles one train enters in a tick: far above any speed's reach, it only stops a loop. */
+const ENTRIES_PER_TICK = 64
 
 /** Length of a trackdir's piece in progress units. */
 export function rtPieceLength(td: number): number {
@@ -95,13 +94,10 @@ export function rtDepotExitTrackdir(map: RtMap, depot: number): number {
     return -1
 }
 
-function trainOnPieceOf(world: RtWorld): RtTrainOnPiece {
-    return (tile, piece, except) => world.occupied.otherTrainOnPiece(tile, piece, except) !== RT_NONE
-}
 
 /** Recomputes the signals around `tiles` and marks every changed tile dirty. */
 function refreshSignals(world: RtWorld, tiles: Iterable<number>): void {
-    const changed = updateSignalStates(world.map, trainOnPieceOf(world), tiles, world.settings.sharing)
+    const changed = updateSignalStates(world.map, world.occupied.otherTrainOn, tiles, world.settings.sharing)
     for (const tile of changed) world.markDirty(tile)
 }
 
@@ -138,14 +134,6 @@ export function rtRemoveTrain(world: RtWorld, vehicle: RtVehicle): void {
     refreshSignals(world, tiles)
 }
 
-/** Points the train at a new route from its head (no reservation ahead may be held). */
-function setRoute(world: RtWorld, vehicle: RtVehicle, route: number[]): void {
-    vehicle.route = route.slice(0, RT_CATALOG.caps.maxRouteLength)
-    vehicle.routeIndex = 0
-    vehicle.reservedEnd = 0
-    vehicle.routeTick = world.tick
-}
-
 /**
  * Turns the train round: its tile list and trackdirs flip, the reservation ahead is released,
  * and it stands still with a stale route, to reserve and search again from its new head.
@@ -170,22 +158,13 @@ export function rtReverseTrain(world: RtWorld, vehicle: RtVehicle): void {
     vehicle.waitTicks = 0
 }
 
-/**
- * Whether the train has just left `station` and still stands on it: after loading, loadingStation
- * keeps the station until the head is off its platform, and the train never stops twice in a row at
- * one station, as the original (a single-order train drives on and comes back round).
- */
-function justLeft(vehicle: RtVehicle, station: number): boolean {
-    return vehicle.state !== RtVehicleState.loading && station !== RT_NONE && vehicle.loadingStation === station
-}
-
 /** Where the current order (or a pending service visit) sends the train; null when it has nowhere to go. */
 function orderTarget(world: RtWorld, vehicle: RtVehicle): RtRouteTarget | null {
     if (vehicle.serviceDepot !== RT_NONE) return rtDepotTarget(vehicle.serviceDepot)
     const order = rtCurrentOrder(vehicle)
     if (!order) return null
     if (order.kind === RtOrderKind.gotoDepot) return world.map.validTile(order.target) ? rtDepotTarget(order.target) : null
-    if (justLeft(vehicle, order.target)) return null
+    if (rtJustLeft(vehicle, order.target)) return null
     const station = world.station(order.target)
     return station ? rtStationRailTarget(world.map, station) : null
 }
@@ -194,7 +173,7 @@ function orderTarget(world: RtWorld, vehicle: RtVehicle): RtRouteTarget | null {
 function targetStation(vehicle: RtVehicle): number {
     if (vehicle.state === RtVehicleState.parking || vehicle.serviceDepot !== RT_NONE) return RT_NONE
     const order = rtCurrentOrder(vehicle)
-    return order && order.kind === RtOrderKind.gotoStation && !justLeft(vehicle, order.target) ? order.target : RT_NONE
+    return order && order.kind === RtOrderKind.gotoStation && !rtJustLeft(vehicle, order.target) ? order.target : RT_NONE
 }
 
 function isPlatformOf(map: RtMap, tile: number, station: number): boolean {
@@ -220,7 +199,7 @@ function plan(world: RtWorld, vehicle: RtVehicle): boolean {
         world.pathNodesLeft = Math.max(0, world.pathNodesLeft - found.nodes)
         if (found.outcome === RtParkingOutcome.found) {
             if (found.reverse) rtReverseTrain(world, vehicle)
-            setRoute(world, vehicle, found.route)
+            rtSetRoute(world, vehicle, found.route)
             vehicle.lostRetryTick = RT_NONE
             return true
         }
@@ -241,7 +220,7 @@ function plan(world: RtWorld, vehicle: RtVehicle): boolean {
     world.pathNodesLeft = Math.max(0, world.pathNodesLeft - result.nodes)
     if (result.outcome === RtRouteOutcome.deferred) return result.nodes > 0
     if (result.reverse) rtReverseTrain(world, vehicle)
-    setRoute(world, vehicle, result.route)
+    rtSetRoute(world, vehicle, result.route)
     if (result.outcome === RtRouteOutcome.found) {
         vehicle.lost = false
         if (vehicle.state !== RtVehicleState.parking) vehicle.lostRetryTick = RT_NONE
@@ -327,32 +306,10 @@ function trimTail(world: RtWorld, vehicle: RtVehicle, keep: number, dirty: Set<n
 
 /** The train drives into a depot: it leaves the track, is serviced and runs its depot order. */
 function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number, dirty: Set<number>): void {
-    for (const tile of vehicle.tiles) dirty.add(tile)
     releaseAllFor(world.map, vehicle)
-    world.occupied.releaseVehicle(vehicle.id)
-    world.occupied.enterDepot(vehicle.id, depot)
-    dirty.add(depot)
     const exitTd = rtDepotExitTrackdir(world.map, depot)
-    vehicle.state = RtVehicleState.inDepot
-    vehicle.tiles = [depot]
-    vehicle.pieces = [exitTd >= 0 ? exitTd : vehicle.pieces[0]!]
-    vehicle.direction = vehicle.pieces[0]!
-    vehicle.progress = 0
-    vehicle.speed = 0
-    vehicle.subspeed = 0
-    vehicle.route = []
-    vehicle.routeIndex = 0
-    vehicle.reservedEnd = 0
-    vehicle.routeTick = RT_NONE
+    rtArriveInDepot(world, vehicle, depot, exitTd >= 0 ? exitTd : vehicle.pieces[0]!, tile => dirty.add(tile))
     vehicle.waitTicks = 0
-    const parking = vehicle.stopped
-    // sent here by sendToDepot: it stops inside until started
-    const halt = vehicle.haltInDepot
-    vehicle.haltInDepot = false
-    rtServiceInDepot(world, vehicle, depot, world.tick)
-    const order = rtCurrentOrder(vehicle)
-    if (order && order.kind === RtOrderKind.gotoDepot && order.target === depot) advanceOrder(vehicle, world.stations, world.map)
-    if (parking || halt) vehicle.stopped = true
 }
 
 /** The speed loss of entering a piece from another: a 45-degree turn, a 90-degree turn, a climb. */
@@ -370,75 +327,66 @@ function entrySpeed(world: RtWorld, vehicle: RtVehicle, from: number, fromTd: nu
 
 const enum Enter { entered, held, depot }
 
-/**
- * The head stands at its tile's edge: enter the next tile if it may. A refusal
- * leaves the train where it is, counting its wait, and may turn it round.
- */
-function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter {
+/** The end of the line: a parking train parks on its spot, any other turns round. */
+function endOfLine(world: RtWorld, vehicle: RtVehicle): void {
     const map = world.map
     const head = vehicle.tiles[0]!
-    const { next, bits } = ahead(world, vehicle)
-    if (bits === 0) {
-        // the end of the line: a parking train parks on its spot, any other turns round
-        if (vehicle.state === RtVehicleState.parking && map.kind[head] === RtTileKind.rail && rtIsSiding(map.payload[head]!)) {
-            vehicle.state = RtVehicleState.parked
-            vehicle.speed = 0
-            vehicle.subspeed = 0
-            rtReleaseAhead(map, vehicle)
-            return Enter.held
-        }
-        rtReverseTrain(world, vehicle)
-        return Enter.held
-    }
-    const station = targetStation(vehicle)
-    let { td, fromRoute } = chooseTrackdir(vehicle, bits)
-    if (station !== RT_NONE && isPlatformOf(map, head, station) && !(isPlatformOf(map, next, station))) {
-        vehicle.state = RtVehicleState.loading
-        vehicle.loadingStation = station
+    if (vehicle.state === RtVehicleState.parking && map.kind[head] === RtTileKind.rail && rtIsSiding(map.payload[head]!)) {
+        vehicle.state = RtVehicleState.parked
         vehicle.speed = 0
         vehicle.subspeed = 0
-        vehicle.waitTicks = 0
-        return Enter.held
+        rtReleaseAhead(map, vehicle)
+        return
     }
+    rtReverseTrain(world, vehicle)
+}
 
+/** At the end of its target platform the train stops to load; true when it did. */
+function stopsAtPlatform(world: RtWorld, vehicle: RtVehicle, next: number): boolean {
+    const station = targetStation(vehicle)
+    if (station === RT_NONE || !isPlatformOf(world.map, vehicle.tiles[0]!, station) || isPlatformOf(world.map, next, station)) return false
+    vehicle.state = RtVehicleState.loading
+    vehicle.loadingStation = station
+    vehicle.speed = 0
+    vehicle.subspeed = 0
+    vehicle.waitTicks = 0
+    return true
+}
+
+/**
+ * Whether traffic or a signal holds the train before `next` along `td`, counting its wait (which may
+ * turn it round). A path signal, or a block behind one, holds it until a path reserves.
+ */
+function heldBefore(world: RtWorld, vehicle: RtVehicle, next: number, td: number): boolean {
+    const map = world.map
     // another company's train on the piece ahead: wait as at red; after the two-way wait the higher id turns round
-    const blockers = trainsAcross(world, next, td & 7, vehicle.id)
-    const foreign = blockers.find(id => world.vehicle(id)?.owner !== vehicle.owner)
+    const foreign = trainsAcross(world, next, td & 7, vehicle.id).find(id => world.vehicle(id)?.owner !== vehicle.owner)
     if (foreign !== undefined) {
         waitAt(world, vehicle, vehicle.id > foreign ? SIG.twoWaySignalWaitTicks : 0)
-        return Enter.held
+        return true
     }
     if (roadVehicleCrossing(world, next)) {
         waitAt(world, vehicle, 0)
-        return Enter.held
+        return true
     }
+    const signal = rtSignalOnTrackdir(map, next, td)
+    if (signal && rtSignalTypeAt(map, next, td & 7) !== RtSignalType.path) {
+        if (rtSignalGreen(map, next, td)) return false
+        waitAt(world, vehicle, rtSignalOnTrackdir(map, next, td ^ 8) ? SIG.twoWaySignalWaitTicks : 0)
+        return true
+    }
+    // a path signal ahead, or a block that has one: a path must reserve first, unless one already is
+    const sharing = world.settings.sharing
+    if (vehicle.routeIndex < vehicle.reservedEnd || (!signal && !blockHasPathSignal(map, next, td, sharing))) return false
+    if (reservePath(map, vehicle, vehicle.route, vehicle.routeIndex, world.occupied.otherTrainOn, sharing) !== 0) return false
+    waitAt(world, vehicle, SIG.pathWaitTicks)
+    return true
+}
 
-    const trainOnPiece = trainOnPieceOf(world)
-    const reserved = vehicle.routeIndex < vehicle.reservedEnd
-    if (rtSignalOnTrackdir(map, next, td)) {
-        if (rtSignalTypeAt(map, next, td & 7) === RtSignalType.path) {
-            if (!reserved && reservePath(map, vehicle, vehicle.route, vehicle.routeIndex, trainOnPiece, world.settings.sharing) === 0) {
-                waitAt(world, vehicle, SIG.pathWaitTicks)
-                return Enter.held
-            }
-        } else if (!rtSignalGreen(map, next, td)) {
-            const twoWay = rtSignalOnTrackdir(map, next, td ^ 8)
-            waitAt(world, vehicle, twoWay ? SIG.twoWaySignalWaitTicks : 0)
-            return Enter.held
-        }
-    } else if (!reserved && blockHasPathSignal(map, next, td, world.settings.sharing)) {
-        if (reservePath(map, vehicle, vehicle.route, vehicle.routeIndex, trainOnPiece, world.settings.sharing) === 0) {
-            waitAt(world, vehicle, SIG.pathWaitTicks)
-            return Enter.held
-        }
-    }
-    // a reservation walk may have extended the route: follow it
-    const planned = vehicle.route[vehicle.routeIndex]
-    if (planned !== undefined && (bits & (1 << planned)) !== 0) {
-        td = planned
-        fromRoute = true
-    }
-
+/** The head moves onto `td` in `next`: it holds and reserves the piece, loses speed to the turn or climb and pays for foreign track. */
+function enterPiece(world: RtWorld, vehicle: RtVehicle, next: number, td: number, fromRoute: boolean, dirty: Set<number>): void {
+    const map = world.map
+    const head = vehicle.tiles[0]!
     const fromTd = vehicle.pieces[0]!
     const piece = td & 7
     vehicle.tiles.unshift(next)
@@ -453,14 +401,20 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
         if (rtSetSignalAspect(map, next, td, false)) dirty.add(next)
     }
     entrySpeed(world, vehicle, head, fromTd, next, td)
-
     const owner = map.owner[next]!
     if (owner !== vehicle.owner) chargeSharing(world, vehicle.owner, owner, railSharingFee(world), 'rail')
+}
 
-    if (map.kind[next] === RtTileKind.rail && rtIsCrossing(map.payload[next]!)) {
+/**
+ * What the train hits on the piece it entered: road vehicles on a crossing are crashed (on one
+ * without barriers, inspector.ts, the train may derail too), and an own train across it crashes both.
+ */
+function resolveCollisions(world: RtWorld, vehicle: RtVehicle, tile: number, piece: number): void {
+    const map = world.map
+    if (map.kind[tile] === RtTileKind.rail && rtIsCrossing(map.payload[tile]!)) {
         let hit = false
         for (let lane = 0; lane < 4; lane++) {
-            for (const id of [...world.occupied.roadVehiclesInLane(next, lane)]) {
+            for (const id of [...world.occupied.roadVehiclesInLane(tile, lane)]) {
                 const car = world.vehicle(id)
                 if (car && car.state !== RtVehicleState.crashed) {
                     rtCrashVehicle(world, car)
@@ -468,17 +422,39 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
                 }
             }
         }
-        // a crossing without barriers (inspector.ts): hitting a road vehicle there may derail the train
         const rules = RT_CATALOG.inspector
-        if (hit && rtIsForeignCrossing(map, next) && world.rng.randomRatio(rules.derailNumerator, rules.derailDenominator)) rtCrashVehicle(world, vehicle)
+        if (hit && rtIsForeignCrossing(map, tile) && world.rng.randomRatio(rules.derailNumerator, rules.derailDenominator)) rtCrashVehicle(world, vehicle)
     }
-    for (const id of trainsAcross(world, next, piece, vehicle.id)) {
+    for (const id of trainsAcross(world, tile, piece, vehicle.id)) {
         const other = world.vehicle(id)
         if (other && other.owner === vehicle.owner) {
             rtCrashVehicle(world, other)
             rtCrashVehicle(world, vehicle)
         }
     }
+}
+
+/**
+ * The head stands at its tile's edge: enter the next tile if it may. A refusal
+ * leaves the train where it is, counting its wait, and may turn it round.
+ */
+function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter {
+    const map = world.map
+    const { next, bits } = ahead(world, vehicle)
+    if (bits === 0) {
+        endOfLine(world, vehicle)
+        return Enter.held
+    }
+    let { td, fromRoute } = chooseTrackdir(vehicle, bits)
+    if (stopsAtPlatform(world, vehicle, next) || heldBefore(world, vehicle, next, td)) return Enter.held
+    // a reservation walk may have extended the route: follow it
+    const planned = vehicle.route[vehicle.routeIndex]
+    if (planned !== undefined && (bits & (1 << planned)) !== 0) {
+        td = planned
+        fromRoute = true
+    }
+    enterPiece(world, vehicle, next, td, fromRoute, dirty)
+    resolveCollisions(world, vehicle, next, td & 7)
     if (vehicle.state === RtVehicleState.crashed) return Enter.held
 
     if (map.kind[next] === RtTileKind.depot) {
@@ -486,12 +462,7 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
         return Enter.depot
     }
     trimTail(world, vehicle, rtConsistLengthTiles(vehicle.consist) + 1, dirty)
-    if (vehicle.routeIndex > 256 && vehicle.routeIndex >= vehicle.reservedEnd) {
-        const cut = vehicle.routeIndex
-        vehicle.route.splice(0, cut)
-        vehicle.routeIndex = 0
-        vehicle.reservedEnd = 0
-    }
+    rtCompactRoute(vehicle)
     return Enter.entered
 }
 
@@ -510,7 +481,7 @@ function leaveDepot(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): voi
     if (trainsAcross(world, next, td & 7, vehicle.id).length > 0) return
     // the depot works as a block signal; into a path block, the reservation in tryEnter decides instead
     const sharing = world.settings.sharing
-    if (!blockHasPathSignal(map, next, td, sharing) && rtDepotBlockOccupied(map, depot, trainOnPieceOf(world), sharing)) return
+    if (!blockHasPathSignal(map, next, td, sharing) && rtDepotBlockOccupied(map, depot, world.occupied.otherTrainOn, sharing)) return
     world.occupied.leaveDepot(vehicle.id, depot)
     world.occupied.holdPiece(vehicle.id, depot, exitTd & 7)
     rtSetPieceReserved(map, depot, exitTd & 7, true)
@@ -528,10 +499,6 @@ function leaveDepot(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): voi
         vehicle.progress = 0
     }
     dirty.add(depot)
-}
-
-function stateOf(vehicle: RtVehicle): RtVehicleState {
-    return vehicle.state
 }
 
 /**
@@ -572,11 +539,7 @@ function updateSpeed(world: RtWorld, vehicle: RtVehicle): void {
 export function stepTrain(world: RtWorld, vehicle: RtVehicle, hooks?: RtTrainHooks): RtTrainStepResult {
     const result: RtTrainStepResult = { remove: false, searched: false }
     if (vehicle.kind !== RtVehicleKind.rail || vehicle.tiles.length === 0 || vehicle.tiles.length !== vehicle.pieces.length) return result
-    if (vehicle.state === RtVehicleState.crashed) {
-        vehicle.crashTicks = Math.max(0, vehicle.crashTicks - 1)
-        result.remove = vehicle.crashTicks === 0
-        return result
-    }
+    if (rtCrashCountdown(vehicle, result)) return result
     rtCountRunningTick(vehicle)
     if (rtBreakdownTick(vehicle)) return result
 
@@ -603,20 +566,14 @@ export function stepTrain(world: RtWorld, vehicle: RtVehicle, hooks?: RtTrainHoo
         return result
     }
     if (vehicle.state === RtVehicleState.loading) {
-        const done = hooks?.loadStep ? hooks.loadStep(world, vehicle) : true
-        if (done) {
-            // loadingStation stays until the train is off the platform (justLeft)
-            vehicle.state = RtVehicleState.driving
-            advanceOrder(vehicle, world.stations, world.map)
-            vehicle.routeTick = RT_NONE
-        }
+        rtLoadTick(world, vehicle, hooks)
         return result
     }
 
     result.searched = plan(world, vehicle)
     updateSpeed(world, vehicle)
     let budget = vehicle.speed > 0 ? Math.max(1, Math.floor(vehicle.speed * M.advanceNumerator / M.advanceDenominator)) : 0
-    for (let guard = 0; guard < 64; guard++) {
+    for (let guard = 0; guard < ENTRIES_PER_TICK; guard++) {
         const length = rtPieceLength(vehicle.pieces[0]!)
         if (vehicle.progress < length) {
             const step = Math.min(budget, length - vehicle.progress)
@@ -629,8 +586,7 @@ export function stepTrain(world: RtWorld, vehicle: RtVehicle, hooks?: RtTrainHoo
         vehicle.progress = 0
         if (budget <= 0) break
     }
-    // read through a call: TypeScript narrows vehicle.state from the checks above, but tryEnter changes it
-    const after = stateOf(vehicle)
+    const after = rtStateOf(vehicle)
     // a loading train returned above, so loading here means it has just arrived
     if (after === RtVehicleState.loading) hooks?.arrive?.(world, vehicle, vehicle.loadingStation)
     if (after === RtVehicleState.driving || after === RtVehicleState.parking || after === RtVehicleState.parked) {

@@ -3,22 +3,32 @@
  * stamped command stream at the same ticks, so applyCommand is deterministic, never throws and
  * refuses anything the UI could not have produced the same way as an illegal move (Michael,
  * 2026-10-29). The build and vehicle rules decide what is possible; this layer adds
- * ownership, money, caps, the line and area drags and the signal refresh.
+ * ownership, money, caps, the line and area drags and the signal refresh. Each kind has one entry in
+ * RULES; its wire form is in command-codec.ts.
  */
 
-import { clampUtf8, RtBadData, RtReader, RtWriter } from './bytes'
 import { RT_CATALOG } from './catalog'
+import {
+    RT_SERVER_COMPANY,
+    RtCommandError,
+    RtCommandKind,
+    type RtCommand,
+    type RtCommandOf,
+    type RtCommandResult
+} from './command-kinds'
+import { decodeCommand, encodeCommand, rtLineShape } from './command-codec'
+import { rtCleanCompanyName, rtNameSkeleton } from './company-names'
 import { demolishTile } from './demolish'
-import { buildDepot, rtDepotKind } from './depots'
+import { buildDepot, rtDepotTiles } from './depots'
 import { bookMoney, changeLoan } from './economy'
 import { rtCountTiles } from './infrastructure'
 import { rtRecordCrossings } from './inspector'
-import { RT_MAP_SIDES, RtTileKind, type RtDir, type RtMap } from './map'
-import { RT_MAX_ORDERS, RT_ORDER_FLAG_MASK, rtReplaceOrders, validateOrders } from './orders'
+import { RtTileKind, type RtDir, type RtMap } from './map'
+import { rtReplaceOrders, validateOrders } from './orders'
 import { findRailRoute, findRoadRoute, RtRouteOutcome } from './pathfinder'
-import { buildRoad, removeRoad } from './road'
+import { buildRoad, removeRoad, rtRoadBits } from './road'
 import { buildSiding, removeSiding, rtCanReverse } from './sidings'
-import { placeSignal, rtReservationHooks, RtSignalType, updateSignalStates, type RtTrainOnPiece } from './signals'
+import { placeSignal, rtReservationHooks, updateSignalStates } from './signals'
 import {
     buildRailStation,
     buildRoadStop,
@@ -35,7 +45,6 @@ import {
     RT_ROAD_X,
     RT_ROAD_Y,
     RT_TRACK_COUNT,
-    RtBuildError,
     rtIsCrossing,
     rtRailTilePieces,
     rtTrackdirDirection,
@@ -47,102 +56,12 @@ import {
     type RtBuildResult
 } from './track'
 import { rtReverseTrain } from './train'
-import { RT_NONE, RT_OWNER_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtCompany, type RtFinance, type RtOrder, type RtStation, type RtVehicle } from './types'
+import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtCompany, type RtFinance, type RtStation, type RtVehicle } from './types'
 import { buyVehicle, sellVehicle } from './vehicles'
-import { rtCleanCompanyName, rtNameSkeleton, type RtWorld } from './world'
+import type { RtWorld } from './world'
 
-/** Command kinds. Fixed for protocol version 1 (the encoder writes them as a u8); a new one takes a new value. */
-export const RtCommandKind = {
-    buildRail: 0,
-    buildRailLine: 1,
-    removeRail: 2,
-    buildRoad: 3,
-    buildRoadLine: 4,
-    removeRoad: 5,
-    buildRailStation: 6,
-    buildRoadStop: 7,
-    buildDepot: 8,
-    placeSignal: 9,
-    demolish: 10,
-    demolishArea: 11,
-    buyVehicle: 12,
-    sellVehicle: 13,
-    setOrders: 14,
-    startStop: 15,
-    sendToDepot: 16,
-    reverseTrain: 17,
-    changeLoan: 18,
-    renameCompany: 19,
-    buildSiding: 20,
-    removeSiding: 21,
-    /** Server-only: a player joins a world. decodeClientMsg refuses it from clients. */
-    foundCompany: 22
-} as const
-export type RtCommandKind = typeof RtCommandKind[keyof typeof RtCommandKind]
-
-export type RtCommand =
-    | { kind: typeof RtCommandKind.buildRail, tile: number, piece: number }
-    /** A drag along a trackdir from tile to endTile, inclusive; diagonal drags alternate the two pieces. */
-    | { kind: typeof RtCommandKind.buildRailLine, tile: number, endTile: number, trackdir: number }
-    | { kind: typeof RtCommandKind.removeRail, tile: number, piece: number }
-    | { kind: typeof RtCommandKind.buildRoad, tile: number, bits: number }
-    /** A straight drag from tile to endTile, inclusive, on one row or one column. */
-    | { kind: typeof RtCommandKind.buildRoadLine, tile: number, endTile: number }
-    | { kind: typeof RtCommandKind.removeRoad, tile: number, bits: number }
-    | { kind: typeof RtCommandKind.buildRailStation, tile: number, axis: number, tracks: number, length: number }
-    /**
-     * A bus or truck stop; shape is an RtRoadStopShape, auto (a drive-through stop along the road there)
-     * when left out, as every stop command before bays.
-     */
-    | { kind: typeof RtCommandKind.buildRoadStop, tile: number, stop: number, shape?: number }
-    | { kind: typeof RtCommandKind.buildDepot, tile: number, vehicleKind: number, facing: number }
-    | { kind: typeof RtCommandKind.placeSignal, tile: number, piece: number, signalType: number }
-    | { kind: typeof RtCommandKind.demolish, tile: number }
-    /** The rectangle with corners tile and endTile, inclusive, walked row by row. */
-    | { kind: typeof RtCommandKind.demolishArea, tile: number, endTile: number }
-    | { kind: typeof RtCommandKind.buyVehicle, depot: number, model: number, wagons: number[] }
-    | { kind: typeof RtCommandKind.sellVehicle, vehicle: number }
-    | { kind: typeof RtCommandKind.setOrders, vehicle: number, orders: RtOrder[] }
-    /** Sets the vehicle stopped or started; refused when it already is. */
-    | { kind: typeof RtCommandKind.startStop, vehicle: number, stopped: boolean }
-    /** Sends the vehicle to its nearest own depot to stop there, or cancels that when already sent. */
-    | { kind: typeof RtCommandKind.sendToDepot, vehicle: number }
-    | { kind: typeof RtCommandKind.reverseTrain, vehicle: number }
-    /** Loan steps: positive borrows, negative repays. */
-    | { kind: typeof RtCommandKind.changeLoan, steps: number }
-    | { kind: typeof RtCommandKind.renameCompany, name: string }
-    | { kind: typeof RtCommandKind.buildSiding, tile: number }
-    | { kind: typeof RtCommandKind.removeSiding, tile: number }
-    | { kind: typeof RtCommandKind.foundCompany, name: string, colour: number }
-
-/**
- * Why a command was refused: the build rule codes (RtBuildError, 0 to 9) and the command layer's
- * own. The room sends the code to the sender only (protocol result).
- */
-export const RtCommandError = {
-    ...RtBuildError,
-    /** The company cannot pay for it (cash, which includes the loan). */
-    money: 10,
-    /** The acting company does not exist, or the command is not one it may issue. */
-    noCompany: 11,
-    /** validateOrders refused the list; detail holds its RtOrderError. */
-    orders: 12,
-    /** changeLoan refused; detail holds its RtLoanError. */
-    loan: 13,
-    /** No own depot of the vehicle's kind can be reached. */
-    noDepot: 14,
-    /** The vehicle is not in a state where that button is shown. */
-    state: 15
-} as const
-export type RtCommandError = typeof RtCommandError[keyof typeof RtCommandError]
-
-/** ok with the signed cost (a refund negative) and the id made: the company, the vehicle, or the station built or joined. */
-export type RtCommandResult =
-    | { ok: true, cost: number, id?: number }
-    | { ok: false, error: RtCommandError, detail?: number }
-
-/** The company id stamped on a server-issued command (the protocol's 255). */
-export const RT_SERVER_COMPANY = RT_OWNER_NONE
+export * from './command-kinds'
+export { decodeCommand, encodeCommand, RT_COMMAND_MAX_SIDE } from './command-codec'
 
 const ok = (cost: number, id?: number): RtCommandResult => (id === undefined ? { ok: true, cost } : { ok: true, cost, id })
 const fail = (error: RtCommandError, detail?: number): RtCommandResult => (detail === undefined ? { ok: false, error } : { ok: false, error, detail })
@@ -154,14 +73,10 @@ interface Touched {
     tiles: Set<number>
 }
 
-function trainOnPieceOf(world: RtWorld): RtTrainOnPiece {
-    return (tile, piece, except) => world.occupied.otherTrainOnPiece(tile, piece, except) !== RT_NONE
-}
-
 const vehicleOn = (world: RtWorld) => (tile: number) => world.occupied.vehicleOnTile(tile)
 
 function reservationHooks(world: RtWorld) {
-    return rtReservationHooks(world.map, world.vehicles, trainOnPieceOf(world), world.settings.sharing)
+    return rtReservationHooks(world.map, world.vehicles, world.occupied.otherTrainOn, world.settings.sharing)
 }
 
 /**
@@ -249,11 +164,11 @@ function railLineTiles(world: RtWorld, tile: number, endTile: number, trackdir: 
 function roadLineTiles(world: RtWorld, tile: number, endTile: number): { tiles: number[], alongX: boolean } | null {
     const map = world.map
     if (!map.validTile(tile) || !map.validTile(endTile)) return null
+    const shape = rtLineShape(tile, endTile, map.side)
+    if (!shape.straight || shape.tiles > rtLineMaxTiles(map)) return null
     const [x0, y0, x1, y1] = [map.tileX(tile), map.tileY(tile), map.tileX(endTile), map.tileY(endTile)]
-    if (x0 !== x1 && y0 !== y1) return null
     const alongX = y0 === y1 && x0 !== x1
-    const count = Math.abs(x1 - x0) + Math.abs(y1 - y0) + 1
-    if (count > rtLineMaxTiles(map)) return null
+    const count = shape.tiles
     const tiles: number[] = []
     const dx = Math.sign(x1 - x0)
     const dy = Math.sign(y1 - y0)
@@ -302,7 +217,7 @@ function clearSteps(world: RtWorld, owner: number, tile: number): { tiles: numbe
         return steps
     }
     if (kind === RtTileKind.road && map.owner[tile] === owner) {
-        return [{ tiles: [tile], rule: (apply: boolean) => removeRoad(map, owner, tile, map.payload[tile]! & 15, occupied, apply) }]
+        return [{ tiles: [tile], rule: (apply: boolean) => removeRoad(map, owner, tile, rtRoadBits(map.payload[tile]!), occupied, apply) }]
     }
     return [{
         tiles: [tile],
@@ -313,17 +228,22 @@ function clearSteps(world: RtWorld, owner: number, tile: number): { tiles: numbe
     }]
 }
 
+/** The rectangle with corners a and b, row by row: an area drag's tiles, and the area tool's preview. */
+export function rtAreaRect(map: RtMap, a: number, b: number): number[] {
+    const [x0, x1] = [Math.min(map.tileX(a), map.tileX(b)), Math.max(map.tileX(a), map.tileX(b))]
+    const [y0, y1] = [Math.min(map.tileY(a), map.tileY(b)), Math.max(map.tileY(a), map.tileY(b))]
+    const out: number[] = []
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push(map.idx(x, y))
+    return out
+}
+
 /** The tiles of an area drag, row by row, or null beyond areaMaxTiles a side. */
 function areaTiles(world: RtWorld, tile: number, endTile: number): number[] | null {
     const map = world.map
     if (!map.validTile(tile) || !map.validTile(endTile)) return null
-    const [xa, ya, xb, yb] = [map.tileX(tile), map.tileY(tile), map.tileX(endTile), map.tileY(endTile)]
-    const [x0, x1, y0, y1] = [Math.min(xa, xb), Math.max(xa, xb), Math.min(ya, yb), Math.max(ya, yb)]
     const max = RT_CATALOG.caps.areaMaxTiles
-    if (x1 - x0 + 1 > max || y1 - y0 + 1 > max) return null
-    const out: number[] = []
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push(map.idx(x, y))
-    return out
+    if (Math.abs(map.tileX(tile) - map.tileX(endTile)) + 1 > max || Math.abs(map.tileY(tile) - map.tileY(endTile)) + 1 > max) return null
+    return rtAreaRect(map, tile, endTile)
 }
 
 /** The footprint of a rail station, for the signal refresh and the station tool's preview. */
@@ -338,6 +258,17 @@ export function rtStationFootprint(map: RtMap, origin: number, axis: number, tra
         }
     }
     return out
+}
+
+/** A road stop's tile and the four around it, whose road a new stop may join (connectEntrances). */
+function roadStopTiles(map: RtMap, tile: number): number[] {
+    if (!map.validTile(tile)) return [tile]
+    const tiles = [tile]
+    for (let dir = 0; dir < 4; dir++) {
+        const next = map.neighbour(tile, dir as RtDir)
+        if (next >= 0) tiles.push(next)
+    }
+    return tiles
 }
 
 /** Whether every tile the train holds is the company's own: only then may it be stopped there. */
@@ -371,11 +302,7 @@ function roadStopRefusal(world: RtWorld, vehicle: RtVehicle): RtCommandError | n
 function nearestOwnDepot(world: RtWorld, vehicle: RtVehicle): { depot: number, reverse: boolean } {
     const none = { depot: RT_NONE, reverse: false }
     const map = world.map
-    const depots: number[] = []
-    for (let tile = 0; tile < map.side * map.side; tile++) {
-        if (map.kind[tile] !== RtTileKind.depot || map.owner[tile] !== vehicle.owner) continue
-        if (rtDepotKind(map.payload[tile]!) === vehicle.kind) depots.push(tile)
-    }
+    const depots = rtDepotTiles(map, vehicle.kind, owner => owner === vehicle.owner)
     if (depots.length === 0 || vehicle.tiles.length === 0) return none
     const budget = RT_CATALOG.pathfinder.maxSearchNodes
     const head = vehicle.tiles[0]!
@@ -401,167 +328,9 @@ function ownVehicle(world: RtWorld, owner: number, id: unknown): RtVehicle | RtC
 
 const isVehicle = (value: RtVehicle | RtCommandResult): value is RtVehicle => !('ok' in value)
 
-function vehicleCommand(world: RtWorld, company: RtCompany, command: RtCommand, apply: boolean, touched: Touched): RtCommandResult {
-    const owner = company.id
-    const map = world.map
-    switch (command.kind) {
-        case RtCommandKind.buyVehicle: {
-            const check = buyVehicle(world, owner, command.depot, command.model, command.wagons, false)
-            if (!check.ok) return fail(check.error)
-            if (company.money < check.cost) return fail(RtCommandError.money)
-            if (!apply) return ok(check.cost, check.vehicle)
-            const done = buyVehicle(world, owner, command.depot, command.model, command.wagons, true)
-            if (!done.ok) return fail(done.error)
-            bookMoney(company, 'newVehicles', -done.cost)
-            return ok(done.cost, done.vehicle)
-        }
-        case RtCommandKind.sellVehicle: {
-            const vehicle = ownVehicle(world, owner, command.vehicle)
-            if (!isVehicle(vehicle)) return vehicle
-            const check = sellVehicle(world, owner, vehicle.id, false)
-            if (!check.ok) return fail(check.error)
-            if (!apply) return ok(check.cost)
-            const depot = vehicle.tiles[0]
-            const done = sellVehicle(world, owner, vehicle.id, true)
-            if (!done.ok) return fail(done.error)
-            bookMoney(company, 'newVehicles', -done.cost)
-            if (depot !== undefined) touched.tiles.add(depot)
-            return ok(done.cost)
-        }
-        case RtCommandKind.setOrders: {
-            const vehicle = ownVehicle(world, owner, command.vehicle)
-            if (!isVehicle(vehicle)) return vehicle
-            const checked = validateOrders(command.orders, world.stations, map, owner, world.settings.sharing, vehicle)
-            if (!checked.ok) return fail(RtCommandError.orders, checked.error)
-            if (apply) rtReplaceOrders(vehicle, checked.orders)
-            return ok(0)
-        }
-        case RtCommandKind.startStop: {
-            const vehicle = ownVehicle(world, owner, command.vehicle)
-            if (!isVehicle(vehicle)) return vehicle
-            if (typeof command.stopped !== 'boolean' || command.stopped === vehicle.stopped) return fail(RtCommandError.state)
-            // a train is parked only on its own network; in a depot it simply stops
-            if (command.stopped && vehicle.kind === RtVehicleKind.rail && vehicle.state !== RtVehicleState.inDepot && !onOwnTrack(world, vehicle)) {
-                return fail(RtCommandError.notOwner)
-            }
-            const roadRefusal = command.stopped && vehicle.kind === RtVehicleKind.road ? roadStopRefusal(world, vehicle) : null
-            if (roadRefusal !== null) return fail(roadRefusal)
-            if (apply) vehicle.stopped = command.stopped
-            return ok(0)
-        }
-        case RtCommandKind.sendToDepot: {
-            const vehicle = ownVehicle(world, owner, command.vehicle)
-            if (!isVehicle(vehicle)) return vehicle
-            if (vehicle.state === RtVehicleState.inDepot) return fail(RtCommandError.state)
-            if (vehicle.haltInDepot) {
-                if (apply) {
-                    vehicle.haltInDepot = false
-                    vehicle.serviceDepot = RT_NONE
-                    vehicle.routeTick = RT_NONE
-                }
-                return ok(0)
-            }
-            const { depot, reverse } = nearestOwnDepot(world, vehicle)
-            if (depot === RT_NONE) return fail(RtCommandError.noDepot)
-            if (apply) {
-                if (reverse) {
-                    for (const tile of vehicle.tiles) touched.tiles.add(tile)
-                    rtReverseTrain(world, vehicle)
-                }
-                vehicle.serviceDepot = depot
-                vehicle.haltInDepot = true
-                vehicle.stopped = false
-                vehicle.routeTick = RT_NONE
-            }
-            return ok(0)
-        }
-        case RtCommandKind.reverseTrain: {
-            const vehicle = ownVehicle(world, owner, command.vehicle)
-            if (!isVehicle(vehicle)) return vehicle
-            if (vehicle.kind !== RtVehicleKind.rail || vehicle.state === RtVehicleState.inDepot || vehicle.tiles.length === 0) {
-                return fail(RtCommandError.state)
-            }
-            if (apply) {
-                const before = [...vehicle.tiles]
-                rtReverseTrain(world, vehicle)
-                for (const tile of before) touched.tiles.add(tile)
-            }
-            return ok(0)
-        }
-        default:
-            return fail(RtCommandError.invalid)
-    }
-}
-
-function buildCommand(world: RtWorld, company: RtCompany, command: RtCommand, apply: boolean, touched: Touched): RtCommandResult {
-    const owner = company.id
-    const map = world.map
-    const occupied = vehicleOn(world)
-    switch (command.kind) {
-        case RtCommandKind.buildRail:
-            return single(company, apply, touched, [command.tile], a => buildRail(map, owner, command.tile, command.piece, a, occupied))
-        case RtCommandKind.removeRail:
-            return single(company, apply, touched, [command.tile], a => removeRail(map, owner, command.tile, command.piece, occupied, a, reservationHooks(world)))
-        case RtCommandKind.buildRoad:
-            return single(company, apply, touched, [command.tile], a => buildRoad(map, owner, command.tile, command.bits, a, occupied))
-        case RtCommandKind.removeRoad:
-            return single(company, apply, touched, [command.tile], a => removeRoad(map, owner, command.tile, command.bits, occupied, a))
-        case RtCommandKind.placeSignal:
-            return single(company, apply, touched, [command.tile], a => placeSignal(map, owner, command.tile, command.piece, command.signalType, a))
-        case RtCommandKind.buildSiding:
-            return single(company, apply, touched, [command.tile], a => buildSiding(map, owner, command.tile, a))
-        case RtCommandKind.removeSiding:
-            return single(company, apply, touched, [command.tile], a => removeSiding(map, owner, command.tile, a))
-        case RtCommandKind.buildDepot: {
-            const front = map.validTile(command.tile) && isInt(command.facing) ? map.neighbour(command.tile, (command.facing & 3) as RtDir) : RT_NONE
-            const tiles = map.validTile(front) ? [command.tile, front] : [command.tile]
-            return single(company, apply, touched, tiles, a => buildDepot(map, owner, command.tile, command.vehicleKind, command.facing, a))
-        }
-        case RtCommandKind.buildRailStation: {
-            const tiles = rtStationFootprint(map, command.tile, command.axis, command.tracks, command.length)
-            const result = single(company, apply, touched, tiles, a => withStations(world, list =>
-                buildRailStation(map, list, world.townList(), owner, command.tile, command.axis, command.tracks, command.length, a, occupied)))
-            return result
-        }
-        case RtCommandKind.buildRoadStop: {
-            if (command.stop !== RtStationTile.bus && command.stop !== RtStationTile.truck) return fail(RtCommandError.invalid)
-            const shape = command.shape ?? RtRoadStopShape.auto
-            if (!isInt(shape) || shape < 0 || shape > RT_ROAD_STOP_SHAPE_MAX) return fail(RtCommandError.invalid)
-            return single(company, apply, touched, roadStopTiles(map, command.tile), a => withStations(world, list =>
-                buildRoadStop(map, list, world.townList(), owner, command.tile, command.stop, a, occupied, shape)))
-        }
-        case RtCommandKind.demolish:
-            if (!map.validTile(command.tile)) return fail(RtCommandError.invalid)
-            return drag(company, apply, touched, clearSteps(world, owner, command.tile))
-        case RtCommandKind.demolishArea: {
-            const tiles = areaTiles(world, command.tile, command.endTile)
-            if (!tiles) return fail(RtCommandError.invalid)
-            return area(world, company, apply, touched, tiles)
-        }
-        case RtCommandKind.buildRailLine: {
-            const line = railLineTiles(world, command.tile, command.endTile, command.trackdir)
-            if (!line) return fail(RtCommandError.invalid)
-            return drag(company, apply, touched, line.map(({ tile, piece }) => ({ tiles: [tile], rule: (a: boolean) => buildRail(map, owner, tile, piece, a, occupied) })))
-        }
-        case RtCommandKind.buildRoadLine: {
-            const line = roadLineTiles(world, command.tile, command.endTile)
-            if (!line) return fail(RtCommandError.invalid)
-            const bits = line.alongX ? RT_ROAD_X : RT_ROAD_Y
-            const oneTile = line.tiles.length === 1
-            return drag(company, apply, touched, line.tiles.map(tile => ({
-                tiles: [tile],
-                // a one-tile drag builds the straight piece the tile's road already runs along, else x
-                rule: (a: boolean) => buildRoad(map, owner, tile, oneTile ? oneTileRoadBits(world, tile) : bits, a, occupied)
-            })))
-        }
-        default:
-            return fail(RtCommandError.invalid)
-    }
-}
-
 function oneTileRoadBits(world: RtWorld, tile: number): number {
     const map = world.map
-    const bits = map.kind[tile] === RtTileKind.road ? map.payload[tile]! & 15 : 0
+    const bits = map.kind[tile] === RtTileKind.road ? rtRoadBits(map.payload[tile]!) : 0
     return (bits & RT_ROAD_Y) !== 0 && (bits & RT_ROAD_X) === 0 ? RT_ROAD_Y : RT_ROAD_X
 }
 
@@ -591,71 +360,244 @@ function area(world: RtWorld, company: RtCompany, apply: boolean, touched: Touch
     return ok(spent)
 }
 
-function companyCommand(world: RtWorld, company: RtCompany, command: RtCommand, apply: boolean): RtCommandResult {
-    switch (command.kind) {
-        case RtCommandKind.changeLoan: {
-            if (!isInt(command.steps) || command.steps === 0) return fail(RtCommandError.loan, 0)
-            if (!apply) {
-                const probe = { ...company }
-                const result = changeLoan(probe, command.steps)
-                return result.ok ? ok(0) : fail(RtCommandError.loan, result.error)
-            }
-            const result = changeLoan(company, command.steps)
-            return result.ok ? ok(0) : fail(RtCommandError.loan, result.error)
-        }
-        case RtCommandKind.renameCompany: {
-            const name = rtCleanCompanyName(command.name)
-            if (name === '') return fail(RtCommandError.invalid)
-            const looks = rtNameSkeleton(name)
-            for (const other of world.companyList()) {
-                if (other.id !== company.id && rtNameSkeleton(other.name) === looks) return fail(RtCommandError.conflict)
-            }
-            if (apply) company.name = name
-            return ok(0)
-        }
-        default:
-            return fail(RtCommandError.invalid)
+/* ------------------------------------------------------------------------------------------
+ * The rules, one entry per kind
+ * ---------------------------------------------------------------------------------------- */
+
+/** What a rule works on: the acting company, whether to apply or only validate, and what it touched. */
+interface ApplyContext {
+    readonly world: RtWorld
+    readonly company: RtCompany
+    readonly apply: boolean
+    readonly touched: Touched
+}
+
+interface RtCommandRule<K extends RtCommandKind> {
+    /**
+     * A build changes tiles: their infrastructure is recounted around it and a crossing it makes is
+     * recorded against the builder. A vehicle or company command changes no tile's ownership.
+     */
+    readonly family: 'build' | 'vehicle' | 'company'
+    /** Every tile a build can change, when more than its own tile: a drag's line or area, a station's footprint. */
+    tiles?(world: RtWorld, command: RtCommandOf<K>): number[]
+    run(x: ApplyContext, command: RtCommandOf<K>): RtCommandResult
+}
+
+/** Every kind a company issues; foundCompany is the server's alone. */
+type PlayerKind = Exclude<RtCommandKind, typeof RtCommandKind.foundCompany>
+
+/** A build that changes one tile through one rule. */
+function oneTile<K extends PlayerKind>(rule: (x: ApplyContext, command: RtCommandOf<K>, apply: boolean) => RtBuildResult): RtCommandRule<K> {
+    return {
+        family: 'build',
+        run: (x, command) => single(x.company, x.apply, x.touched, [(command as { tile: number }).tile], a => rule(x, command, a))
     }
 }
 
-const BUILD_KINDS: ReadonlySet<number> = new Set([
-    RtCommandKind.buildRail, RtCommandKind.buildRailLine, RtCommandKind.removeRail, RtCommandKind.buildRoad,
-    RtCommandKind.buildRoadLine, RtCommandKind.removeRoad, RtCommandKind.buildRailStation, RtCommandKind.buildRoadStop,
-    RtCommandKind.buildDepot, RtCommandKind.placeSignal, RtCommandKind.demolish, RtCommandKind.demolishArea,
-    RtCommandKind.buildSiding, RtCommandKind.removeSiding
-])
-const VEHICLE_KINDS: ReadonlySet<number> = new Set([
-    RtCommandKind.buyVehicle, RtCommandKind.sellVehicle, RtCommandKind.setOrders, RtCommandKind.startStop,
-    RtCommandKind.sendToDepot, RtCommandKind.reverseTrain
-])
-
-/** Every tile a build command can change: the tile, the drag's line or area, a station's footprint. */
-function commandTiles(world: RtWorld, command: RtCommand): number[] {
-    switch (command.kind) {
-        case RtCommandKind.buildRailLine:
-            return railLineTiles(world, command.tile, command.endTile, command.trackdir)?.map(step => step.tile) ?? []
-        case RtCommandKind.buildRoadLine:
-            return roadLineTiles(world, command.tile, command.endTile)?.tiles ?? []
-        case RtCommandKind.demolishArea:
-            return areaTiles(world, command.tile, command.endTile) ?? []
-        case RtCommandKind.buildRailStation:
-            return rtStationFootprint(world.map, command.tile, command.axis, command.tracks, command.length)
-        case RtCommandKind.buildRoadStop:
-            return roadStopTiles(world.map, command.tile)
-        default:
-            return 'tile' in command ? [command.tile] : []
+/** A vehicle command on one of the company's own live vehicles. */
+function ownVehicleRule<K extends PlayerKind>(run: (x: ApplyContext, vehicle: RtVehicle, command: RtCommandOf<K>) => RtCommandResult): RtCommandRule<K> {
+    return {
+        family: 'vehicle',
+        run: (x, command) => {
+            const vehicle = ownVehicle(x.world, x.company.id, (command as { vehicle: unknown }).vehicle)
+            return isVehicle(vehicle) ? run(x, vehicle, command) : vehicle
+        }
     }
 }
 
-/** A road stop's tile and the four around it, whose road a new stop may join (connectEntrances). */
-function roadStopTiles(map: RtMap, tile: number): number[] {
-    if (!map.validTile(tile)) return [tile]
-    const tiles = [tile]
-    for (let dir = 0; dir < 4; dir++) {
-        const next = map.neighbour(tile, dir as RtDir)
-        if (next >= 0) tiles.push(next)
+function buildDepotRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buildDepot>): RtCommandResult {
+    const map = x.world.map
+    const front = map.validTile(command.tile) && isInt(command.facing) ? map.neighbour(command.tile, (command.facing & 3) as RtDir) : RT_NONE
+    const tiles = map.validTile(front) ? [command.tile, front] : [command.tile]
+    return single(x.company, x.apply, x.touched, tiles, a => buildDepot(map, x.company.id, command.tile, command.vehicleKind, command.facing, a))
+}
+
+function buildRailStationRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buildRailStation>): RtCommandResult {
+    const { world, company } = x
+    const tiles = rtStationFootprint(world.map, command.tile, command.axis, command.tracks, command.length)
+    return single(company, x.apply, x.touched, tiles, a => withStations(world, list => buildRailStation(
+        world.map, list, world.townList(), company.id, command.tile, command.axis, command.tracks, command.length, a, vehicleOn(world)
+    )))
+}
+
+function buildRoadStopRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buildRoadStop>): RtCommandResult {
+    const { world, company } = x
+    if (command.stop !== RtStationTile.bus && command.stop !== RtStationTile.truck) return fail(RtCommandError.invalid)
+    const shape = command.shape ?? RtRoadStopShape.auto
+    if (!isInt(shape) || shape < 0 || shape > RT_ROAD_STOP_SHAPE_MAX) return fail(RtCommandError.invalid)
+    return single(company, x.apply, x.touched, roadStopTiles(world.map, command.tile), a => withStations(world, list => buildRoadStop(
+        world.map, list, world.townList(), company.id, command.tile, command.stop, a, vehicleOn(world), shape
+    )))
+}
+
+function buildRailLineRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buildRailLine>): RtCommandResult {
+    const { world, company } = x
+    const line = railLineTiles(world, command.tile, command.endTile, command.trackdir)
+    if (!line) return fail(RtCommandError.invalid)
+    return drag(company, x.apply, x.touched, line.map(({ tile, piece }) => ({
+        tiles: [tile],
+        rule: (a: boolean) => buildRail(world.map, company.id, tile, piece, a, vehicleOn(world))
+    })))
+}
+
+function buildRoadLineRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buildRoadLine>): RtCommandResult {
+    const { world, company } = x
+    const line = roadLineTiles(world, command.tile, command.endTile)
+    if (!line) return fail(RtCommandError.invalid)
+    const bits = line.alongX ? RT_ROAD_X : RT_ROAD_Y
+    const oneTile = line.tiles.length === 1
+    return drag(company, x.apply, x.touched, line.tiles.map(tile => ({
+        tiles: [tile],
+        // a one-tile drag builds the straight piece the tile's road already runs along, else x
+        rule: (a: boolean) => buildRoad(world.map, company.id, tile, oneTile ? oneTileRoadBits(world, tile) : bits, a, vehicleOn(world))
+    })))
+}
+
+function buyVehicleRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.buyVehicle>): RtCommandResult {
+    const { world, company } = x
+    const check = buyVehicle(world, company.id, command.depot, command.model, command.wagons, false)
+    if (!check.ok) return fail(check.error)
+    if (company.money < check.cost) return fail(RtCommandError.money)
+    if (!x.apply) return ok(check.cost, check.vehicle)
+    const done = buyVehicle(world, company.id, command.depot, command.model, command.wagons, true)
+    if (!done.ok) return fail(done.error)
+    bookMoney(company, 'newVehicles', -done.cost)
+    return ok(done.cost, done.vehicle)
+}
+
+function sellVehicleRule(x: ApplyContext, vehicle: RtVehicle): RtCommandResult {
+    const { world, company } = x
+    const check = sellVehicle(world, company.id, vehicle.id, false)
+    if (!check.ok) return fail(check.error)
+    if (!x.apply) return ok(check.cost)
+    const depot = vehicle.tiles[0]
+    const done = sellVehicle(world, company.id, vehicle.id, true)
+    if (!done.ok) return fail(done.error)
+    bookMoney(company, 'newVehicles', -done.cost)
+    if (depot !== undefined) x.touched.tiles.add(depot)
+    return ok(done.cost)
+}
+
+function startStopRule(x: ApplyContext, vehicle: RtVehicle, command: RtCommandOf<typeof RtCommandKind.startStop>): RtCommandResult {
+    if (typeof command.stopped !== 'boolean' || command.stopped === vehicle.stopped) return fail(RtCommandError.state)
+    // a train is parked only on its own network; in a depot it simply stops
+    if (command.stopped && vehicle.kind === RtVehicleKind.rail && vehicle.state !== RtVehicleState.inDepot && !onOwnTrack(x.world, vehicle)) {
+        return fail(RtCommandError.notOwner)
     }
-    return tiles
+    const roadRefusal = command.stopped && vehicle.kind === RtVehicleKind.road ? roadStopRefusal(x.world, vehicle) : null
+    if (roadRefusal !== null) return fail(roadRefusal)
+    if (x.apply) vehicle.stopped = command.stopped
+    return ok(0)
+}
+
+function sendToDepotRule(x: ApplyContext, vehicle: RtVehicle): RtCommandResult {
+    if (vehicle.state === RtVehicleState.inDepot) return fail(RtCommandError.state)
+    if (vehicle.haltInDepot) {
+        if (x.apply) {
+            vehicle.haltInDepot = false
+            vehicle.serviceDepot = RT_NONE
+            vehicle.routeTick = RT_NONE
+        }
+        return ok(0)
+    }
+    const { depot, reverse } = nearestOwnDepot(x.world, vehicle)
+    if (depot === RT_NONE) return fail(RtCommandError.noDepot)
+    if (x.apply) {
+        if (reverse) {
+            for (const tile of vehicle.tiles) x.touched.tiles.add(tile)
+            rtReverseTrain(x.world, vehicle)
+        }
+        vehicle.serviceDepot = depot
+        vehicle.haltInDepot = true
+        vehicle.stopped = false
+        vehicle.routeTick = RT_NONE
+    }
+    return ok(0)
+}
+
+function reverseTrainRule(x: ApplyContext, vehicle: RtVehicle): RtCommandResult {
+    if (vehicle.kind !== RtVehicleKind.rail || vehicle.state === RtVehicleState.inDepot || vehicle.tiles.length === 0) {
+        return fail(RtCommandError.state)
+    }
+    if (x.apply) {
+        const before = [...vehicle.tiles]
+        rtReverseTrain(x.world, vehicle)
+        for (const tile of before) x.touched.tiles.add(tile)
+    }
+    return ok(0)
+}
+
+function changeLoanRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.changeLoan>): RtCommandResult {
+    if (!isInt(command.steps) || command.steps === 0) return fail(RtCommandError.loan, 0)
+    const result = changeLoan(x.apply ? x.company : { ...x.company }, command.steps)
+    return result.ok ? ok(0) : fail(RtCommandError.loan, result.error)
+}
+
+function renameCompanyRule(x: ApplyContext, command: RtCommandOf<typeof RtCommandKind.renameCompany>): RtCommandResult {
+    const name = rtCleanCompanyName(command.name)
+    if (name === '') return fail(RtCommandError.invalid)
+    const looks = rtNameSkeleton(name)
+    for (const other of x.world.companyList()) {
+        if (other.id !== x.company.id && rtNameSkeleton(other.name) === looks) return fail(RtCommandError.conflict)
+    }
+    if (x.apply) x.company.name = name
+    return ok(0)
+}
+
+const RULES: { readonly [K in PlayerKind]: RtCommandRule<K> } = {
+    [RtCommandKind.buildRail]: oneTile((x, c, a) => buildRail(x.world.map, x.company.id, c.tile, c.piece, a, vehicleOn(x.world))),
+    [RtCommandKind.removeRail]: oneTile((x, c, a) => removeRail(x.world.map, x.company.id, c.tile, c.piece, vehicleOn(x.world), a, reservationHooks(x.world))),
+    [RtCommandKind.buildRoad]: oneTile((x, c, a) => buildRoad(x.world.map, x.company.id, c.tile, c.bits, a, vehicleOn(x.world))),
+    [RtCommandKind.removeRoad]: oneTile((x, c, a) => removeRoad(x.world.map, x.company.id, c.tile, c.bits, vehicleOn(x.world), a)),
+    [RtCommandKind.placeSignal]: oneTile((x, c, a) => placeSignal(x.world.map, x.company.id, c.tile, c.piece, c.signalType, a)),
+    [RtCommandKind.buildSiding]: oneTile((x, c, a) => buildSiding(x.world.map, x.company.id, c.tile, a)),
+    [RtCommandKind.removeSiding]: oneTile((x, c, a) => removeSiding(x.world.map, x.company.id, c.tile, a)),
+    [RtCommandKind.buildDepot]: { family: 'build', run: buildDepotRule },
+    [RtCommandKind.buildRailStation]: {
+        family: 'build',
+        tiles: (world, c) => rtStationFootprint(world.map, c.tile, c.axis, c.tracks, c.length),
+        run: buildRailStationRule
+    },
+    [RtCommandKind.buildRoadStop]: { family: 'build', tiles: (world, c) => roadStopTiles(world.map, c.tile), run: buildRoadStopRule },
+    [RtCommandKind.demolish]: {
+        family: 'build',
+        run: (x, c) => x.world.map.validTile(c.tile) ? drag(x.company, x.apply, x.touched, clearSteps(x.world, x.company.id, c.tile)) : fail(RtCommandError.invalid)
+    },
+    [RtCommandKind.demolishArea]: {
+        family: 'build',
+        tiles: (world, c) => areaTiles(world, c.tile, c.endTile) ?? [],
+        run: (x, c) => {
+            const tiles = areaTiles(x.world, c.tile, c.endTile)
+            return tiles ? area(x.world, x.company, x.apply, x.touched, tiles) : fail(RtCommandError.invalid)
+        }
+    },
+    [RtCommandKind.buildRailLine]: {
+        family: 'build',
+        tiles: (world, c) => railLineTiles(world, c.tile, c.endTile, c.trackdir)?.map(step => step.tile) ?? [],
+        run: buildRailLineRule
+    },
+    [RtCommandKind.buildRoadLine]: {
+        family: 'build',
+        tiles: (world, c) => roadLineTiles(world, c.tile, c.endTile)?.tiles ?? [],
+        run: buildRoadLineRule
+    },
+    [RtCommandKind.buyVehicle]: { family: 'vehicle', run: buyVehicleRule },
+    [RtCommandKind.sellVehicle]: ownVehicleRule(sellVehicleRule),
+    [RtCommandKind.setOrders]: ownVehicleRule((x, vehicle, c) => {
+        const checked = validateOrders(c.orders, x.world.stations, x.world.map, x.company.id, x.world.settings.sharing, vehicle)
+        if (!checked.ok) return fail(RtCommandError.orders, checked.error)
+        if (x.apply) rtReplaceOrders(vehicle, checked.orders)
+        return ok(0)
+    }),
+    [RtCommandKind.startStop]: ownVehicleRule(startStopRule),
+    [RtCommandKind.sendToDepot]: ownVehicleRule(sendToDepotRule),
+    [RtCommandKind.reverseTrain]: ownVehicleRule(reverseTrainRule),
+    [RtCommandKind.changeLoan]: { family: 'company', run: changeLoanRule },
+    [RtCommandKind.renameCompany]: { family: 'company', run: renameCompanyRule }
+}
+
+function ruleOf(kind: number): RtCommandRule<PlayerKind> | undefined {
+    return Object.hasOwn(RULES, kind) ? RULES[kind as PlayerKind] as RtCommandRule<PlayerKind> : undefined
 }
 
 /** Every integer field a build command carries, checked before any rule sees it. */
@@ -689,314 +631,95 @@ export function applyCommand(world: RtWorld, companyId: number, command: RtComma
     }
 }
 
+/** A command due at the world's current tick, with what to do with its result. */
+export interface RtDueCommand {
+    company: number
+    command: RtCommand
+    onApplied?: (result: RtCommandResult) => void
+}
+
+/** Applies due commands in order, each result handed to its onApplied before the next applies. */
+export function rtApplyCommands(world: RtWorld, due: Iterable<RtDueCommand>): void {
+    for (const entry of due) {
+        // computed first: an optional call would skip its argument when there is no callback
+        const result = applyCommand(world, entry.company, entry.command, true)
+        entry.onApplied?.(result)
+    }
+}
+
+/**
+ * One lockstep tick, the same on every peer and on the room: every command stamped for the world's
+ * current tick in stamp order, then the step. Determinism hangs on this order.
+ */
+export function rtApplyTick(world: RtWorld, due: Iterable<RtDueCommand>): void {
+    rtApplyCommands(world, due)
+    world.step()
+}
+
+/**
+ * The foundCompany command for a new member named `name`, in the first unused colour, as its bytes
+ * and as the world decodes them, or null when the world has no free company. A name the codec
+ * cannot carry falls back to '', which the world turns into the company's default name.
+ */
+export function rtFoundCompanyCommand(world: RtWorld, name: string): { command: RtCommand, bytes: Uint8Array } | null {
+    const colour = world.firstUnusedColour()
+    let bytes: Uint8Array
+    try {
+        bytes = encodeCommand({ kind: RtCommandKind.foundCompany, name, colour })
+    } catch {
+        bytes = encodeCommand({ kind: RtCommandKind.foundCompany, name: '', colour })
+    }
+    const command = decodeCommand(bytes, world.map.side)
+    if (!command || !applyCommand(world, RT_SERVER_COMPANY, command, false).ok) return null
+    return { command, bytes }
+}
+
+/** Founds the company of a member who joins with no room live: the same command a live join stamps. */
+export function rtFoundCompany(world: RtWorld, name: string): number | null {
+    const found = rtFoundCompanyCommand(world, name)
+    if (!found) return null
+    const result = applyCommand(world, RT_SERVER_COMPANY, found.command, true)
+    return result.ok && result.id !== undefined ? result.id : null
+}
+
+function foundCompany(world: RtWorld, companyId: number, command: RtCommandOf<typeof RtCommandKind.foundCompany>, apply: boolean): RtCommandResult {
+    if (companyId !== RT_SERVER_COMPANY) return fail(RtCommandError.noCompany)
+    if (world.freeCompanyId() === RT_NONE) return fail(RtCommandError.limit)
+    if (!apply) return ok(0)
+    const id = world.addCompany(command.name, command.colour)
+    return id === null ? fail(RtCommandError.limit) : ok(0, id)
+}
+
+/** Runs a build with the infrastructure counts following it: what its tiles counted before comes off, what they count after goes on. */
+function runBuild(x: ApplyContext, rule: RtCommandRule<PlayerKind>, command: RtCommandOf<PlayerKind>): RtCommandResult {
+    const tiles = !x.apply ? [] : rule.tiles ? rule.tiles(x.world, command) : 'tile' in command ? [command.tile] : []
+    rtCountTiles(x.world, tiles, -1)
+    try {
+        return rule.run(x, command)
+    } finally {
+        rtCountTiles(x.world, tiles, 1)
+    }
+}
+
 function applyInner(world: RtWorld, companyId: number, command: RtCommand, apply: boolean): RtCommandResult {
     if (!command || typeof command !== 'object' || !isInt(command.kind)) return fail(RtCommandError.invalid)
-    if (command.kind === RtCommandKind.foundCompany) {
-        if (companyId !== RT_SERVER_COMPANY) return fail(RtCommandError.noCompany)
-        if (world.freeCompanyId() === RT_NONE) return fail(RtCommandError.limit)
-        if (!apply) return ok(0)
-        const id = world.addCompany(command.name, command.colour)
-        return id === null ? fail(RtCommandError.limit) : ok(0, id)
-    }
+    if (command.kind === RtCommandKind.foundCompany) return foundCompany(world, companyId, command, apply)
     if (!isInt(companyId)) return fail(RtCommandError.noCompany)
     const company = world.company(companyId)
     if (!company) return fail(RtCommandError.noCompany)
     if (!wellFormed(world, command)) return fail(RtCommandError.invalid)
+    const rule = ruleOf(command.kind)
+    if (!rule) return fail(RtCommandError.invalid)
 
-    const touched: Touched = { tiles: new Set() }
-    let result: RtCommandResult
-    if (BUILD_KINDS.has(command.kind)) {
-        // infrastructure counts follow the build: what its tiles counted before comes off, what they count after goes on
-        const tiles = apply ? commandTiles(world, command) : []
-        rtCountTiles(world, tiles, -1)
-        try {
-            result = buildCommand(world, company, command, apply, touched)
-        } finally {
-            rtCountTiles(world, tiles, 1)
-        }
-    } else if (VEHICLE_KINDS.has(command.kind)) {
-        result = vehicleCommand(world, company, command, apply, touched)
-    } else {
-        result = companyCommand(world, company, command, apply)
-    }
-
-    if (apply && touched.tiles.size > 0) {
-        const tiles = [...touched.tiles].sort((a, b) => a - b)
+    const x: ApplyContext = { world, company, apply, touched: { tiles: new Set() } }
+    const build = rule.family === 'build'
+    const result = build ? runBuild(x, rule, command) : rule.run(x, command)
+    if (apply && x.touched.tiles.size > 0) {
+        const tiles = [...x.touched.tiles].sort((a, b) => a - b)
         // a crossing on another company's rail or road is recorded against the builder (inspector.ts)
-        if (result.ok && BUILD_KINDS.has(command.kind)) rtRecordCrossings(world, company.id, tiles)
+        if (result.ok && build) rtRecordCrossings(world, company.id, tiles)
         for (const tile of tiles) world.markDirty(tile)
-        updateSignalStates(world.map, trainOnPieceOf(world), tiles, world.settings.sharing)
+        updateSignalStates(world.map, world.occupied.otherTrainOn, tiles, world.settings.sharing)
     }
     return result
-}
-
-/* ------------------------------------------------------------------------------------------
- * The command codec. One u8 kind, then the fields at fixed widths: tiles as u32, piece,
- * trackdir, bits and small enums as u8, vehicle ids as u16, loan steps as i16, names as a
- * varint-length UTF-8 string of at most maxNameBytes. Lines and areas are two tiles (and a trackdir),
- * so a drag of any length is one small command. Never JSON.
- * ---------------------------------------------------------------------------------------- */
-
-/** The largest map side (RT_MAP_SIDES); decodeCommand bounds tiles by it when given no side. */
-export const RT_COMMAND_MAX_SIDE = RT_MAP_SIDES[RT_MAP_SIDES.length - 1]!
-
-const NAME_BYTES = RT_CATALOG.caps.maxNameBytes
-const MAX_WAGONS = RT_CATALOG.vehicles.maxTrainVehicles - 1
-
-/**
- * buildRoadStop's one byte: bits 0-1 the stop type, bits 2-4 the RtRoadStopShape, bits 5-7 zero. A
- * stop command from before bays has shape 0 (auto) there and decodes as it always did.
- */
-const ROAD_STOP_TYPE_MASK = 3
-const ROAD_STOP_SHAPE_SHIFT = 2
-
-/**
- * Encodes a command. A name is clamped to maxNameBytes first; anything else decodeCommand would
- * refuse throws RangeError, so a peer never sends bytes the others drop.
- */
-export function encodeCommand(command: RtCommand): Uint8Array {
-    const w = new RtWriter()
-    w.u8(command.kind)
-    switch (command.kind) {
-        case RtCommandKind.buildRail:
-        case RtCommandKind.removeRail:
-            w.u32(command.tile)
-            w.u8(command.piece)
-            break
-        case RtCommandKind.buildRailLine:
-            w.u32(command.tile)
-            w.u32(command.endTile)
-            w.u8(command.trackdir)
-            break
-        case RtCommandKind.buildRoad:
-        case RtCommandKind.removeRoad:
-            w.u32(command.tile)
-            w.u8(command.bits)
-            break
-        case RtCommandKind.buildRoadLine:
-        case RtCommandKind.demolishArea:
-            w.u32(command.tile)
-            w.u32(command.endTile)
-            break
-        case RtCommandKind.buildRailStation:
-            w.u32(command.tile)
-            w.u8(command.axis)
-            w.u8(command.tracks)
-            w.u8(command.length)
-            break
-        case RtCommandKind.buildRoadStop:
-            w.u32(command.tile)
-            w.u8(command.stop | ((command.shape ?? RtRoadStopShape.auto) << ROAD_STOP_SHAPE_SHIFT))
-            break
-        case RtCommandKind.buildDepot:
-            w.u32(command.tile)
-            w.u8(command.vehicleKind)
-            w.u8(command.facing)
-            break
-        case RtCommandKind.placeSignal:
-            w.u32(command.tile)
-            w.u8(command.piece)
-            w.u8(command.signalType)
-            break
-        case RtCommandKind.demolish:
-        case RtCommandKind.buildSiding:
-        case RtCommandKind.removeSiding:
-            w.u32(command.tile)
-            break
-        case RtCommandKind.buyVehicle:
-            w.u32(command.depot)
-            w.u8(command.model)
-            w.u8(command.wagons.length)
-            for (const wagon of command.wagons) w.u8(wagon)
-            break
-        case RtCommandKind.sellVehicle:
-        case RtCommandKind.sendToDepot:
-        case RtCommandKind.reverseTrain:
-            w.u16(command.vehicle)
-            break
-        case RtCommandKind.setOrders:
-            w.u16(command.vehicle)
-            w.u8(command.orders.length)
-            for (const order of command.orders) {
-                w.u8(order.kind)
-                w.u32(order.target)
-                w.u8(order.flags)
-            }
-            break
-        case RtCommandKind.startStop:
-            w.u16(command.vehicle)
-            w.u8(command.stopped ? 1 : 0)
-            break
-        case RtCommandKind.changeLoan:
-            w.i16(command.steps)
-            break
-        case RtCommandKind.renameCompany:
-            w.str(clampUtf8(String(command.name), NAME_BYTES))
-            break
-        case RtCommandKind.foundCompany:
-            w.str(clampUtf8(String(command.name), NAME_BYTES))
-            w.u8(command.colour)
-            break
-        default:
-            throw new RangeError(`unknown command kind ${(command as { kind: unknown }).kind}`)
-    }
-    const bytes = w.finish()
-    if (decodeCommand(bytes) === null) throw new RangeError(`command ${command.kind} does not decode`)
-    return bytes
-}
-
-/** A u8 that must be at most `max`. */
-function u8Max(r: RtReader, max: number, what: string): number {
-    const value = r.u8()
-    if (value > max) throw new RtBadData(`${what} ${value} above ${max}`)
-    return value
-}
-
-/** How far apart two tiles of a map of `side` lie along x and along y. */
-function span(a: number, b: number, side: number): { dx: number, dy: number } {
-    return { dx: Math.abs((a % side) - (b % side)), dy: Math.abs(Math.floor(a / side) - Math.floor(b / side)) }
-}
-
-/**
- * Decodes one command, or null for anything malformed: a short or over-long frame, an unknown kind,
- * a tile at or past side squared, a piece, trackdir, enum or flag out of range, a line longer than
- * lineMaxTiles or a straight one off one row or column, an area wider or taller than areaMaxTiles,
- * more wagons than the longest consist or more orders than RT_MAX_ORDERS, a name past maxNameBytes
- * or a stopped byte other than 0 or 1. `side` is the world's map side (the room and the client know
- * it); without it tiles are bounded by the largest side and the line and area shapes are left to
- * applyCommand, since a tile index alone has no coordinates. Whatever it accepts re-encodes to the
- * same bytes.
- */
-export function decodeCommand(bytes: Uint8Array, side?: number): RtCommand | null {
-    try {
-        if (!(bytes instanceof Uint8Array) || (side !== undefined && !RT_MAP_SIDES.includes(side))) return null
-        const r = new RtReader(bytes)
-        const command = readCommand(r, side)
-        r.end()
-        return command
-    } catch (e) {
-        if (e instanceof RtBadData) return null
-        throw e
-    }
-}
-
-function readCommand(r: RtReader, side: number | undefined): RtCommand {
-    const tiles = (side ?? RT_COMMAND_MAX_SIDE) ** 2
-    const tile = (what = 'tile'): number => {
-        const value = r.u32()
-        if (value >= tiles) throw new RtBadData(`${what} ${value} off the map`)
-        return value
-    }
-    const vehicle = (): number => {
-        const value = r.u16()
-        if (value >= RT_CATALOG.caps.maxVehicles) throw new RtBadData(`vehicle ${value} out of range`)
-        return value
-    }
-    const piece = () => u8Max(r, RT_TRACK_COUNT - 1, 'piece')
-    const line = (a: number, b: number, straight: boolean) => {
-        if (side === undefined) return
-        const { dx, dy } = span(a, b, side)
-        if (straight && dx !== 0 && dy !== 0) throw new RtBadData('line off one row or column')
-        if (dx + dy + 1 > RT_CATALOG.caps.lineMaxTiles) throw new RtBadData('line too long')
-    }
-    const kind = r.u8()
-    switch (kind) {
-        case RtCommandKind.buildRail:
-        case RtCommandKind.removeRail:
-            return { kind, tile: tile(), piece: piece() }
-        case RtCommandKind.buildRailLine: {
-            const [from, to] = [tile(), tile('end tile')]
-            const trackdir = r.u8()
-            if (!rtValidTrackdir(trackdir)) throw new RtBadData(`trackdir ${trackdir}`)
-            line(from, to, rtTrackdirPiece(trackdir) < 2)
-            return { kind, tile: from, endTile: to, trackdir }
-        }
-        case RtCommandKind.buildRoad:
-        case RtCommandKind.removeRoad: {
-            const at = tile()
-            const bits = u8Max(r, 15, 'road bits')
-            if (bits === 0) throw new RtBadData('no road bits')
-            return { kind, tile: at, bits }
-        }
-        case RtCommandKind.buildRoadLine: {
-            const [from, to] = [tile(), tile('end tile')]
-            line(from, to, true)
-            return { kind, tile: from, endTile: to }
-        }
-        case RtCommandKind.demolishArea: {
-            const [from, to] = [tile(), tile('end tile')]
-            if (side !== undefined) {
-                const { dx, dy } = span(from, to, side)
-                const max = RT_CATALOG.caps.areaMaxTiles
-                if (dx + 1 > max || dy + 1 > max) throw new RtBadData('area too large')
-            }
-            return { kind, tile: from, endTile: to }
-        }
-        case RtCommandKind.buildRailStation: {
-            const at = tile()
-            const axis = u8Max(r, RtAxis.y, 'axis')
-            const tracks = u8Max(r, RT_MAX_PLATFORMS, 'tracks')
-            const length = u8Max(r, RT_MAX_PLATFORM_LENGTH, 'length')
-            if (tracks === 0 || length === 0) throw new RtBadData('empty station')
-            return { kind, tile: at, axis, tracks, length }
-        }
-        case RtCommandKind.buildRoadStop: {
-            const at = tile()
-            const packed = r.u8()
-            const stop = packed & ROAD_STOP_TYPE_MASK
-            const shape = packed >>> ROAD_STOP_SHAPE_SHIFT
-            if (stop === RtStationTile.rail || stop > RtStationTile.truck) throw new RtBadData(`stop ${stop} is no road stop`)
-            if (shape > RT_ROAD_STOP_SHAPE_MAX) throw new RtBadData(`road stop shape ${shape}`)
-            // a stop without a shape is the old command, byte for byte
-            return shape === RtRoadStopShape.auto ? { kind, tile: at, stop } : { kind, tile: at, stop, shape }
-        }
-        case RtCommandKind.buildDepot:
-            return { kind, tile: tile(), vehicleKind: u8Max(r, RtVehicleKind.road, 'vehicle kind'), facing: u8Max(r, 3, 'facing') }
-        case RtCommandKind.placeSignal:
-            return { kind, tile: tile(), piece: piece(), signalType: u8Max(r, RtSignalType.path, 'signal type') }
-        case RtCommandKind.demolish:
-        case RtCommandKind.buildSiding:
-        case RtCommandKind.removeSiding:
-            return { kind, tile: tile() }
-        case RtCommandKind.buyVehicle: {
-            const depot = tile('depot')
-            const model = r.u8()
-            const count = u8Max(r, MAX_WAGONS, 'wagon count')
-            const wagons: number[] = []
-            for (let k = 0; k < count; k++) wagons.push(r.u8())
-            return { kind, depot, model, wagons }
-        }
-        case RtCommandKind.sellVehicle:
-        case RtCommandKind.sendToDepot:
-        case RtCommandKind.reverseTrain:
-            return { kind, vehicle: vehicle() }
-        case RtCommandKind.setOrders: {
-            const id = vehicle()
-            const count = u8Max(r, RT_MAX_ORDERS, 'order count')
-            const orders: RtOrder[] = []
-            for (let k = 0; k < count; k++) {
-                const orderKind = u8Max(r, RtOrderKind.gotoDepot, 'order kind')
-                const target = r.u32()
-                const limit = orderKind === RtOrderKind.gotoStation ? RT_CATALOG.caps.maxStations : tiles
-                if (target >= limit) throw new RtBadData(`order target ${target}`)
-                const flags = r.u8()
-                if ((flags & ~RT_ORDER_FLAG_MASK) !== 0) throw new RtBadData(`order flags ${flags}`)
-                orders.push({ kind: orderKind as RtOrder['kind'], target, flags })
-            }
-            return { kind, vehicle: id, orders }
-        }
-        case RtCommandKind.startStop:
-            return { kind, vehicle: vehicle(), stopped: u8Max(r, 1, 'stopped') === 1 }
-        case RtCommandKind.changeLoan:
-            return { kind, steps: r.i16() }
-        case RtCommandKind.renameCompany:
-            return { kind, name: r.str(NAME_BYTES) }
-        case RtCommandKind.foundCompany: {
-            const name = r.str(NAME_BYTES)
-            const colour = u8Max(r, RT_CATALOG.companies.colours.length - 1, 'colour')
-            return { kind, name, colour }
-        }
-        default:
-            throw new RtBadData(`unknown command kind ${kind}`)
-    }
 }

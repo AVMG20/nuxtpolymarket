@@ -20,7 +20,7 @@ import {
     type RtVehicle
 } from '#shared/utils/rail-tycoon/types'
 import { RT_VEHICLE_MODELS, buyVehicle, rtConsistCapacity } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld } from '#shared/utils/rail-tycoon/world'
 
 const C = RT_CATALOG.cargos
 const M = RT_CATALOG.vehicles.models
@@ -44,10 +44,8 @@ function sawmill(id: number, origin: number): RtIndustry {
 /** A world with two companies, a town at (20, 20), a sawmill at (24, 12) and a road along y = 10. */
 function setup(sharing = false) {
     const map = new RtMap(64)
-    const world = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing }, map, rngState: 99, tick: 1000,
-        date: rtStartDate(), pathfinderCursor: 0, companies: [], towns: [town(0, map.idx(20, 20))],
-        industries: [sawmill(0, map.idx(24, 12))], stations: [], vehicles: []
+    const world = RtWorld.empty({ side: 64, maxCompanies: 8, sharing }, {
+        map, rngState: 99, tick: 1000, towns: [town(0, map.idx(20, 20))], industries: [sawmill(0, map.idx(24, 12))]
     })
     world.addCompany('A')
     world.addCompany('B')

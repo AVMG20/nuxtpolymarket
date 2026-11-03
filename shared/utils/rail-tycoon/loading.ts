@@ -27,6 +27,7 @@ import {
     type RtStation,
     type RtTown,
     type RtVehicle,
+    type RtWorldEvents,
     type RtWorldSettings
 } from './types'
 import { rtConsistCapacity, rtConsistMaxSpeed, rtModelSpec } from './vehicles'
@@ -40,6 +41,7 @@ export interface RtLoadWorld {
     readonly towns: readonly (RtTown | null)[]
     readonly industries: readonly (RtIndustry | null)[]
     readonly stations: readonly (RtStation | null)[]
+    readonly events: RtWorldEvents | null
 }
 
 const LOADING = RT_CATALOG.vehicles
@@ -132,6 +134,7 @@ function acceptingIndustry(world: RtLoadWorld, station: RtStation, cargo: number
  */
 function deliver(world: RtLoadWorld, vehicle: RtVehicle, station: RtStation, company: RtCompany, portions: Portion[]): void {
     const category = vehicle.kind === RtVehicleKind.rail ? 'trainIncome' : 'roadIncome'
+    let paid = 0
     for (const { packet, before } of portions) {
         const distance = manhattan(world.map, packet.sourceTile, station.sign)
         const whole = deliveryPayment(packet.cargo, before, distance, packet.transitPeriods)
@@ -144,12 +147,15 @@ function deliver(world: RtLoadWorld, vehicle: RtVehicle, station: RtStation, com
         const source = packet.sourceStation !== RT_NONE ? byId(world.stations, packet.sourceStation) : undefined
         if (source && source.owner !== vehicle.owner && chargeSharing(world, vehicle.owner, source.owner, share, 'station')) profit -= share
         vehicle.profitThisYear += profit
+        paid += profit
         const industry = acceptingIndustry(world, station, packet.cargo)
         if (industry) acceptDelivery(industry, packet.cargo, packet.count)
         const town = byId(world.towns, station.town)
         if (town && packet.cargo < town.receivedThisMonth.length) town.receivedThisMonth[packet.cargo]! += packet.count
     }
-    if (portions.length > 0) station.lastDeliveryTick = world.tick
+    if (portions.length === 0) return
+    station.lastDeliveryTick = world.tick
+    if (paid > 0) world.events?.payment(vehicle, paid)
 }
 
 /**

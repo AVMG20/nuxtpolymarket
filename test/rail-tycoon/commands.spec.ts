@@ -13,7 +13,7 @@ import { RtOrderError } from '#shared/utils/rail-tycoon/orders'
 import { SeededRandom } from '#shared/utils/random'
 import { stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
 import { RtSignalType, rtSignalGreen, rtSignalOnTrackdir } from '#shared/utils/rail-tycoon/signals'
-import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtDir, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
 import {
@@ -29,7 +29,7 @@ import {
 import { rtRemoveTrain, stepTrain } from '#shared/utils/rail-tycoon/train'
 import { RT_NONE, RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { rtVehicleSellValue } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 
 const ME = 0
 const RIVAL = 1
@@ -38,10 +38,8 @@ const ENGINE = M.expressEngine.index
 const K = RtCommandKind
 
 function world(sharing = false, side = 64): RtWorld {
-    const w = new RtWorld({
-        settings: { side, maxCompanies: 8, sharing }, map: new RtMap(side), rngState: 7, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [], industries: [], stations: [], vehicles: []
+    const w = RtWorld.empty({ side, maxCompanies: 8, sharing }, {
+        rngState: 7, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
     })
     for (const company of w.companyList()) company.money = 1_000_000
     return w

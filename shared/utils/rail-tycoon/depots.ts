@@ -13,11 +13,11 @@
 
 import { RT_CATALOG } from './catalog'
 import { RT_ROAD_DIR_BIT, RtTileKind, type RtDir, type RtMap } from './map'
+import { RT_DEPOT_FACING_SHIFT, RT_DEPOT_ROAD_BIT, rtDepotFacingBits, rtDepotKind } from './tile-payloads'
 import { RtBuildError, RtTrack, rtBuildFail, rtBuildOk, rtClearingCost, rtValidCompany, type RtBuildResult } from './track'
 import { RtVehicleKind } from './types'
 
-export const RT_DEPOT_ROAD_BIT = 1
-export const RT_DEPOT_FACING_SHIFT = 1
+export { RT_DEPOT_FACING_SHIFT, RT_DEPOT_ROAD_BIT, rtDepotKind } from './tile-payloads'
 export const RT_DEPOT_RESERVED_BIT = 1 << 3
 export const RT_DEPOT_LINK_SHIFT = 8
 
@@ -33,12 +33,8 @@ export function rtDepotPayload(kind: RtVehicleKind, facing: RtDir): number {
         | (link << RT_DEPOT_LINK_SHIFT)) >>> 0
 }
 
-export function rtDepotKind(payload: number): RtVehicleKind {
-    return (payload & RT_DEPOT_ROAD_BIT) !== 0 ? RtVehicleKind.road : RtVehicleKind.rail
-}
-
 export function rtDepotFacing(payload: number): RtDir {
-    return ((payload >>> RT_DEPOT_FACING_SHIFT) & 3) as RtDir
+    return rtDepotFacingBits(payload) as RtDir
 }
 
 /** The connecting track piece bits (rail depot) or road bit (road depot) on the depot tile. */
@@ -52,6 +48,16 @@ export function rtDepotReserved(payload: number): boolean {
 
 export function rtWithDepotReservation(payload: number, reserved: boolean): number {
     return (reserved ? payload | RT_DEPOT_RESERVED_BIT : payload & ~RT_DEPOT_RESERVED_BIT) >>> 0
+}
+
+/** Every depot tile of `kind` whose owner `admits`, in tile order. */
+export function rtDepotTiles(map: RtMap, kind: RtVehicleKind, admits: (owner: number) => boolean): number[] {
+    const depots: number[] = []
+    for (let tile = 0; tile < map.side * map.side; tile++) {
+        if (map.kind[tile] !== RtTileKind.depot || rtDepotKind(map.payload[tile]!) !== kind) continue
+        if (admits(map.owner[tile]!)) depots.push(tile)
+    }
+    return depots
 }
 
 /**

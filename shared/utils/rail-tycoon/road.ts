@@ -32,13 +32,10 @@ import {
     type RtBuildResult,
     type RtOccupied
 } from './track'
+import { RT_ROAD_BITS_MASK, rtRoadBits } from './tile-payloads'
 import { RT_OWNER_NONE } from './types'
 
-export const RT_ROAD_BITS_MASK = 15
-
-export function rtRoadBits(payload: number): number {
-    return payload & RT_ROAD_BITS_MASK
-}
+export { RT_ROAD_BITS_MASK, rtRoadBits } from './tile-payloads'
 
 function validBits(bits: number): boolean {
     return Number.isInteger(bits) && bits > 0 && bits <= RT_ROAD_BITS_MASK

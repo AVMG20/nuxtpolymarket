@@ -67,8 +67,15 @@ export function rtStationTileRadius(map: RtMap, tile: number, station: RtStation
  * own radius, clipped to the map. A station without tiles covers nothing.
  */
 export function computeCatchment(map: RtMap, station: RtStation): number[] {
+    return rtCatchmentOf(map, station.tiles, tile => rtStationTileRadius(map, tile, station))
+}
+
+/**
+ * The union of each tile's square of radius `radiusOf(tile)` (at most the larger catchment radius),
+ * ascending and unique, clipped to the map: a station's catchment, and the station tools' preview of one.
+ */
+export function rtCatchmentOf(map: RtMap, tiles: readonly number[], radiusOf: (tile: number) => number): number[] {
     const side = map.side
-    const tiles = station.tiles
     if (tiles.length === 0) return []
     const reach = Math.max(RT_CATALOG.catchment.rail, RT_CATALOG.catchment.roadStop)
     let minX = side
@@ -93,7 +100,7 @@ export function computeCatchment(map: RtMap, station: RtStation): number[] {
     const mark = new Uint8Array(w * (y1 - y0 + 1))
     for (const tile of tiles) {
         if (!map.validTile(tile)) continue
-        const r = rtStationTileRadius(map, tile, station)
+        const r = Math.min(reach, radiusOf(tile))
         const tx = map.tileX(tile)
         const ty = map.tileY(tile)
         const ax = Math.max(x0, tx - r)

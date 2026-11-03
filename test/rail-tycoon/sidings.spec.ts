@@ -27,7 +27,7 @@ import {
     rtValidTrackdir
 } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
-import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/world'
+import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/occupied'
 
 type XY = [number, number]
 

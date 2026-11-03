@@ -23,37 +23,41 @@
 import { RT_CATALOG } from './catalog'
 import { rtDepotFacing, rtDepotKind } from './depots'
 import { RT_ROAD_DIR_BIT, RtDir, RtTileKind, rtReverseDir, type RtMap } from './map'
-import { advanceOrder, rtCurrentOrder } from './orders'
+import { rtCurrentOrder } from './orders'
 import { findRoadRoute, rtDepotTarget, rtStationRoadTarget, RtRouteOutcome, type RtRouteTarget } from './pathfinder'
 import { rtPieceReserved } from './signals'
 import {
-    RT_STATION_AXIS_BIT,
     RtStationTile,
     rtBayFacingAt,
     rtBayLane,
+    rtDrivableRoadBits,
     rtRoadLaneExit,
-    rtRoadStopIsBay,
     rtStationId,
     rtStationTileType
 } from './stations-build'
-import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadBits, rtIsCrossing, rtTrackdirExitDir } from './track'
-import type { RtTrainHooks } from './train'
+import { RtTrack, rtIsCrossing, rtTrackdirExitDir } from './track'
 import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from './types'
-import { rtBreakdownTick, rtConsistMaxSpeed, rtCountRunningTick, rtModelSpec, rtServiceInDepot } from './vehicles'
+import {
+    rtArriveInDepot,
+    rtCompactRoute,
+    rtCrashCountdown,
+    rtJustLeft,
+    rtLoadTick,
+    rtSetRoute,
+    rtStateOf,
+    type RtVehicleHooks,
+    type RtVehicleStepResult
+} from './vehicle-common'
+import { rtBreakdownTick, rtConsistMaxSpeed, rtCountRunningTick, rtModelSpec } from './vehicles'
 import type { RtWorld } from './world'
 
-/** What happens at a stop (loading.ts supplies it): the same hooks as a train's. Without hooks a stop ends on the next tick. */
-export type RtRoadHooks = RtTrainHooks
-
-export interface RtRoadStepResult {
-    /** A crashed vehicle whose crash period ran out: the caller removes it (rtRemoveTrain works for both kinds). */
-    remove: boolean
-    /** The vehicle ran a route search this tick (for RtWorld.step's round-robin cursor). */
-    searched: boolean
-}
+export type RtRoadHooks = RtVehicleHooks
+export type RtRoadStepResult = RtVehicleStepResult
 
 const M = RT_CATALOG.movement
 const PF = RT_CATALOG.pathfinder
+/** Bound on the moves (a stretch of progress, a tile entered, a turn) of one vehicle in a tick: it only stops a loop. */
+const MOVES_PER_TICK = 16
 const TILE = M.subTileUnits
 const GAP = M.roadLaneGap
 /** Body length: the vehicle holds the tile behind its head until the head is this far in. */
@@ -64,25 +68,6 @@ const BAY_STOP = RT_BAY_STOP
 
 function bitOf(dir: number): number {
     return RT_ROAD_DIR_BIT[dir]!
-}
-
-/**
- * Road bits any road vehicle can drive on a tile: road, a level crossing's straight, a drive-through
- * stop's straight. A bay has none here: only the vehicle it serves may enter it (enterBits).
- */
-function roadBits(map: RtMap, tile: number): number {
-    const payload = map.payload[tile]!
-    switch (map.kind[tile]) {
-        case RtTileKind.road:
-            return payload & 15
-        case RtTileKind.rail:
-            return rtIsCrossing(payload) ? rtCrossingRoadBits(payload) : 0
-        case RtTileKind.station:
-            if (rtStationTileType(payload) === RtStationTile.rail || rtRoadStopIsBay(payload)) return 0
-            return (payload & RT_STATION_AXIS_BIT) !== 0 ? RT_ROAD_Y : RT_ROAD_X
-        default:
-            return 0
-    }
 }
 
 /** The stop type the vehicle loads at: buses at bus stops, every other road vehicle at truck stops. */
@@ -97,16 +82,11 @@ function targetDepot(vehicle: RtVehicle): number {
     return order && order.kind === RtOrderKind.gotoDepot ? order.target : RT_NONE
 }
 
-/** Whether the vehicle has just loaded at `station` and still stands on its stop (no second stop in a row there, as the original). */
-function justLeft(vehicle: RtVehicle, station: number): boolean {
-    return vehicle.state !== RtVehicleState.loading && station !== RT_NONE && vehicle.loadingStation === station
-}
-
 /** The station the vehicle is heading for, or RT_NONE. */
 function targetStation(vehicle: RtVehicle): number {
     if (vehicle.serviceDepot !== RT_NONE) return RT_NONE
     const order = rtCurrentOrder(vehicle)
-    return order && order.kind === RtOrderKind.gotoStation && !justLeft(vehicle, order.target) ? order.target : RT_NONE
+    return order && order.kind === RtOrderKind.gotoStation && !rtJustLeft(vehicle, order.target) ? order.target : RT_NONE
 }
 
 function isStopOf(map: RtMap, tile: number, station: number, type: RtStationTile): boolean {
@@ -115,10 +95,10 @@ function isStopOf(map: RtMap, tile: number, station: number, type: RtStationTile
     return rtStationTileType(payload) === type && rtStationId(payload) === station
 }
 
-/** Road bits the vehicle may drive into on a tile: roadBits, plus a bay's entrance when the bay is its stop. */
+/** Road bits the vehicle may drive into on a tile: rtDrivableRoadBits, plus a bay's entrance when the bay is its stop. */
 function enterBits(map: RtMap, vehicle: RtVehicle, tile: number): number {
     const facing = rtBayFacingAt(map, tile)
-    if (facing < 0) return roadBits(map, tile)
+    if (facing < 0) return rtDrivableRoadBits(map,tile)
     return isStopOf(map, tile, targetStation(vehicle), stopType(vehicle)) ? bitOf(facing) : 0
 }
 
@@ -175,14 +155,6 @@ export function rtCrossingBarred(world: RtWorld, tile: number): boolean {
     return false
 }
 
-/** Points the vehicle at a new route from its head tile. */
-function setRoute(world: RtWorld, vehicle: RtVehicle, route: number[]): void {
-    vehicle.route = route.slice(0, RT_CATALOG.caps.maxRouteLength)
-    vehicle.routeIndex = 0
-    vehicle.reservedEnd = 0
-    vehicle.routeTick = world.tick
-}
-
 /** Drops the tile behind the head (the body has left it). */
 function dropTail(world: RtWorld, vehicle: RtVehicle): void {
     while (vehicle.tiles.length > 1) {
@@ -227,11 +199,11 @@ function plan(world: RtWorld, vehicle: RtVehicle): boolean {
     if (result.outcome === RtRouteOutcome.found) {
         // the best way starts behind it: turn at once, unless in or at a depot (left by its entrance only)
         if (result.turnAround && vehicle.state === RtVehicleState.driving && world.map.kind[head] !== RtTileKind.depot) turnAround(world, vehicle)
-        setRoute(world, vehicle, result.route)
+        rtSetRoute(world, vehicle, result.route)
         vehicle.lost = false
         vehicle.lostRetryTick = RT_NONE
     } else {
-        setRoute(world, vehicle, [])
+        rtSetRoute(world, vehicle, [])
         vehicle.lost = true
         vehicle.lostRetryTick = world.tick + PF.lostRetryTicks
     }
@@ -269,7 +241,7 @@ function nextTile(world: RtWorld, vehicle: RtVehicle): { next: number, bits: num
     const exit = rtRoadLaneExit(map, head, lane)
     const open = map.kind[head] === RtTileKind.depot
         ? rtDepotFacing(map.payload[head]!) === lane
-        : rtBayFacingAt(map, head) >= 0 || (roadBits(map, head) & bitOf(lane)) !== 0
+        : rtBayFacingAt(map, head) >= 0 || (rtDrivableRoadBits(map,head) & bitOf(lane)) !== 0
     if (!open) return { next: -1, bits: 0 }
     const next = map.neighbour(head, exit as RtDir)
     if (next < 0) return { next: -1, bits: 0 }
@@ -316,28 +288,8 @@ function room(world: RtWorld, vehicle: RtVehicle): number {
 
 /** The vehicle drives into its target depot: it leaves the road, is serviced and runs its depot order. */
 function enterDepot(world: RtWorld, vehicle: RtVehicle, depot: number): void {
-    for (const tile of vehicle.tiles) world.markDirty(tile)
-    world.occupied.releaseVehicle(vehicle.id)
-    world.occupied.enterDepot(vehicle.id, depot)
-    world.markDirty(depot)
-    const facing = rtDepotFacing(world.map.payload[depot]!)
-    vehicle.state = RtVehicleState.inDepot
-    vehicle.tiles = [depot]
-    vehicle.pieces = [facing]
-    vehicle.direction = facing
-    vehicle.progress = 0
-    vehicle.speed = 0
-    vehicle.subspeed = 0
-    vehicle.route = []
-    vehicle.routeIndex = 0
-    vehicle.routeTick = RT_NONE
+    rtArriveInDepot(world, vehicle, depot, rtDepotFacing(world.map.payload[depot]!), tile => world.markDirty(tile))
     vehicle.blockedTicks = 0
-    // sent here by sendToDepot: it stops inside until started
-    if (vehicle.haltInDepot) vehicle.stopped = true
-    vehicle.haltInDepot = false
-    rtServiceInDepot(world, vehicle, depot, world.tick)
-    const order = rtCurrentOrder(vehicle)
-    if (order && order.kind === RtOrderKind.gotoDepot && order.target === depot) advanceOrder(vehicle, world.stations, world.map)
 }
 
 /** The vehicle stops at a stop of its target station and hands over to loading. */
@@ -404,10 +356,7 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle): Enter {
         world.occupied.releaseRoad(vehicle.id, tile, vehicle.pieces.pop()!)
         world.markDirty(tile)
     }
-    if (vehicle.routeIndex > 256) {
-        vehicle.route.splice(0, vehicle.routeIndex)
-        vehicle.routeIndex = 0
-    }
+    rtCompactRoute(vehicle)
     return Enter.entered
 }
 
@@ -455,7 +404,7 @@ function leaveDepot(world: RtWorld, vehicle: RtVehicle): void {
     vehicle.pieces = [facing]
     vehicle.direction = facing
     const next = map.neighbour(depot, facing)
-    if (next < 0 || (roadBits(map, next) & bitOf(rtReverseDir(facing))) === 0 || rtCrossingBarred(world, next)) return
+    if (next < 0 || (rtDrivableRoadBits(map,next) & bitOf(rtReverseDir(facing))) === 0 || rtCrossingBarred(world, next)) return
     vehicle.progress = TILE - BODY
     if (room(world, vehicle) <= 0) {
         vehicle.progress = 0
@@ -468,10 +417,6 @@ function leaveDepot(world: RtWorld, vehicle: RtVehicle): void {
     world.markDirty(depot)
 }
 
-function stateOf(vehicle: RtVehicle): RtVehicleState {
-    return vehicle.state
-}
-
 /**
  * One tick of one road vehicle. RtWorld.step calls it for every road vehicle in id order,
  * then removes the vehicle when `remove` is set.
@@ -479,11 +424,7 @@ function stateOf(vehicle: RtVehicle): RtVehicleState {
 export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRoadHooks): RtRoadStepResult {
     const result: RtRoadStepResult = { remove: false, searched: false }
     if (vehicle.kind !== RtVehicleKind.road || vehicle.tiles.length === 0 || vehicle.tiles.length !== vehicle.pieces.length) return result
-    if (vehicle.state === RtVehicleState.crashed) {
-        vehicle.crashTicks = Math.max(0, vehicle.crashTicks - 1)
-        result.remove = vehicle.crashTicks === 0
-        return result
-    }
+    if (rtCrashCountdown(vehicle, result)) return result
     // a road vehicle has no parking places: a stopped one stands where it is (the original)
     if (vehicle.state === RtVehicleState.parking || vehicle.state === RtVehicleState.parked) vehicle.state = RtVehicleState.driving
     rtCountRunningTick(vehicle)
@@ -496,14 +437,7 @@ export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRo
         return result
     }
     if (vehicle.state === RtVehicleState.loading) {
-        if (vehicle.stopped) return result
-        const done = hooks?.loadStep ? hooks.loadStep(world, vehicle) : true
-        if (done) {
-            // loadingStation stays until the vehicle is off the stop (justLeft)
-            vehicle.state = RtVehicleState.driving
-            advanceOrder(vehicle, world.stations, world.map)
-            vehicle.routeTick = RT_NONE
-        }
+        if (!vehicle.stopped) rtLoadTick(world, vehicle, hooks)
         return result
     }
 
@@ -525,7 +459,7 @@ export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRo
         // queued at its own stop: load where it stands once past the stop's middle
         if (!vehicle.stopped && isStopOf(world.map, vehicle.tiles[0]!, station, type) && vehicle.progress >= TILE / 2) arrive(vehicle, station)
     }
-    for (let guard = 0; guard < 16 && budget > 0; guard++) {
+    for (let guard = 0; guard < MOVES_PER_TICK && budget > 0; guard++) {
         const space = through ? Infinity : room(world, vehicle)
         if (space <= 0) break
         if (vehicle.progress < TILE) {
@@ -550,7 +484,7 @@ export function stepRoadVehicle(world: RtWorld, vehicle: RtVehicle, hooks?: RtRo
         if (outcome === Enter.held || outcome === Enter.depot) break
         if (outcome === Enter.entered) vehicle.progress = 0
     }
-    if (stateOf(vehicle) === RtVehicleState.loading) {
+    if (rtStateOf(vehicle) === RtVehicleState.loading) {
         hooks?.arrive?.(world, vehicle, vehicle.loadingStation)
     } else if (vehicle.loadingStation !== RT_NONE && !isStopOf(world.map, vehicle.tiles[0]!, vehicle.loadingStation, type)) {
         vehicle.loadingStation = RT_NONE

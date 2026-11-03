@@ -19,6 +19,26 @@ export const RT_MAX_ORDERS = RT_CATALOG.caps.maxOrders
 /** Every RtOrderFlag bit together. */
 export const RT_ORDER_FLAG_MASK = RtOrderFlag.fullLoad | RtOrderFlag.unload | RtOrderFlag.noUnload
 
+/** Unload and no unloading exclude each other on one order. */
+const EXCLUSIVE_FLAGS = RtOrderFlag.unload | RtOrderFlag.noUnload
+
+/**
+ * Toggles a flag on a station order. Unload and no unloading exclude each other, so setting one
+ * clears the other; depot orders carry no flags and are left alone.
+ */
+export function rtOrdersToggleFlag(orders: readonly RtOrder[], index: number, flag: number): RtOrder[] {
+    const out = orders.map(o => ({ ...o }))
+    const order = out[index]
+    if (!order || order.kind !== RtOrderKind.gotoStation) return out
+    if (order.flags & flag) {
+        order.flags &= ~flag
+    } else {
+        order.flags |= flag
+        if (flag & EXCLUSIVE_FLAGS) order.flags &= ~(EXCLUSIVE_FLAGS & ~flag)
+    }
+    return out
+}
+
 export const RtOrderError = {
     /** Not a list of well-formed orders: wrong types, unknown kind, a target or flags out of range. */
     invalid: 0,
@@ -88,7 +108,7 @@ function checkOrder(
     if (!isNonNegativeInt(target) || !isNonNegativeInt(flags) || (flags & ~RT_ORDER_FLAG_MASK) !== 0) return RtOrderError.invalid
 
     if (kind === RtOrderKind.gotoStation) {
-        if ((flags & RtOrderFlag.unload) !== 0 && (flags & RtOrderFlag.noUnload) !== 0) return RtOrderError.badFlags
+        if ((flags & EXCLUSIVE_FLAGS) === EXCLUSIVE_FLAGS) return RtOrderError.badFlags
         const station = rtStationById(stations, target)
         if (!station) return RtOrderError.noTarget
         const foreign = station.owner !== owner

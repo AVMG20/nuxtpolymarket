@@ -10,11 +10,11 @@ import {
     rtViolationAt,
     rtWreckDays
 } from '#shared/utils/rail-tycoon/inspector'
-import { RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { decodeWorld, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RT_ROAD_Y, RtTrack } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
-import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld } from '#shared/utils/rail-tycoon/world'
 
 const SIDE = 64
 const ROW = 10
@@ -27,10 +27,7 @@ const RULES = RT_CATALOG.inspector
 
 /** A flat world with three companies: 0 lays the railway, 1 the road, 2 stands by. */
 function newWorld(rngState = 777): RtWorld {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 8, sharing: false }, map: new RtMap(SIDE), rngState, tick: 0,
-        date: rtStartDate(), pathfinderCursor: 0, companies: [], towns: [], industries: [], stations: [], vehicles: []
-    })
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 8, sharing: false }, { rngState })
     world.addCompany('Rail Co')
     world.addCompany('Road Co')
     world.addCompany('Bystander')

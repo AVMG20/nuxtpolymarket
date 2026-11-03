@@ -49,18 +49,8 @@ function newTown(id: number, centre: number, houses = 0): RtTown {
 }
 
 function newWorld(towns: RtTown[] = [], industries: RtIndustry[] = [], map = new RtMap(SIDE)): RtWorld {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 4, sharing: true },
-        map,
-        rngState: 1,
-        tick: 0,
-        date: { day: 1, month: 0, year: 1950 },
-        pathfinderCursor: 0,
-        companies: [],
-        towns,
-        industries,
-        stations: [],
-        vehicles: []
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 4, sharing: true }, {
+        map, date: { day: 1, month: 0, year: 1950 }, towns, industries
     })
     world.addCompany('A')
     world.addCompany('B')

@@ -3,7 +3,7 @@ import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { buildDepot } from '#shared/utils/rail-tycoon/depots'
 import { rtLoadHooks } from '#shared/utils/rail-tycoon/loading'
 import { depotSharingFee } from '#shared/utils/rail-tycoon/economy'
-import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtDir, RtTileKind, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { buildRoad } from '#shared/utils/rail-tycoon/road'
 import { stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
 import { SeededRandom } from '#shared/utils/random'
@@ -45,7 +45,7 @@ import {
     serviceAndBreakdown,
     type RtServiceContext
 } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 
 const M = RT_CATALOG.vehicles.models
 const ME = 0
@@ -53,18 +53,10 @@ const RIVAL = 1
 const COAL = 2
 
 function world(): RtWorld {
-    return new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing: true },
-        map: new RtMap(64),
+    return RtWorld.empty({ side: 64, maxCompanies: 8, sharing: true }, {
         rngState: 7,
         tick: 500,
-        date: rtStartDate(),
-        pathfinderCursor: 0,
-        companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [],
-        industries: [],
-        stations: [],
-        vehicles: []
+        companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
     })
 }
 
@@ -230,18 +222,9 @@ describe('rail tycoon trains', () => {
         const SERVICE_DAYS = M.tankEngine.serviceDays
 
         function sharingWorld(sharing: boolean): RtWorld {
-            return new RtWorld({
-                settings: { side: 64, maxCompanies: 8, sharing },
-                map: new RtMap(64),
+            return RtWorld.empty({ side: 64, maxCompanies: 8, sharing }, {
                 rngState: 7,
-                tick: 0,
-                date: rtStartDate(),
-                pathfinderCursor: 0,
-                companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-                towns: [],
-                industries: [],
-                stations: [],
-                vehicles: []
+                companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
             })
         }
 
@@ -655,10 +638,8 @@ function settle(world: RtWorld): void {
 }
 
 function net(sharing = false): RtWorld {
-    return new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing }, map: new RtMap(64), rngState: 7, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [], industries: [], stations: [], vehicles: []
+    return RtWorld.empty({ side: 64, maxCompanies: 8, sharing }, {
+        rngState: 7, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
     })
 }
 

@@ -172,7 +172,7 @@ const LIMIT_NAMES = [
     'RT_INVITE_CODE_LENGTH'
 ] as const
 /** The invite code's alphabet and shape checker live in limits.ts beside its length. */
-const NON_LIMIT_EXPORTS = ['RT_INVITE_CODE_ALPHABET', 'isRtInviteCode'] as const
+const NON_LIMIT_EXPORTS = ['RT_INVITE_CODE_ALPHABET', 'isRtInviteCode', 'rtInvitePath', 'rtWorldFull'] as const
 
 describe('limits.ts', () => {
     const table = limits as Record<string, unknown>

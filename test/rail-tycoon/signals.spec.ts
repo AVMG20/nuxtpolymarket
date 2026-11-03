@@ -17,6 +17,7 @@ import {
     rtSignalGreen,
     rtSignalOnTrackdir,
     rtSignalTypeAt,
+    rtTileSignals,
     updateSignalStates,
     type RtTrainOnPiece
 } from '#shared/utils/rail-tycoon/signals'
@@ -40,7 +41,8 @@ import {
     rtValidTrackdir
 } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
-import { RtOccupiedRegistry, RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/occupied'
 
 type XY = [number, number]
 
@@ -232,6 +234,25 @@ describe('rail tycoon signals and reservations', () => {
     })
 
     describe('placeSignal', () => {
+        it('rtTileSignals reads each signal as the per-trackdir accessors do', () => {
+            const { map, t } = fixtureA()
+            expect(rtTileSignals(map, t(9, 10))).toEqual([])
+            expect(rtTileSignals(map, -1)).toEqual([])
+            for (const tile of [t(8, 10), t(12, 13), t(18, 10)]) {
+                const signals = rtTileSignals(map, tile)
+                expect(signals.length).toBe(1)
+                const signal = signals[0]!
+                expect(signal.type).toBe(rtSignalTypeAt(map, tile, signal.piece))
+                for (const half of [0, 1] as const) {
+                    const td = signal.piece + (half ? 8 : 0)
+                    expect(signal.faces[half]).toBe(rtSignalOnTrackdir(map, tile, td))
+                    if (signal.faces[half]) expect(signal.green[half]).toBe(rtSignalGreen(map, tile, td))
+                }
+            }
+            expect(rtTileSignals(map, t(18, 10))[0]).toMatchObject({ piece: RtTrack.x, type: RtSignalType.block })
+            expect(rtTileSignals(map, t(12, 13))[0]).toMatchObject({ piece: RtTrack.y, type: RtSignalType.path })
+        })
+
         it('places a path signal on a straight and refuses platforms, junctions and crossings', () => {
             const { map, t } = fixtureA()
             const result = placeSignal(map, 0, t(20, 10), RtTrack.x, RtSignalType.path, true)
@@ -660,10 +681,7 @@ describe('rail tycoon signals and reservations', () => {
         it('answers the same on a world that has run and on a copy decoded from its snapshot', () => {
             const { map, t } = lines()
             const company = rtNewCompany(0, 'Alpha', 0, 0)
-            const world = new RtWorld({
-                settings: { side: 64, maxCompanies: 2, sharing: false }, map, rngState: 1, tick: 500, date: rtStartDate(),
-                pathfinderCursor: 0, companies: [company], towns: [], industries: [], stations: [], vehicles: []
-            })
+            const world = RtWorld.empty({ side: 64, maxCompanies: 2, sharing: false }, { map, tick: 500, companies: [company] })
             const signalled: [number, number][] = []
             for (let tile = 0; tile < map.tileCount; tile++) {
                 for (let piece = 0; piece < 6; piece++) {

@@ -17,7 +17,8 @@
 
 import { RT_CATALOG } from './catalog'
 import { RT_ROAD_DIR_BIT, RtDir, RtTileKind, rtReverseDir, rtTreeCount, type RtMap } from './map'
-import { RT_OWNER_NONE, type RtVehicle } from './types'
+import { RtAxis, RtStationTile, rtDepotFacingBits, rtDepotKind, rtRoadBits, rtStationAxis, rtStationTileType } from './tile-payloads'
+import { RT_OWNER_NONE, RtVehicleKind, type RtVehicle } from './types'
 
 /* ------------------------------------------------------------------------------------------
  * The shared build result
@@ -164,6 +165,13 @@ export function rtIsCrossing(payload: number): boolean {
 /** Road owner of a level crossing (RT_OWNER_NONE for a town road). */
 export function rtCrossingRoadOwner(payload: number): number {
     return (payload >>> RT_RAIL_SIGNAL_SHIFT[0]!) & 0xff
+}
+
+/** A level crossing payload with its road part owned by `owner` instead, its rail piece and reservation kept. */
+export function rtWithCrossingRoadOwner(payload: number, owner: number): number {
+    let piece = 0
+    while (piece < 5 && (rtRailPieces(payload) & (1 << piece)) === 0) piece++
+    return rtCrossingPayload(piece as RtTrack, owner, rtRailPieceReserved(payload, piece as RtTrack))
 }
 
 /** Road bits of a level crossing: the full straight across its rail piece. */
@@ -329,7 +337,7 @@ export function buildRail(map: RtMap, owner: number, tile: number, piece: number
             return rtBuildOk(prices.track)
         }
         case RtTileKind.road: {
-            const roadBits = map.payload[tile]! & 15
+            const roadBits = rtRoadBits(map.payload[tile]!)
             const across = piece === RtTrack.x ? RT_ROAD_Y : piece === RtTrack.y ? RT_ROAD_X : 0
             if (across === 0 || roadBits === 0 || (roadBits & ~across) !== 0) return rtBuildFail(RtBuildError.occupied)
             if (!map.isFlat(tile)) return rtBuildFail(RtBuildError.badSlope)
@@ -524,13 +532,6 @@ export function rtPieceBetween(a: RtDir, b: RtDir): number {
     return -1
 }
 
-// Station and depot payload bits read here; track.ts cannot import stations-build.ts or depots.ts
-// (both import this file), so the positions are repeated and signals.spec.ts pins them to theirs.
-const STATION_TYPE_SHIFT = 16
-const STATION_AXIS_BIT = 1 << 18
-const DEPOT_ROAD_BIT = 1
-const DEPOT_FACING_SHIFT = 1
-
 /**
  * The rail pieces a vehicle can use on a tile, as piece bits, whoever owns it: rail pieces (a level
  * crossing's one straight), a rail platform's straight along its axis, a rail depot's straight along
@@ -542,13 +543,11 @@ export function rtRailTilePieces(map: RtMap, tile: number): number {
         case RtTileKind.rail:
             return rtRailPieces(payload)
         case RtTileKind.station:
-            if (((payload >>> STATION_TYPE_SHIFT) & 3) !== 0) return 0
-            return 1 << ((payload & STATION_AXIS_BIT) !== 0 ? RtTrack.y : RtTrack.x)
-        case RtTileKind.depot: {
-            if ((payload & DEPOT_ROAD_BIT) !== 0) return 0
-            const facing = (payload >>> DEPOT_FACING_SHIFT) & 3
-            return 1 << ((facing & 1) === 0 ? RtTrack.x : RtTrack.y)
-        }
+            if (rtStationTileType(payload) !== RtStationTile.rail) return 0
+            return 1 << (rtStationAxis(payload) === RtAxis.y ? RtTrack.y : RtTrack.x)
+        case RtTileKind.depot:
+            if (rtDepotKind(payload) !== RtVehicleKind.rail) return 0
+            return 1 << ((rtDepotFacingBits(payload) & 1) === 0 ? RtTrack.x : RtTrack.y)
         default:
             return 0
     }
@@ -558,8 +557,7 @@ export function rtRailTilePieces(map: RtMap, tile: number): number {
 export function rtRailDepotFacing(map: RtMap, tile: number): number {
     if (map.kind[tile] !== RtTileKind.depot) return -1
     const payload = map.payload[tile]!
-    if ((payload & DEPOT_ROAD_BIT) !== 0) return -1
-    return (payload >>> DEPOT_FACING_SHIFT) & 3
+    return rtDepotKind(payload) === RtVehicleKind.rail ? rtDepotFacingBits(payload) : -1
 }
 
 /**

@@ -54,7 +54,7 @@
  * client imports it.
  */
 
-import { clampUtf8, RtBadData, RtReader, RtWriter } from './bytes'
+import { RtBadData, RtReader, RtWriter } from './bytes'
 import { RT_CATALOG } from './catalog'
 import { decodeCommand, encodeCommand, RtCommandKind, type RtCommand } from './commands'
 import {
@@ -71,6 +71,19 @@ import { RT_OWNER_NONE } from './types'
 
 /** Wire protocol version; hello carries it and a client with another one stops as outdated. */
 export const RT_PROTOCOL_VERSION = 1
+
+/** Every code the socket is closed with; the 4xxx codes mirror the HTTP status they stand for. */
+export const RtCloseCode = {
+    normal: 1000,
+    serverError: 1011,
+    unauthorized: 4401,
+    forbidden: 4403,
+    /** A send backlog the client could not drain; it reconnects and reopens. */
+    tooSlow: 4408,
+    /** A newer socket of the same user took over. */
+    replaced: 4409,
+    serverFull: 4503
+} as const
 
 /** Every cap the codecs enforce, one place for both directions. */
 export const RT_PROTOCOL_BOUNDS = Object.freeze({
@@ -253,6 +266,19 @@ export interface RtWorldSummary {
     isPublic: boolean
 }
 
+/** One world in the public lobby (GET /api/rail-tycoon/lobby); its invite code is listed, since anyone may join. */
+export interface RtLobbyWorld {
+    id: string
+    name: string
+    ownerName: string
+    memberCount: number
+    maxCompanies: number | null
+    /** Milliseconds since the epoch. */
+    lastActiveAt: number
+    inviteCode: string
+    avatar: string | null
+}
+
 /**
  * A world captured at a tick boundary: the hash of every part (save.ts encodeWorldParts). The parts
  * the client lacks follow as part frames, then snapshotEnd with every command stamped for that tick
@@ -313,14 +339,20 @@ export type RtServerMsg =
 // a lone surrogate encodes as U+FFFD and would not survive a round trip
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
 
+/*
+ * Encoding. The encoders check only what the decoder cannot see, a value that would read back as a
+ * different one (a lone surrogate, a non-boolean, company 255, no cap written as 0, a malformed part
+ * hash, a misplaced invite field); every cap and range is the decoder's, and each encoder decodes
+ * its own frame before handing it out.
+ */
+
 function refuse(what: string): never {
     throw new RangeError(`protocol: ${what}`)
 }
 
-function writeStr(w: RtWriter, text: string, maxBytes: number, what: string): void {
-    if (typeof text !== 'string' || text.length === 0) refuse(`${what} must be a non-empty string`)
+function writeStr(w: RtWriter, text: string, what: string): void {
+    if (typeof text !== 'string') refuse(`${what} must be a string`)
     if (LONE_SURROGATE.test(text)) refuse(`${what} holds a lone surrogate`)
-    if (clampUtf8(text, maxBytes) !== text) refuse(`${what} exceeds ${maxBytes} bytes`)
     w.str(text)
 }
 
@@ -335,38 +367,35 @@ function writeBool(w: RtWriter, value: boolean, what: string): void {
     w.u8(value ? 1 : 0)
 }
 
-/** A company byte: an id below the company cap, or RT_OWNER_NONE for null. */
+/** A company byte: an id, or RT_OWNER_NONE for null; a number 255 would read back as none. */
 function writeCompany(w: RtWriter, company: number | null, what: string): void {
-    if (company === null) {
-        w.u8(RT_OWNER_NONE)
-        return
-    }
-    if (!Number.isInteger(company) || company < 0 || company >= RT_PROTOCOL_BOUNDS.companies) {
-        refuse(`${what} out of range: ${company}`)
-    }
-    w.u8(company)
+    if (company === RT_OWNER_NONE) refuse(`${what} out of range: ${company}`)
+    w.u8(company ?? RT_OWNER_NONE)
 }
 
-function checkBytes(data: Uint8Array, maxBytes: number, what: string): void {
+function writeBytes(w: RtWriter, data: Uint8Array, what: string): void {
     if (!(data instanceof Uint8Array)) refuse(`${what} must be a Uint8Array`)
-    if (data.length === 0 || data.length > maxBytes) refuse(`${what} of ${data.length} bytes is outside 1 to ${maxBytes}`)
+    w.bytes(data)
 }
 
-function writeStamped(w: RtWriter, stamped: RtStampedCommand, minTick: number): void {
+/** A varint length, then the bytes. */
+function writeSizedBytes(w: RtWriter, data: Uint8Array, what: string): void {
+    if (!(data instanceof Uint8Array)) refuse(`${what} must be a Uint8Array`)
+    w.varint(data.length)
+    w.bytes(data)
+}
+
+function writeStamped(w: RtWriter, stamped: RtStampedCommand): void {
     w.u32(stamped.tick)
-    if (stamped.tick < minTick) refuse(`pending command for tick ${stamped.tick} before tick ${minTick}`)
     writeCompany(w, stamped.company, 'command company')
-    checkBytes(stamped.command, RT_PROTOCOL_BOUNDS.commandBytes, 'command')
-    w.varint(stamped.command.length)
-    w.bytes(stamped.command)
+    writeSizedBytes(w, stamped.command, 'command')
 }
 
 const PART_HASH = /^[0-9a-f]{16}$/
 
-/** Part hashes: a varint count under the part cap, then each as two u32 (high half first). */
+/** Part hashes: a varint count, then each as two u32 (high half first). */
 function writeHashes(w: RtWriter, hashes: readonly string[], what: string): void {
     if (!Array.isArray(hashes)) refuse(`${what} must be an array`)
-    if (hashes.length > RT_PROTOCOL_BOUNDS.parts) refuse(`${hashes.length} ${what} exceed ${RT_PROTOCOL_BOUNDS.parts}`)
     w.varint(hashes.length)
     for (const hash of hashes) {
         if (typeof hash !== 'string' || !PART_HASH.test(hash)) refuse(`${what} entry is not a part hash`)
@@ -379,67 +408,45 @@ function writeSnapshotHead(w: RtWriter, head: RtSnapshotHead): void {
     w.u32(head.tick)
     w.varint(head.serverNow)
     writeHashes(w, head.parts, 'snapshot parts')
-    if (head.parts.length === 0) refuse('a snapshot has at least the entity part')
 }
 
 function writeSnapshotEnd(w: RtWriter, msg: Extract<RtServerMsg, { type: 'snapshotEnd' }>): void {
     w.u32(msg.tick)
-    if (msg.pending.length > RT_PROTOCOL_BOUNDS.pending) refuse(`${msg.pending.length} pending commands exceed ${RT_PROTOCOL_BOUNDS.pending}`)
     w.varint(msg.pending.length)
-    // ascending ticks, never before the snapshot's own tick
-    let minTick = msg.tick
-    for (const stamped of msg.pending) {
-        writeStamped(w, stamped, minTick)
-        minTick = stamped.tick
-    }
+    for (const stamped of msg.pending) writeStamped(w, stamped)
 }
 
 function writePart(w: RtWriter, msg: Extract<RtServerMsg, { type: 'part' }>): void {
-    if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= RT_PROTOCOL_BOUNDS.parts) refuse(`part index out of range: ${msg.index}`)
     w.u16(msg.index)
     writeBool(w, msg.last, 'last fragment')
-    checkBytes(msg.bytes, RT_PROTOCOL_BOUNDS.fragmentBytes, 'part fragment')
-    w.varint(msg.bytes.length)
-    w.bytes(msg.bytes)
+    writeSizedBytes(w, msg.bytes, 'part fragment')
 }
 
 function writeWorldSummary(w: RtWriter, world: RtWorldSummary): void {
-    writeStr(w, world.id, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-    writeStr(w, world.name, RT_PROTOCOL_BOUNDS.nameBytes, 'world name')
+    writeStr(w, world.id, 'world id')
+    writeStr(w, world.name, 'world name')
     writeEnum(w, RT_WORLD_STATUSES, world.status, 'world status')
     writeBool(w, world.isOwner, 'isOwner')
-    if (!Number.isInteger(world.memberCount) || world.memberCount < 0 || world.memberCount > RT_PROTOCOL_BOUNDS.companies) {
-        refuse(`member count out of range: ${world.memberCount}`)
-    }
     w.u8(world.memberCount)
-    if (world.maxCompanies === null) {
-        w.u8(0)
-    } else {
-        if (!Number.isInteger(world.maxCompanies) || world.maxCompanies < 1 || world.maxCompanies > RT_PROTOCOL_BOUNDS.companies) {
-            refuse(`max companies out of range: ${world.maxCompanies}`)
-        }
-        w.u8(world.maxCompanies)
-    }
+    // 0 is the byte for no cap, so a cap of 0 would read back as none
+    if (world.maxCompanies === 0) refuse('max companies out of range: 0')
+    w.u8(world.maxCompanies ?? 0)
     writeCompany(w, world.myCompanyId, 'my company')
     w.varint(world.lastActiveAt)
-    if (!isRtInviteCode(world.inviteCode)) refuse('world list invite code has the wrong shape')
-    w.str(world.inviteCode)
+    writeStr(w, world.inviteCode, 'world list invite code')
     writeBool(w, world.isPublic, 'isPublic')
 }
 
 function writeOpened(w: RtWriter, msg: Extract<RtServerMsg, { type: 'opened' }>): void {
     writeEnum(w, RT_ROLES, msg.role, 'role')
     writeBool(w, msg.owner, 'owner')
-    if ((msg.role === 'player') !== (msg.company !== null)) refuse('a player has a company and a spectator none')
     writeCompany(w, msg.company, 'company')
-    writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-    // the code goes to an owner or a player only; a spectator's frame has no field for it
+    writeStr(w, msg.worldId, 'world id')
+    // the code goes to an owner or a player only; a spectator's frame has no field for it, so a
+    // misplaced code would shift every field after it
     const invited = msg.role === 'player' || msg.owner
     if (invited !== (msg.inviteCode !== null)) refuse('the invite code goes exactly to an owner or a player')
-    if (msg.inviteCode !== null) {
-        if (!isRtInviteCode(msg.inviteCode)) refuse('opened invite code has the wrong shape')
-        w.str(msg.inviteCode)
-    }
+    if (msg.inviteCode !== null) writeStr(w, msg.inviteCode, 'opened invite code')
     writeSnapshotHead(w, msg)
 }
 
@@ -448,7 +455,7 @@ function frameCap(type: RtServerMsg['type']): number {
     return type === 'part' || type === 'snapshotEnd' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
 }
 
-/** One server frame. Throws RangeError for a message the protocol cannot carry. */
+/** One server frame. Throws RangeError for a message the protocol cannot carry: one decodeServerMsg refuses. */
 export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
     // own keys only, so 'constructor' or 'toString' never reads an inherited member
     if (!Object.prototype.hasOwnProperty.call(RtServerTag, msg.type)) {
@@ -460,21 +467,20 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
     switch (msg.type) {
         case 'hello':
             w.u16(msg.version)
-            writeStr(w, msg.buildId, RT_PROTOCOL_BOUNDS.buildIdBytes, 'build id')
+            writeStr(w, msg.buildId, 'build id')
             break
         case 'worldList':
-            if (msg.worlds.length > RT_PROTOCOL_BOUNDS.worldList) refuse(`${msg.worlds.length} worlds exceed ${RT_PROTOCOL_BOUNDS.worldList}`)
             w.varint(msg.worlds.length)
             for (const world of msg.worlds) writeWorldSummary(w, world)
             break
         case 'joined':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeStr(w, msg.worldId, 'world id')
             break
         case 'opened':
             writeOpened(w, msg)
             break
         case 'resync':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeStr(w, msg.worldId, 'world id')
             writeSnapshotHead(w, msg)
             break
         case 'part':
@@ -487,8 +493,7 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
             // 6 bytes plus the command: no length prefix, the command runs to the end of the frame
             w.u32(msg.tick)
             writeCompany(w, msg.company, 'command company')
-            checkBytes(msg.command, RT_PROTOCOL_BOUNDS.commandBytes, 'command')
-            w.bytes(msg.command)
+            writeBytes(w, msg.command, 'command')
             break
         case 'allowance':
             w.u32(msg.tick)
@@ -508,7 +513,7 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
             writeEnum(w, RT_UNLOAD_REASONS, msg.reason, 'unload reason')
             break
         case 'worldDeleted':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeStr(w, msg.worldId, 'world id')
             break
         case 'error':
             writeEnum(w, RT_ERROR_CODES, msg.code, 'error code')
@@ -524,9 +529,9 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
             refuse(`unhandled server message ${String(unknown)}`)
         }
     }
-    const cap = frameCap(msg.type)
-    if (w.length > cap) refuse(`${msg.type} frame of ${w.length} bytes exceeds ${cap}`)
-    return w.finish()
+    const bytes = w.finish()
+    if (decodeServerMsg(bytes) === null) refuse(`${msg.type} frame of ${bytes.length} bytes does not decode`)
+    return bytes
 }
 
 // C0 and C1 controls, the characters rtCleanCompanyName drops from a company name
@@ -565,49 +570,34 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
     switch (msg.type) {
         case 'list':
             break
-        case 'create': {
-            writeStr(w, msg.name, RT_PROTOCOL_BOUNDS.nameBytes, 'world name')
-            const problem = worldNameProblem(msg.name) ?? createSettingsProblem(msg.side, msg.maxCompanies)
-            if (problem !== null) refuse(problem)
+        case 'create':
+            writeStr(w, msg.name, 'world name')
             w.u16(msg.side)
             w.u8(msg.maxCompanies)
             writeBool(w, msg.sharing, 'sharing')
             writeBool(w, msg.isPublic, 'isPublic')
             break
-        }
         case 'join':
-            if (!isRtInviteCode(msg.inviteCode)) refuse('join invite code has the wrong shape')
-            w.str(msg.inviteCode)
+            writeStr(w, msg.inviteCode, 'join invite code')
             break
         case 'open':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-            if (msg.inviteCode === null) {
-                w.u8(0)
-            } else {
-                if (!isRtInviteCode(msg.inviteCode)) refuse('open invite code has the wrong shape')
-                w.u8(1)
-                w.str(msg.inviteCode)
-            }
+            writeStr(w, msg.worldId, 'world id')
+            writeBool(w, msg.inviteCode !== null, 'has invite')
+            if (msg.inviteCode !== null) writeStr(w, msg.inviteCode, 'open invite code')
             writeHashes(w, msg.have, 'held parts')
             break
-        case 'command': {
+        case 'command':
             w.u8(msg.seq)
-            const command = msg.command
-            if (typeof command !== 'object' || command === null) refuse('command must be an object')
-            if (command.kind === RtCommandKind.foundCompany) refuse('foundCompany is issued by the server only')
-            // encodeCommand throws RangeError for anything decodeCommand would refuse
-            const bytes = encodeCommand(command)
-            checkBytes(bytes, RT_PROTOCOL_BOUNDS.commandBytes, 'command')
-            w.bytes(bytes)
+            if (typeof msg.command !== 'object' || msg.command === null) refuse('command must be an object')
+            w.bytes(encodeCommand(msg.command))
             break
-        }
         case 'loaded':
         case 'stop':
         case 'delete':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeStr(w, msg.worldId, 'world id')
             break
         case 'resync':
-            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeStr(w, msg.worldId, 'world id')
             writeHashes(w, msg.have, 'held parts')
             break
         case 'ping':
@@ -618,8 +608,9 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
             refuse(`unhandled client message ${String(unknown)}`)
         }
     }
-    if (w.length > RT_PROTOCOL_BOUNDS.clientFrameBytes) refuse(`${msg.type} frame of ${w.length} bytes exceeds ${RT_PROTOCOL_BOUNDS.clientFrameBytes}`)
-    return w.finish()
+    const bytes = w.finish()
+    if (decodeClientMsg(bytes) === null) refuse(`${msg.type} frame of ${bytes.length} bytes does not decode`)
+    return bytes
 }
 
 /*

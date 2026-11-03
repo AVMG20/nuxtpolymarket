@@ -83,5 +83,14 @@ export function isRtInviteCode(code: unknown): code is string {
     }
     return true
 }
+/** The invite link's path (server/routes/rail-tycoon/invite/[code].get.ts). */
+export function rtInvitePath(code: string): string {
+    return `/rail-tycoon/invite/${code}`
+}
+/** Whether a world has no room for another member: every member runs a company (null: unknown cap, never full). */
+export function rtWorldFull(maxCompanies: number | null, members: number): boolean {
+    return maxCompanies !== null && members >= maxCompanies
+}
+
 /** Bound on one job in a world's serialized hub chain. */
 export const RT_CHAIN_TIMEOUT_MS = 10000

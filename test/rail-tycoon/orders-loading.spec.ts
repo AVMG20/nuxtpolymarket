@@ -30,7 +30,7 @@ import {
     type RtVehicle
 } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle, createVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 
 const M = RT_CATALOG.vehicles.models
 const ME = 0
@@ -289,10 +289,8 @@ function column(x: number, y0: number, y1: number): XY[] {
 }
 
 function net(sharing: boolean): RtWorld {
-    return new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing }, map: new RtMap(64), rngState: 7, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [], industries: [], stations: [], vehicles: []
+    return RtWorld.empty({ side: 64, maxCompanies: 8, sharing }, {
+        rngState: 7, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
     })
 }
 

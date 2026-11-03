@@ -23,7 +23,16 @@ import { clampUtf8 } from './bytes'
 import { RT_CARGO_IDS, RT_CATALOG } from './catalog'
 import { manhattan } from './economy'
 import { RT_ROAD_DIR_BIT, RtTileKind, rtReverseDir, type RtDir, type RtMap } from './map'
-import { buildRoad, rtRoadBits } from './road'
+import { buildRoad } from './road'
+import {
+    RT_STATION_AXIS_BIT,
+    RT_STATION_TYPE_SHIFT,
+    RtAxis,
+    RtStationTile,
+    rtRoadBits,
+    rtStationAxis,
+    rtStationTileType
+} from './tile-payloads'
 import {
     RT_ROAD_X,
     RT_ROAD_Y,
@@ -33,6 +42,7 @@ import {
     rtBuildFail,
     rtBuildOk,
     rtClearingCost,
+    rtCrossingRoadBits,
     rtIsCrossing,
     rtRailHasSignals,
     rtRailPieceReserved,
@@ -43,17 +53,9 @@ import {
 } from './track'
 import { RT_NONE, RT_OWNER_NONE, RtFacility, type RtStation, type RtStationCargo, type RtTown } from './types'
 
-/** Kind of a station tile. */
-export const RtStationTile = { rail: 0, bus: 1, truck: 2 } as const
-export type RtStationTile = typeof RtStationTile[keyof typeof RtStationTile]
-
-/** Platform axis: along x (track x) or along y (track y). */
-export const RtAxis = { x: 0, y: 1 } as const
-export type RtAxis = typeof RtAxis[keyof typeof RtAxis]
+export { RT_STATION_AXIS_BIT, RT_STATION_TYPE_SHIFT, RtAxis, RtStationTile, rtStationAxis, rtStationTileType } from './tile-payloads'
 
 export const RT_STATION_ID_MASK = 0xffff
-export const RT_STATION_TYPE_SHIFT = 16
-export const RT_STATION_AXIS_BIT = 1 << 18
 export const RT_STATION_RESERVED_BIT = 1 << 19
 export const RT_STATION_BAY_BIT = 1 << 20
 export const RT_STATION_BAY_FACING_SHIFT = 21
@@ -93,14 +95,6 @@ export function rtStationId(payload: number): number {
     return payload & RT_STATION_ID_MASK
 }
 
-export function rtStationTileType(payload: number): RtStationTile {
-    return ((payload >>> RT_STATION_TYPE_SHIFT) & 3) as RtStationTile
-}
-
-export function rtStationAxis(payload: number): RtAxis {
-    return (payload & RT_STATION_AXIS_BIT) !== 0 ? RtAxis.y : RtAxis.x
-}
-
 /** The track piece a platform holds (the straight along its axis). */
 export function rtPlatformTrack(payload: number): RtTrack {
     return rtStationAxis(payload) === RtAxis.y ? RtTrack.y : RtTrack.x
@@ -134,6 +128,25 @@ export function rtBayFacingAt(map: RtMap, tile: number): number {
 export function rtRoadStopBits(payload: number): number {
     if (rtRoadStopIsBay(payload)) return RT_ROAD_DIR_BIT[rtRoadStopFacing(payload)]!
     return rtStationAxis(payload) === RtAxis.y ? RT_ROAD_Y : RT_ROAD_X
+}
+
+/**
+ * Road bits any road vehicle may drive on a tile: road, a level crossing's straight, a drive-through
+ * stop's straight. A bay and a depot have none here: only a vehicle bound for one may enter it.
+ */
+export function rtDrivableRoadBits(map: RtMap, tile: number): number {
+    const payload = map.payload[tile]!
+    switch (map.kind[tile]) {
+        case RtTileKind.road:
+            return rtRoadBits(payload)
+        case RtTileKind.rail:
+            return rtIsCrossing(payload) ? rtCrossingRoadBits(payload) : 0
+        case RtTileKind.station:
+            if (rtStationTileType(payload) === RtStationTile.rail || rtRoadStopIsBay(payload)) return 0
+            return rtRoadStopBits(payload)
+        default:
+            return 0
+    }
 }
 
 /**
@@ -180,6 +193,11 @@ export function rtStationPayloadValid(payload: number, tileOwner: number): boole
 /** Owner of the road under a road stop (RT_OWNER_NONE a town road). */
 export function rtRoadStopRoadOwner(payload: number): number {
     return (payload >>> RT_STATION_ROAD_OWNER_SHIFT) & 0xff
+}
+
+/** A road stop payload with its road part owned by `owner` instead. */
+export function rtWithRoadStopRoadOwner(payload: number, owner: number): number {
+    return ((payload & ~(0xff << RT_STATION_ROAD_OWNER_SHIFT)) | ((owner & 0xff) << RT_STATION_ROAD_OWNER_SHIFT)) >>> 0
 }
 
 export function rtPlatformReserved(payload: number): boolean {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { buildDepot } from '#shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { RtTileKind, type RtDir, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { buildSiding } from '#shared/utils/rail-tycoon/sidings'
 import { RtSignalType, placeSignal, rtPieceReserved } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, buildRailStation } from '#shared/utils/rail-tycoon/stations-build'
@@ -9,7 +9,8 @@ import { RtBuildError, buildRail, rtPieceBetween } from '#shared/utils/rail-tyco
 import { stepTrain, rtRemoveTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { RT_VEHICLE_MODELS, buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtOccupiedRegistry, RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld } from '#shared/utils/rail-tycoon/world'
+import { RtOccupiedRegistry } from '#shared/utils/rail-tycoon/occupied'
 
 type XY = [number, number]
 
@@ -46,10 +47,7 @@ function column(x: number, y0: number, y1: number): XY[] {
 }
 
 function flatWorld(sharing = false, companies = 1): RtWorld {
-    const world = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing }, map: new RtMap(64), rngState: 12345, tick: 0,
-        date: rtStartDate(), pathfinderCursor: 0, companies: [], towns: [], industries: [], stations: [], vehicles: []
-    })
+    const world = RtWorld.empty({ side: 64, maxCompanies: 8, sharing }, { rngState: 12345 })
     for (let c = 0; c < companies; c++) world.addCompany(`Company ${c}`)
     return world
 }

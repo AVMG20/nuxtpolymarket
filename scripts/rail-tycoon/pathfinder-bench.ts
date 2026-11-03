@@ -8,11 +8,11 @@
  */
 import { RT_CATALOG } from '../../shared/utils/rail-tycoon/catalog'
 import { applyCommand, RtCommandKind as K, type RtCommand } from '../../shared/utils/rail-tycoon/commands'
-import { RtDir, RtMap } from '../../shared/utils/rail-tycoon/map'
+import { RtDir } from '../../shared/utils/rail-tycoon/map'
 import { RtAxis } from '../../shared/utils/rail-tycoon/stations-build'
 import { RtTrack, rtTrackdirOf } from '../../shared/utils/rail-tycoon/track'
 import { RtOrderKind, RtVehicleKind } from '../../shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany, rtStartDate } from '../../shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '../../shared/utils/rail-tycoon/world'
 
 const SIDE = 64
 const OWNER = 1
@@ -27,18 +27,9 @@ function must(world: RtWorld, command: RtCommand) {
 }
 
 function mazeWorld(): RtWorld {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 8, sharing: false },
-        map: new RtMap(SIDE),
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 8, sharing: false }, {
         rngState: 7,
-        tick: 0,
-        date: rtStartDate(),
-        pathfinderCursor: 0,
-        companies: [rtNewCompany(0, 'Honest', 0, 0), rtNewCompany(OWNER, 'Maze', 1, 0)],
-        towns: [],
-        industries: [],
-        stations: [],
-        vehicles: []
+        companies: [rtNewCompany(0, 'Honest', 0, 0), rtNewCompany(OWNER, 'Maze', 1, 0)]
     })
     world.company(OWNER)!.money = 100_000_000
     for (let y = 6; y <= 58; y += 4) must(world, { kind: K.buildRailLine, tile: at(4, y), endTile: at(60, y), trackdir: EAST })

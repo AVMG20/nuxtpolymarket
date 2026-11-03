@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { buildDepot } from '#shared/utils/rail-tycoon/depots'
-import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
+import { RtTileKind, type RtDir, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { buildRoad } from '#shared/utils/rail-tycoon/road'
 import { rtCrossingBarred, stepRoadVehicle } from '#shared/utils/rail-tycoon/road-vehicle'
 import { RtStationTile, buildRoadStop } from '#shared/utils/rail-tycoon/stations-build'
@@ -10,16 +10,13 @@ import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-
 import { rtSetPieceReserved } from '#shared/utils/rail-tycoon/signals'
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld } from '#shared/utils/rail-tycoon/world'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
 const GAP = RT_CATALOG.movement.roadLaneGap
 
 function flatWorld(): RtWorld {
-    const world = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 777, tick: 0,
-        date: rtStartDate(), pathfinderCursor: 0, companies: [], towns: [], industries: [], stations: [], vehicles: []
-    })
+    const world = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, { rngState: 777 })
     world.addCompany('Company 0')
     return world
 }
