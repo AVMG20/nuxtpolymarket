@@ -3,13 +3,13 @@ import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { buildDepot } from '#shared/utils/rail-tycoon/depots'
 import { RtMap, RtTileKind, type RtDir } from '#shared/utils/rail-tycoon/map'
 import { buildSiding } from '#shared/utils/rail-tycoon/sidings'
-import { RtSignalType, placeSignal } from '#shared/utils/rail-tycoon/signals'
+import { RtSignalType, placeSignal, rtPieceReserved } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, buildRailStation } from '#shared/utils/rail-tycoon/stations-build'
 import { RtBuildError, buildRail, rtPieceBetween } from '#shared/utils/rail-tycoon/track'
 import { stepTrain, rtRemoveTrain, type RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import { RT_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtVehicle } from '#shared/utils/rail-tycoon/types'
-import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RT_VEHICLE_MODELS, buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RtOccupiedRegistry, RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 type XY = [number, number]
 
@@ -136,6 +136,21 @@ describe('rail tycoon train movement', () => {
         expect(v.lost).toBe(false)
     })
 
+    it('drives every tile from its depot door on, starting at the beginning of the first', () => {
+        const world = flatWorld()
+        const map = world.map
+        lay(map, 0, row(10, 6, 30))
+        const v = train(world, 0, map.idx(5, 10), 2 as RtDir)
+        const heads: number[] = []
+        run(world, 400, undefined, () => {
+            if (v.state === RtVehicleState.inDepot) return
+            if (heads.length === 0) expect(v.progress).toBe(0)
+            const x = v.tiles[0]! % 64
+            if (heads[heads.length - 1] !== x) heads.push(x)
+        })
+        expect(heads.slice(0, 6)).toEqual([6, 7, 8, 9, 10, 11])
+    })
+
     it('runs a depot order: drives in, is serviced and leaves for the next order', () => {
         const world = flatWorld()
         const map = world.map
@@ -238,6 +253,35 @@ describe('rail tycoon train movement', () => {
         v.stopped = false
         run(world, 5)
         expect(v.state).toBe(RtVehicleState.driving)
+    })
+
+    it('keeps its piece holdings equal to a rebuild while a long train runs into its own tail on a loop', () => {
+        const world = flatWorld()
+        const map = world.map
+        const ring: XY[] = [[10, 10], [11, 10], [12, 10], [12, 11], [12, 12], [11, 12], [10, 12], [10, 11]]
+        for (let k = 0; k < ring.length; k++) {
+            const here = ring[k]!
+            const piece = rtPieceBetween(dirTo(here, ring[(k + ring.length - 1) % ring.length]!), dirTo(here, ring[(k + 1) % ring.length]!))
+            expect(buildRail(map, 0, map.idx(here[0], here[1]), piece, true).ok).toBe(true)
+        }
+        // the depot joins the loop from the west, onto a curve that only leads round it
+        expect(buildRail(map, 0, map.idx(10, 11), rtPieceBetween(0, 1), true).ok).toBe(true)
+        const wagon = RT_VEHICLE_MODELS.findIndex(m => m.kind === 'rail' && m.cargo !== null)
+        const v = train(world, 0, map.idx(9, 11), 2 as RtDir, [], Array<number>(13).fill(wagon))
+        const trackdirPiece = (trackdir: number) => trackdir & 7
+        // filling the whole ring, its head enters each tile in the step its tail gives that tile up
+        let ringFull = 0
+        let drifted = -1
+        run(world, 6000, undefined, () => {
+            if (new Set(v.tiles).size === ring.length) ringFull++
+            const rescan = new RtOccupiedRegistry(map.tileCount)
+            rescan.rebuild(world.vehicles, trackdirPiece)
+            if (drifted < 0 && !rescan.equals(world.occupied)) drifted = world.tick
+        })
+        expect(v.state).toBe(RtVehicleState.driving)
+        expect(ringFull).toBeGreaterThan(1000)
+        expect(drifted).toBe(-1)
+        for (let k = 0; k < v.tiles.length; k++) expect(rtPieceReserved(map, v.tiles[k]!, v.pieces[k]! & 7)).toBe(true)
     })
 
     it('gives identical worlds identical trains', () => {

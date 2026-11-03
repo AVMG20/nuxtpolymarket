@@ -307,17 +307,20 @@ function waitAt(world: RtWorld, vehicle: RtVehicle, limit: number): void {
     if (limit > 0 && vehicle.waitTicks >= limit) rtReverseTrain(world, vehicle)
 }
 
-/** Drops the train's tail tiles beyond `keep`, releasing each piece as it leaves. */
+/**
+ * Drops the train's tail tiles beyond `keep`. Each tile entry gave up one hold (the head took one per
+ * entry, as rebuild does); the reservation stays while the head still stands on that piece.
+ */
 function trimTail(world: RtWorld, vehicle: RtVehicle, keep: number, dirty: Set<number>): void {
     while (vehicle.tiles.length > keep) {
-        const tile = vehicle.tiles[vehicle.tiles.length - 1]!
-        const piece = vehicle.pieces[vehicle.pieces.length - 1]! & 7
-        releaseReservation(world.map, vehicle, tile, piece)
+        const last = vehicle.tiles.length - 1
+        const tile = vehicle.tiles[last]!
+        const piece = vehicle.pieces[last]! & 7
+        const stillOn = vehicle.pieces.some((td, k) => k < last && vehicle.tiles[k] === tile && (td & 7) === piece)
+        if (!stillOn) releaseReservation(world.map, vehicle, tile, piece)
         vehicle.tiles.pop()
         vehicle.pieces.pop()
-        if (!vehicle.tiles.includes(tile) || !vehicle.pieces.some((td, k) => vehicle.tiles[k] === tile && (td & 7) === piece)) {
-            world.occupied.releasePiece(vehicle.id, tile, piece)
-        }
+        world.occupied.releasePiece(vehicle.id, tile, piece)
         dirty.add(tile)
     }
 }
@@ -513,7 +516,10 @@ function leaveDepot(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): voi
     rtSetPieceReserved(map, depot, exitTd & 7, true)
     vehicle.state = RtVehicleState.driving
     vehicle.progress = rtPieceLength(exitTd)
-    if (tryEnter(world, vehicle, dirty) === Enter.held && vehicle.state === RtVehicleState.driving && vehicle.tiles.length === 1) {
+    const outcome = tryEnter(world, vehicle, dirty)
+    // the head starts at the beginning of the tile outside, as after any entry in stepTrain
+    if (outcome === Enter.entered) vehicle.progress = 0
+    if (outcome === Enter.held && vehicle.state === RtVehicleState.driving && vehicle.tiles.length === 1) {
         // still blocked at the door: back inside
         world.occupied.releasePiece(vehicle.id, depot, exitTd & 7)
         rtSetPieceReserved(map, depot, exitTd & 7, false)
