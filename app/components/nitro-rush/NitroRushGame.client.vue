@@ -172,9 +172,10 @@ function onBuilderDrive(t: CustomTrack) {
     play()
 }
 
-function onBuilderDelete(id: string) {
-    audio.ui()
-    ownTracks.removeLocal(id)
+async function onBuilderDelete(id: string) {
+    await ownTracks.deleteTrack(id)
+    // Still there means the published copy couldn't come down; another course means the player already moved on.
+    if (custom.find(id) || building.value?.id !== id) return
     building.value = null
     screen.value = 'select'
 }
@@ -460,6 +461,7 @@ onBeforeUnmount(() => {
         v-if="phase === 'attract' && screen === 'builder' && building"
         :track="building"
         :saved="!!custom.find(building.id)"
+        :clears-times="!!community.ownEntry(building.id)?.published?.summary.entries"
         @done="onBuilderDone"
         @drive="onBuilderDrive"
         @delete="onBuilderDelete"

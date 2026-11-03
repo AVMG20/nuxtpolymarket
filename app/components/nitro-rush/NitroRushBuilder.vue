@@ -9,6 +9,8 @@ const props = defineProps<{
     track: CustomTrack
     /** False for a course that isn't stored yet, which has nothing to delete. */
     saved: boolean
+    /** Deleting takes down a published copy, and the times set on it go too. */
+    clearsTimes: boolean
 }>()
 const emit = defineEmits<{
     /** Leave the builder; the course comes along when it changed. */
@@ -188,7 +190,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           DRIVE IT
         </button>
         <button v-if="saved" class="nr-ghost" :class="{ 'is-danger': armed }" @click="askDelete">
-          {{ armed ? 'Tap again to delete' : 'Delete track' }}
+          {{ armed ? (clearsTimes ? 'Clears times · tap again' : 'Tap again to delete') : 'Delete track' }}
         </button>
       </div>
     </div>
