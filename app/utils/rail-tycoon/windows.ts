@@ -190,6 +190,8 @@ export interface RtGameContext {
     readonly closed: Readonly<Ref<boolean>>
     /** The selected tool, mirrored from RtTools for the toolbar's highlight. */
     readonly tool: Readonly<Ref<RtToolKind>>
+    /** Bumped by selectTool and refreshTool: read it with tools.options, which is not reactive. */
+    readonly toolOptions: Readonly<Ref<number>>
     /** Whether this client may send commands now (a player of an open world, in step, connected). */
     canCommand(): boolean
     /** The player's company as it is now (not reactive), or null. */

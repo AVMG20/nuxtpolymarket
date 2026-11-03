@@ -35,6 +35,8 @@ function set(apply: () => void) {
 
 const state = computed(() => {
   void version.value
+  // the toolbar's bus and lorry (and both depot) buttons share a tool and differ only in an option
+  void game.toolOptions.value
   return {
     tool: game.tool.value,
     railDirection: options.railDirection,

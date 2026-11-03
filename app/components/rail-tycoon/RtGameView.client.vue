@@ -71,6 +71,7 @@ const invite = ref<string | null>(props.inviteCode)
 const paused = ref<RtPauseReason | null>(null)
 const closed = ref(false)
 const tool = ref<RtToolKind>(RtToolKind.none)
+const toolOptions = ref(0)
 const rendererFailed = ref(false)
 const cursorNote = ref<{ x: number, y: number, text: string, bad: boolean } | null>(null)
 
@@ -141,7 +142,13 @@ function sendCommand(command: RtCommand): boolean {
 function selectTool(next: RtToolKind) {
   if (!isPlayer.value && next !== RtToolKind.none) return
   tools.select(next)
+  toolOptions.value++
   syncTool()
+}
+
+function refreshTool() {
+  toolOptions.value++
+  tools.refresh()
 }
 
 function syncTool() {
@@ -177,6 +184,7 @@ const game: RtGameContext = {
   paused,
   closed,
   tool,
+  toolOptions,
   canCommand,
   company: () => {
     const ls = lockstep.value
@@ -185,7 +193,7 @@ const game: RtGameContext = {
   sendCommand,
   send: msg => net?.send(msg) ?? false,
   selectTool,
-  refreshTool: () => tools.refresh(),
+  refreshTool,
   zoom: step => camera.zoomAt(camera.width / 2, camera.height / 2, step),
   centreOnTile,
   leave: () => leave('user')
@@ -547,6 +555,8 @@ function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape' || e.key === 'r' || e.key === 'R') {
     if (e.ctrlKey) return
     tools.key(e.key)
+    // R turns the depot, station or stop in the tool's options: the picker and toolbar follow
+    toolOptions.value++
     syncTool()
   }
 }

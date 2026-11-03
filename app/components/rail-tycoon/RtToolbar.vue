@@ -74,12 +74,9 @@ const otherTools: ToolButton[] = [
   { id: 'query', label: 'Land area information', icon: 'i-lucide-circle-help', tool: RtToolKind.query }
 ]
 
-/** Bumped when an option changes, so the option strip re-renders (the options object is not reactive). */
-const optionsVersion = ref(0)
-
 /** Which button is lit: the tool, told apart by the options for the tools two buttons share. */
 const activeId = computed(() => {
-  void optionsVersion.value
+  void game.toolOptions.value
   const tool = game.tool.value
   switch (tool) {
     case RtToolKind.rail: return 'rail'
@@ -105,7 +102,6 @@ function pickTool(button: ToolButton) {
   }
   button.setup?.()
   game.selectTool(button.tool)
-  optionsVersion.value++
 }
 
 // ─── The build picker ────────────────────────────────────────────────────
@@ -184,19 +180,12 @@ function onDocumentPointer(e: PointerEvent) {
   confirmStop.value = false
 }
 
-// R on the map turns the station or depot through RtTools, which re-runs the preview: follow it
-let offPreview: (() => void) | null = null
-
 onMounted(() => {
   document.addEventListener('pointerdown', onDocumentPointer, true)
-  offPreview = game.tools.on('preview', () => {
-    optionsVersion.value++
-  })
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointer, true)
-  offPreview?.()
   clearTimeout(copiedTimer)
 })
 </script>
