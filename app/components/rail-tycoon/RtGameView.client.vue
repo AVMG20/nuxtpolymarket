@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Rail Tycoon — the playable view.
 //
-// Opens the world over RtNet, builds an RtLockstep from the opened snapshot, draws it with RtRenderer
+// Opens the world over RtNet, offering the parts cached from the last visit (part-cache.ts) or, on a
+// reopen, the current world's, builds an RtLockstep from the snapshot, draws it with RtRenderer
 // on a full-viewport canvas and turns pointer gestures into commands through RtTools. A reconnect, a
 // room that unloaded or a resync replaces the lockstep from the new snapshot while an overlay stays up.
 // The toolbar, status bar and windows come in through slots and reach the game
@@ -11,8 +12,9 @@ import type { RtCommand } from '#shared/utils/rail-tycoon/commands'
 import type { RtErrorCode, RtPauseReason, RtRole, RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
 import { RT_NONE } from '#shared/utils/rail-tycoon/types'
 import { RtCamera, RtScrollKey, rtTileCorners } from '~/utils/rail-tycoon/camera'
-import { RtLockstep, type RtSnapshotMsg } from '~/utils/rail-tycoon/lockstep'
+import { RtLockstep, type RtLocalParts, type RtSnapshot } from '~/utils/rail-tycoon/lockstep'
 import { RT_NET_BACKOFF_MAX_MS, RT_NET_BACKOFF_MIN_MS, RtNet, type RtNetStopReason } from '~/utils/rail-tycoon/net'
+import { rtCacheParts, rtCachedParts, rtForgetParts } from '~/utils/rail-tycoon/part-cache'
 import { RtRenderer } from '~/utils/rail-tycoon/renderer'
 import { RtToolKind, RtTools, rtPointerTile, type RtToolPreview } from '~/utils/rail-tycoon/tools'
 import {
@@ -91,6 +93,10 @@ let lockstepOffs: (() => void)[] = []
 let openedMeta: Pick<Extract<RtServerMsg, { type: 'opened' }>, 'role' | 'company' | 'owner' | 'inviteCode'> | null = null
 /** Bumped by every snapshot message, so a slower earlier build never replaces a newer one. */
 let buildToken = 0
+/** The cached parts the last open offered, until a build has used them. */
+let cachedParts: RtLocalParts = new Map()
+/** The world was deleted: leaving must not cache it again. */
+let forgotten = false
 let reopenTimer: ReturnType<typeof setTimeout> | null = null
 let reopenAttempt = 0
 let seq = 0
@@ -202,10 +208,21 @@ provide(RT_GAME_KEY, game)
 
 // ─── Opening and replacing the lockstep ──────────────────────────────────
 
-function sendOpen() {
+/** Opens the world, offering the current world's parts on a reopen or the cached ones on a first open. */
+async function sendOpen() {
   if (!net || unmounted || stopped.value) return
   opening.value = true
-  net.send({ type: 'open', worldId: props.worldId, inviteCode: props.inviteCode ?? null })
+  const ls = lockstep.value
+  let have: string[]
+  if (ls) {
+    have = ls.offerParts()
+  } else {
+    const cached = await rtCachedParts(props.worldId)
+    if (!net || unmounted || stopped.value) return
+    cachedParts = cached.local
+    have = cached.have
+  }
+  net.send({ type: 'open', worldId: props.worldId, inviteCode: props.inviteCode ?? null, have })
 }
 
 /** Re-sends open after the capped backoff RtNet uses for its reconnects. */
@@ -216,7 +233,7 @@ function reopenLater() {
   reopenAttempt++
   reopenTimer = setTimeout(() => {
     reopenTimer = null
-    sendOpen()
+    void sendOpen()
   }, delay)
 }
 
@@ -225,28 +242,36 @@ function cancelReopen() {
   reopenTimer = null
 }
 
-async function buildLockstep(msg: RtSnapshotMsg) {
+async function buildLockstep(snapshot: RtSnapshot) {
   const token = ++buildToken
   const previous = lockstep.value
-  let source: RtSnapshotMsg = msg
+  const msg = snapshot.head
+  let source: RtSnapshot = snapshot
   if (msg.type === 'resync' && !previous) {
     // the first build failed and asked for this resync: it carries no role, so reuse the opened one's
     if (!openedMeta) {
       net?.discardHeld()
       return
     }
-    source = { ...msg, type: 'opened', ...openedMeta }
+    source = { ...snapshot, head: { ...msg, type: 'opened', ...openedMeta } }
   }
   const sendRaw = (m: Parameters<RtNet['send']>[0]) => {
     net?.send(m)
   }
-  const built = await RtLockstep.create(source, sendRaw, msg.type === 'resync' ? previous ?? undefined : undefined)
+  const built = await RtLockstep.create(source, sendRaw, {
+    previous: msg.type === 'resync' ? previous ?? undefined : undefined,
+    local: new Map([...cachedParts, ...(previous?.heldParts ?? [])]),
+    keep: (parts) => {
+      if (!forgotten) void rtCacheParts(props.worldId, parts)
+    }
+  })
   if (unmounted || token !== buildToken) return
   if (!built) {
     // it asked for a resync already; the answer builds the next one
     resyncing.value = true
     return
   }
+  cachedParts = new Map()
   installLockstep(markRaw(built), msg.type === 'opened')
   net?.release(m => built.receive(m))
 }
@@ -305,23 +330,24 @@ function becomeSpectator(closing = true) {
   renderer?.drawPreview(null)
 }
 
+function onSnapshot(snapshot: RtSnapshot) {
+  const msg = snapshot.head
+  if (msg.worldId !== props.worldId) {
+    net?.discardHeld()
+    return
+  }
+  if (msg.type === 'opened') {
+    openedMeta = { role: msg.role, company: msg.company, owner: msg.owner, inviteCode: msg.inviteCode }
+    closed.value = false
+    cancelReopen()
+  } else {
+    resyncing.value = true
+  }
+  void buildLockstep(snapshot)
+}
+
 function onMessage(msg: RtServerMsg) {
   switch (msg.type) {
-    case 'opened':
-      if (msg.worldId !== props.worldId) return
-      openedMeta = { role: msg.role, company: msg.company, owner: msg.owner, inviteCode: msg.inviteCode }
-      closed.value = false
-      cancelReopen()
-      void buildLockstep(msg)
-      return
-    case 'resync':
-      if (msg.worldId !== props.worldId) {
-        net?.discardHeld()
-        return
-      }
-      resyncing.value = true
-      void buildLockstep(msg)
-      return
     case 'command':
     case 'allowance':
     case 'hash':
@@ -339,7 +365,11 @@ function onMessage(msg: RtServerMsg) {
       reopenLater()
       return
     case 'worldDeleted':
-      if (msg.worldId === props.worldId) leave('deleted')
+      void rtForgetParts(msg.worldId)
+      if (msg.worldId === props.worldId) {
+        forgotten = true
+        leave('deleted')
+      }
       return
     case 'error':
       onError(msg.code)
@@ -629,11 +659,12 @@ onMounted(async () => {
   net = new RtNet()
   offs.push(
     net.on('message', onMessage),
+    net.on('snapshot', onSnapshot),
     net.on('open', () => {
       socketUp.value = true
       // every open, the first and each reconnect, opens the world again
       cancelReopen()
-      sendOpen()
+      void sendOpen()
     }),
     net.on('stopped', (reason) => {
       stopped.value = reason
@@ -694,6 +725,10 @@ onBeforeUnmount(() => {
   net?.discardHeld()
   net?.close()
   net = null
+  // the world as left, so the next visit downloads only what changed meanwhile
+  const last = lockstep.value
+  const have = last && !forgotten ? last.offerParts() : []
+  if (last && have.length > 0) void rtCacheParts(props.worldId, have.map(hash => last.heldParts.get(hash)!))
   lockstep.value = null
   windows.closeAll()
   const w = window as unknown as { __railTycoon?: RtDebugHook }

@@ -6,14 +6,18 @@
  * Client to server (encodeClientMsg), tags 0x01 to 0x7f (0x00 is never a tag):
  *   list          no fields: the worlds the user owns or has joined
  *   create        str world name (no control characters, no outer whitespace), u16 map side
- *                 (64, 128 or 256), u8 max companies (2 to 8), u8 sharing (0 or 1)
+ *                 (64, 128 or 256), u8 max companies (2 to 8), u8 sharing (0 or 1), u8 public (0 or 1)
  *   join          str invite code (exactly the shape rtCreateWorld generates)
- *   open          str world id, u8 has invite (0 or 1), then str invite code when it is 1
+ *   open          str world id, u8 has invite (0 or 1), then str invite code when it is 1, then the
+ *                 part hashes the client already holds
+ *     part hashes: varint count (at most RT_PROTOCOL_BOUNDS.parts), then 8 bytes per part (save.ts
+ *                  rtPartHash as two u32), index 0 the entity part and 1 + c chunk c
  *   loaded        str world id: the client finished decoding that world's snapshot
  *   command       u8 sequence number (the server's result echoes it), then encodeCommand bytes to
  *                 the frame end: the command plus 2 bytes. foundCompany is the server's alone.
  *   stop, delete  str world id (owner only; the hub checks)
- *   resync        str world id: ask for a fresh snapshot of the open world
+ *   resync        str world id, then the part hashes of the client's own world: ask for a fresh
+ *                 snapshot of the open world, with only the parts that differ
  *   ping          u32 value, echoed by pong
  *
  * Server to client (encodeServerMsg), tags 0x80 and up so a client frame echoed back is never
@@ -21,15 +25,19 @@
  *   hello         u16 protocol version, str build id
  *   worldList     varint count, then per world: str id, str name, u8 status, u8 owner, u8 members,
  *                 u8 max companies (0 = unset), u8 my company (255 = none), varint last active ms,
- *                 str invite code
- *   joined        str world id: the world a create or a join made the user a member of
+ *                 str invite code, u8 public
+ *   joined       str world id: the world a create or a join made the user a member of
  *   opened        u8 role, u8 owner, u8 company (255 = none), str world id, str invite code only when
- *                 the role is player or owner is 1, then the snapshot body
- *   resync        str world id, then the snapshot body
- *     snapshot body: u32 tick, varint server now ms (display only), varint length + gzip bytes
- *                    (opaque), varint count + pending stamped commands, each
- *                    u32 tick, u8 company, varint length + command bytes, ticks ascending and at or
- *                    after the snapshot tick
+ *                 the role is player or owner is 1, then the snapshot head
+ *   resync        str world id, then the snapshot head
+ *     snapshot head: u32 tick, varint server now ms (display only), then the hashes of every part
+ *                    of the world at that tick. The parts whose hash differs from what the client
+ *                    offered follow as part frames, in ascending index, then snapshotEnd.
+ *   part          u16 part index, u8 last fragment (0 or 1), varint length + gzip bytes (a
+ *                 fragment of at most RT_PART_FRAGMENT_BYTES; a part's fragments join in order)
+ *   snapshotEnd   u32 snapshot tick, varint count + pending stamped commands, each u32 tick,
+ *                 u8 company, varint length + command bytes, ticks ascending and at or after the
+ *                 snapshot tick
  *   command       u32 tick, u8 company (255 = server-issued), then the command bytes to the frame end
  *   allowance     u32 tick the client may step up to
  *   paused        u8 reason;  resumed: no fields
@@ -54,9 +62,11 @@ import {
     RT_INVITE_CODE_LENGTH,
     RT_MAX_FRAME_BYTES,
     RT_MAX_SAVE_BYTES,
-    RT_MAX_SNAPSHOT_FRAME_BYTES
+    RT_MAX_SNAPSHOT_FRAME_BYTES,
+    RT_PART_FRAGMENT_BYTES
 } from './limits'
 import { RT_MAP_SIDES } from './map'
+import { rtChunkCount } from './save'
 import { RT_OWNER_NONE } from './types'
 
 /** Wire protocol version; hello carries it and a client with another one stops as outdated. */
@@ -66,12 +76,16 @@ export const RT_PROTOCOL_VERSION = 1
 export const RT_PROTOCOL_BOUNDS = Object.freeze({
     /** Largest client frame. */
     clientFrameBytes: RT_MAX_FRAME_BYTES,
-    /** Largest server frame other than opened and resync. */
+    /** Largest server frame other than part and snapshotEnd. */
     serverFrameBytes: 8192,
-    /** Largest opened or resync frame. */
+    /** Largest part or snapshotEnd frame. */
     snapshotFrameBytes: RT_MAX_SNAPSHOT_FRAME_BYTES,
-    /** Largest compressed snapshot. */
+    /** Largest compressed snapshot, all its parts together. */
     snapshotBytes: RT_MAX_SAVE_BYTES,
+    /** Compressed bytes in one part frame. */
+    fragmentBytes: RT_PART_FRAGMENT_BYTES,
+    /** Parts of the largest map: the entity part plus one per chunk. */
+    parts: 1 + rtChunkCount(Math.max(...RT_MAP_SIDES)),
     /** UTF-8 bytes of a world id. */
     worldIdBytes: 32,
     /** UTF-8 bytes of a world or company name. */
@@ -118,10 +132,15 @@ export type RtClientMsg =
         maxCompanies: number
         /** Infrastructure sharing. */
         sharing: boolean
+        /** Listed in the public lobby. */
+        isPublic: boolean
     }
     | { type: 'join', inviteCode: string }
-    /** An invite code lets a stranger spectate; null for a world the user already belongs to. */
-    | { type: 'open', worldId: string, inviteCode: string | null }
+    /**
+     * An invite code lets a stranger spectate; null for a world the user already belongs to. `have` is
+     * the part hashes the client holds from an earlier visit; the server sends only the others.
+     */
+    | { type: 'open', worldId: string, inviteCode: string | null, have: readonly string[] }
     | { type: 'loaded', worldId: string }
     | {
         type: 'command'
@@ -132,7 +151,8 @@ export type RtClientMsg =
     }
     | { type: 'stop', worldId: string }
     | { type: 'delete', worldId: string }
-    | { type: 'resync', worldId: string }
+    /** `have` is the part hashes of the client's own world; the server sends only the others. */
+    | { type: 'resync', worldId: string, have: readonly string[] }
     | { type: 'ping', value: number }
 
 /** Server message tags. Fixed for version 1; a new message takes a new tag. */
@@ -152,7 +172,9 @@ export const RtServerTag = Object.freeze({
     roomUnloaded: 0x8c,
     worldDeleted: 0x8d,
     error: 0x8e,
-    pong: 0x8f
+    pong: 0x8f,
+    part: 0x90,
+    snapshotEnd: 0x91
 } as const)
 export type RtServerTag = typeof RtServerTag[keyof typeof RtServerTag]
 
@@ -227,18 +249,22 @@ export interface RtWorldSummary {
     /** Milliseconds since the epoch. */
     lastActiveAt: number
     inviteCode: string
+    /** Listed in the public lobby while open. */
+    isPublic: boolean
 }
 
-/** A world captured at a tick boundary with every command stamped for that tick or later. */
-export interface RtSnapshotBody {
+/**
+ * A world captured at a tick boundary: the hash of every part (save.ts encodeWorldParts). The parts
+ * the client lacks follow as part frames, then snapshotEnd with every command stamped for that tick
+ * or later.
+ */
+export interface RtSnapshotHead {
     /** world.tick when the snapshot was encoded. */
     tick: number
     /** The server's clock in ms, for display only; never fed to the simulation. */
     serverNow: number
-    /** gzip of encodeWorld, opaque here. */
-    snapshot: Uint8Array
-    /** Ascending by tick, stamp order within a tick. */
-    pending: readonly RtStampedCommand[]
+    /** rtPartHash of each part at that tick: index 0 the entity part, 1 + c chunk c. */
+    parts: readonly string[]
 }
 
 export type RtServerMsg =
@@ -255,8 +281,17 @@ export type RtServerMsg =
         company: number | null
         /** Set exactly when the role is player or owner is true. */
         inviteCode: string | null
-    } & RtSnapshotBody)
-    | ({ type: 'resync', worldId: string } & RtSnapshotBody)
+    } & RtSnapshotHead)
+    | ({ type: 'resync', worldId: string } & RtSnapshotHead)
+    /** A fragment of one gzipped part; `last` ends that part. */
+    | { type: 'part', index: number, last: boolean, bytes: Uint8Array }
+    | {
+        type: 'snapshotEnd'
+        /** The snapshot's tick, as its head gave it. */
+        tick: number
+        /** Ascending by tick, stamp order within a tick, none before the snapshot tick. */
+        pending: readonly RtStampedCommand[]
+    }
     | ({ type: 'command' } & RtStampedCommand)
     | { type: 'allowance', tick: number }
     | { type: 'paused', reason: RtPauseReason }
@@ -326,20 +361,46 @@ function writeStamped(w: RtWriter, stamped: RtStampedCommand, minTick: number): 
     w.bytes(stamped.command)
 }
 
-function writeSnapshotBody(w: RtWriter, body: RtSnapshotBody): void {
-    w.u32(body.tick)
-    w.varint(body.serverNow)
-    checkBytes(body.snapshot, RT_PROTOCOL_BOUNDS.snapshotBytes, 'snapshot')
-    w.varint(body.snapshot.length)
-    w.bytes(body.snapshot)
-    if (body.pending.length > RT_PROTOCOL_BOUNDS.pending) refuse(`${body.pending.length} pending commands exceed ${RT_PROTOCOL_BOUNDS.pending}`)
-    w.varint(body.pending.length)
+const PART_HASH = /^[0-9a-f]{16}$/
+
+/** Part hashes: a varint count under the part cap, then each as two u32 (high half first). */
+function writeHashes(w: RtWriter, hashes: readonly string[], what: string): void {
+    if (!Array.isArray(hashes)) refuse(`${what} must be an array`)
+    if (hashes.length > RT_PROTOCOL_BOUNDS.parts) refuse(`${hashes.length} ${what} exceed ${RT_PROTOCOL_BOUNDS.parts}`)
+    w.varint(hashes.length)
+    for (const hash of hashes) {
+        if (typeof hash !== 'string' || !PART_HASH.test(hash)) refuse(`${what} entry is not a part hash`)
+        w.u32(parseInt(hash.slice(0, 8), 16))
+        w.u32(parseInt(hash.slice(8), 16))
+    }
+}
+
+function writeSnapshotHead(w: RtWriter, head: RtSnapshotHead): void {
+    w.u32(head.tick)
+    w.varint(head.serverNow)
+    writeHashes(w, head.parts, 'snapshot parts')
+    if (head.parts.length === 0) refuse('a snapshot has at least the entity part')
+}
+
+function writeSnapshotEnd(w: RtWriter, msg: Extract<RtServerMsg, { type: 'snapshotEnd' }>): void {
+    w.u32(msg.tick)
+    if (msg.pending.length > RT_PROTOCOL_BOUNDS.pending) refuse(`${msg.pending.length} pending commands exceed ${RT_PROTOCOL_BOUNDS.pending}`)
+    w.varint(msg.pending.length)
     // ascending ticks, never before the snapshot's own tick
-    let minTick = body.tick
-    for (const stamped of body.pending) {
+    let minTick = msg.tick
+    for (const stamped of msg.pending) {
         writeStamped(w, stamped, minTick)
         minTick = stamped.tick
     }
+}
+
+function writePart(w: RtWriter, msg: Extract<RtServerMsg, { type: 'part' }>): void {
+    if (!Number.isInteger(msg.index) || msg.index < 0 || msg.index >= RT_PROTOCOL_BOUNDS.parts) refuse(`part index out of range: ${msg.index}`)
+    w.u16(msg.index)
+    writeBool(w, msg.last, 'last fragment')
+    checkBytes(msg.bytes, RT_PROTOCOL_BOUNDS.fragmentBytes, 'part fragment')
+    w.varint(msg.bytes.length)
+    w.bytes(msg.bytes)
 }
 
 function writeWorldSummary(w: RtWriter, world: RtWorldSummary): void {
@@ -363,6 +424,7 @@ function writeWorldSummary(w: RtWriter, world: RtWorldSummary): void {
     w.varint(world.lastActiveAt)
     if (!isRtInviteCode(world.inviteCode)) refuse('world list invite code has the wrong shape')
     w.str(world.inviteCode)
+    writeBool(w, world.isPublic, 'isPublic')
 }
 
 function writeOpened(w: RtWriter, msg: Extract<RtServerMsg, { type: 'opened' }>): void {
@@ -378,12 +440,12 @@ function writeOpened(w: RtWriter, msg: Extract<RtServerMsg, { type: 'opened' }>)
         if (!isRtInviteCode(msg.inviteCode)) refuse('opened invite code has the wrong shape')
         w.str(msg.inviteCode)
     }
-    writeSnapshotBody(w, msg)
+    writeSnapshotHead(w, msg)
 }
 
 /** The frame cap for a server message. */
 function frameCap(type: RtServerMsg['type']): number {
-    return type === 'opened' || type === 'resync' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
+    return type === 'part' || type === 'snapshotEnd' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
 }
 
 /** One server frame. Throws RangeError for a message the protocol cannot carry. */
@@ -413,7 +475,13 @@ export function encodeServerMsg(msg: RtServerMsg): Uint8Array {
             break
         case 'resync':
             writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-            writeSnapshotBody(w, msg)
+            writeSnapshotHead(w, msg)
+            break
+        case 'part':
+            writePart(w, msg)
+            break
+        case 'snapshotEnd':
+            writeSnapshotEnd(w, msg)
             break
         case 'command':
             // 6 bytes plus the command: no length prefix, the command runs to the end of the frame
@@ -504,6 +572,7 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
             w.u16(msg.side)
             w.u8(msg.maxCompanies)
             writeBool(w, msg.sharing, 'sharing')
+            writeBool(w, msg.isPublic, 'isPublic')
             break
         }
         case 'join':
@@ -519,6 +588,7 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
                 w.u8(1)
                 w.str(msg.inviteCode)
             }
+            writeHashes(w, msg.have, 'held parts')
             break
         case 'command': {
             w.u8(msg.seq)
@@ -534,8 +604,11 @@ export function encodeClientMsg(msg: RtClientMsg): Uint8Array {
         case 'loaded':
         case 'stop':
         case 'delete':
+            writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            break
         case 'resync':
             writeStr(w, msg.worldId, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
+            writeHashes(w, msg.have, 'held parts')
             break
         case 'ping':
             w.u32(msg.value)
@@ -634,11 +707,33 @@ function readStamped(r: RtReader, minTick: number): RtStampedCommand {
     return { tick, company, command }
 }
 
-function readSnapshotBody(r: RtReader): RtSnapshotBody {
+function hashHex(value: number): string {
+    return value.toString(16).padStart(8, '0')
+}
+
+/** Part hashes as writeHashes wrote them, the count checked against the cap and the bytes left first. */
+function readHashes(r: RtReader, what: string): string[] {
+    const count = readVarint(r)
+    if (count > RT_PROTOCOL_BOUNDS.parts) bad(`${count} ${what} exceed ${RT_PROTOCOL_BOUNDS.parts}`)
+    if (count * 8 > r.remaining()) bad(`${count} ${what} but ${r.remaining()} bytes left`)
+    const hashes: string[] = []
+    for (let i = 0; i < count; i++) {
+        const high = r.u32()
+        hashes.push(hashHex(high) + hashHex(r.u32()))
+    }
+    return hashes
+}
+
+function readSnapshotHead(r: RtReader): RtSnapshotHead {
     const tick = r.u32()
     const serverNow = readVarint(r)
-    // a view into the frame, handed to decodeWorld after gunzip without a copy
-    const snapshot = readSizedBytes(r, RT_PROTOCOL_BOUNDS.snapshotBytes, 'snapshot')
+    const parts = readHashes(r, 'snapshot parts')
+    if (parts.length === 0) bad('a snapshot has at least the entity part')
+    return { tick, serverNow, parts }
+}
+
+function readSnapshotEnd(r: RtReader): Extract<RtServerMsg, { type: 'snapshotEnd' }> {
+    const tick = r.u32()
     const count = readVarint(r)
     if (count > RT_PROTOCOL_BOUNDS.pending) bad(`${count} pending commands exceed ${RT_PROTOCOL_BOUNDS.pending}`)
     const pending: RtStampedCommand[] = []
@@ -648,7 +743,15 @@ function readSnapshotBody(r: RtReader): RtSnapshotBody {
         pending.push(stamped)
         minTick = stamped.tick
     }
-    return { tick, serverNow, snapshot, pending }
+    return { type: 'snapshotEnd', tick, pending }
+}
+
+function readPart(r: RtReader): Extract<RtServerMsg, { type: 'part' }> {
+    const index = r.u16()
+    if (index >= RT_PROTOCOL_BOUNDS.parts) bad(`part index out of range: ${index}`)
+    const last = readBool(r, 'last fragment')
+    // a view into the frame; the client copies it into its part buffer
+    return { type: 'part', index, last, bytes: readSizedBytes(r, RT_PROTOCOL_BOUNDS.fragmentBytes, 'part fragment') }
 }
 
 function readWorldSummary(r: RtReader): RtWorldSummary {
@@ -663,7 +766,8 @@ function readWorldSummary(r: RtReader): RtWorldSummary {
     const myCompanyId = readCompany(r, 'my company')
     const lastActiveAt = readVarint(r)
     const inviteCode = readInviteCode(r, 'world list invite code')
-    return { id, name, status, isOwner, memberCount, maxCompanies: max === 0 ? null : max, myCompanyId, lastActiveAt, inviteCode }
+    const isPublic = readBool(r, 'isPublic')
+    return { id, name, status, isOwner, memberCount, maxCompanies: max === 0 ? null : max, myCompanyId, lastActiveAt, inviteCode, isPublic }
 }
 
 function readOpened(r: RtReader): Extract<RtServerMsg, { type: 'opened' }> {
@@ -674,7 +778,7 @@ function readOpened(r: RtReader): Extract<RtServerMsg, { type: 'opened' }> {
     const worldId = readStr(r, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
     // present exactly for an owner or a player; a spectator's frame has no field for it
     const inviteCode = role === 'player' || owner ? readInviteCode(r, 'opened invite code') : null
-    return { type: 'opened', worldId, role, owner, company, inviteCode, ...readSnapshotBody(r) }
+    return { type: 'opened', worldId, role, owner, company, inviteCode, ...readSnapshotHead(r) }
 }
 
 function readServerMsg(r: RtReader, type: RtServerMsg['type']): RtServerMsg {
@@ -696,8 +800,12 @@ function readServerMsg(r: RtReader, type: RtServerMsg['type']): RtServerMsg {
             return readOpened(r)
         case 'resync': {
             const worldId = readStr(r, RT_PROTOCOL_BOUNDS.worldIdBytes, 'world id')
-            return { type, worldId, ...readSnapshotBody(r) }
+            return { type, worldId, ...readSnapshotHead(r) }
         }
+        case 'part':
+            return readPart(r)
+        case 'snapshotEnd':
+            return readSnapshotEnd(r)
         case 'command': {
             const tick = r.u32()
             const company = readCompany(r, 'command company')
@@ -740,8 +848,8 @@ function readServerMsg(r: RtReader, type: RtServerMsg['type']): RtServerMsg {
 /**
  * One server frame read defensively, or null for anything encodeServerMsg would not have written:
  * an oversized frame (checked before any parsing), a client or unknown tag, a field out of range,
- * a non-canonical number or string, a short frame or trailing bytes. Never throws. An opened or
- * resync snapshot is a view into `bytes` (no copy); command bytes are copies.
+ * a non-canonical number or string, a short frame or trailing bytes. Never throws. A part fragment
+ * is a view into `bytes` (no copy); command bytes are copies.
  */
 export function decodeServerMsg(bytes: Uint8Array): RtServerMsg | null {
     if (!(bytes instanceof Uint8Array) || bytes.length === 0) return null
@@ -780,7 +888,8 @@ function readCreate(r: RtReader): Extract<RtClientMsg, { type: 'create' }> {
     const maxCompanies = r.u8()
     const problem = worldNameProblem(name) ?? createSettingsProblem(side, maxCompanies)
     if (problem !== null) bad(problem)
-    return { type: 'create', name, side, maxCompanies, sharing: readBool(r, 'sharing') }
+    const sharing = readBool(r, 'sharing')
+    return { type: 'create', name, side, maxCompanies, sharing, isPublic: readBool(r, 'isPublic') }
 }
 
 function readClientCommand(r: RtReader): Extract<RtClientMsg, { type: 'command' }> {
@@ -807,15 +916,18 @@ function readClientMsg(r: RtReader, type: RtClientMsg['type']): RtClientMsg {
         case 'open': {
             const worldId = readWorldId(r)
             const inviteCode = readBool(r, 'has invite') ? readInviteCode(r, 'open invite code') : null
-            return { type, worldId, inviteCode }
+            return { type, worldId, inviteCode, have: readHashes(r, 'held parts') }
         }
         case 'command':
             return readClientCommand(r)
         case 'loaded':
         case 'stop':
         case 'delete':
-        case 'resync':
             return { type, worldId: readWorldId(r) }
+        case 'resync': {
+            const worldId = readWorldId(r)
+            return { type, worldId, have: readHashes(r, 'held parts') }
+        }
         case 'ping':
             return { type, value: r.u32() }
         default: {

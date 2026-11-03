@@ -11,14 +11,17 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
+import { railTycoonChunks, railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
 import {
     rtCloseWorld,
     rtCreateWorld,
     rtDeleteWorld,
     rtGetAccess,
     rtJoinWorld,
+    rtListPublicWorlds,
     rtListWorldsForUser,
+    rtSetWorldLook,
+    rtWorldAvatars,
     type RtCreateOptions,
     type RtCreatedWorld
 } from '#server/utils/rail-tycoon/registry'
@@ -55,6 +58,8 @@ interface WorldSeed {
     members?: [userId: string, companyId: number][]
     lastActiveAt?: Date
     maxCompanies?: number
+    isPublic?: boolean
+    avatar?: string | null
 }
 
 /** A world row as rtCreateWorld would leave it, with the owner as company 0 unless members says otherwise. */
@@ -69,6 +74,8 @@ async function seedWorld(ownerId: string, seed: WorldSeed = {}) {
         inviteCode: newInviteCode(),
         side: 64,
         maxCompanies: seed.maxCompanies ?? 4,
+        isPublic: seed.isPublic ?? false,
+        avatar: seed.avatar ?? null,
         save: Buffer.alloc(0),
         savedAt: now,
         lastActiveAt: seed.lastActiveAt ?? now
@@ -154,7 +161,8 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
                 maxCompanies: 6,
                 myCompanyId: 0,
                 lastActiveAt: world.lastActiveAt,
-                inviteCode: world.inviteCode
+                inviteCode: world.inviteCode,
+                isPublic: false
             })
 
             const [joined] = await rtListWorldsForUser(member)
@@ -198,6 +206,78 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
         })
     })
 
+    describe('the public lobby and the owner\'s world look', () => {
+        const AVATAR = '{"background":"#123456","elements":[]}'
+
+        it('lists an open public world to a stranger with its owner, invite code and drawing, and nothing else', async () => {
+            const owner = await newUser('lobby-owner')
+            const member = await newUser('lobby-member')
+            const stranger = await newUser('lobby-stranger')
+            const listed = await seedWorld(owner, { isPublic: true, avatar: AVATAR, members: [[owner, 0], [member, 1]] })
+            await seedWorld(owner, { isPublic: false })
+            await seedWorld(owner, { isPublic: true, status: 'closed' })
+
+            const lobby = (await rtListPublicWorlds(stranger)).filter(w => w.id.startsWith(RUN))
+            expect(lobby).toEqual([{
+                id: listed.id,
+                name: listed.name,
+                ownerName: 'concurrency test user',
+                memberCount: 2,
+                maxCompanies: 4,
+                lastActiveAt: listed.lastActiveAt,
+                inviteCode: listed.inviteCode,
+                avatar: AVATAR
+            }])
+            // the owner and a member find it in their own list, not the lobby
+            expect((await rtListPublicWorlds(owner)).map(w => w.id)).not.toContain(listed.id)
+            expect((await rtListPublicWorlds(member)).map(w => w.id)).not.toContain(listed.id)
+            expect((await rtListWorldsForUser(member)).find(w => w.id === listed.id)).toMatchObject({ isPublic: true })
+        })
+
+        it('gives the drawings of the worlds the user owns or joined, and no one else\'s', async () => {
+            const owner = await newUser('avatars-owner')
+            const member = await newUser('avatars-member')
+            const stranger = await newUser('avatars-stranger')
+            const drawn = await seedWorld(owner, { avatar: AVATAR, members: [[owner, 0], [member, 1]] })
+            await seedWorld(owner, { avatar: null })
+            await seedWorld(stranger, { avatar: AVATAR, isPublic: true, members: [[stranger, 0]] })
+
+            expect(await rtWorldAvatars(owner)).toEqual({ [drawn.id]: AVATAR })
+            expect(await rtWorldAvatars(member)).toEqual({ [drawn.id]: AVATAR })
+            expect(Object.keys(await rtWorldAvatars(stranger))).not.toContain(drawn.id)
+        })
+
+        it('lets the owner set the lobby setting and the drawing, and refuses everyone else', async () => {
+            const owner = await newUser('look-owner')
+            const member = await newUser('look-member')
+            const world = await seedWorld(owner, { members: [[owner, 0], [member, 1]] })
+
+            expect(await rtSetWorldLook(owner, world.id, { isPublic: true })).toEqual({ isPublic: true, avatar: null })
+            expect(await rtSetWorldLook(owner, world.id, { avatar: AVATAR })).toEqual({ isPublic: true, avatar: AVATAR })
+            expect(await rtSetWorldLook(owner, world.id, { avatar: null, isPublic: false })).toEqual({ isPublic: false, avatar: null })
+
+            const refused = await Promise.allSettled([
+                rtSetWorldLook(member, world.id, { isPublic: true }),
+                rtSetWorldLook(owner, `${RUN}-missing`, { isPublic: true }),
+                rtSetWorldLook(owner, world.id, {})
+            ])
+            expect(statusCodes(refused)).toEqual([403, 404, 400])
+            expect(await worldRow(world.id)).toMatchObject({ isPublic: false, avatar: null })
+        })
+
+        it('creates a public world when asked, private by default, and refuses a public that is not a boolean', async () => {
+            const owner = await newUser('create-public')
+            const open = await rtCreateWorld(owner, 'Ada', 'Open House', { ...SMALL, isPublic: true })
+            const closed = await rtCreateWorld(owner, 'Ada', 'Members Only', SMALL)
+            expect(await worldRow(open.worldId)).toMatchObject({ isPublic: true })
+            expect(await worldRow(closed.worldId)).toMatchObject({ isPublic: false })
+
+            const refused = await Promise.allSettled([rtCreateWorld(owner, 'Ada', 'Odd', { ...SMALL, isPublic: 'yes' as unknown as boolean })])
+            expect(statusCodes(refused)).toEqual([400])
+            expect(await ownedCounts(owner)).toEqual({ open: 2, total: 2 })
+        })
+    })
+
     describe('rtCreateWorld', () => {
         it('creates an open world with its owner as company 0 and returns its id and invite code', async () => {
             const owner = await newUser('create-owner')
@@ -218,7 +298,10 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
                 revision: 0,
                 tick: 0
             })
-            expect(row!.bytes).toBe(row!.save.length)
+            // the row holds the entity part, one chunk row per 16x16 chunk holds the rest
+            const chunks = await db.select().from(railTycoonChunks).where(eq(railTycoonChunks.worldId, created.worldId)).orderBy(railTycoonChunks.chunkId)
+            expect(chunks.map(chunk => chunk.chunkId)).toEqual(Array.from({ length: 16 }, (_, i) => i))
+            expect(row!.bytes).toBe(row!.save.length + chunks.reduce((sum, chunk) => sum + chunk.data.length, 0))
             expect(await membersOf(created.worldId)).toEqual([{ userId: owner, companyId: 0 }])
 
             const loaded = await rtLoadWorld(created.worldId)

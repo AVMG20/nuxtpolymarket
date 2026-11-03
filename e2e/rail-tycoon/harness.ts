@@ -65,6 +65,7 @@ export interface RtCreateWorldOptions {
     side?: 64 | 128 | 256
     maxCompanies?: number
     sharing?: boolean
+    isPublic?: boolean
 }
 
 const DEFAULT_URL = 'http://p{n}.localhost:3010'
@@ -207,6 +208,7 @@ export class RtBrowserHarness {
         await page.locator(`[data-side="${options.side ?? 64}"]`).click()
         await page.locator('[data-field=max-companies]').selectOption(String(options.maxCompanies ?? 4))
         await page.locator('[data-field=sharing]').setChecked(options.sharing ?? true)
+        await page.locator('[data-field=public]').setChecked(options.isPublic ?? false)
         await page.locator('[data-action=create]').click()
         return this.waitForWorld(player, 60000)
     }

@@ -20,6 +20,15 @@
  * encodeWorld refuses (RangeError) a world that breaks a bound decode enforces, so a save that cannot
  * be loaded is never written.
  *
+ * encodeWorldParts splits the same world for loading, resync and storage: an entity part (settings,
+ * then the entity lists, violations and scalars exactly as above) and one part per 16x16-tile chunk
+ * holding only that chunk's map. rtPartHash tells which parts changed.
+ *
+ * Stations and industries are tile entities (tile-entities.ts): the map holds their buildings, the
+ * entity part their location and state. Decode joins every building to its tile entity by location
+ * (rtTileEntityMismatch), and refuses a building without one or a tile entity whose tiles are not its
+ * buildings.
+ *
  * decodeWorld is a hostile-input boundary: a save may come from a client. Every count is checked
  * against its bound (and against the bytes left) before anything is allocated, every enum and
  * reference is range-checked, and any failure is RtBadData, which decodeWorld turns into null.
@@ -53,11 +62,19 @@ import {
 import { RT_ROAD_LANES, RtWorld, type RtTrackdirPiece } from './world'
 import { rtRebuildStationIndex } from './stations'
 import { rtStationPayloadValid } from './stations-build'
+import { rtTileEntityMismatch } from './tile-entities'
 import { rtRecountInfrastructure } from './infrastructure'
 import { rtClearSignalCache } from './signals'
 
-/** Save format version; decodeWorld accepts this one only. */
+/**
+ * Save format version encodeWorld writes. To add a saved field: bump this, write the field always,
+ * and read it only when ctx.format is at least the new version, giving older saves a default. Stored
+ * worlds then keep loading, and the next checkpoint rewrites them in the new format.
+ */
 export const RT_SAVE_FORMAT = 1
+
+/** The oldest format decodeWorld still reads; raise it only when the saves before it are gone. */
+export const RT_SAVE_OLDEST_FORMAT = 1
 
 /** The four bytes every save starts with: 'RTWD'. */
 export const RT_SAVE_MAGIC: readonly number[] = Object.freeze([0x52, 0x54, 0x57, 0x44])
@@ -333,13 +350,18 @@ export function encodeWorld(world: RtWorld): Uint8Array {
     bool(w, settings.sharing)
 
     writeMap(w, world)
+    writeEntities(w, world)
+    return w.finish()
+}
 
+/** The entity lists, crossing violations and scalars that end both a whole save and an entity part. */
+function writeEntities(w: RtWriter, world: RtWorld): void {
     const vehicles = world.vehicleList()
     const perCompany = new Map<number, number>()
     for (const vehicle of vehicles) perCompany.set(vehicle.owner, (perCompany.get(vehicle.owner) ?? 0) + 1)
     for (const [owner, count] of perCompany) checkCount(count, RT_SAVE_BOUNDS.vehiclesPerCompany, `company ${owner} vehicles`)
 
-    writeList(w, world.companyList(), settings.maxCompanies, 'companies', writeCompany)
+    writeList(w, world.companyList(), world.settings.maxCompanies, 'companies', writeCompany)
     writeList(w, world.townList(), RT_SAVE_BOUNDS.towns, 'towns', writeTown)
     writeList(w, world.industryList(), RT_SAVE_BOUNDS.industries, 'industries', writeIndustry)
     writeList(w, world.stationList(), RT_SAVE_BOUNDS.stations, 'stations', writeStation)
@@ -358,7 +380,129 @@ export function encodeWorld(world: RtWorld): Uint8Array {
     w.u8(scalars.date.month)
     w.varint(scalars.date.year)
     w.varint(scalars.pathfinderCursor)
-    return w.finish()
+}
+
+/* ------------------------------------------------------------------------------------------
+ * World parts: the same world split for loading, resync and storage piece by piece
+ * ---------------------------------------------------------------------------------------- */
+
+/**
+ * Tiles per chunk side. A chunk is the fixed map of its 16x16 tiles: terrain, track, road and
+ * buildings, station and industry buildings included. Their tile entities live in the entity part.
+ */
+export const RT_CHUNK_TILES = 16
+
+/**
+ * Version of the part layouts below; a part of another version is refused. Format 1 kept towns,
+ * industries and stations in the chunk they were anchored in; it was never released.
+ */
+export const RT_PART_FORMAT = 2
+
+/** 'RTWE': the entity part. Settings, every entity list, crossing violations and the scalars. */
+export const RT_ENTITY_PART_MAGIC: readonly number[] = Object.freeze([0x52, 0x54, 0x57, 0x45])
+/** 'RTWC': one chunk part. */
+export const RT_CHUNK_PART_MAGIC: readonly number[] = Object.freeze([0x52, 0x54, 0x57, 0x43])
+
+/** Chunks of a map: (side / 16) squared, 16 to 256. */
+export function rtChunkCount(side: number): number {
+    const across = side / RT_CHUNK_TILES
+    return across * across
+}
+
+/** The chunk tile `tile` lies in: chunks run row by row like tiles. */
+export function rtChunkOfTile(side: number, tile: number): number {
+    const across = side / RT_CHUNK_TILES
+    const x = tile % side
+    const y = (tile / side) | 0
+    return ((y / RT_CHUNK_TILES) | 0) * across + ((x / RT_CHUNK_TILES) | 0)
+}
+
+/** A whole world as parts: index 0 is the entity part, index 1 + c is chunk c. */
+export type RtWorldParts = Uint8Array[]
+
+/** Corner columns (or rows) a chunk owns: its 16, plus the map's far edge for the last chunk. */
+function chunkCornerSpan(side: number, start: number): number {
+    return start + RT_CHUNK_TILES === side ? RT_CHUNK_TILES + 1 : RT_CHUNK_TILES
+}
+
+function writePartHeader(w: RtWriter, magic: readonly number[], world: RtWorld): void {
+    for (const byte of magic) w.u8(byte)
+    w.u16(RT_PART_FORMAT)
+    w.u16(world.settings.side)
+}
+
+function writeChunkMap(w: RtWriter, map: RtMap, chunk: number): void {
+    const side = map.side
+    const across = side / RT_CHUNK_TILES
+    const x0 = (chunk % across) * RT_CHUNK_TILES
+    const y0 = ((chunk / across) | 0) * RT_CHUNK_TILES
+    const cornersX = chunkCornerSpan(side, x0)
+    const cornersY = chunkCornerSpan(side, y0)
+    for (let y = y0; y < y0 + cornersY; y++) {
+        const row = y * (side + 1) + x0
+        w.bytes(map.heights.subarray(row, row + cornersX))
+    }
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) {
+        const row = y * side + x0
+        w.bytes(map.kind.subarray(row, row + RT_CHUNK_TILES))
+    }
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) {
+        const row = y * side + x0
+        w.bytes(map.owner.subarray(row, row + RT_CHUNK_TILES))
+    }
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) {
+        const row = y * side + x0
+        for (let x = 0; x < RT_CHUNK_TILES; x++) w.u32(map.payload[row + x]!)
+    }
+}
+
+/**
+ * The world as parts at a tick boundary, under the same bounds as encodeWorld: decodeWorldParts of
+ * the result is the same world, so its hash is equal. Throws RangeError when the world breaks a bound.
+ */
+export function encodeWorldParts(world: RtWorld): RtWorldParts {
+    const entities = new RtWriter()
+    writePartHeader(entities, RT_ENTITY_PART_MAGIC, world)
+    entities.u8(world.settings.maxCompanies)
+    bool(entities, world.settings.sharing)
+    writeEntities(entities, world)
+
+    const parts: RtWorldParts = [entities.finish()]
+    const count = rtChunkCount(world.settings.side)
+    for (let chunk = 0; chunk < count; chunk++) {
+        const w = new RtWriter()
+        writePartHeader(w, RT_CHUNK_PART_MAGIC, world)
+        w.varint(chunk)
+        writeChunkMap(w, world.map, chunk)
+        parts.push(w.finish())
+    }
+    return parts
+}
+
+function hex8(value: number): string {
+    return (value >>> 0).toString(16).padStart(8, '0')
+}
+
+/**
+ * A 64-bit content hash of one part as 16 hex digits: two independent 32-bit mixes, so parts with equal
+ * hashes are taken to be equal bytes. It decides which parts to send or store, never anything a
+ * peer's simulation reads.
+ */
+export function rtPartHash(bytes: Uint8Array): string {
+    let a = 0x811c9dc5
+    let b = 0x9747b28c ^ bytes.length
+    for (let i = 0; i < bytes.length; i++) {
+        const v = bytes[i]!
+        a = Math.imul(a ^ v, 0x01000193)
+        b = Math.imul(b ^ v, 0x5bd1e995)
+        b ^= b >>> 13
+    }
+    a ^= a >>> 16
+    a = Math.imul(a, 0x85ebca6b)
+    a ^= a >>> 13
+    b = Math.imul(b ^ (b >>> 15), 0xc2b2ae35)
+    b ^= b >>> 16
+    return hex8(a) + hex8(b)
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -388,6 +532,8 @@ const MODEL_SPECS: readonly RtVehicleModelSpec[] = RT_VEHICLE_MODEL_IDS.map(id =
 /** What decode knows so far: the map size and which ids are live, for checking references. */
 interface DecodeContext {
     readonly r: RtReader
+    /** The save's format: a field added in a later version is read only from saves that have it. */
+    readonly format: number
     tileCount: number
     maxCompanies: number
     readonly companies: boolean[]
@@ -843,7 +989,8 @@ export function rtRebuildDerived(world: RtWorld): void {
  * Parses a format-1 save into a world, or throws RtBadData: wrong magic or version, a short or
  * over-long read, a count past its bound (RT_SAVE_BOUNDS, checked before allocating), an enum or
  * value out of range, ids not strictly ascending, a reference to a missing company, town or station
- * (a packet's source station may be RT_NONE), or trailing bytes. Never throws another error
+ * (a packet's source station may be RT_NONE), a building not joined to its tile entity
+ * (rtTileEntityMismatch), or trailing bytes. Never throws another error
  * type for any input. Derived state is rebuilt (rtRebuildDerived).
  */
 export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
@@ -851,7 +998,7 @@ export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
     const r = new RtReader(bytes)
     for (const byte of RT_SAVE_MAGIC) if (r.u8() !== byte) bad('not a Rail Tycoon save')
     const format = r.u16()
-    if (format !== RT_SAVE_FORMAT) bad(`unsupported save format ${format}`)
+    if (format < RT_SAVE_OLDEST_FORMAT || format > RT_SAVE_FORMAT) bad(`unsupported save format ${format}`)
 
     const side = r.u16()
     if (!RT_MAP_SIDES.includes(side)) bad(`map side ${side}`)
@@ -859,25 +1006,63 @@ export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
     if (maxCompanies < 2 || maxCompanies > RT_SAVE_BOUNDS.companies) bad(`maxCompanies ${maxCompanies}`)
     const sharing = readBool(r, 'sharing')
 
-    const ctx: DecodeContext = { r, tileCount: 0, maxCompanies, companies: [], towns: [], stations: [], perCompany: [] }
+    const ctx: DecodeContext = { r, format, tileCount: 0, maxCompanies, companies: [], towns: [], stations: [], perCompany: [] }
     const map = readMap(ctx, side)
+    const entities = readEntities(ctx)
+    r.end()
+    checkTileOwners(ctx, map)
 
-    const companies = readList(ctx, maxCompanies, 'companies', readCompany, ctx.companies)
-    for (let i = 0; i < map.tileCount; i++) {
-        const owner = map.owner[i]!
-        if (owner !== RT_OWNER_NONE && (owner >= maxCompanies || !ctx.companies[owner])) bad(`tile ${i} owner ${owner} is not a company`)
-        if (map.kind[i] === RtTileKind.station && !rtStationPayloadValid(map.payload[i]!, owner)) bad(`tile ${i} station payload ${map.payload[i]}`)
-    }
+    return buildWorld({ side, maxCompanies, sharing }, map, entities)
+}
+
+interface RtDecodedEntities {
+    companies: RtCompany[]
+    towns: RtTown[]
+    industries: RtIndustry[]
+    stations: RtStation[]
+    vehicles: RtVehicle[]
+    tail: RtEntityTail
+}
+
+/** The entity lists, crossing violations and scalars, as writeEntities wrote them; ctx.tileCount is set. */
+function readEntities(ctx: DecodeContext): RtDecodedEntities {
+    const companies = readList(ctx, ctx.maxCompanies, 'companies', readCompany, ctx.companies)
     const towns = readList(ctx, RT_SAVE_BOUNDS.towns, 'towns', readTown, ctx.towns)
     const industries = readList(ctx, RT_SAVE_BOUNDS.industries, 'industries', readIndustry, [])
     const stations = readList(ctx, RT_SAVE_BOUNDS.stations, 'stations', readStation, ctx.stations)
-    // a station's packets may come from a station with a higher id, so they are checked once all are live
+    checkPacketSources(ctx, stations)
+    const vehicles = readList(ctx, RT_SAVE_BOUNDS.vehicles, 'vehicles', readVehicle, [])
+    return { companies, towns, industries, stations, vehicles, tail: readEntityTail(ctx) }
+}
+
+/** Every tile's owner is a live company or none, and every station tile's payload fits its owner. */
+function checkTileOwners(ctx: DecodeContext, map: RtMap): void {
+    for (let i = 0; i < map.tileCount; i++) {
+        const owner = map.owner[i]!
+        if (owner !== RT_OWNER_NONE && (owner >= ctx.maxCompanies || !ctx.companies[owner])) bad(`tile ${i} owner ${owner} is not a company`)
+        if (map.kind[i] === RtTileKind.station && !rtStationPayloadValid(map.payload[i]!, owner)) bad(`tile ${i} station payload ${map.payload[i]}`)
+    }
+}
+
+/** A station's packets may come from a station with a higher id, so they are checked once all are live. */
+function checkPacketSources(ctx: DecodeContext, stations: readonly RtStation[]): void {
     for (const station of stations) {
         for (const cargo of station.cargo) for (const packet of cargo.packets) checkLiveStation(ctx, packet.sourceStation, 'packet source')
     }
-    const vehicles = readList(ctx, RT_SAVE_BOUNDS.vehicles, 'vehicles', readVehicle, [])
-    const violations = readViolations(ctx)
+}
 
+interface RtEntityTail {
+    violations: RtCrossingViolation[]
+    rngState: number
+    tick: number
+    date: { day: number, month: number, year: number }
+    pathfinderCursor: number
+}
+
+/** The crossing violations and the scalars that end both a whole save and an entity part. */
+function readEntityTail(ctx: DecodeContext): RtEntityTail {
+    const r = ctx.r
+    const violations = readViolations(ctx)
     const rngState = r.u32()
     const tick = r.varint()
     for (const entry of violations) if (entry.since > tick) bad(`violation at tile ${entry.tile} dates from after tick ${tick}`)
@@ -885,24 +1070,109 @@ export function decodeWorldOrThrow(bytes: Uint8Array): RtWorld {
     const month = r.u8()
     const year = r.varint()
     const pathfinderCursor = readUint(r, RT_SAVE_BOUNDS.vehicles, 'pathfinder cursor')
-    r.end()
+    return { violations, rngState, tick, date: { day, month, year }, pathfinderCursor }
+}
 
+function buildWorld(settings: RtWorld['settings'], map: RtMap, entities: RtDecodedEntities): RtWorld {
+    const { companies, towns, industries, stations, vehicles, tail } = entities
     const world = asBadData('world', () => new RtWorld({
-        settings: { side, maxCompanies, sharing },
+        settings: { side: settings.side, maxCompanies: settings.maxCompanies, sharing: settings.sharing },
         map,
-        rngState,
-        tick,
-        date: { day, month, year },
-        pathfinderCursor,
+        rngState: tail.rngState,
+        tick: tail.tick,
+        date: tail.date,
+        pathfinderCursor: tail.pathfinderCursor,
         companies,
         towns,
         industries,
         stations,
         vehicles,
-        violations
+        violations: tail.violations
     }))
+    const mismatch = rtTileEntityMismatch(world)
+    if (mismatch) bad(mismatch)
     asBadData('derived state', () => rtRebuildDerived(world))
     return world
+}
+
+function readPartHeader(r: RtReader, magic: readonly number[], what: string): number {
+    for (const byte of magic) if (r.u8() !== byte) bad(`not a Rail Tycoon ${what}`)
+    const format = r.u16()
+    if (format !== RT_PART_FORMAT) bad(`unsupported ${what} format ${format}`)
+    const side = r.u16()
+    if (!RT_MAP_SIDES.includes(side)) bad(`${what} map side ${side}`)
+    return side
+}
+
+/** One chunk's map tiles, straight into the world's map; heights and kinds checked as readMap does. */
+function readChunkMap(r: RtReader, map: RtMap, chunk: number): void {
+    const side = map.side
+    const across = side / RT_CHUNK_TILES
+    const x0 = (chunk % across) * RT_CHUNK_TILES
+    const y0 = ((chunk / across) | 0) * RT_CHUNK_TILES
+    const cornersX = chunkCornerSpan(side, x0)
+    const cornersY = chunkCornerSpan(side, y0)
+    const tiles = RT_CHUNK_TILES * RT_CHUNK_TILES
+    if (r.remaining() < cornersX * cornersY + tiles * 6) bad(`chunk ${chunk} map is truncated`)
+    for (let y = y0; y < y0 + cornersY; y++) {
+        const row = y * (side + 1) + x0
+        const heights = r.bytes(cornersX)
+        for (let x = 0; x < cornersX; x++) if (heights[x]! > RT_MAX_HEIGHT) bad(`corner ${row + x} height ${heights[x]}`)
+        map.heights.set(heights, row)
+    }
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) {
+        const kinds = r.bytes(RT_CHUNK_TILES)
+        for (let x = 0; x < RT_CHUNK_TILES; x++) if (kinds[x]! >= TILE_KIND_COUNT) bad(`tile ${y * side + x0 + x} kind ${kinds[x]}`)
+        map.kind.set(kinds, y * side + x0)
+    }
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) map.owner.set(r.bytes(RT_CHUNK_TILES), y * side + x0)
+    for (let y = y0; y < y0 + RT_CHUNK_TILES; y++) {
+        const row = y * side + x0
+        for (let x = 0; x < RT_CHUNK_TILES; x++) map.payload[row + x] = r.u32()
+    }
+}
+
+/**
+ * Parses a world from its parts (encodeWorldParts), or throws RtBadData under every check
+ * decodeWorldOrThrow makes, plus: the part count, and the magic, format and side of each part, and a
+ * chunk part out of place. The entities are read first, then the chunks fill the map, then every
+ * building is joined to its tile entity. Never throws another error type for any input.
+ */
+export function decodeWorldPartsOrThrow(parts: readonly Uint8Array[]): RtWorld {
+    if (!Array.isArray(parts) || parts.length < 1 || !parts.every(part => part instanceof Uint8Array)) bad('world parts must be Uint8Arrays')
+    const r = new RtReader(parts[0]!)
+    const side = readPartHeader(r, RT_ENTITY_PART_MAGIC, 'entity part')
+    const chunks = rtChunkCount(side)
+    if (parts.length !== chunks + 1) bad(`${parts.length - 1} chunk parts for a map of ${chunks} chunks`)
+    const maxCompanies = r.u8()
+    if (maxCompanies < 2 || maxCompanies > RT_SAVE_BOUNDS.companies) bad(`maxCompanies ${maxCompanies}`)
+    const sharing = readBool(r, 'sharing')
+
+    const ctx: DecodeContext = { r, format: RT_SAVE_FORMAT, tileCount: side * side, maxCompanies, companies: [], towns: [], stations: [], perCompany: [] }
+    const entities = readEntities(ctx)
+    r.end()
+
+    const map = new RtMap(side)
+    for (let chunk = 0; chunk < chunks; chunk++) {
+        const chunkReader = new RtReader(parts[chunk + 1]!)
+        if (readPartHeader(chunkReader, RT_CHUNK_PART_MAGIC, 'chunk part') !== side) bad(`chunk part ${chunk} is for another map side`)
+        if (chunkReader.varint() !== chunk) bad(`chunk part ${chunk} is out of place`)
+        readChunkMap(chunkReader, map, chunk)
+        chunkReader.end()
+    }
+    checkTileOwners(ctx, map)
+
+    return buildWorld({ side, maxCompanies, sharing }, map, entities)
+}
+
+/** The world in a set of parts, or null when any part is malformed or they do not fit together. */
+export function decodeWorldParts(parts: readonly Uint8Array[]): RtWorld | null {
+    try {
+        return decodeWorldPartsOrThrow(parts)
+    } catch (error) {
+        if (error instanceof RtBadData) return null
+        throw error
+    }
 }
 
 /**

@@ -11,10 +11,12 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { db } from '#server/database'
-import { railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
+import { railTycoonChunks, railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
 import { rtLoadWorld, rtSaveCheckpoint } from '#server/utils/rail-tycoon/store'
 import { RT_GUNZIP_MAX_BYTES, RT_INVITE_CODE_ALPHABET, RT_INVITE_CODE_LENGTH, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
-import { encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { encodeWorld, encodeWorldParts, rtChunkCount, rtChunkOfTile, rtPartHash } from '#shared/utils/rail-tycoon/save'
+import { RT_OWNER_NONE } from '#shared/utils/rail-tycoon/types'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { randomInt } from '#shared/utils/random'
@@ -163,6 +165,13 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             return row!
         }
 
+        /** Each stored chunk with its hash, its bytes and xmin, the transaction that last wrote it. */
+        async function readChunks(id: string) {
+            const result = await db.execute<{ chunk_id: number, hash: string, data: Buffer, xmin: string }>(sql`
+                select chunk_id, hash, data, xmin::text as xmin from rail_tycoon_chunks where world_id = ${id} order by chunk_id`)
+            return result.rows
+        }
+
         /** Waits, up to 5 s, until at least `count` sessions are blocked on a lock touching the worlds table. */
         async function waitForLockWaiters(count: number) {
             const deadline = Date.now() + 5000
@@ -188,7 +197,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             const before = world.hash()
             const now = new Date(Date.now() + 1000)
 
-            const revision = await rtSaveCheckpoint(row.id, encodeWorld(world), world.tick, 0, now)
+            const revision = await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 0, now)
             expect(revision).toBe(1)
 
             const loaded = await rtLoadWorld(row.id)
@@ -196,15 +205,89 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             expect(loaded!.world.hash()).toBe(before)
             expect(loaded!.world.tick).toBe(world.tick)
             const stored = await readRow(row.id)
-            expect(stored).toMatchObject({ tick: world.tick, bytes: stored.save.length, savedAt: now, lastActiveAt: now })
-            expect(Buffer.from(gunzipSync(stored.save)).equals(Buffer.from(encodeWorld(world)))).toBe(true)
+            const chunks = await readChunks(row.id)
+            const parts = encodeWorldParts(world)
+            expect(stored).toMatchObject({ tick: world.tick, savedAt: now, lastActiveAt: now })
+            expect(stored.bytes).toBe(stored.save.length + chunks.reduce((sum, chunk) => sum + chunk.data.length, 0))
+            // the row holds the entity part, each chunk row its chunk under the chunk's hash
+            expect(Buffer.from(gunzipSync(stored.save)).equals(Buffer.from(parts[0]!))).toBe(true)
+            expect(chunks.map(chunk => chunk.chunk_id)).toEqual(Array.from({ length: rtChunkCount(64) }, (_, c) => c))
+            for (const chunk of chunks) {
+                expect(chunk.hash).toBe(rtPartHash(parts[chunk.chunk_id + 1]!))
+                expect(Buffer.from(gunzipSync(chunk.data)).equals(Buffer.from(parts[chunk.chunk_id + 1]!))).toBe(true)
+            }
+        })
+
+        it('rewrites only the chunks whose hash changed', async () => {
+            const owner = await newUser('save-chunks')
+            const world = newWorld(911)
+            const row = await seedWorld(owner, world)
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 0, new Date())).toBe(1)
+            const first = await readChunks(row.id)
+
+            // the same world again: the row moves on, no chunk is touched
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 1, new Date())).toBe(2)
+            expect(await readChunks(row.id)).toEqual(first)
+
+            // a town renamed: the entity part in the row's save changes, no chunk is written
+            world.towns[0]!.name = 'Renamed Town'
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 2, new Date())).toBe(3)
+            expect(await readChunks(row.id)).toEqual(first)
+            expect((await rtLoadWorld(row.id))!.world.towns[0]!.name).toBe('Renamed Town')
+
+            // a tree planted: only the chunk it stands in is written
+            let tile = 40 * 64 + 20
+            while (world.map.kind[tile] !== RtTileKind.clear) tile++
+            world.map.setTile(tile, RtTileKind.tree, RT_OWNER_NONE, 0)
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 3, new Date())).toBe(4)
+            const after = await readChunks(row.id)
+            const changed = after.filter((chunk, c) => chunk.xmin !== first[c]!.xmin).map(chunk => chunk.chunk_id)
+            expect(changed).toEqual([rtChunkOfTile(64, tile)])
+            expect((await rtLoadWorld(row.id))!.world.map.kind[tile]).toBe(RtTileKind.tree)
+        })
+
+        it('loads a whole-world save from before chunks, and its first checkpoint stores it as parts', async () => {
+            const owner = await newUser('save-legacy')
+            const world = newWorld(912)
+            const row = await seedWorld(owner, world)
+            expect(await readChunks(row.id)).toEqual([])
+            const loaded = await rtLoadWorld(row.id)
+            expect(loaded!.world.hash()).toBe(world.hash())
+
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(loaded!.world), world.tick, 0, new Date())).toBe(1)
+            expect(await readChunks(row.id)).toHaveLength(rtChunkCount(64))
+            expect((await rtLoadWorld(row.id))!.world.hash()).toBe(world.hash())
+        })
+
+        it('drops a stray chunk past the last, and loads a world missing a chunk or holding a corrupt one as null', async () => {
+            const owner = await newUser('save-stray')
+            const world = newWorld(913)
+            const row = await seedWorld(owner, world)
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 0, new Date())).toBe(1)
+            const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+            // a chunk the map has no room for: the parts no longer fit together
+            await db.insert(railTycoonChunks).values({ worldId: row.id, chunkId: 99, hash: '0'.repeat(16), data: gzipSync(Buffer.from([1])) })
+            expect(await rtLoadWorld(row.id)).toBeNull()
+            // the next checkpoint removes it
+            expect(await rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, 1, new Date())).toBe(2)
+            expect((await readChunks(row.id)).map(chunk => chunk.chunk_id)).toEqual(Array.from({ length: rtChunkCount(64) }, (_, c) => c))
+            expect((await rtLoadWorld(row.id))!.world.hash()).toBe(world.hash())
+
+            await db.update(railTycoonChunks).set({ data: gzipSync(Buffer.from('not a chunk')) })
+                .where(and(eq(railTycoonChunks.worldId, row.id), eq(railTycoonChunks.chunkId, 5)))
+            expect(await rtLoadWorld(row.id)).toBeNull()
+            await db.delete(railTycoonChunks).where(and(eq(railTycoonChunks.worldId, row.id), eq(railTycoonChunks.chunkId, 5)))
+            expect(await rtLoadWorld(row.id)).toBeNull()
+            expect(log).toHaveBeenCalledTimes(3)
+            for (const [line] of log.mock.calls) expect(String(line)).toContain(row.id)
         })
 
         it('lets exactly one of ten parallel checkpoints with the same revision win; the rest get 409', async () => {
             const owner = await newUser('save-race')
             const world = newWorld(902)
             const row = await seedWorld(owner, world)
-            const bytes = encodeWorld(world)
+            const bytes = encodeWorldParts(world)
 
             // Hold the row lock until all ten are queued on it, so every one reads before any
             // writes and the race is forced rather than left to scheduling.
@@ -240,7 +323,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             const owner = await newUser('save-stale')
             const world = newWorld(903)
             const row = await seedWorld(owner, world)
-            const bytes = encodeWorld(world)
+            const bytes = encodeWorldParts(world)
             expect(await rtSaveCheckpoint(row.id, bytes, 1, 0, new Date())).toBe(1)
 
             await expect(rtSaveCheckpoint(row.id, bytes, 2, 0, new Date())).rejects.toMatchObject({ statusCode: 409 })
@@ -249,16 +332,19 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             expect(await readRow(row.id)).toMatchObject({ revision: 1, tick: 1 })
         })
 
-        it('refuses a save that compresses past the cap with 413, leaving the stored one', async () => {
+        it('refuses parts that compress past the cap together with 413, leaving the stored save', async () => {
             const owner = await newUser('save-big')
-            const row = await seedWorld(owner, newWorld(904))
-            // random bytes do not compress, so the gzipped save lands over the cap
-            const huge = randomBytes(RT_MAX_SAVE_BYTES + 1024)
+            const world = newWorld(904)
+            const row = await seedWorld(owner, world)
+            // random chunks do not compress: each is under the cap, all of them together over it
+            const each = Math.ceil(RT_MAX_SAVE_BYTES / rtChunkCount(64)) + 1024
+            const parts = encodeWorldParts(world).map((part, k) => (k === 0 ? part : new Uint8Array(randomBytes(each))))
 
-            await expect(rtSaveCheckpoint(row.id, huge, 1, 0, new Date())).rejects.toMatchObject({ statusCode: 413 })
+            await expect(rtSaveCheckpoint(row.id, parts, 1, 0, new Date())).rejects.toMatchObject({ statusCode: 413 })
             const stored = await readRow(row.id)
             expect(stored.revision).toBe(0)
             expect(stored.save.equals(row.save)).toBe(true)
+            expect(await readChunks(row.id)).toEqual([])
         }, 20_000)
 
         it('completes inside a transaction that already holds the world row FOR UPDATE (options.tx)', async () => {
@@ -272,7 +358,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
                     .from(railTycoonWorlds)
                     .where(eq(railTycoonWorlds.id, row.id))
                     .for('update')
-                return rtSaveCheckpoint(row.id, encodeWorld(world), world.tick, locked!.revision, new Date(), { tx })
+                return rtSaveCheckpoint(row.id, encodeWorldParts(world), world.tick, locked!.revision, new Date(), { tx })
             })
 
             expect(revision).toBe(1)
@@ -283,7 +369,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             const owner = await newUser('save-member-owner')
             const joiner = await newUser('save-member-joiner')
             const row = await seedWorld(owner, newWorld(906))
-            const bytes = encodeWorld(newWorld(906))
+            const bytes = encodeWorldParts(newWorld(906))
 
             expect(await rtSaveCheckpoint(row.id, bytes, 1, 0, new Date(), { member: { userId: joiner, companyId: 2 } })).toBe(1)
             expect(await memberOf(row.id, joiner)).toMatchObject({ worldId: row.id, userId: joiner, companyId: 2 })
@@ -306,13 +392,15 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             const changed = newWorld(907)
             changed.step()
 
-            await expect(rtSaveCheckpoint(row.id, encodeWorld(changed), changed.tick, 0, new Date(), { member: { userId: joiner, companyId: 2 } }))
+            await expect(rtSaveCheckpoint(row.id, encodeWorldParts(changed), changed.tick, 0, new Date(), { member: { userId: joiner, companyId: 2 } }))
                 .rejects.toThrow()
 
+            // the row and the chunks roll back together
             const stored = await readRow(row.id)
             expect(stored.revision).toBe(0)
             expect(stored.bytes).toBe(row.bytes)
             expect(stored.save.equals(row.save)).toBe(true)
+            expect(await readChunks(row.id)).toEqual([])
             expect(await memberOf(row.id, joiner)).toMatchObject({ companyId: 1 })
         })
     })

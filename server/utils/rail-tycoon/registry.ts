@@ -7,32 +7,27 @@
  * serialization; value-changing ones are still race-safe on their own.
  */
 import { timingSafeEqual } from 'node:crypto'
-import { promisify } from 'node:util'
-import { gzip } from 'node:zlib'
-import { and, asc, desc, eq, isNotNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
+import { railTycoonMembers, railTycoonWorlds, user } from '#server/database/schema'
 import { clampUtf8 } from '#shared/utils/rail-tycoon/bytes'
 import {
     isRtInviteCode,
     RT_INVITE_CODE_ALPHABET,
     RT_INVITE_CODE_LENGTH,
     RT_MAX_OPEN_WORLDS,
-    RT_MAX_SAVE_BYTES,
     RT_MAX_WORLDS_PER_OWNER
 } from '#shared/utils/rail-tycoon/limits'
 import { RT_MAP_SIDES } from '#shared/utils/rail-tycoon/map'
 import { RT_PROTOCOL_BOUNDS } from '#shared/utils/rail-tycoon/protocol'
-import { encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { encodeWorldParts } from '#shared/utils/rail-tycoon/save'
 import type { RtWorldSettings } from '#shared/utils/rail-tycoon/types'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { randomInt } from '#shared/utils/random'
-import { rtLoadWorld, rtSaveCheckpoint } from './store'
+import { rtCompressParts, rtLoadWorld, rtSaveCheckpoint, rtWriteChunks } from './store'
 
 export type RtWorldStatus = typeof railTycoonWorlds.$inferSelect['status']
-
-const rtGzip = promisify(gzip)
 
 /** The chooser shows at most this many worlds, most recently active first. */
 const RT_LIST_LIMIT = 50
@@ -67,7 +62,11 @@ export interface RtWorldListing {
     lastActiveAt: Date
     /** Every member sees the code, so any member can invite. */
     inviteCode: string
+    isPublic: boolean
 }
+
+/** The member count subquery of a world list, by the world row's id. */
+const rtMemberCount = sql<number>`(select count(*) from rail_tycoon_members as rt_counted where rt_counted.world_id = ${railTycoonWorlds.id})`.mapWith(Number)
 
 /** Worlds the user owns or has joined, most recently active first, at most 50. */
 export async function rtListWorldsForUser(userId: string): Promise<RtWorldListing[]> {
@@ -79,8 +78,9 @@ export async function rtListWorldsForUser(userId: string): Promise<RtWorldListin
         maxCompanies: railTycoonWorlds.maxCompanies,
         lastActiveAt: railTycoonWorlds.lastActiveAt,
         inviteCode: railTycoonWorlds.inviteCode,
+        isPublic: railTycoonWorlds.isPublic,
         myCompanyId: railTycoonMembers.companyId,
-        memberCount: sql<number>`(select count(*) from rail_tycoon_members as rt_counted where rt_counted.world_id = ${railTycoonWorlds.id})`.mapWith(Number)
+        memberCount: rtMemberCount
     })
         .from(railTycoonWorlds)
         .leftJoin(railTycoonMembers, and(eq(railTycoonMembers.worldId, railTycoonWorlds.id), eq(railTycoonMembers.userId, userId)))
@@ -89,6 +89,83 @@ export async function rtListWorldsForUser(userId: string): Promise<RtWorldListin
         .limit(RT_LIST_LIMIT)
 
     return rows.map(row => ({ ...row, isOwner: row.ownerId === userId }))
+}
+
+/** One row of the public lobby; the invite code is listed, since a public world is open to anyone. */
+export interface RtPublicWorld {
+    id: string
+    name: string
+    ownerName: string
+    memberCount: number
+    maxCompanies: number | null
+    lastActiveAt: Date
+    inviteCode: string
+    avatar: string | null
+}
+
+/** Open public worlds the user neither owns nor has joined, most recently active first, at most 50. */
+export async function rtListPublicWorlds(userId: string): Promise<RtPublicWorld[]> {
+    return db.select({
+        id: railTycoonWorlds.id,
+        name: railTycoonWorlds.name,
+        ownerName: user.name,
+        memberCount: rtMemberCount,
+        maxCompanies: railTycoonWorlds.maxCompanies,
+        lastActiveAt: railTycoonWorlds.lastActiveAt,
+        inviteCode: railTycoonWorlds.inviteCode,
+        avatar: railTycoonWorlds.avatar
+    })
+        .from(railTycoonWorlds)
+        .innerJoin(user, eq(user.id, railTycoonWorlds.ownerId))
+        .leftJoin(railTycoonMembers, and(eq(railTycoonMembers.worldId, railTycoonWorlds.id), eq(railTycoonMembers.userId, userId)))
+        .where(and(
+            eq(railTycoonWorlds.isPublic, true),
+            eq(railTycoonWorlds.status, 'open'),
+            ne(railTycoonWorlds.ownerId, userId),
+            isNull(railTycoonMembers.userId)
+        ))
+        .orderBy(desc(railTycoonWorlds.lastActiveAt), asc(railTycoonWorlds.id))
+        .limit(RT_LIST_LIMIT)
+}
+
+/** The avatars of the worlds the user owns or has joined, by world id; a world without one is left out. */
+export async function rtWorldAvatars(userId: string): Promise<Record<string, string>> {
+    const rows = await db.select({ id: railTycoonWorlds.id, avatar: railTycoonWorlds.avatar })
+        .from(railTycoonWorlds)
+        .leftJoin(railTycoonMembers, and(eq(railTycoonMembers.worldId, railTycoonWorlds.id), eq(railTycoonMembers.userId, userId)))
+        .where(and(
+            or(eq(railTycoonWorlds.ownerId, userId), isNotNull(railTycoonMembers.userId)),
+            isNotNull(railTycoonWorlds.avatar)
+        ))
+        .orderBy(desc(railTycoonWorlds.lastActiveAt), asc(railTycoonWorlds.id))
+        .limit(RT_LIST_LIMIT)
+    const avatars: Record<string, string> = {}
+    for (const row of rows) if (row.avatar !== null) avatars[row.id] = row.avatar
+    return avatars
+}
+
+export interface RtWorldLook {
+    /** Listed in the public lobby while open. */
+    isPublic?: boolean
+    /** A serialized emblem, or null to clear it. The caller has checked it with serializeEmblem. */
+    avatar?: string | null
+}
+
+/**
+ * The owner's lobby setting and drawing. The owner check is in the update's WHERE, so there is no
+ * read before the write; a world that is not the user's is 403 and a missing one 404.
+ */
+export async function rtSetWorldLook(userId: string, worldId: string, look: RtWorldLook): Promise<{ isPublic: boolean, avatar: string | null }> {
+    const set: RtWorldLook = {}
+    if (look.isPublic !== undefined) set.isPublic = look.isPublic
+    if (look.avatar !== undefined) set.avatar = look.avatar
+    if (Object.keys(set).length === 0) rtBadRequest('Nothing to change')
+    const [updated] = await db.update(railTycoonWorlds)
+        .set(set)
+        .where(and(eq(railTycoonWorlds.id, worldId), eq(railTycoonWorlds.ownerId, userId)))
+        .returning({ isPublic: railTycoonWorlds.isPublic, avatar: railTycoonWorlds.avatar })
+    if (updated) return updated
+    return rtRefuseOwnerWrite(db, userId, worldId, 'World not found')
 }
 
 /** Characters of a world id: 130 bits from lowercase Crockford base32, under the wire's 32-byte cap. */
@@ -137,6 +214,8 @@ export interface RtCreateOptions {
     maxCompanies: number
     /** Infrastructure sharing; true when left out. */
     sharing?: boolean
+    /** Listed in the public lobby; false when left out. */
+    isPublic?: boolean
 }
 
 /** The new world's settings from the caller's options, each checked here rather than trusted; else 400. */
@@ -188,14 +267,15 @@ export interface RtCreatedWorld {
 export async function rtCreateWorld(userId: string, userName: string, name: string, options: RtCreateOptions): Promise<RtCreatedWorld> {
     const worldName = rtCleanWorldName(name)
     const settings = rtCreateSettings(options)
+    const isPublic = options.isPublic ?? false
+    if (typeof isPublic !== 'boolean') rtBadRequest('Public must be on or off')
     rtRefuseAtCap(await rtOwnerWorldCounts(db, userId))
 
     // the layout seed is site infrastructure, so it comes from the site's CSPRNG
     const world = RtWorld.create(generateWorld(randomInt(0, 0xffffffff), { side: settings.side }), settings)
     const companyId = world.addCompany(userName)
     if (companyId === null) throw createError({ statusCode: 500, statusMessage: 'A new world refused its owner' })
-    const save = await rtGzip(encodeWorld(world))
-    if (save.length > RT_MAX_SAVE_BYTES) throw createError({ statusCode: 413, statusMessage: 'World save is too large' })
+    const stored = await rtCompressParts(encodeWorldParts(world))
 
     const worldId = rtRandomCode(RT_WORLD_ID_ALPHABET, RT_WORLD_ID_LENGTH)
     // unique by the column's constraint; at 80 bits a clash is a failed create, not a retry
@@ -213,13 +293,15 @@ export async function rtCreateWorld(userId: string, userName: string, name: stri
             inviteCode,
             side: settings.side,
             maxCompanies: settings.maxCompanies,
+            isPublic,
             revision: 0,
-            save,
-            bytes: save.length,
+            save: stored.save,
+            bytes: stored.bytes,
             tick: world.tick,
             savedAt: now,
             lastActiveAt: now
         })
+        await rtWriteChunks(tx, worldId, stored.chunks)
         await tx.insert(railTycoonMembers).values({ worldId, userId, companyId })
     })
     return { worldId, inviteCode }
@@ -271,7 +353,7 @@ export async function rtJoinWorld(userId: string, userName: string, inviteCode: 
         const companyId = loaded.world.addCompany(userName)
         if (companyId === null) throw createError({ statusCode: 409, statusMessage: 'World is full' })
 
-        await rtSaveCheckpoint(world.id, encodeWorld(loaded.world), loaded.world.tick, loaded.revision, new Date(), {
+        await rtSaveCheckpoint(world.id, encodeWorldParts(loaded.world), loaded.world.tick, loaded.revision, new Date(), {
             tx,
             member: { userId, companyId }
         })

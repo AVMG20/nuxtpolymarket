@@ -15,6 +15,7 @@ import {
     encodeWorld,
     RT_SAVE_BOUNDS,
     RT_SAVE_FORMAT,
+    RT_SAVE_OLDEST_FORMAT,
     RT_SAVE_MAGIC
 } from '#shared/utils/rail-tycoon/save'
 import {
@@ -34,6 +35,7 @@ import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
+import { freeTiles, insertIndustryWithTiles, insertStationWithTiles, removeStationWithTiles, setStationTiles } from './fixtures/tile-entities'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 
 function company(id: number): RtCompany {
@@ -91,7 +93,7 @@ function busyWorld(side: number, vehicleCount: number): RtWorld {
     const world = RtWorld.create(generateWorld(4242, { side }), { side, maxCompanies: 8, sharing: true })
     world.insertCompany(company(0))
     world.insertCompany(company(1))
-    for (let id = 0; id < 10; id++) world.insertStation(station(id, id % 2, 100 + id * 300))
+    for (let id = 0; id < 10; id++) insertStationWithTiles(world, station(id, id % 2, 100 + id * 300))
     for (let id = 0; id < vehicleCount; id++) world.insertVehicle(train(id, id % 2, 200 + id * 100))
     world.tick = 123456
     world.pathfinderCursor = 17
@@ -357,7 +359,8 @@ describe('rail tycoon save format: decodeWorld', () => {
         expect(rebuilt.catchment).not.toEqual([1, 2, 3])
         if (rebuilt.catchment !== null) expect(rebuilt.catchmentRevision).toBe(rebuilt.tilesRevision)
         expect(back.dirtyTiles.size).toBe(0)
-        expect(back.company(0)!.infrastructure).toEqual({ railPieces: 0, roadPieces: 0, signals: 0, stationTiles: 0, depots: 0 })
+        // counted from the map: company 0's five stations of three platforms each, a platform also a rail piece
+        expect(back.company(0)!.infrastructure).toEqual({ railPieces: 15, roadPieces: 0, signals: 0, stationTiles: 15, depots: 0 })
     })
 
     it('returns null for a flipped magic, another version, bad settings, a trailing byte or no bytes', () => {
@@ -370,6 +373,7 @@ describe('rail tycoon save format: decodeWorld', () => {
         expect(refused(patched(0, 0x53))).toBe(true)
         expect(refused(patched(3, 0x45))).toBe(true)
         expect(refused(patched(4, RT_SAVE_FORMAT + 1))).toBe(true)
+        expect(refused(patched(4, RT_SAVE_OLDEST_FORMAT - 1))).toBe(true)
         expect(refused(patched(6, 100))).toBe(true)
         expect(refused(patched(8, 1))).toBe(true)
         expect(refused(patched(8, 9))).toBe(true)
@@ -434,7 +438,7 @@ describe('rail tycoon save format: decodeWorld', () => {
         expect(refused(bumpFirstDifference(consist(RT_SAVE_BOUNDS.consist), consist(RT_SAVE_BOUNDS.consist - 1)))).toBe(true)
 
         const tiles = (count: number) => variant(world => {
-            world.station(9)!.tiles = Array.from({ length: count }, (_, k) => 3000 + k)
+            setStationTiles(world, 9, freeTiles(world, 3000, count))
         })
         expect(decodeWorld(tiles(RT_SAVE_BOUNDS.stationTiles))).not.toBeNull()
         expect(refused(bumpFirstDifference(tiles(RT_SAVE_BOUNDS.stationTiles), tiles(RT_SAVE_BOUNDS.stationTiles - 1)))).toBe(true)
@@ -573,6 +577,41 @@ function expectSameState(back: RtWorld, world: RtWorld): void {
     expect(back.scalars()).toEqual(world.scalars())
 }
 
+describe('rail tycoon save format: every field is saved and hashed', () => {
+    /** Fields rebuilt on load (types.ts marks them derived): neither saved nor hashed. */
+    const DERIVED = new Set(['catchment', 'catchmentRevision', 'infrastructure'])
+
+    it('a change to any top-level number, boolean or string of an entity changes both the save and the hash', () => {
+        const base = busyWorld(64, 2)
+        const lists = {
+            company: (w: RtWorld) => w.companyList()[0]!,
+            town: (w: RtWorld) => w.townList()[0]!,
+            industry: (w: RtWorld) => w.industryList()[0]!,
+            station: (w: RtWorld) => w.stationList()[0]!,
+            vehicle: (w: RtWorld) => w.vehicleList()[0]!
+        }
+        const missed: string[] = []
+        for (const [kind, pick] of Object.entries(lists)) {
+            for (const [key, value] of Object.entries(pick(base))) {
+                if (DERIVED.has(key) || !['number', 'boolean', 'string'].includes(typeof value)) continue
+                const copy = decodeWorld(encodeWorld(base))!
+                const entity = pick(copy) as unknown as Record<string, unknown>
+                entity[key] = typeof value === 'number' ? value + 1 : typeof value === 'boolean' ? !value : `${value}x`
+                if (copy.hash() === base.hash()) missed.push(`${kind}.${key} not hashed`)
+                let saved: Uint8Array
+                try {
+                    saved = encodeWorld(copy)
+                } catch {
+                    // a value the save refuses is still covered by the save
+                    continue
+                }
+                if (Buffer.from(saved).equals(Buffer.from(encodeWorld(base)))) missed.push(`${kind}.${key} not saved`)
+            }
+        }
+        expect(missed).toEqual([])
+    })
+})
+
 describe('rail tycoon save format: lossless round trips', () => {
     it('a decoded world hashes like the live world it was saved from', () => {
         const worlds = [
@@ -640,7 +679,7 @@ describe('rail tycoon save format: lossless round trips', () => {
         world.vehicle(5)!.orderIndex = 3
         rtDeleteOrdersTo(world.vehicleList(), RtOrderKind.gotoStation, gone)
         rtClearPacketSource(world.stationList(), world.vehicleList(), gone)
-        world.removeStation(gone)
+        removeStationWithTiles(world, gone)
         for (const vehicle of world.vehicleList()) {
             expect(vehicle.orders.some(order => order.target === gone)).toBe(false)
             expect(vehicle.cargo.every(cargo => cargo.sourceStation === RT_NONE)).toBe(true)
@@ -656,7 +695,7 @@ describe('rail tycoon save format: lossless round trips', () => {
             if (station.owner !== 1) continue
             rtDeleteOrdersTo(world.vehicleList(), RtOrderKind.gotoStation, station.id)
             rtClearPacketSource(world.stationList(), world.vehicleList(), station.id)
-            world.removeStation(station.id)
+            removeStationWithTiles(world, station.id)
         }
         for (let i = 0; i < world.map.tileCount; i++) if (world.map.owner[i] === 1) world.map.owner[i] = RT_OWNER_NONE
         world.companies[1] = rtNewCompany(1, old.name, old.colour, world.tick)
@@ -841,11 +880,12 @@ function capWorld(): RtWorld {
             receivedThisMonth: perCargo(), receivedLastMonth: perCargo()
         }
     }
+    // industries fill the columns between the station columns (x 4 to 63), 12 to a band of 6 rows
     for (let id = 0; id < caps.maxIndustries; id++) {
-        world.industries[id] = {
-            id, type: id % RT_INDUSTRY_TYPE_IDS.length, origin: rng.randomInt(0, side * side - 1),
+        insertIndustryWithTiles(world, {
+            id, type: id % RT_INDUSTRY_TYPE_IDS.length, origin: Math.floor(id / 12) * 6 * side + 4 + (id % 12) * 5,
             waiting: perCargo(), delivered: perCargo(), producedThisMonth: perCargo(), transportedThisMonth: perCargo()
-        }
+        })
     }
     const played = (home: number): RtCargoPacket => ({
         cargo: home % RT_CARGO_IDS.length, count: rng.randomInt(1, 80), sourceTile: home * 64 + rng.randomInt(0, 3),
@@ -855,7 +895,7 @@ function capWorld(): RtWorld {
     const perSlot = caps.maxPacketsPerStation / RT_CARGO_IDS.length
     for (let id = 0; id < caps.maxStations; id++) {
         const base = id * 64
-        world.insertStation({
+        insertStationWithTiles(world, {
             id, owner: id % caps.maxCompanies, name: `Station ${id}`, town: id % caps.maxTowns, sign: base,
             tiles: Array.from({ length: stationTiles }, (_, k) => base + k), tilesRevision: 3, facilities: 1,
             cargo: RT_CARGO_IDS.map((_, k) => ({

@@ -27,6 +27,9 @@ import { RT_OWNER_NONE, RtOrderKind } from '#shared/utils/rail-tycoon/types'
 
 const INVITE = '0123456789ABCDEF'
 const GZIP = new Uint8Array([0x1f, 0x8b, 8, 0, 1, 2, 3, 4, 5, 6])
+/** Part hashes as rtPartHash writes them: 16 lower-case hex digits. */
+const HASHES = ['0123456789abcdef', 'fedcba9876543210', '0000000000000000']
+const ALL_PARTS = Array.from({ length: RT_PROTOCOL_BOUNDS.parts }, (_, i) => i.toString(16).padStart(16, 'f'))
 
 function cmd(...bytes: number[]): Uint8Array {
     return new Uint8Array(bytes)
@@ -51,7 +54,8 @@ const WORLD: RtWorldSummary = {
     maxCompanies: 8,
     myCompanyId: 0,
     lastActiveAt: 1761782400123,
-    inviteCode: INVITE
+    inviteCode: INVITE,
+    isPublic: true
 }
 
 /** One sample of every server message, keyed by type so a new variant fails to compile until listed. */
@@ -61,9 +65,11 @@ const SAMPLES: { [K in RtServerMsg['type']]: Extract<RtServerMsg, { type: K }> }
     joined: { type: 'joined', worldId: 'w-abc' },
     opened: {
         type: 'opened', worldId: 'w-abc', role: 'player', owner: false, company: 2, inviteCode: INVITE,
-        tick: 100, serverNow: 1761782400999, snapshot: GZIP, pending: PENDING
+        tick: 100, serverNow: 1761782400999, parts: HASHES
     },
-    resync: { type: 'resync', worldId: 'w-abc', tick: 100, serverNow: 5, snapshot: GZIP, pending: PENDING },
+    resync: { type: 'resync', worldId: 'w-abc', tick: 100, serverNow: 5, parts: HASHES },
+    part: { type: 'part', index: 2, last: true, bytes: GZIP },
+    snapshotEnd: { type: 'snapshotEnd', tick: 100, pending: PENDING },
     command: { type: 'command', tick: 4000000000, company: 5, command: cmd(1, 2, 3, 4) },
     allowance: { type: 'allowance', tick: 0xffffffff },
     paused: { type: 'paused', reason: 'joining' },
@@ -85,14 +91,35 @@ function readStamped(r: RtReader): RtStampedCommand {
     return { tick, company: company === RT_OWNER_NONE ? null : company, command }
 }
 
-function readSnapshotBody(r: RtReader) {
+function readSnapshotHead(r: RtReader) {
     const tick = r.u32()
     const serverNow = r.varint()
-    const snapshot = r.bytes(r.varint()).slice()
-    const count = r.varint()
+    const parts: string[] = []
+    for (let i = r.varint(); i > 0; i--) {
+        const high = r.u32().toString(16).padStart(8, '0')
+        parts.push(high + r.u32().toString(16).padStart(8, '0'))
+    }
+    return { tick, serverNow, parts }
+}
+
+function readEnd(frame: Uint8Array) {
+    const r = new RtReader(frame)
+    expect(r.u8()).toBe(RtServerTag.snapshotEnd)
+    const tick = r.u32()
     const pending: RtStampedCommand[] = []
-    for (let i = 0; i < count; i++) pending.push(readStamped(r))
-    return { tick, serverNow, snapshot, pending }
+    for (let i = r.varint(); i > 0; i--) pending.push(readStamped(r))
+    r.end()
+    return { type: 'snapshotEnd', tick, pending }
+}
+
+function readPartFrame(frame: Uint8Array) {
+    const r = new RtReader(frame)
+    expect(r.u8()).toBe(RtServerTag.part)
+    const index = r.u16()
+    const last = r.u8() === 1
+    const bytes = r.bytes(r.varint()).slice()
+    r.end()
+    return { type: 'part', index, last, bytes }
 }
 
 function readOpened(frame: Uint8Array) {
@@ -103,9 +130,14 @@ function readOpened(frame: Uint8Array) {
     const companyByte = r.u8()
     const worldId = r.str(32)
     const inviteCode = role === 'player' || owner ? r.str(16) : null
-    const body = readSnapshotBody(r)
+    const head = readSnapshotHead(r)
     r.end()
-    return { type: 'opened', worldId, role, owner, company: companyByte === RT_OWNER_NONE ? null : companyByte, inviteCode, ...body }
+    return { type: 'opened', worldId, role, owner, company: companyByte === RT_OWNER_NONE ? null : companyByte, inviteCode, ...head }
+}
+
+/** The frame cap a message type is held to. */
+function capOf(type: string): number {
+    return type === 'part' || type === 'snapshotEnd' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
 }
 
 function expectRefused(msg: unknown): void {
@@ -121,12 +153,15 @@ function seededServerMsgs(seed: number, count: number): RtServerMsg[] {
     const text = () => pick(['', 'w', 'x'.repeat(32), 'x'.repeat(33), '€'.repeat(11), 'a\uD800', INVITE, 'b'.repeat(64), 'b'.repeat(65)])
     const bytes = () => new Uint8Array(pick([0, 1, 3, RT_PROTOCOL_BOUNDS.commandBytes, RT_PROTOCOL_BOUNDS.commandBytes + 1]))
     const pending = () => Array.from({ length: rng.randomInt(0, 4) }, () => stamped(int(), company(), bytes()))
+    const hashes = () => pick<unknown>([[], HASHES, ALL_PARTS, [...ALL_PARTS, HASHES[0]], ['xyz'], [HASHES[0]!.toUpperCase()], 'abc', null])
     const builders: (() => unknown)[] = [
         () => ({ type: 'hello', version: int(), buildId: text() }),
-        () => ({ type: 'worldList', worlds: Array.from({ length: rng.randomInt(0, 3) }, () => ({ ...WORLD, id: text(), name: text(), status: pick(['open', 'closed', 'x']), isOwner: pick([true, false, 0]), memberCount: int(), maxCompanies: pick([null, int()]), myCompanyId: company(), lastActiveAt: int(), inviteCode: text() })) }),
+        () => ({ type: 'worldList', worlds: Array.from({ length: rng.randomInt(0, 3) }, () => ({ ...WORLD, id: text(), name: text(), status: pick(['open', 'closed', 'x']), isOwner: pick([true, false, 0]), memberCount: int(), maxCompanies: pick([null, int()]), myCompanyId: company(), lastActiveAt: int(), inviteCode: text(), isPublic: pick([true, false, 1]) })) }),
         () => ({ type: 'joined', worldId: text() }),
-        () => ({ type: 'opened', worldId: text(), role: pick(['player', 'spectator', 'owner']), owner: pick([true, false]), company: company(), inviteCode: pick([null, INVITE, text()]), tick: int(), serverNow: int(), snapshot: bytes(), pending: pending() }),
-        () => ({ type: 'resync', worldId: text(), tick: int(), serverNow: int(), snapshot: bytes(), pending: pending() }),
+        () => ({ type: 'opened', worldId: text(), role: pick(['player', 'spectator', 'owner']), owner: pick([true, false]), company: company(), inviteCode: pick([null, INVITE, text()]), tick: int(), serverNow: int(), parts: hashes() }),
+        () => ({ type: 'resync', worldId: text(), tick: int(), serverNow: int(), parts: hashes() }),
+        () => ({ type: 'part', index: pick([0, 1, RT_PROTOCOL_BOUNDS.parts - 1, RT_PROTOCOL_BOUNDS.parts, -1, 1.5]), last: pick([true, false, 1]), bytes: bytes() }),
+        () => ({ type: 'snapshotEnd', tick: int(), pending: pending() }),
         () => ({ type: 'command', tick: int(), company: company(), command: bytes() }),
         () => ({ type: 'allowance', tick: int() }),
         () => ({ type: 'paused', reason: pick([...RT_PAUSE_REASONS, 'x']) }),
@@ -154,8 +189,7 @@ describe('encodeServerMsg', () => {
             const frame = encodeServerMsg(msg)
             expect(frame).toBeInstanceOf(Uint8Array)
             expect(frame[0]).toBe(RtServerTag[msg.type])
-            const cap = msg.type === 'opened' || msg.type === 'resync' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
-            expect(frame.length).toBeLessThanOrEqual(cap)
+            expect(frame.length).toBeLessThanOrEqual(capOf(msg.type))
             // binary, never JSON
             expect(frame[0]).not.toBe('{'.charCodeAt(0))
             // deterministic
@@ -194,34 +228,49 @@ describe('encodeServerMsg', () => {
         expect(Array.from(server)).toEqual([RtServerTag.command, 1, 0, 0, 0, RT_OWNER_NONE, 42])
     })
 
-    it('round-trips an opened message with its pending list, with the invite code for a player', () => {
-        const msg = SAMPLES.opened
-        expect(readOpened(encodeServerMsg(msg))).toEqual({ ...msg, pending: PENDING.map(p => ({ ...p })) })
+    it('round-trips an opened message with its part hashes, with the invite code for a player', () => {
+        expect(readOpened(encodeServerMsg(SAMPLES.opened))).toEqual(SAMPLES.opened)
+    })
+
+    it('writes each part hash as two little-endian u32, the high half first', () => {
+        const r = new RtReader(encodeServerMsg({ ...SAMPLES.resync, worldId: 'w', parts: ['0123456789abcdef'] }))
+        expect(r.u8()).toBe(RtServerTag.resync)
+        expect(r.str(32)).toBe('w')
+        expect(r.u32()).toBe(100)
+        expect(r.varint()).toBe(5)
+        expect(r.varint()).toBe(1)
+        expect(Array.from(r.bytes(8))).toEqual([0x67, 0x45, 0x23, 0x01, 0xef, 0xcd, 0xab, 0x89])
+        r.end()
     })
 
     it('round-trips opened for an owner spectator with the code and for a plain spectator without it', () => {
         const owner = { ...SAMPLES.opened, role: 'spectator' as const, owner: true, company: null }
         expect(readOpened(encodeServerMsg(owner))).toEqual(owner)
-        const spectator = { ...SAMPLES.opened, role: 'spectator' as const, owner: false, company: null, inviteCode: null, pending: [] }
+        const spectator = { ...SAMPLES.opened, role: 'spectator' as const, owner: false, company: null, inviteCode: null }
         const frame = encodeServerMsg(spectator)
         expect(readOpened(frame)).toEqual(spectator)
         // the code's 16 characters appear nowhere in a spectator's frame
         expect(new TextDecoder().decode(frame)).not.toContain(INVITE)
     })
 
-    it('carries the gzip snapshot opaquely and byte for byte', () => {
-        const snapshot = new Uint8Array(70000)
-        for (let i = 0; i < snapshot.length; i++) snapshot[i] = (i * 31 + 7) & 0xff
-        const read = readOpened(encodeServerMsg({ ...SAMPLES.opened, snapshot, pending: [] }))
-        expect(read.snapshot).toEqual(snapshot)
+    it('carries a part fragment opaquely and byte for byte, with its index and last flag', () => {
+        const bytes = new Uint8Array(70000)
+        for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31 + 7) & 0xff
+        expect(readPartFrame(encodeServerMsg({ type: 'part', index: 200, last: false, bytes }))).toEqual({ type: 'part', index: 200, last: false, bytes })
+        expect(readPartFrame(encodeServerMsg(SAMPLES.part))).toEqual(SAMPLES.part)
     })
 
-    it('round-trips a resync answer with its world id and pending list', () => {
+    it('round-trips a resync answer with its world id and part hashes', () => {
         const r = new RtReader(encodeServerMsg(SAMPLES.resync))
         expect(r.u8()).toBe(RtServerTag.resync)
         expect(r.str(32)).toBe('w-abc')
-        expect(readSnapshotBody(r)).toEqual({ tick: 100, serverNow: 5, snapshot: GZIP, pending: PENDING })
+        expect(readSnapshotHead(r)).toEqual({ tick: 100, serverNow: 5, parts: HASHES })
         r.end()
+    })
+
+    it('round-trips snapshotEnd with its tick and pending list', () => {
+        expect(readEnd(encodeServerMsg(SAMPLES.snapshotEnd))).toEqual(SAMPLES.snapshotEnd)
+        expect(readEnd(encodeServerMsg({ type: 'snapshotEnd', tick: 7, pending: [] }))).toEqual({ type: 'snapshotEnd', tick: 7, pending: [] })
     })
 
     it('carries each world in the list with its invite code', () => {
@@ -238,7 +287,8 @@ describe('encodeServerMsg', () => {
             const mine = r.u8()
             const lastActiveAt = r.varint()
             const inviteCode = r.str(16)
-            worlds.push({ id, name, status, isOwner, memberCount, maxCompanies: max === 0 ? null : max, myCompanyId: mine === RT_OWNER_NONE ? null : mine, lastActiveAt, inviteCode })
+            const isPublic = r.u8() === 1
+            worlds.push({ id, name, status, isOwner, memberCount, maxCompanies: max === 0 ? null : max, myCompanyId: mine === RT_OWNER_NONE ? null : mine, lastActiveAt, inviteCode, isPublic })
         }
         r.end()
         expect(worlds).toEqual(SAMPLES.worldList.worlds)
@@ -308,28 +358,45 @@ describe('encodeServerMsg refuses what a client would refuse', () => {
     })
 
     it('keeps pending commands ascending and never before the snapshot tick', () => {
-        expectRefused({ ...SAMPLES.opened, pending: [stamped(101, 0, cmd(1)), stamped(100, 0, cmd(1))] })
-        expectRefused({ ...SAMPLES.opened, pending: [stamped(99, 0, cmd(1))] })
-        expectRefused({ ...SAMPLES.resync, pending: [stamped(99, 0, cmd(1))] })
+        expectRefused({ ...SAMPLES.snapshotEnd, pending: [stamped(101, 0, cmd(1)), stamped(100, 0, cmd(1))] })
+        expectRefused({ ...SAMPLES.snapshotEnd, pending: [stamped(99, 0, cmd(1))] })
         const many = Array.from({ length: RT_PROTOCOL_BOUNDS.pending + 1 }, () => stamped(100, 0, cmd(1)))
-        expectRefused({ ...SAMPLES.opened, pending: many })
-        expect(() => encodeServerMsg({ ...SAMPLES.opened, pending: many.slice(1) })).not.toThrow()
+        expectRefused({ ...SAMPLES.snapshotEnd, pending: many })
+        expect(() => encodeServerMsg({ ...SAMPLES.snapshotEnd, pending: many.slice(1) })).not.toThrow()
     })
 
-    it('bounds command and snapshot bytes', () => {
+    it('bounds command bytes, part fragments, part indexes and part hashes', () => {
         expectRefused({ ...SAMPLES.command, command: new Uint8Array(0) })
         expectRefused({ ...SAMPLES.command, command: new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes + 1) })
         expectRefused({ ...SAMPLES.command, command: [1, 2, 3] })
-        expectRefused({ ...SAMPLES.opened, pending: [stamped(100, 0, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes + 1))] })
-        expectRefused({ ...SAMPLES.opened, snapshot: new Uint8Array(0) })
-        expectRefused({ ...SAMPLES.resync, snapshot: new Uint8Array(RT_MAX_SAVE_BYTES + 1) })
+        expectRefused({ ...SAMPLES.snapshotEnd, pending: [stamped(100, 0, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes + 1))] })
+        expectRefused({ ...SAMPLES.part, bytes: new Uint8Array(0) })
+        expectRefused({ ...SAMPLES.part, bytes: new Uint8Array(RT_PROTOCOL_BOUNDS.fragmentBytes + 1) })
+        expectRefused({ ...SAMPLES.part, bytes: [1, 2, 3] })
+        for (const index of [-1, 1.5, RT_PROTOCOL_BOUNDS.parts]) expectRefused({ ...SAMPLES.part, index })
+        expectRefused({ ...SAMPLES.part, last: 1 })
+        expect(() => encodeServerMsg({ ...SAMPLES.part, index: RT_PROTOCOL_BOUNDS.parts - 1 })).not.toThrow()
+        // a head has at least the entity part and at most one per chunk of the largest map
+        expectRefused({ ...SAMPLES.resync, parts: [] })
+        expectRefused({ ...SAMPLES.opened, parts: [...ALL_PARTS, HASHES[0]] })
+        expect(() => encodeServerMsg({ ...SAMPLES.opened, parts: ALL_PARTS })).not.toThrow()
+        for (const hash of ['', 'xyz', '0123456789ABCDEF', '0123456789abcde', '0123456789abcdef0', 42]) {
+            expectRefused({ ...SAMPLES.resync, parts: [hash] })
+        }
+        expectRefused({ ...SAMPLES.resync, parts: 'abc' })
     })
 
-    it('refuses an opened frame past the snapshot frame cap', () => {
-        const pending = Array.from({ length: RT_PROTOCOL_BOUNDS.pending }, () => stamped(100, 0, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes)))
-        const msg = { ...SAMPLES.opened, snapshot: new Uint8Array(RT_MAX_SAVE_BYTES), pending }
-        expect(() => encodeServerMsg(msg)).toThrow(/exceeds/)
+    it('fits the largest head, part and snapshotEnd within their frame caps', () => {
+        const head = encodeServerMsg({ ...SAMPLES.opened, worldId: 'w'.repeat(32), serverNow: Number.MAX_SAFE_INTEGER, parts: ALL_PARTS })
+        expect(head.length).toBeLessThanOrEqual(RT_PROTOCOL_BOUNDS.serverFrameBytes)
+        const part = encodeServerMsg({ type: 'part', index: RT_PROTOCOL_BOUNDS.parts - 1, last: true, bytes: new Uint8Array(RT_PROTOCOL_BOUNDS.fragmentBytes) })
+        expect(part.length).toBeLessThanOrEqual(RT_PROTOCOL_BOUNDS.snapshotFrameBytes)
+        const pending = Array.from({ length: RT_PROTOCOL_BOUNDS.pending }, () => stamped(0xffffffff, 7, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes)))
+        const end = encodeServerMsg({ type: 'snapshotEnd', tick: 0xffffffff, pending })
+        expect(end.length).toBeLessThanOrEqual(RT_PROTOCOL_BOUNDS.snapshotFrameBytes)
         expect(RT_PROTOCOL_BOUNDS.snapshotFrameBytes).toBe(RT_MAX_SNAPSHOT_FRAME_BYTES)
+        // a whole snapshot never travels as one frame
+        expect(RT_PROTOCOL_BOUNDS.snapshotFrameBytes).toBeLessThan(RT_MAX_SAVE_BYTES)
     })
 
     it('bounds the world list', () => {
@@ -355,6 +422,7 @@ describe('encodeServerMsg refuses what a client would refuse', () => {
         expectRefused({ type: 'pong', echo: Number.NaN })
         expectRefused({ ...SAMPLES.opened, serverNow: -1 })
         expectRefused({ ...SAMPLES.worldList, worlds: [{ ...WORLD, lastActiveAt: 1.5 }] })
+        expectRefused({ ...SAMPLES.worldList, worlds: [{ ...WORLD, isPublic: 1 }] })
     })
 
     it('throws only RangeError for seeded random messages, and every frame it returns fits its cap', () => {
@@ -369,8 +437,7 @@ describe('encodeServerMsg refuses what a client would refuse', () => {
             }
             encoded++
             expect(frame[0]).toBe(RtServerTag[msg.type])
-            const cap = msg.type === 'opened' || msg.type === 'resync' ? RT_PROTOCOL_BOUNDS.snapshotFrameBytes : RT_PROTOCOL_BOUNDS.serverFrameBytes
-            expect(frame.length).toBeLessThanOrEqual(cap)
+            expect(frame.length).toBeLessThanOrEqual(capOf(msg.type))
         }
         // the generator reaches both outcomes
         expect(encoded).toBeGreaterThan(100)
@@ -397,12 +464,8 @@ function expectNullOrCanonical(bytes: Uint8Array): RtServerMsg | null {
     return msg
 }
 
-/** A snapshot body whose fields each sit at or under their cap. */
-function writeBody(w: RtWriter, snapshotBytes: number, pending: RtStampedCommand[]): void {
-    w.u32(100)
-    w.varint(5)
-    w.varint(snapshotBytes)
-    w.bytes(new Uint8Array(snapshotBytes))
+/** A pending list written field by field, bypassing the encoder's checks. */
+function writePending(w: RtWriter, pending: RtStampedCommand[]): void {
     w.varint(pending.length)
     for (const p of pending) {
         w.u32(p.tick)
@@ -415,9 +478,13 @@ function writeBody(w: RtWriter, snapshotBytes: number, pending: RtStampedCommand
 const VARIANTS: RtServerMsg[] = [
     ...Object.values(SAMPLES),
     { ...SAMPLES.opened, role: 'spectator', owner: true, company: null },
-    { ...SAMPLES.opened, role: 'spectator', owner: false, company: null, inviteCode: null, pending: [] },
-    { ...SAMPLES.opened, role: 'player', owner: true, company: 7 },
-    { ...SAMPLES.resync, tick: 0xffffffff, serverNow: Number.MAX_SAFE_INTEGER, pending: [stamped(0xffffffff, null, cmd(1))] },
+    { ...SAMPLES.opened, role: 'spectator', owner: false, company: null, inviteCode: null },
+    { ...SAMPLES.opened, role: 'player', owner: true, company: 7, parts: [HASHES[1]!] },
+    { ...SAMPLES.resync, tick: 0xffffffff, serverNow: Number.MAX_SAFE_INTEGER, parts: ALL_PARTS.slice(0, 20) },
+    { type: 'part', index: 0, last: false, bytes: cmd(0) },
+    { type: 'part', index: RT_PROTOCOL_BOUNDS.parts - 1, last: true, bytes: new Uint8Array(300).fill(0xff) },
+    { type: 'snapshotEnd', tick: 0xffffffff, pending: [stamped(0xffffffff, null, cmd(1))] },
+    { type: 'snapshotEnd', tick: 0, pending: [] },
     { type: 'hello', version: 0xffff, buildId: 'b'.repeat(64) },
     { type: 'joined', worldId: '﻿w' },
     { type: 'joined', worldId: '🚂'.repeat(8) },
@@ -456,13 +523,16 @@ describe('decodeServerMsg', () => {
         expect(accepted).toBeGreaterThan(300)
     })
 
-    it('returns the snapshot as a view into the frame and the commands as copies', () => {
-        const bytes = encodeServerMsg(SAMPLES.opened)
+    it('returns a part fragment as a view into the frame and pending commands as copies', () => {
+        const bytes = encodeServerMsg(SAMPLES.part)
         const msg = decodeServerMsg(bytes)
-        if (msg?.type !== 'opened') throw new Error('expected opened')
-        expect(msg.snapshot.buffer).toBe(bytes.buffer)
-        expect(msg.snapshot.byteOffset).toBeGreaterThan(0)
-        for (const p of msg.pending) expect(p.command.buffer).not.toBe(bytes.buffer)
+        if (msg?.type !== 'part') throw new Error('expected part')
+        expect(msg.bytes.buffer).toBe(bytes.buffer)
+        expect(msg.bytes.byteOffset).toBeGreaterThan(0)
+        const endBytes = encodeServerMsg(SAMPLES.snapshotEnd)
+        const end = decodeServerMsg(endBytes)
+        if (end?.type !== 'snapshotEnd') throw new Error('expected snapshotEnd')
+        for (const p of end.pending) expect(p.command.buffer).not.toBe(endBytes.buffer)
         const command = decodeServerMsg(encodeServerMsg(SAMPLES.command))
         if (command?.type !== 'command') throw new Error('expected command')
         expect(command.command.byteOffset).toBe(0)
@@ -477,32 +547,42 @@ describe('decodeServerMsg', () => {
 
     it('returns null for an empty frame, a client tag, an unknown tag or a non-byte input', () => {
         expect(decodeServerMsg(new Uint8Array(0))).toBeNull()
-        for (let tag = 0; tag < 0x80; tag++) expect(decodeServerMsg(new Uint8Array([tag]))).toBeNull()
-        for (let tag = 0x90; tag <= 0xff; tag++) expect(decodeServerMsg(new Uint8Array([tag]))).toBeNull()
+        const serverTags = new Set<number>(Object.values(RtServerTag))
+        for (let tag = 0; tag <= 0xff; tag++) {
+            if (!serverTags.has(tag)) expect(decodeServerMsg(new Uint8Array([tag]))).toBeNull()
+        }
         expect(decodeServerMsg([0x88] as unknown as Uint8Array)).toBeNull()
         expect(decodeServerMsg(null as unknown as Uint8Array)).toBeNull()
         expect(decodeServerMsg('\x88' as unknown as Uint8Array)).toBeNull()
         expect(decodeServerMsg(new Uint8Array([RtServerTag.resumed]))).toEqual({ type: 'resumed' })
     })
 
-    it('enforces the snapshot frame cap even when every field is within its own cap', () => {
-        const pending = Array.from({ length: RT_PROTOCOL_BOUNDS.pending }, (_, i) => stamped(100 + i, i % 8, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes).fill(i & 0xff)))
-        const probe = encodeServerMsg({ ...SAMPLES.resync, serverNow: 5, snapshot: new Uint8Array(RT_MAX_SAVE_BYTES - 16384), pending })
-        const fit = RT_MAX_SAVE_BYTES - 16384 + RT_PROTOCOL_BOUNDS.snapshotFrameBytes - probe.length
-        expect(fit).toBeLessThanOrEqual(RT_MAX_SAVE_BYTES)
-        const atCap = encodeServerMsg({ ...SAMPLES.resync, serverNow: 5, snapshot: new Uint8Array(fit), pending })
-        expect(atCap.length).toBe(RT_PROTOCOL_BOUNDS.snapshotFrameBytes)
-        const decoded = decodeServerMsg(atCap)
-        expect(decoded?.type).toBe('resync')
-        // one more snapshot byte: still under the snapshot cap, but the frame is over
-        const over = frame(RtServerTag.resync, w => {
-            rawStr(w, new TextEncoder().encode('w-abc'))
-            writeBody(w, fit + 1, pending)
+    it('refuses a frame past its cap before parsing it: part and snapshotEnd the snapshot cap, the rest the server cap', () => {
+        const fragment = new Uint8Array(RT_PROTOCOL_BOUNDS.fragmentBytes).fill(9)
+        const part = frame(RtServerTag.part, (w) => {
+            w.u16(0)
+            w.u8(1)
+            rawStr(w, fragment)
         })
-        expect(over.length).toBe(RT_PROTOCOL_BOUNDS.snapshotFrameBytes + 1)
-        expect(decodeServerMsg(over)).toBeNull()
-        // other messages are held to the smaller server frame cap
-        const hello = frame(RtServerTag.hello, w => {
+        expect(decodeServerMsg(part)).toEqual({ type: 'part', index: 0, last: true, bytes: fragment })
+        const padded = (tag: number, cap: number) => {
+            const big = new Uint8Array(cap + 1)
+            big[0] = tag
+            return decodeServerMsg(big)
+        }
+        expect(padded(RtServerTag.part, RT_PROTOCOL_BOUNDS.snapshotFrameBytes)).toBeNull()
+        expect(padded(RtServerTag.snapshotEnd, RT_PROTOCOL_BOUNDS.snapshotFrameBytes)).toBeNull()
+        // a head is a few kilobytes of hashes, held to the smaller server frame cap
+        const resync = frame(RtServerTag.resync, (w) => {
+            rawStr(w, [0x77])
+            w.u32(100)
+            w.varint(5)
+            w.varint(1)
+            w.bytes(new Uint8Array(8))
+            w.bytes(new Uint8Array(RT_PROTOCOL_BOUNDS.serverFrameBytes))
+        })
+        expect(decodeServerMsg(resync)).toBeNull()
+        const hello = frame(RtServerTag.hello, (w) => {
             w.u16(1)
             rawStr(w, [0x62])
             w.bytes(new Uint8Array(RT_PROTOCOL_BOUNDS.serverFrameBytes))
@@ -538,6 +618,7 @@ describe('decodeServerMsg', () => {
             w.bytes(Uint8Array.from([0, 1, 1, 0, 0]))
             w.varint(0)
             rawStr(w, new TextEncoder().encode(INVITE))
+            w.u8(0)
         })
         expect(decodeServerMsg(named('€'.repeat(10)))).not.toBeNull()
         expect(decodeServerMsg(named('€'.repeat(11)))).toBeNull()
@@ -606,35 +687,52 @@ describe('decodeServerMsg', () => {
     })
 
     it('keeps pending ascending, at or after the snapshot tick, and within its caps', () => {
-        const resync = (snapshotBytes: number, pending: RtStampedCommand[]) => decodeServerMsg(frame(RtServerTag.resync, w => {
-            rawStr(w, [0x77])
-            writeBody(w, snapshotBytes, pending)
-        }))
-        expect(resync(1, [stamped(100, 0, cmd(1)), stamped(100, 1, cmd(2)), stamped(101, null, cmd(3))])).not.toBeNull()
-        expect(resync(1, [stamped(101, 0, cmd(1)), stamped(100, 0, cmd(1))])).toBeNull()
-        expect(resync(1, [stamped(99, 0, cmd(1))])).toBeNull()
-        expect(resync(1, [stamped(100, 8, cmd(1))])).toBeNull()
-        expect(resync(1, [stamped(100, 0, new Uint8Array(0))])).toBeNull()
-        expect(resync(1, [stamped(100, 0, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes + 1))])).toBeNull()
-        expect(resync(0, [])).toBeNull()
-        const many = Array.from({ length: RT_PROTOCOL_BOUNDS.pending + 1 }, () => stamped(100, 0, cmd(1)))
-        expect(resync(1, many.slice(1))).not.toBeNull()
-        expect(resync(1, many)).toBeNull()
-        // a huge declared count with nothing behind it
-        expect(decodeServerMsg(frame(RtServerTag.resync, w => {
-            rawStr(w, [0x77])
+        const end = (pending: RtStampedCommand[]) => decodeServerMsg(frame(RtServerTag.snapshotEnd, (w) => {
             w.u32(100)
-            w.varint(5)
-            rawStr(w, [1])
+            writePending(w, pending)
+        }))
+        expect(end([stamped(100, 0, cmd(1)), stamped(100, 1, cmd(2)), stamped(101, null, cmd(3))])).not.toBeNull()
+        expect(end([stamped(101, 0, cmd(1)), stamped(100, 0, cmd(1))])).toBeNull()
+        expect(end([stamped(99, 0, cmd(1))])).toBeNull()
+        expect(end([stamped(100, 8, cmd(1))])).toBeNull()
+        expect(end([stamped(100, 0, new Uint8Array(0))])).toBeNull()
+        expect(end([stamped(100, 0, new Uint8Array(RT_PROTOCOL_BOUNDS.commandBytes + 1))])).toBeNull()
+        const many = Array.from({ length: RT_PROTOCOL_BOUNDS.pending + 1 }, () => stamped(100, 0, cmd(1)))
+        expect(end(many.slice(1))).not.toBeNull()
+        expect(end(many)).toBeNull()
+        // a huge declared count with nothing behind it
+        expect(decodeServerMsg(frame(RtServerTag.snapshotEnd, (w) => {
+            w.u32(100)
             w.varint(Number.MAX_SAFE_INTEGER)
         }))).toBeNull()
-        // a snapshot length past the cap with no bytes behind it
-        expect(decodeServerMsg(frame(RtServerTag.resync, w => {
+    })
+
+    it('refuses part hashes and fragments the encoder refuses', () => {
+        const resync = (count: number, hashBytes: number) => decodeServerMsg(frame(RtServerTag.resync, (w) => {
             rawStr(w, [0x77])
             w.u32(100)
             w.varint(5)
-            w.varint(RT_MAX_SAVE_BYTES + 1)
-        }))).toBeNull()
+            w.varint(count)
+            w.bytes(new Uint8Array(hashBytes))
+        }))
+        expect(resync(1, 8)).toEqual({ type: 'resync', worldId: 'w', tick: 100, serverNow: 5, parts: ['0000000000000000'] })
+        expect(resync(0, 0)).toBeNull()
+        expect(resync(2, 8)).toBeNull()
+        expect(resync(RT_PROTOCOL_BOUNDS.parts + 1, (RT_PROTOCOL_BOUNDS.parts + 1) * 8)).toBeNull()
+        expect(resync(Number.MAX_SAFE_INTEGER, 8)).toBeNull()
+        const part = (index: number, last: number, length: number, present = length) => decodeServerMsg(frame(RtServerTag.part, (w) => {
+            w.u16(index)
+            w.u8(last)
+            w.varint(length)
+            w.bytes(new Uint8Array(present))
+        }))
+        expect(part(RT_PROTOCOL_BOUNDS.parts - 1, 0, 1)).not.toBeNull()
+        expect(part(RT_PROTOCOL_BOUNDS.parts, 0, 1)).toBeNull()
+        expect(part(0xffff, 1, 1)).toBeNull()
+        expect(part(0, 2, 1)).toBeNull()
+        expect(part(0, 1, 0)).toBeNull()
+        expect(part(0, 1, RT_PROTOCOL_BOUNDS.fragmentBytes + 1)).toBeNull()
+        expect(part(0, 1, 100, 10)).toBeNull()
     })
 
     it('bounds a stamped command message to 1 to the command cap', () => {
@@ -657,12 +755,12 @@ describe('decodeServerMsg', () => {
             expect(decodeServerMsg(longer)).toBeNull()
         }
         // serverNow 5 written in two bytes
-        const overlong = frame(RtServerTag.resync, w => {
+        const overlong = frame(RtServerTag.resync, (w) => {
             rawStr(w, [0x77])
             w.u32(100)
             w.bytes(Uint8Array.from([0x85, 0x00]))
-            rawStr(w, [1])
-            w.varint(0)
+            w.varint(1)
+            w.bytes(new Uint8Array(8))
         })
         expect(decodeServerMsg(overlong)).toBeNull()
     })
@@ -735,23 +833,25 @@ const COMMANDS: RtCommand[] = [
 /** One sample of every client message, keyed by type so a new variant fails to compile until listed. */
 const CLIENT_SAMPLES: { [K in RtClientMsg['type']]: Extract<RtClientMsg, { type: K }> } = {
     list: { type: 'list' },
-    create: { type: 'create', name: 'Ærø Junction', side: 128, maxCompanies: 4, sharing: true },
+    create: { type: 'create', name: 'Ærø Junction', side: 128, maxCompanies: 4, sharing: true, isPublic: false },
     join: { type: 'join', inviteCode: INVITE },
-    open: { type: 'open', worldId: 'w-abc', inviteCode: INVITE },
+    open: { type: 'open', worldId: 'w-abc', inviteCode: INVITE, have: HASHES },
     loaded: { type: 'loaded', worldId: 'w-abc' },
     command: { type: 'command', seq: 17, command: BUILD_RAIL },
     stop: { type: 'stop', worldId: 'w-abc' },
     delete: { type: 'delete', worldId: 'w-abc' },
-    resync: { type: 'resync', worldId: 'w-abc' },
+    resync: { type: 'resync', worldId: 'w-abc', have: HASHES },
     ping: { type: 'ping', value: 0xdeadbeef }
 }
 
 const CLIENT_VARIANTS: RtClientMsg[] = [
     ...Object.values(CLIENT_SAMPLES),
-    { type: 'create', name: 'x', side: 64, maxCompanies: 2, sharing: false },
-    { type: 'create', name: '€'.repeat(10) + 'ab', side: 256, maxCompanies: 8, sharing: true },
-    { type: 'open', worldId: 'w-abc', inviteCode: null },
-    { type: 'open', worldId: '🚂'.repeat(8), inviteCode: null },
+    { type: 'create', name: 'x', side: 64, maxCompanies: 2, sharing: false, isPublic: true },
+    { type: 'create', name: '€'.repeat(10) + 'ab', side: 256, maxCompanies: 8, sharing: true, isPublic: true },
+    { type: 'open', worldId: 'w-abc', inviteCode: null, have: [] },
+    { type: 'open', worldId: '🚂'.repeat(8), inviteCode: null, have: ALL_PARTS },
+    { type: 'resync', worldId: 'w', have: [] },
+    { type: 'resync', worldId: 'w', have: ALL_PARTS },
     { type: 'stop', worldId: 'x'.repeat(32) },
     { type: 'ping', value: 0 },
     ...COMMANDS.map((command, i) => ({ type: 'command', seq: i === 0 ? 0 : 255 - i, command }) as const)
@@ -760,12 +860,13 @@ const CLIENT_VARIANTS: RtClientMsg[] = [
 const CREATE_BASE = CLIENT_SAMPLES.create
 
 /** A create frame written field by field, so every field can be pushed out of range. */
-function createFrame(fields: { name?: number[] | Uint8Array, side?: number, max?: number, sharing?: number } = {}): Uint8Array {
+function createFrame(fields: { name?: number[] | Uint8Array, side?: number, max?: number, sharing?: number, isPublic?: number } = {}): Uint8Array {
     return frame(RtClientTag.create, w => {
         rawStr(w, fields.name ?? new TextEncoder().encode(CREATE_BASE.name))
         w.u16(fields.side ?? CREATE_BASE.side)
         w.u8(fields.max ?? CREATE_BASE.maxCompanies)
         w.u8(fields.sharing ?? 1)
+        w.u8(fields.isPublic ?? 0)
     })
 }
 
@@ -815,24 +916,52 @@ describe('encodeClientMsg', () => {
         }
     })
 
-    it('writes create as name, u16 side, u8 max companies and u8 sharing, on and off', () => {
+    it('writes create as name, u16 side, u8 max companies, u8 sharing and u8 public, each on and off', () => {
         for (const sharing of [true, false]) {
-            const bytes = encodeClientMsg({ type: 'create', name: 'Rails', side: 256, maxCompanies: 8, sharing })
-            expect(Array.from(bytes)).toEqual([RtClientTag.create, 5, ...new TextEncoder().encode('Rails'), 0, 1, 8, sharing ? 1 : 0])
+            for (const isPublic of [true, false]) {
+                const bytes = encodeClientMsg({ type: 'create', name: 'Rails', side: 256, maxCompanies: 8, sharing, isPublic })
+                expect(Array.from(bytes)).toEqual([RtClientTag.create, 5, ...new TextEncoder().encode('Rails'), 0, 1, 8, sharing ? 1 : 0, isPublic ? 1 : 0])
+            }
         }
     })
 
-    it('writes open with a presence byte before the optional invite code', () => {
-        const withCode = encodeClientMsg({ type: 'open', worldId: 'w', inviteCode: INVITE })
-        expect(Array.from(withCode)).toEqual([RtClientTag.open, 1, 0x77, 1, 16, ...new TextEncoder().encode(INVITE)])
-        expect(Array.from(encodeClientMsg({ type: 'open', worldId: 'w', inviteCode: null }))).toEqual([RtClientTag.open, 1, 0x77, 0])
+    it('writes open with a presence byte before the optional invite code, then the offered part hashes', () => {
+        const withCode = encodeClientMsg({ type: 'open', worldId: 'w', inviteCode: INVITE, have: [] })
+        expect(Array.from(withCode)).toEqual([RtClientTag.open, 1, 0x77, 1, 16, ...new TextEncoder().encode(INVITE), 0])
+        expect(Array.from(encodeClientMsg({ type: 'open', worldId: 'w', inviteCode: null, have: [] }))).toEqual([RtClientTag.open, 1, 0x77, 0, 0])
+        const hashed = encodeClientMsg({ type: 'open', worldId: 'w', inviteCode: null, have: ['0123456789abcdef'] })
+        expect(Array.from(hashed)).toEqual([RtClientTag.open, 1, 0x77, 0, 1, 0x67, 0x45, 0x23, 0x01, 0xef, 0xcd, 0xab, 0x89])
+        const resync = encodeClientMsg({ type: 'resync', worldId: 'w', have: ['0123456789abcdef'] })
+        expect(Array.from(resync)).toEqual([RtClientTag.resync, 1, 0x77, 1, 0x67, 0x45, 0x23, 0x01, 0xef, 0xcd, 0xab, 0x89])
         expect(Array.from(encodeClientMsg({ type: 'ping', value: 0x01020304 }))).toEqual([RtClientTag.ping, 4, 3, 2, 1])
     })
 
-    it('refuses create settings outside 64/128/256, 2 to 8 companies and a boolean sharing', () => {
+    it('refuses offered hashes past the part cap or not shaped like rtPartHash', () => {
+        expect(encodeClientMsg({ type: 'resync', worldId: 'w', have: ALL_PARTS }).length).toBeLessThanOrEqual(RT_MAX_FRAME_BYTES)
+        expectClientRefused({ type: 'resync', worldId: 'w', have: [...ALL_PARTS, HASHES[0]] })
+        expectClientRefused({ type: 'open', worldId: 'w', inviteCode: null, have: [...ALL_PARTS, HASHES[0]] })
+        for (const hash of ['', 'xyz', '0123456789ABCDEF', '0123456789abcde', '0123456789abcdef0', 42, null]) {
+            expectClientRefused({ type: 'resync', worldId: 'w', have: [hash] })
+            expectClientRefused({ type: 'open', worldId: 'w', inviteCode: null, have: [hash] })
+        }
+        for (const have of [undefined, null, 'abc']) expectClientRefused({ type: 'resync', worldId: 'w', have })
+        // a count past the cap is refused before reading any hash, and one with too few bytes behind it
+        expect(decodeClientMsg(frame(RtClientTag.resync, (w) => {
+            rawStr(w, [0x77])
+            w.varint(RT_PROTOCOL_BOUNDS.parts + 1)
+        }))).toBeNull()
+        expect(decodeClientMsg(frame(RtClientTag.resync, (w) => {
+            rawStr(w, [0x77])
+            w.varint(2)
+            w.bytes(new Uint8Array(8))
+        }))).toBeNull()
+    })
+
+    it('refuses create settings outside 64/128/256, 2 to 8 companies and a boolean sharing and public', () => {
         for (const side of [0, 63, 100, 512, 65536, 128.5]) expectClientRefused({ ...CREATE_BASE, side })
         for (const maxCompanies of [0, 1, 9, 255, 2.5, Number.NaN]) expectClientRefused({ ...CREATE_BASE, maxCompanies })
         for (const sharing of [0, 1, 'yes', null]) expectClientRefused({ ...CREATE_BASE, sharing })
+        for (const isPublic of [0, 1, 'yes', null, undefined]) expectClientRefused({ ...CREATE_BASE, isPublic })
     })
 
     it('refuses a world name that is empty, over 32 bytes, unrepresentable, controlled or padded', () => {
@@ -848,7 +977,7 @@ describe('encodeClientMsg', () => {
         }
         expectClientRefused({ type: 'open', worldId: 'w', inviteCode: 'ILOU456789ABCDEF' })
         for (const worldId of ['', 'w'.repeat(33), 'w\uD800']) {
-            for (const type of ['open', 'loaded', 'stop', 'delete', 'resync']) expectClientRefused({ type, worldId, inviteCode: null })
+            for (const type of ['open', 'loaded', 'stop', 'delete', 'resync']) expectClientRefused({ type, worldId, inviteCode: null, have: [] })
         }
         for (const seq of [-1, 256, 1.5]) expectClientRefused({ type: 'command', seq, command: BUILD_RAIL })
         for (const value of [-1, 2 ** 32, Number.NaN]) expectClientRefused({ type: 'ping', value })
@@ -875,6 +1004,7 @@ describe('decodeClientMsg', () => {
             expect(decodeClientMsg(encodeClientMsg(msg))).toEqual(msg)
         }
         expect(decodeClientMsg(createFrame({ sharing: 0 }))).toEqual({ ...CREATE_BASE, sharing: false })
+        expect(decodeClientMsg(createFrame({ isPublic: 1 }))).toEqual({ ...CREATE_BASE, isPublic: true })
     })
 
     it('reads a frame that is a view into a larger buffer', () => {
@@ -900,6 +1030,7 @@ describe('decodeClientMsg', () => {
         for (const side of [64, 128, 256]) expect(decodeClientMsg(createFrame({ side }))).not.toBeNull()
         for (const max of [2, 8]) expect(decodeClientMsg(createFrame({ max }))).not.toBeNull()
         for (const sharing of [2, 0x80, 0xff]) expect(decodeClientMsg(createFrame({ sharing }))).toBeNull()
+        for (const isPublic of [2, 0x80, 0xff]) expect(decodeClientMsg(createFrame({ isPublic }))).toBeNull()
     })
 
     it('refuses a world name that is empty, over 32 bytes, invalid UTF-8, controlled or padded', () => {
@@ -943,13 +1074,14 @@ describe('decodeClientMsg', () => {
 
     it('refuses a bad open presence byte and a malformed invite code', () => {
         const code = new TextEncoder().encode(INVITE)
-        const open = (flag: number, invite?: number[] | Uint8Array) => decodeClientMsg(frame(RtClientTag.open, w => {
+        const open = (flag: number, invite?: number[] | Uint8Array) => decodeClientMsg(frame(RtClientTag.open, (w) => {
             rawStr(w, [0x77])
             w.u8(flag)
             if (invite) rawStr(w, invite)
+            w.varint(0)
         }))
-        expect(open(1, code)).toEqual({ type: 'open', worldId: 'w', inviteCode: INVITE })
-        expect(open(0)).toEqual({ type: 'open', worldId: 'w', inviteCode: null })
+        expect(open(1, code)).toEqual({ type: 'open', worldId: 'w', inviteCode: INVITE, have: [] })
+        expect(open(0)).toEqual({ type: 'open', worldId: 'w', inviteCode: null, have: [] })
         expect(open(2, code)).toBeNull()
         expect(open(0xff, code)).toBeNull()
         expect(open(1)).toBeNull()
@@ -1084,10 +1216,11 @@ describe('decodeClientMsg', () => {
         const int = () => pick([0, 1, 2, 8, 9, 64, 100, 128, 255, 256, 0xffff, 2 ** 32, -1, 1.5, Number.NaN])
         const text = () => pick(['', 'w', 'x'.repeat(32), 'x'.repeat(33), '€'.repeat(11), 'a\uD800', ' a', 'a\u0001', INVITE, 'ILOU456789ABCDEF'])
         const builders: (() => unknown)[] = [
-            () => ({ type: 'create', name: text(), side: int(), maxCompanies: int(), sharing: pick([true, false, 1, null]) }),
+            () => ({ type: 'create', name: text(), side: int(), maxCompanies: int(), sharing: pick([true, false, 1, null]), isPublic: pick([true, false, 1, null]) }),
             () => ({ type: 'join', inviteCode: pick([text(), null]) }),
-            () => ({ type: 'open', worldId: text(), inviteCode: pick([null, text()]) }),
-            () => ({ type: pick(['loaded', 'stop', 'delete', 'resync']), worldId: text() }),
+            () => ({ type: 'open', worldId: text(), inviteCode: pick([null, text()]), have: pick<unknown>([[], HASHES, ALL_PARTS, [...ALL_PARTS, HASHES[0]], ['xyz'], null]) }),
+            () => ({ type: pick(['loaded', 'stop', 'delete']), worldId: text() }),
+            () => ({ type: 'resync', worldId: text(), have: pick<unknown>([[], HASHES, [HASHES[0]!.toUpperCase()], undefined]) }),
             () => ({ type: 'command', seq: int(), command: pick([...COMMANDS, { ...BUILD_RAIL, piece: int() }, { kind: RtCommandKind.changeLoan, steps: int() }]) }),
             () => ({ type: 'ping', value: int() }),
             () => ({ type: pick(['list', 'x', 'constructor', 'hello']) })

@@ -18,10 +18,11 @@ import {
     RT_JOIN_PAUSE_WINDOW_MS,
     RT_LIVE_JOIN_TIMEOUT_MS,
     RT_MAX_SAVE_BYTES,
+    RT_PART_FRAGMENT_BYTES,
     RT_ROOM_CMD_BURST
 } from '#shared/utils/rail-tycoon/limits'
 import { decodeServerMsg, type RtServerMsg, type RtStampedCommand } from '#shared/utils/rail-tycoon/protocol'
-import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldOrThrow, decodeWorldPartsOrThrow, encodeWorld, encodeWorldParts, rtPartHash } from '#shared/utils/rail-tycoon/save'
 import { RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
@@ -96,15 +97,16 @@ function makeDeps(store: FakeStore) {
             if (id !== WORLD_ID) return null
             return { id, ownerId: OWNER, status: store.status, revision: store.revision, lastActiveAt: new Date(0), world: store.world(), inviteCode: INVITE }
         },
-        async rtSaveCheckpoint(_id, bytes, tick, expectedRevision, _now, options = {}) {
+        async rtSaveCheckpoint(_id, parts, tick, expectedRevision, _now, options = {}) {
             if (store.gate) await store.gate
             if (expectedRevision !== store.revision) throw Object.assign(new Error('World was saved by another writer'), { statusCode: 409 })
             if (options.member && store.failMember) throw new Error('member insert failed')
-            store.save = gzipSync(bytes)
+            const world = decodeWorldPartsOrThrow(parts)
+            store.save = gzipSync(encodeWorld(world))
             store.revision++
             store.tick = tick
             if (options.member) store.members.set(options.member.userId, options.member.companyId)
-            store.writes.push({ tick, revision: store.revision, companies: decodeWorldOrThrow(bytes).companyList().length, member: options.member })
+            store.writes.push({ tick, revision: store.revision, companies: world.companyList().length, member: options.member })
             return store.revision
         },
         async rtCloseWorld() {
@@ -129,7 +131,11 @@ function makeDeps(store: FakeStore) {
     return { deps, budget, log, onUnload, onIdle }
 }
 
-/** A peer that records every frame and, like the client lockstep, replays the stamped stream into its own world. */
+/**
+ * A peer that records every frame and, like the client lockstep, puts each snapshot together from its
+ * head, part frames and end (the parts the room left out from the ones it offered), then replays the
+ * stamped stream into its own world.
+ */
 class FakePeer implements RtRoomPeer {
     frames: RtServerMsg[] = []
     world: RtWorld | null = null
@@ -139,6 +145,11 @@ class FakePeer implements RtRoomPeer {
     mismatches: number[] = []
     stale: number[] = []
     allowance = 0
+    /** Snapshots that would not assemble: a part missing, or one that does not match its hash. */
+    badSnapshots: string[] = []
+    /** The parts the last offer() held, by hash. */
+    held = new Map<string, Uint8Array>()
+    private incoming: { parts: readonly string[], fragments: Map<number, Uint8Array[]> } | null = null
 
     constructor(readonly replay = true) {}
 
@@ -157,14 +168,46 @@ class FakePeer implements RtRoomPeer {
         return this.of('error').map(msg => msg.code)
     }
 
+    /** The hashes of this peer's own world, as a resync offers them, holding its parts. */
+    offer(): string[] {
+        const parts = encodeWorldParts(this.world!)
+        this.held = new Map(parts.map(part => [rtPartHash(part), part]))
+        return parts.map(rtPartHash)
+    }
+
+    private assemble(end: Extract<RtServerMsg, { type: 'snapshotEnd' }>): void {
+        const { parts, fragments } = this.incoming!
+        this.incoming = null
+        const bytes: Uint8Array[] = []
+        for (const [index, hash] of parts.entries()) {
+            const sent = fragments.get(index)
+            const part = sent ? new Uint8Array(gunzipSync(Buffer.concat(sent))) : this.held.get(hash)
+            if (!part || rtPartHash(part) !== hash) {
+                this.badSnapshots.push(`part ${index} at tick ${end.tick}`)
+                return
+            }
+            bytes.push(part)
+        }
+        this.world = decodeWorldPartsOrThrow(bytes)
+        this.queue = [...end.pending]
+        this.hashes.clear()
+        this.allowance = end.tick
+    }
+
     private handle(msg: RtServerMsg): void {
         switch (msg.type) {
             case 'opened':
             case 'resync':
-                this.world = decodeWorldOrThrow(gunzipSync(msg.snapshot))
-                this.queue = [...msg.pending]
-                this.hashes.clear()
-                this.allowance = msg.tick
+                this.incoming = { parts: msg.parts, fragments: new Map() }
+                break
+            case 'part': {
+                const list = this.incoming!.fragments.get(msg.index) ?? []
+                list.push(msg.bytes.slice())
+                this.incoming!.fragments.set(msg.index, list)
+                break
+            }
+            case 'snapshotEnd':
+                this.assemble(msg)
                 break
             case 'command':
                 this.queue.push({ tick: msg.tick, company: msg.company, command: msg.command })
@@ -228,9 +271,9 @@ async function openRoom(raw: Uint8Array = BASE) {
     return { room, store, ...ctx }
 }
 
-function attach(room: RtRoom, userId: string, access: RtAccess, options: { loaded?: boolean, replay?: boolean } = {}): FakePeer {
-    const peer = new FakePeer(options.replay ?? true)
-    expect(room.attach(peer, userId, access)).toBe(true)
+function attach(room: RtRoom, userId: string, access: RtAccess, options: { loaded?: boolean, replay?: boolean, peer?: FakePeer, have?: string[] } = {}): FakePeer {
+    const peer = options.peer ?? new FakePeer(options.replay ?? true)
+    expect(room.attach(peer, userId, access, options.have)).toBe(true)
     if (options.loaded ?? true) room.loaded(peer)
     return peer
 }
@@ -244,6 +287,7 @@ function expectInSync(room: RtRoom, ...peers: FakePeer[]): void {
         expect(peer.world!.hash()).toBe(room.world.hash())
         expect(peer.mismatches).toEqual([])
         expect(peer.stale).toEqual([])
+        expect(peer.badSnapshots).toEqual([])
     }
 }
 
@@ -311,9 +355,10 @@ describe('RtRoom.attach', () => {
         expect(room.submit(owner, 3, borrow())).toBe(true)
 
         const late = attach(room, STRANGER, SPECTATOR)
-        const opened = late.of('opened')[0]!
-        expect(opened.pending).toHaveLength(3)
-        expect(opened.pending.every(stamped => stamped.tick === opened.tick + RT_INPUT_DELAY)).toBe(true)
+        const end = late.of('snapshotEnd')[0]!
+        expect(end.tick).toBe(late.of('opened')[0]!.tick)
+        expect(end.pending).toHaveLength(3)
+        expect(end.pending.every(stamped => stamped.tick === end.tick + RT_INPUT_DELAY)).toBe(true)
 
         vi.advanceTimersByTime(TICK * RT_HASH_EVERY * 2)
         expect(room.world.company(0)!.name).toBe('Alpha Rail')
@@ -407,16 +452,20 @@ describe('RtRoom.attach', () => {
 
         const kinds = late.frames.map(msg => msg.type)
         expect(kinds[0]).toBe('opened')
-        expect(late.of('opened')[0]!.pending).toHaveLength(1)
+        // the head, every part (the peer offered none), then the end before any command
+        const parts = late.of('opened')[0]!.parts.length
+        expect(kinds.slice(1, 1 + parts)).toEqual(Array(parts).fill('part'))
+        expect(kinds[1 + parts]).toBe('snapshotEnd')
+        expect(late.of('snapshotEnd')[0]!.pending).toHaveLength(1)
         const commands = late.of('command').map(msg => decodeCommand(msg.command)) as { name: string }[]
         expect(commands.map(command => command.name)).toEqual(['Same Tick', 'Next Tick'])
 
         room.submit(second, 4, borrow())
         expect(room.resync(late)).toBe(true)
         room.submit(second, 5, borrow())
-        const resync = late.of('resync')[0]!
-        expect(resync.pending.length).toBeGreaterThan(0)
-        expect(late.frames.indexOf(resync)).toBeLessThan(late.frames.length - 1)
+        const end = late.of('snapshotEnd')[1]!
+        expect(end.pending.length).toBeGreaterThan(0)
+        expect(late.frames.indexOf(end)).toBeLessThan(late.frames.length - 1)
 
         vi.advanceTimersByTime(TICK * RT_HASH_EVERY * 2)
         expect(room.world.company(1)!.name).toBe('Next Tick')
@@ -431,6 +480,56 @@ describe('RtRoom.attach', () => {
         vi.advanceTimersByTime(TICK * RT_HASH_EVERY * 2)
         expectInSync(room, watcher, owner)
         expect(watcher.hashChecks).toBeGreaterThan(0)
+    })
+
+    it('sends only the parts that differ from the ones offered, and the peer rebuilds the room\'s world from both', async () => {
+        const { room } = await openRoom()
+        const owner = attach(room, OWNER, PLAYER(0))
+        const total = owner.of('opened')[0]!.parts.length
+        expect(owner.of('part')).toHaveLength(total)
+        vi.advanceTimersByTime(TICK * 40)
+        room.submit(owner, 1, { kind: RtCommandKind.buildRail, tile: BUILD_TILE, piece: 0 })
+        vi.advanceTimersByTime(TICK * 10)
+
+        // a resync offering the peer's own world: only what moved since comes back
+        const have = owner.offer()
+        const before = owner.of('part').length
+        expect(room.resync(owner, have)).toBe(true)
+        const sent = owner.of('part').slice(before)
+        const changed = owner.of('resync')[0]!.parts.filter((hash, index) => hash !== have[index]).length
+        expect(sent.map(msg => msg.index)).toEqual([...new Set(sent.map(msg => msg.index))])
+        expect(sent).toHaveLength(changed)
+        expect(changed).toBeLessThan(total)
+        vi.advanceTimersByTime(TICK * RT_HASH_EVERY * 2)
+        expectInSync(room, owner)
+
+        // a reopen offering hashes the room still has sends none of those parts again
+        const watcher = new FakePeer()
+        watcher.world = decodeWorldPartsOrThrow(encodeWorldParts(room.world))
+        attach(room, STRANGER, SPECTATOR, { peer: watcher, have: watcher.offer() })
+        expect(watcher.of('part').length).toBeLessThanOrEqual(1)
+        vi.advanceTimersByTime(TICK * RT_HASH_EVERY)
+        expectInSync(room, owner, watcher)
+    })
+
+    it('offered hashes the room does not have, or garbage, only cost the full parts', async () => {
+        const { room } = await openRoom()
+        const peer = attach(room, STRANGER, SPECTATOR, { have: ['0000000000000000', 'ffffffffffffffff'] })
+        expect(peer.of('part')).toHaveLength(peer.of('opened')[0]!.parts.length)
+        expect(peer.badSnapshots).toEqual([])
+        expect(peer.world!.hash()).toBe(room.world.hash())
+    })
+
+    it('splits a part larger than a fragment over several frames, in order', async () => {
+        const { room, deps } = await openRoom()
+        const filler = new Uint8Array(randomBytes(RT_PART_FRAGMENT_BYTES + RT_PART_FRAGMENT_BYTES / 2))
+        deps.encodeWorldParts = world => [filler, ...encodeWorldParts(world).slice(1)]
+        const peer = attach(room, STRANGER, SPECTATOR, { replay: false })
+        const first = peer.of('part').filter(msg => msg.index === 0)
+        expect(first.map(msg => msg.last)).toEqual([false, true])
+        expect(first[0]!.bytes.length).toBe(RT_PART_FRAGMENT_BYTES)
+        expect(new Uint8Array(gunzipSync(Buffer.concat(first.map(msg => msg.bytes))))).toEqual(filler)
+        expect(peer.of('part').filter(msg => msg.index > 0).every(msg => msg.last)).toBe(true)
     })
 
     it('refuses a peer without access', async () => {
@@ -490,6 +589,20 @@ describe('RtRoom.detach', () => {
         expect(room.world.tick).toBe(tick + 1)
     })
 
+    it('a lone player reopening the world from the same socket writes no checkpoint', async () => {
+        const { room, store } = await openRoom()
+        const peer = new FakePeer(false)
+        for (let k = 0; k < 30; k++) {
+            expect(room.attach(peer, OWNER, PLAYER(0))).toBe(true)
+            room.loaded(peer)
+            vi.advanceTimersByTime(TICK * 3)
+        }
+        await settle()
+        expect(store.writes).toEqual([])
+        expect(room.isRunning).toBe(true)
+        expect(room.playerCount).toBe(1)
+    })
+
     it('a detach while a periodic write is in flight stores the leave-time state with no 409 and no unload', async () => {
         const { room, store, onUnload } = await openRoom()
         const owner = attach(room, OWNER, PLAYER(0), { replay: false })
@@ -542,6 +655,16 @@ describe('RtRoom.submit', () => {
         expectInSync(room, owner, second)
         return room
     }
+
+    it('refuses a depot search busy once the step budget is spent, while other commands still go through', async () => {
+        const { room, budget } = await openRoom()
+        const owner = attach(room, OWNER, PLAYER(0))
+        vi.advanceTimersByTime(TICK)
+        budget.left = 0
+        expect(room.submit(owner, 1, { kind: RtCommandKind.sendToDepot, vehicle: 0 })).toBe(false)
+        expect(owner.errors()).toEqual(['busy'])
+        expect(room.submit(owner, 2, rename('Still here'))).toBe(true)
+    })
 
     it('applies two players\' commands in stamp then arrival order', async () => {
         const ownerFirst = await race('owner')
@@ -719,10 +842,11 @@ describe('RtRoom.tickOnce', () => {
         const watcher = attach(room, STRANGER, SPECTATOR)
         vi.advanceTimersByTime(TICK * 5)
         const before = store.save
-        deps.encodeWorld = (world) => {
-            const bytes = encodeWorld(world)
-            bytes[bytes.length - 3]! ^= 0x5a
-            return bytes
+        deps.encodeWorldParts = (world) => {
+            const parts = encodeWorldParts(world)
+            const chunk = parts[3]!
+            chunk[chunk.length - 3]! ^= 0x5a
+            return parts
         }
         room.detach(owner)
         await until(() => onUnload.mock.calls.length === 1, 'refused write')
@@ -742,8 +866,9 @@ describe('RtRoom.tickOnce', () => {
         const watcher = attach(room, STRANGER, SPECTATOR, { replay: false })
         vi.advanceTimersByTime(TICK * 2)
         const before = store.save
-        const noise = new Uint8Array(randomBytes(RT_MAX_SAVE_BYTES + 4096))
-        deps.encodeWorld = () => noise
+        // two parts of noise, each under the cap alone, over it together
+        const half = RT_MAX_SAVE_BYTES / 2 + 4096
+        deps.encodeWorldParts = world => [...encodeWorldParts(world).slice(0, -2), new Uint8Array(randomBytes(half)), new Uint8Array(randomBytes(half))]
         room.detach(owner)
         await until(() => onUnload.mock.calls.length === 1, 'refused oversized write')
         expect(watcher.of('roomUnloaded').map(msg => msg.reason)).toEqual(['error'])
@@ -893,9 +1018,10 @@ describe('RtRoom.join', () => {
         const second = attach(room, SECOND, PLAYER(1), { loaded: false })
         room.submit(second, 1, rename('Between Opens'))
         const third = attach(room, 'u-watch', SPECTATOR)
-        expect(third.of('opened')[0]!.pending).toHaveLength(1)
+        expect(third.of('snapshotEnd')[0]!.pending).toHaveLength(1)
         expect(friend.of('command')).toHaveLength(1)
-        expect(third.of('opened')[0]!.snapshot).toEqual(opened.snapshot)
+        expect(third.of('opened')[0]!.parts).toEqual(opened.parts)
+        expect(third.of('part')).toEqual(friend.of('part'))
 
         for (const peer of [owner, friend, second]) room.loaded(peer)
         vi.advanceTimersByTime(TICK * RT_HASH_EVERY * 2)
@@ -982,5 +1108,30 @@ describe('RtRoom.unload', () => {
         expect(watcher.of('roomUnloaded').map(msg => msg.reason)).toEqual(['idle'])
         expect(room.isUnloaded).toBe(true)
         expect(room.submit(owner, 1, borrow())).toBe(false)
+    })
+
+    it('refuses an attach while its checkpoint is written, and leaves no tick running after it unloaded', async () => {
+        const { room, store } = await openRoom()
+        const owner = attach(room, OWNER, PLAYER(0), { replay: false })
+        vi.advanceTimersByTime(TICK * 20)
+        room.detach(owner)
+        await until(() => store.writes.length === 1, 'leave write')
+        vi.advanceTimersByTime(TICK * 5)
+        const gate = deferred()
+        store.gate = gate.promise
+        // unsaved state, so unload writes a checkpoint and waits on the gate
+        room.world.tick++
+        const unloading = room.unload()
+        const late = new FakePeer(false)
+        expect(room.attach(late, OWNER, PLAYER(0))).toBe(false)
+        expect(late.errors()).toEqual(['busy'])
+        gate.release()
+        await unloading
+        expect(room.isUnloaded).toBe(true)
+        expect(room.isRunning).toBe(false)
+        const tick = room.world.tick
+        vi.advanceTimersByTime(TICK * 50)
+        expect(room.world.tick).toBe(tick)
+        expect(store.tick).toBe(tick)
     })
 })

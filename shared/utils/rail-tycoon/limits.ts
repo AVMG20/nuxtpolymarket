@@ -45,12 +45,17 @@ export const RT_MAX_PEERS = 200
 export const RT_MAX_FRAME_BYTES = 4096
 /** Largest compressed save: a world at every cap gzips to about 9.3 MB (Michael chose 16 MiB, 2026-10-31). */
 export const RT_MAX_SAVE_BYTES = 16777216
-/** Largest opened frame: the largest compressed snapshot plus 1 MiB for its header and pending commands. */
-export const RT_MAX_SNAPSHOT_FRAME_BYTES = 17825792
-/** Unsent backlog that closes a slow consumer: a snapshot frame plus 1 MiB fits, and it fires below the socket's backpressure limit. */
+/**
+ * Largest part or snapshotEnd frame: a 1 MiB part fragment, or the pending commands (1024 of at most
+ * 1 KiB), with room to spare. A snapshot travels as many of these, never as one frame.
+ */
+export const RT_MAX_SNAPSHOT_FRAME_BYTES = 2097152
+/** Compressed bytes of a world part one part frame carries; a larger part is split over several. */
+export const RT_PART_FRAGMENT_BYTES = 1048576
+/** Bytes the socket may hold unsent before further frames wait in order, well under Bun's 16 MiB backpressure limit. */
+export const RT_SOCKET_HIGH_WATER_BYTES = 4194304
+/** Unsent backlog, waiting frames included, that closes a slow consumer: a whole snapshot plus 8 MiB fits. */
 export const RT_BACKLOG_CLOSE_BYTES = 25165824
-/** Bun's websocket backpressureLimit for the hub (its 16 MiB default drops frames): above the backlog close. */
-export const RT_WS_BACKPRESSURE_LIMIT_BYTES = 33554432
 /** Largest decompressed save gunzip may produce. */
 export const RT_GUNZIP_MAX_BYTES = 67108864
 /** A world whose room unloads on an exception this often within RT_BROKEN_WINDOW_MS is treated as broken. */

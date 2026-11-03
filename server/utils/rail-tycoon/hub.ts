@@ -306,7 +306,7 @@ export class RtHub {
             case 'join':
                 return this.join(conn, msg.inviteCode)
             case 'open':
-                return this.open(conn, msg.worldId, msg.inviteCode)
+                return this.open(conn, msg.worldId, msg.inviteCode, msg.have)
             case 'loaded':
                 if (conn.room && conn.peer && conn.room.id === msg.worldId) conn.room.loaded(conn.peer)
                 return
@@ -319,7 +319,7 @@ export class RtHub {
             case 'delete':
                 return this.ownerWrite(conn, () => this.remove(conn, msg.worldId))
             case 'resync':
-                return this.resync(conn, msg.worldId)
+                return this.resync(conn, msg.worldId, msg.have)
             case 'ping':
                 return this.send(conn, { type: 'pong', echo: msg.value })
             default: {
@@ -363,7 +363,7 @@ export class RtHub {
         if (this.pendingCreates >= RT_MAX_PENDING_CREATES) return this.refuse(conn, 'busy')
         state.createAt = now
         this.pendingCreates++
-        const job = () => this.deps.rtCreateWorld(conn.user.id, conn.user.name, msg.name, { side: msg.side, maxCompanies: msg.maxCompanies, sharing: msg.sharing })
+        const job = () => this.deps.rtCreateWorld(conn.user.id, conn.user.name, msg.name, { side: msg.side, maxCompanies: msg.maxCompanies, sharing: msg.sharing, isPublic: msg.isPublic })
         const run = this.createTail.then(job, job)
         this.createTail = run.catch(noop)
         try {
@@ -425,7 +425,7 @@ export class RtHub {
      * access from the registry, the socket's previous room left first and a peerless idle room
      * evicted at the live-room cap, all under the chains of every world involved.
      */
-    private async open(conn: RtConn, worldId: string, inviteCode: string | null): Promise<void> {
+    private async open(conn: RtConn, worldId: string, inviteCode: string | null, have: readonly string[]): Promise<void> {
         const state = this.userState(conn.user.id)
         const now = this.deps.now()
         if (now - state.openAt < RT_OPEN_COOLDOWN_MS) return this.refuse(conn, 'tooSoon')
@@ -439,11 +439,13 @@ export class RtHub {
         if (previous) ids.push(previous)
         if (evictee) ids.push(evictee.id)
 
-        const outcome = await this.serial(ids, () => this.openInChain(conn, seq, worldId, inviteCode, evictee, ids))
+        const outcome = await this.serial(ids, () => this.openInChain(conn, seq, worldId, inviteCode, have, evictee, ids))
         if (outcome === TIMED_OUT && !conn.closed && conn.openSeq === seq) this.refuse(conn, 'busy')
     }
 
-    private async openInChain(conn: RtConn, seq: number, worldId: string, inviteCode: string | null, evictee: RtRoom | null, held: string[]): Promise<void> {
+    private async openInChain(
+        conn: RtConn, seq: number, worldId: string, inviteCode: string | null, have: readonly string[], evictee: RtRoom | null, held: string[]
+    ): Promise<void> {
         const current = () => !conn.closed && conn.openSeq === seq
         const access = await this.deps.rtGetAccess(conn.user.id, worldId, inviteCode ?? undefined)
         if (!current()) return
@@ -485,7 +487,7 @@ export class RtHub {
         const peer = conn.room === room && conn.peer ? conn.peer : this.peerFor(conn, room)
         conn.room = room
         conn.peer = peer
-        if (!room.attach(peer, conn.user.id, access)) {
+        if (!room.attach(peer, conn.user.id, access, have)) {
             conn.room = null
             conn.peer = null
         }
@@ -571,14 +573,17 @@ export class RtHub {
         if (outcome !== null) return this.refuse(conn, outcome)
     }
 
-    /** A fresh snapshot built by the room at its tick boundary, once per RT_RESYNC_COOLDOWN_MS per user. */
-    private resync(conn: RtConn, worldId: string): void {
+    /**
+     * A fresh snapshot built by the room at its tick boundary, once per RT_RESYNC_COOLDOWN_MS per user,
+     * with only the parts the client's own hashes (`have`) do not match.
+     */
+    private resync(conn: RtConn, worldId: string, have: readonly string[]): void {
         if (!conn.room || !conn.peer || conn.room.id !== worldId) return this.refuse(conn, 'noAccess')
         const state = this.userState(conn.user.id)
         const now = this.deps.now()
         if (now - state.resyncAt < RT_RESYNC_COOLDOWN_MS) return this.refuse(conn, 'tooSoon')
         state.resyncAt = now
-        conn.room.resync(conn.peer)
+        conn.room.resync(conn.peer, have)
     }
 
     /* ---- error codes ---- */
@@ -645,10 +650,10 @@ export class RtHub {
         const share: RtBudgetShare = { spent: 0, window: -1 }
         return {
             rtLoadWorld: id => d.rtLoadWorld(id),
-            rtSaveCheckpoint: (id, bytes, tick, expectedRevision, now, options) => {
+            rtSaveCheckpoint: (id, parts, tick, expectedRevision, now, options) => {
                 // a deleted world's room unloads through its conflict path, writing nothing
                 if (this.deleted.has(id)) return Promise.reject(Object.assign(new Error('World was deleted'), { statusCode: 409 }))
-                return d.rtSaveCheckpoint(id, bytes, tick, expectedRevision, now, options)
+                return d.rtSaveCheckpoint(id, parts, tick, expectedRevision, now, options)
             },
             rtCloseWorld: (userId, worldId) => d.rtCloseWorld(userId, worldId),
             rtGetAccess: (userId, worldId) => d.rtGetAccess(userId, worldId),
@@ -659,7 +664,7 @@ export class RtHub {
             setTimeout: (callback, ms) => d.setTimeout(callback, ms),
             clearTimeout: handle => d.clearTimeout(handle),
             log: (level, message) => d.log(level, message),
-            ...(d.encodeWorld ? { encodeWorld: world => d.encodeWorld!(world) } : {}),
+            ...(d.encodeWorldParts ? { encodeWorldParts: world => d.encodeWorldParts!(world) } : {}),
             onUnload: (room, reason) => this.roomUnloaded(room, reason),
             onIdle: () => this.ensureSweep(),
             stepBudget: this.budgetFor(share)
@@ -826,7 +831,8 @@ function rtWorldSummary(row: RtWorldListing): RtWorldSummary {
         maxCompanies: row.maxCompanies,
         myCompanyId: row.myCompanyId,
         lastActiveAt: Math.max(0, Math.floor(row.lastActiveAt.getTime())),
-        inviteCode: row.inviteCode
+        inviteCode: row.inviteCode,
+        isPublic: row.isPublic
     }
 }
 

@@ -38,7 +38,7 @@ import {
     type RtServerMsg,
     type RtStampedCommand
 } from '#shared/utils/rail-tycoon/protocol'
-import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldOrThrow, decodeWorldPartsOrThrow, encodeWorld, encodeWorldParts, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, RtRoadStopShape } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
@@ -231,11 +231,11 @@ class FakeRegistry {
                     world: decodeWorldOrThrow(world.save)
                 }
             },
-            rtSaveCheckpoint: async (id, bytes, _tick, expectedRevision, _now, options = {}) => {
+            rtSaveCheckpoint: async (id, parts, _tick, expectedRevision, _now, options = {}) => {
                 const world = this.worlds.get(id)
                 if (!world) throw httpError(404, 'World not found')
                 if (world.revision !== expectedRevision) throw httpError(409, 'World was saved by another writer')
-                world.save = bytes.slice()
+                world.save = encodeWorld(decodeWorldPartsOrThrow(parts))
                 world.revision++
                 if (options.member) world.members.set(options.member.userId, options.member.companyId)
                 return world.revision
@@ -253,6 +253,7 @@ class ReplaySocket implements RtHubSocket {
     hashes = new Map<number, number>()
     hashChecks = 0
     mismatches: number[] = []
+    private incoming: { parts: readonly string[], fragments: Map<number, Uint8Array[]> } | null = null
 
     constructor(readonly replay = false) {}
 
@@ -298,10 +299,28 @@ class ReplaySocket implements RtHubSocket {
         switch (msg.type) {
             case 'opened':
             case 'resync':
-                this.world = decodeWorldOrThrow(gunzip(msg.snapshot))
+                this.incoming = { parts: msg.parts, fragments: new Map() }
+                break
+            case 'part': {
+                const list = this.incoming!.fragments.get(msg.index) ?? []
+                list.push(msg.bytes.slice())
+                this.incoming!.fragments.set(msg.index, list)
+                break
+            }
+            case 'snapshotEnd': {
+                // these sockets offer no parts, so every part arrives and must match its hash
+                const { parts, fragments } = this.incoming!
+                this.incoming = null
+                const bytes = parts.map((hash, index) => {
+                    const part = gunzip(Buffer.concat(fragments.get(index)!))
+                    if (rtPartHash(part) !== hash) throw new Error(`part ${index} does not match its hash`)
+                    return part
+                })
+                this.world = decodeWorldPartsOrThrow(bytes)
                 this.queue = [...msg.pending]
                 this.hashes.clear()
                 break
+            }
             case 'command':
                 this.queue.push({ tick: msg.tick, company: msg.company, command: msg.command })
                 break
@@ -366,7 +385,7 @@ interface Client {
 
 const hubs: RtHub[] = []
 
-function setup(base: Uint8Array, options: { encodeWorld?: (world: RtWorld) => Uint8Array, perfNow?: () => number } = {}) {
+function setup(base: Uint8Array, options: { encodeWorldParts?: (world: RtWorld) => RtWorldParts, perfNow?: () => number } = {}) {
     const registry = new FakeRegistry()
     const log = vi.fn<RtHubDeps['log']>()
     const hub = new RtHub({
@@ -378,7 +397,7 @@ function setup(base: Uint8Array, options: { encodeWorld?: (world: RtWorld) => Ui
         setTimeout: (callback, ms) => setTimeout(callback, ms),
         clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
         log,
-        ...(options.encodeWorld ? { encodeWorld: options.encodeWorld } : {}),
+        ...(options.encodeWorldParts ? { encodeWorldParts: options.encodeWorldParts } : {}),
         ...(options.perfNow ? { perfNow: options.perfNow } : {})
     })
     hubs.push(hub)
@@ -420,7 +439,7 @@ async function settle(ms = 20): Promise<void> {
 
 async function open(client: Client, worldId: string, inviteCode: string | null = null): Promise<RtServerMsg> {
     const before = client.socket.frames.length
-    client.send({ type: 'open', worldId, inviteCode })
+    client.send({ type: 'open', worldId, inviteCode, have: [] })
     await until(() => client.socket.frames.slice(before).some(msg => msg.type === 'opened' || msg.type === 'error'), `open of ${worldId}`)
     return client.socket.frames.slice(before).find(msg => msg.type === 'opened' || msg.type === 'error')!
 }
@@ -839,8 +858,8 @@ describe('hostileClientSpec: reopen loops', () => {
 
     it('20 opens at one tick encode and compress the snapshot once', async () => {
         const s = scene()
-        const encode = vi.fn(encodeWorld)
-        const { hub, registry, connect } = setup(s.raw, { encodeWorld: encode })
+        const encode = vi.fn(encodeWorldParts)
+        const { hub, registry, connect } = setup(s.raw, { encodeWorldParts: encode })
         const world = registry.add('honest', s.raw)
         const honest = connect('honest')
         await openLoaded(honest, world.id)
@@ -848,10 +867,13 @@ describe('hostileClientSpec: reopen loops', () => {
         const tick = hub.room(world.id)!.world.tick
         const watchers = Array.from({ length: 20 }, (_, i) => connect(`watcher${i}`))
         const before = encode.mock.calls.length
-        for (const watcher of watchers) watcher.send({ type: 'open', worldId: world.id, inviteCode: world.inviteCode })
-        await until(() => watchers.every(watcher => watcher.socket.of('opened').length === 1), 'twenty opens')
+        for (const watcher of watchers) watcher.send({ type: 'open', worldId: world.id, inviteCode: world.inviteCode, have: [] })
+        await until(() => watchers.every(watcher => watcher.socket.of('snapshotEnd').length === 1), 'twenty opens')
         expect(hub.room(world.id)!.world.tick).toBe(tick)
         expect(encode.mock.calls.length - before).toBe(1)
+        // every watcher got the same compressed parts: compressed once, sent twenty times
+        const sent = watchers.map(watcher => watcher.socket.of('part'))
+        for (const parts of sent) expect(parts).toEqual(sent[0])
     })
 
     it('three hostile players joining in a staggered loop without loaded leave the room ticking 90 % of ten minutes', async () => {
@@ -904,7 +926,7 @@ describe('hostileClientSpec: create floods', () => {
         const room = hub.room(world.id)!
         const tick = room.world.tick
         const hostile = connect('hostile')
-        const create = encodeClientMsg({ type: 'create', name: 'Spam', side: 64, maxCompanies: 2, sharing: false })
+        const create = encodeClientMsg({ type: 'create', name: 'Spam', side: 64, maxCompanies: 2, sharing: false, isPublic: false })
         for (let i = 0; i < 200; i++) {
             hostile.raw(create)
             vi.advanceTimersByTime(5)
@@ -943,7 +965,7 @@ describe('hostileClientSpec: create floods', () => {
             open = resolve
         })
         const clients = Array.from({ length: RT_MAX_PENDING_CREATES + 4 }, (_, i) => connect(`maker${i}`))
-        for (const client of clients) client.send({ type: 'create', name: 'Parallel', side: 64, maxCompanies: 2, sharing: false })
+        for (const client of clients) client.send({ type: 'create', name: 'Parallel', side: 64, maxCompanies: 2, sharing: false, isPublic: false })
         await settle()
         expect(registry.maxGenerating).toBe(1)
         const busy = clients.filter(client => client.socket.errors().includes('busy')).length
@@ -998,7 +1020,7 @@ describe('hostileClientSpec: invites and room slots', () => {
         const hostile = connect('hostile')
         const mine = () => [...registry.worlds.values()].filter(world => world.ownerId === 'hostile')
         for (let t = 0; t < 120000; t += RT_OPEN_COOLDOWN_MS) {
-            hostile.send({ type: 'create', name: 'Churn', side: 64, maxCompanies: 2, sharing: false })
+            hostile.send({ type: 'create', name: 'Churn', side: 64, maxCompanies: 2, sharing: false, isPublic: false })
             await settle(2)
             const worlds = mine()
             const newest = worlds.at(-1)

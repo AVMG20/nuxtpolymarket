@@ -166,7 +166,7 @@ const LIMIT_NAMES = [
     'RT_STEP_BUDGET_MS', 'RT_JOIN_LOAD_TIMEOUT_MS', 'RT_LIVE_JOIN_TIMEOUT_MS', 'RT_CLIENT_STEPS_PER_FRAME',
     'RT_RESYNC_BEHIND_TICKS', 'RT_ROOM_CMD_RATE', 'RT_ROOM_CMD_BURST', 'RT_SOCKET_MSG_RATE', 'RT_SOCKET_MSG_BURST',
     'RT_MAX_PEERS', 'RT_MAX_FRAME_BYTES', 'RT_MAX_SAVE_BYTES', 'RT_MAX_SNAPSHOT_FRAME_BYTES', 'RT_BACKLOG_CLOSE_BYTES',
-    'RT_WS_BACKPRESSURE_LIMIT_BYTES', 'RT_GUNZIP_MAX_BYTES', 'RT_BROKEN_UNLOADS', 'RT_BROKEN_WINDOW_MS', 'RT_RESYNC_COOLDOWN_MS', 'RT_OPEN_COOLDOWN_MS',
+    'RT_PART_FRAGMENT_BYTES', 'RT_SOCKET_HIGH_WATER_BYTES', 'RT_GUNZIP_MAX_BYTES', 'RT_BROKEN_UNLOADS', 'RT_BROKEN_WINDOW_MS', 'RT_RESYNC_COOLDOWN_MS', 'RT_OPEN_COOLDOWN_MS',
     'RT_JOIN_PAUSE_WINDOW_MS', 'RT_CREATE_COOLDOWN_MS', 'RT_MAX_PENDING_CREATES', 'RT_JOIN_PAUSE_SHARE_PERCENT',
     'RT_JOIN_PAUSE_BUDGET_WINDOW_MS', 'RT_INVITE_FAILS_PER_MINUTE', 'RT_MAX_WORLDS_PER_OWNER', 'RT_CHAIN_TIMEOUT_MS',
     'RT_INVITE_CODE_LENGTH'
@@ -187,10 +187,13 @@ describe('limits.ts', () => {
         expect(limits.RT_ROOM_CMD_BURST).toBeLessThan(limits.RT_SOCKET_MSG_BURST)
         expect(limits.RT_MAX_FRAME_BYTES).toBeLessThan(limits.RT_MAX_SNAPSHOT_FRAME_BYTES)
         expect(limits.RT_MAX_SAVE_BYTES).toBeLessThan(limits.RT_GUNZIP_MAX_BYTES)
-        expect(limits.RT_MAX_SNAPSHOT_FRAME_BYTES).toBeGreaterThan(limits.RT_MAX_SAVE_BYTES)
-        // the backlog close leaves at least 1 MiB above the largest snapshot frame
-        expect(limits.RT_BACKLOG_CLOSE_BYTES).toBeGreaterThanOrEqual(limits.RT_MAX_SNAPSHOT_FRAME_BYTES + 1048576)
-        expect(limits.RT_BACKLOG_CLOSE_BYTES).toBeLessThan(limits.RT_WS_BACKPRESSURE_LIMIT_BYTES)
+        // a part frame is one fragment plus its header; a snapshot is many of them, never one frame
+        expect(limits.RT_MAX_SNAPSHOT_FRAME_BYTES).toBeGreaterThan(limits.RT_PART_FRAGMENT_BYTES)
+        expect(limits.RT_MAX_SNAPSHOT_FRAME_BYTES).toBeLessThan(limits.RT_MAX_SAVE_BYTES)
+        // the socket holds at most the high-water mark plus one frame, well under Bun's 16 MiB drop limit
+        expect(limits.RT_SOCKET_HIGH_WATER_BYTES + limits.RT_MAX_SNAPSHOT_FRAME_BYTES).toBeLessThan(16777216 / 2)
+        // a whole snapshot waits behind the socket without closing it
+        expect(limits.RT_BACKLOG_CLOSE_BYTES).toBeGreaterThan(limits.RT_MAX_SAVE_BYTES + limits.RT_SOCKET_HIGH_WATER_BYTES)
         expect(limits.RT_JOIN_LOAD_TIMEOUT_MS).toBe(500 * RT_CATALOG.time.tickMs)
     })
 })

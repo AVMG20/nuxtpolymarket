@@ -2709,6 +2709,10 @@ export const railTycoonWorlds = pgTable('rail_tycoon_worlds', {
     inviteCode: text('invite_code').notNull().unique(),
     side: integer('side'),
     maxCompanies: integer('max_companies'),
+    /** Listed in the public lobby while open, invite code and all, so anyone can join. */
+    isPublic: boolean('is_public').notNull().default(false),
+    /** The owner's drawing of the world, a serialized emblem (shared/utils/emblem.ts). */
+    avatar: text('avatar'),
     revision: integer('revision').notNull().default(0),
     save: railTycoonBytea('save').notNull(),
     bytes: integer('bytes'),
@@ -2716,7 +2720,24 @@ export const railTycoonWorlds = pgTable('rail_tycoon_worlds', {
     savedAt: timestamp('saved_at').notNull(),
     lastActiveAt: timestamp('last_active_at').notNull(),
     createdAt: timestamp('created_at').defaultNow()
-}, t => [index('rail_tycoon_worlds_ownerId_idx').on(t.ownerId)])
+}, t => [
+    index('rail_tycoon_worlds_ownerId_idx').on(t.ownerId),
+    index('rail_tycoon_worlds_public_idx').on(t.lastActiveAt).where(sql`${t.isPublic} and ${t.status} = 'open'`)
+])
+
+/**
+ * A world's map in 16x16-tile chunks, each gzipped (save.ts encodeWorldParts). The world row's save
+ * then holds the entity part, every entity and tile entity included; a row without chunks holds a
+ * whole-world save.
+ * A checkpoint rewrites only the chunks whose hash changed.
+ */
+export const railTycoonChunks = pgTable('rail_tycoon_chunks', {
+    worldId: text('world_id').notNull().references(() => railTycoonWorlds.id, { onDelete: 'cascade' }),
+    chunkId: integer('chunk_id').notNull(),
+    /** rtPartHash of the uncompressed chunk part. */
+    hash: text('hash').notNull(),
+    data: railTycoonBytea('data').notNull()
+}, t => [primaryKey({ columns: [t.worldId, t.chunkId] })])
 
 /** Which players belong to which world, and the company each one runs there. */
 export const railTycoonMembers = pgTable('rail_tycoon_members', {

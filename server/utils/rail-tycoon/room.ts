@@ -24,6 +24,7 @@ import {
     RT_JOIN_PAUSE_WINDOW_MS,
     RT_LIVE_JOIN_TIMEOUT_MS,
     RT_MAX_SAVE_BYTES,
+    RT_PART_FRAGMENT_BYTES,
     RT_ROOM_CMD_BURST,
     RT_ROOM_CMD_RATE
 } from '#shared/utils/rail-tycoon/limits'
@@ -34,11 +35,11 @@ import {
     type RtPauseReason,
     type RtRole,
     type RtServerMsg,
-    type RtSnapshotBody,
+    type RtSnapshotHead,
     type RtStampedCommand,
     type RtUnloadReason
 } from '#shared/utils/rail-tycoon/protocol'
-import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldPartsOrThrow, encodeWorldParts, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import { RT_NONE } from '#shared/utils/rail-tycoon/types'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
 import type { RtAccess, RtWorldStatus } from './registry'
@@ -71,7 +72,7 @@ export interface RtRoomDeps {
     rtLoadWorld(id: string): Promise<RtRoomLoad | null>
     rtSaveCheckpoint(
         id: string,
-        encodedBytes: Uint8Array,
+        parts: RtWorldParts,
         tick: number,
         expectedRevision: number,
         now: Date,
@@ -94,8 +95,8 @@ export interface RtRoomDeps {
     /** The last player left and the leave checkpoint is written; the hub unloads after RT_ROOM_IDLE_MS without peers. */
     onIdle?(room: RtRoom): void
     stepBudget: RtStepBudget
-    /** encodeWorld by default; a test swaps it to prove the writer's checks. */
-    encodeWorld?(world: RtWorld): Uint8Array
+    /** encodeWorldParts by default; a test swaps it to prove the writer's checks. */
+    encodeWorldParts?(world: RtWorld): RtWorldParts
 }
 
 export type RtRoomRefusal = { ok: false, code: RtErrorCode }
@@ -122,12 +123,22 @@ interface RtQueued {
 type RtCheckpointReason = 'periodic' | 'leave' | 'stop' | 'join' | 'unload'
 
 interface RtCheckpointJob {
-    bytes: Uint8Array
+    parts: RtWorldParts
     tick: number
     hash: number
     mutation: number
     member?: { userId: string, companyId: number }
     waiters: { resolve: (revision: number) => void, reject: (error: unknown) => void }[]
+}
+
+/** The world's parts at one tick boundary, with each part's gzip made when first sent. */
+interface RtSnapshotCache {
+    tick: number
+    mutation: number
+    parts: RtWorldParts
+    hashes: string[]
+    /** gzip by part hash; a part unchanged since the last snapshot keeps its compression. */
+    zipped: Map<string, Uint8Array>
 }
 
 const noop = () => {}
@@ -169,13 +180,15 @@ export class RtRoom {
     private stopped = false
     private failed = false
     private disposed = false
+    /** unload is writing its checkpoint: attach refuses until it finished or failed. */
+    private unloading = false
     private joining = false
     private leaveCheckpointDue = false
     private idleSinceMs: number | null
 
     /** Bumped by every world change outside a step: the snapshot cache key. */
     private mutation = 0
-    private snapshotCache: { tick: number, mutation: number, bytes: Uint8Array } | null = null
+    private snapshotCache: RtSnapshotCache | null = null
 
     private joinPausePeer: RtPeerState | null = null
     private readonly joinPauses: { start: number, end: number | null }[] = []
@@ -252,14 +265,21 @@ export class RtRoom {
     /* ---- Attach, loaded, resync ---- */
 
     /**
-     * Adds a peer with the role rtGetAccess gave it, sending opened (snapshot at this tick boundary plus
-     * every queued stamped command) before anything else. A player's load pauses the room within the
-     * join-pause limits. Returns false, after sending the peer an error, when the room cannot take it.
+     * Adds a peer with the role rtGetAccess gave it, sending opened (the snapshot head at this tick
+     * boundary), the parts whose hash differs from `have` (what the client holds from an earlier
+     * visit) and snapshotEnd with every queued stamped command, before anything else. A player's load
+     * pauses the room within the join-pause limits. Returns false, after sending the peer an error,
+     * when the room cannot take it.
      */
-    attach(peer: RtRoomPeer, userId: string, access: RtAccess): boolean {
-        if (this.isUnloaded) return this.refusePeer(peer, 'busy')
+    attach(peer: RtRoomPeer, userId: string, access: RtAccess, have: readonly string[] = []): boolean {
+        if (this.isUnloaded || this.unloading) return this.refusePeer(peer, 'busy')
         if (access.role === 'none') return this.refusePeer(peer, 'noAccess')
-        if (this.peers.has(peer)) this.detach(peer)
+        const previous = this.peers.get(peer)
+        if (previous) {
+            // a reopen from the same socket: the player never left, so no leave checkpoint is written
+            this.peers.delete(peer)
+            if (previous.pausing) this.endJoinPause(previous, false)
+        }
 
         let role: RtRole = 'spectator'
         let company: number | null = null
@@ -272,17 +292,17 @@ export class RtRoom {
             }
         }
         const owner = userId === this.ownerId
-        let frame: Uint8Array
+        let frames: Uint8Array[]
         try {
-            frame = encodeServerMsg({
+            frames = this.snapshotFrames(head => ({
                 type: 'opened',
                 worldId: this.id,
                 role,
                 owner,
                 company,
                 inviteCode: role === 'player' || owner ? this.inviteCode : null,
-                ...this.snapshotBody()
-            })
+                ...head
+            }), have)
         } catch (error) {
             this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} snapshot at tick ${this.room.tick} cannot be sent (${describe(error)})`)
             return this.refusePeer(peer, 'worldBroken')
@@ -291,7 +311,7 @@ export class RtRoom {
         const state: RtPeerState = { userId, role, company, pausing: false, loadTimer: null }
         this.peers.set(peer, state)
         this.idleSinceMs = null
-        this.sendTo(peer, frame)
+        for (const frame of frames) this.sendTo(peer, frame)
         if (role === 'player') this.startJoinPause(state)
         const wasRunning = this.running
         this.update()
@@ -306,10 +326,13 @@ export class RtRoom {
         if (state?.pausing) this.endJoinPause(state, false)
     }
 
-    /** A fresh snapshot with every queued command, built at this tick boundary. The hub applies the cooldown. */
-    resync(peer: RtRoomPeer): boolean {
+    /**
+     * A fresh snapshot with every queued command, built at this tick boundary: only the parts whose
+     * hash differs from `have`, the hashes of the client's own world. The hub applies the cooldown.
+     */
+    resync(peer: RtRoomPeer, have: readonly string[] = []): boolean {
         if (this.isUnloaded || !this.peers.has(peer)) return false
-        this.sendResync(peer)
+        this.sendResync(peer, have)
         return true
     }
 
@@ -350,7 +373,12 @@ export class RtRoom {
         if (!canonical) return this.refusePeer(peer, 'badRequest')
         if (this.queue.length >= RT_PROTOCOL_BOUNDS.pending) return this.refusePeer(peer, 'busy')
 
+        // the dry run is charged to the step budget; a depot search costs a pathfinder run, so it waits for budget
+        if (canonical.command.kind === RtCommandKind.sendToDepot && this.deps.stepBudget.remainingMs() <= 0) return this.refusePeer(peer, 'busy')
+        const perfNow = this.deps.perfNow ?? (() => performance.now())
+        const started = perfNow()
         const check = applyCommand(this.room, state.company, canonical.command, false)
+        this.deps.stepBudget.spend(perfNow() - started)
         if (!check.ok) {
             this.sendTo(peer, encodeServerMsg({ type: 'result', seq, error: check.error }))
             return false
@@ -410,20 +438,20 @@ export class RtRoom {
         this.lastCheckpointAt = this.deps.now()
         if (reason === 'periodic' && (this.writing || this.pendingJobs.length > 0 || this.holdWrites)) return Promise.resolve(this.revisionNow)
 
-        let bytes: Uint8Array
+        let parts: RtWorldParts
         try {
-            bytes = this.encode()
+            parts = this.encode()
         } catch (error) {
             this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} does not encode at tick ${this.room.tick} (${describe(error)})`)
             this.fail('error')
             return Promise.reject(error)
         }
-        const job: RtCheckpointJob = { bytes, tick: this.room.tick, hash: this.room.hash(), mutation: this.mutation, member, waiters: [] }
+        const job: RtCheckpointJob = { parts, tick: this.room.tick, hash: this.room.hash(), mutation: this.mutation, member, waiters: [] }
         const done = new Promise<number>((resolve, reject) => job.waiters.push({ resolve, reject }))
         const last = this.pendingJobs.at(-1)
         if (last && !(last.member && member)) {
-            // the newer bytes hold everything the older ones did, a join's company included
-            last.bytes = job.bytes
+            // the newer parts hold everything the older ones did, a join's company included
+            last.parts = job.parts
             last.tick = job.tick
             last.hash = job.hash
             last.mutation = job.mutation
@@ -507,18 +535,23 @@ export class RtRoom {
      * then remaining peers are told the room is gone. A failed checkpoint takes the failure path.
      */
     async unload(): Promise<void> {
-        if (this.isUnloaded) return
+        if (this.isUnloaded || this.unloading) return
+        // attach refuses from here on, so no peer's play lands after the state being written
+        this.unloading = true
         this.stopTicking(false)
         const dirty = this.room.tick !== this.savedTick || this.mutation !== this.savedMutation
         if (dirty && !this.holdWrites) {
             try {
                 await this.checkpoint('unload')
             } catch {
+                this.unloading = false
                 return
             }
         }
         await this.writerIdle()
+        this.unloading = false
         if (this.isUnloaded) return
+        this.stopTicking(false)
         this.disposed = true
         this.clearLoadTimers()
         const frame = encodeServerMsg({ type: 'roomUnloaded', reason: 'idle' })
@@ -648,7 +681,7 @@ export class RtRoom {
         if (open && open.end === null) open.end = this.deps.now()
         if (this.joinPausePeer === state) this.joinPausePeer = null
         if (timedOut) {
-            for (const [peer, other] of this.peers) if (other === state) this.sendResync(peer)
+            for (const [peer, other] of this.peers) if (other === state) this.sendResync(peer, [])
         }
         this.update()
     }
@@ -776,35 +809,69 @@ export class RtRoom {
 
     /* ---- internals: snapshots and frames ---- */
 
-    private encode(): Uint8Array {
-        return (this.deps.encodeWorld ?? encodeWorld)(this.room)
+    private encode(): RtWorldParts {
+        return (this.deps.encodeWorldParts ?? encodeWorldParts)(this.room)
     }
 
-    /** The compressed world at this boundary, reused while neither the tick nor the mutation counter moved. */
-    private snapshotBytes(): Uint8Array {
+    /** The world's parts at this boundary, reused while neither the tick nor the mutation counter moved. */
+    private snapshot(): RtSnapshotCache {
         const cache = this.snapshotCache
-        if (cache && cache.tick === this.room.tick && cache.mutation === this.mutation) return cache.bytes
-        const bytes = gzipSync(this.encode())
-        this.snapshotCache = { tick: this.room.tick, mutation: this.mutation, bytes }
-        return bytes
+        if (cache && cache.tick === this.room.tick && cache.mutation === this.mutation) return cache
+        const parts = this.encode()
+        const hashes = parts.map(rtPartHash)
+        // carry over the compression of every part that did not change
+        const zipped = new Map<string, Uint8Array>()
+        if (cache) for (const hash of hashes) {
+            const kept = cache.zipped.get(hash)
+            if (kept) zipped.set(hash, kept)
+        }
+        const next: RtSnapshotCache = { tick: this.room.tick, mutation: this.mutation, parts, hashes, zipped }
+        this.snapshotCache = next
+        return next
     }
 
-    /** Snapshot plus every queued command, all stamped at or after this tick; the pending list is per send. */
-    private snapshotBody(): RtSnapshotBody {
-        return {
+    /**
+     * A snapshot as frames, all encoded before any is sent: the head (opened or resync, built by
+     * `head`), each part the client lacks as gzip fragments in ascending index, then snapshotEnd with
+     * every queued command, all stamped at or after this tick. Throws RangeError when a frame cannot
+     * be encoded, or the parts together exceed the save cap.
+     */
+    private snapshotFrames(head: (snapshot: RtSnapshotHead) => RtServerMsg, have: readonly string[]): Uint8Array[] {
+        const snapshot = this.snapshot()
+        const frames = [encodeServerMsg(head({
             tick: this.room.tick,
             serverNow: Math.max(0, Math.floor(this.deps.now())),
-            snapshot: this.snapshotBytes(),
-            pending: this.queue.map(entry => entry.stamped)
+            parts: snapshot.hashes
+        }))]
+        let total = 0
+        for (let index = 0; index < snapshot.parts.length; index++) {
+            const hash = snapshot.hashes[index]!
+            if (have[index] === hash) continue
+            let zipped = snapshot.zipped.get(hash)
+            if (!zipped) {
+                zipped = gzipSync(snapshot.parts[index]!)
+                snapshot.zipped.set(hash, zipped)
+            }
+            total += zipped.length
+            if (total > RT_MAX_SAVE_BYTES) throw new RangeError(`snapshot parts exceed ${RT_MAX_SAVE_BYTES} bytes compressed`)
+            for (let at = 0; at < zipped.length; at += RT_PART_FRAGMENT_BYTES) {
+                const end = Math.min(zipped.length, at + RT_PART_FRAGMENT_BYTES)
+                frames.push(encodeServerMsg({ type: 'part', index, last: end === zipped.length, bytes: zipped.subarray(at, end) }))
+            }
         }
+        frames.push(encodeServerMsg({ type: 'snapshotEnd', tick: this.room.tick, pending: this.queue.map(entry => entry.stamped) }))
+        return frames
     }
 
-    private sendResync(peer: RtRoomPeer): void {
+    private sendResync(peer: RtRoomPeer, have: readonly string[]): void {
+        let frames: Uint8Array[]
         try {
-            this.sendTo(peer, encodeServerMsg({ type: 'resync', worldId: this.id, ...this.snapshotBody() }))
+            frames = this.snapshotFrames(head => ({ type: 'resync', worldId: this.id, ...head }), have)
         } catch (error) {
             this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} resync at tick ${this.room.tick} cannot be sent (${describe(error)})`)
+            return
         }
+        for (const frame of frames) this.sendTo(peer, frame)
     }
 
     private refusePeer(peer: RtRoomPeer, code: RtErrorCode): false {
@@ -861,7 +928,7 @@ export class RtRoom {
         }
         try {
             const revision = await this.deps.rtSaveCheckpoint(
-                this.id, job.bytes, job.tick, this.revisionNow, new Date(this.deps.now()), job.member ? { member: job.member } : {}
+                this.id, job.parts, job.tick, this.revisionNow, new Date(this.deps.now()), job.member ? { member: job.member } : {}
             )
             this.revisionNow = revision
             this.savedTick = job.tick
@@ -879,20 +946,21 @@ export class RtRoom {
     }
 
     /**
-     * Bytes that would not load again are never written over the only save. Checks the sizes
-     * rtLoadWorld enforces (compressed and decoded), then that the bytes decode to the hash the live
-     * world had when they were encoded. Null when the bytes are safe to write.
+     * Parts that would not load again are never written over the only save. Checks the sizes
+     * rtLoadWorld enforces (compressed and decoded, all parts together), then that the parts decode to
+     * the hash the live world had when they were encoded. Null when the parts are safe to write.
      */
     private async refuseReason(job: RtCheckpointJob): Promise<string | null> {
-        if (job.bytes.length > RT_GUNZIP_MAX_BYTES) return `decoded save is ${job.bytes.length} bytes, over the ${RT_GUNZIP_MAX_BYTES} cap`
+        const decoded = job.parts.reduce((sum, part) => sum + part.length, 0)
+        if (decoded > RT_GUNZIP_MAX_BYTES) return `decoded save is ${decoded} bytes, over the ${RT_GUNZIP_MAX_BYTES} cap`
         try {
-            const compressed = await rtGzip(job.bytes)
-            if (compressed.length > RT_MAX_SAVE_BYTES) return `compressed save is ${compressed.length} bytes, over the ${RT_MAX_SAVE_BYTES} cap`
+            const compressed = (await Promise.all(job.parts.map(part => rtGzip(part)))).reduce((sum, part) => sum + part.length, 0)
+            if (compressed > RT_MAX_SAVE_BYTES) return `compressed save is ${compressed} bytes, over the ${RT_MAX_SAVE_BYTES} cap`
         } catch (error) {
             return `gzip: ${describe(error)}`
         }
         try {
-            const hash = decodeWorldOrThrow(job.bytes).hash()
+            const hash = decodeWorldPartsOrThrow(job.parts).hash()
             if (hash !== job.hash) return `decoded hash ${hash} differs from the live hash ${job.hash}`
         } catch (error) {
             return `does not decode: ${describe(error)}`

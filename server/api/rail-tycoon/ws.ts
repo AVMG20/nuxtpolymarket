@@ -1,6 +1,6 @@
 import { auth } from '#server/utils/auth'
 import { useRtHub, type RtHubSocket } from '#server/utils/rail-tycoon/hub'
-import { RT_BACKLOG_CLOSE_BYTES, RT_MAX_PEERS } from '#shared/utils/rail-tycoon/limits'
+import { RT_BACKLOG_CLOSE_BYTES, RT_MAX_PEERS, RT_SOCKET_HIGH_WATER_BYTES } from '#shared/utils/rail-tycoon/limits'
 
 // Rail Tycoon socket: one binary connection per tab, routed by RtHub. Authenticated in `open`
 // (crossws exposes the upgrade request headers there); frames that arrive while the session lookup
@@ -38,32 +38,107 @@ function rtBacklog(peer: RtPeerLike): number {
     }
 }
 
+/** How often frames waiting behind a full socket buffer retry, while any wait. */
+const RT_FLUSH_MS = 10
+
 /**
- * The hub's view of a peer. Lockstep cannot survive a dropped frame, so a peer whose backlog passes
- * RT_BACKLOG_CLOSE_BYTES, or whose frame Bun dropped, is closed with 4408 (it reconnects and reopens)
- * rather than left missing a frame.
+ * The hub's view of a peer. Frames go out in call order; while the socket holds
+ * RT_SOCKET_HIGH_WATER_BYTES unsent they wait here instead, so a snapshot's many part frames never
+ * push Bun past its 16 MiB backpressure limit, where it drops frames. Lockstep cannot survive a
+ * dropped frame, so a peer whose backlog (waiting frames included) passes RT_BACKLOG_CLOSE_BYTES, or
+ * whose frame was dropped anyway, is closed with 4408 (it reconnects and reopens) rather than left
+ * missing a frame.
  */
 function rtSocketFor(peer: RtPeerLike): RtHubSocket {
     let closed = false
+    const waiting: Uint8Array[] = []
+    let waitingBytes = 0
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    function shut(code: number, reason: string) {
+        closed = true
+        waiting.length = 0
+        waitingBytes = 0
+        if (timer !== null) clearInterval(timer)
+        timer = null
+        try {
+            peer.close(code, reason)
+        } catch {
+            // already gone
+        }
+    }
+
+    function push(frame: Uint8Array): boolean {
+        let sent: unknown
+        try {
+            sent = peer.send(frame)
+        } catch {
+            shut(4408, 'Connection too slow')
+            return false
+        }
+        if (RT_IS_BUN && sent === 0) {
+            shut(4408, 'Connection too slow')
+            return false
+        }
+        return true
+    }
+
+    function flush() {
+        while (!closed && waiting.length > 0 && rtBacklog(peer) < RT_SOCKET_HIGH_WATER_BYTES) {
+            const frame = waiting.shift()!
+            waitingBytes -= frame.length
+            if (!push(frame)) return
+        }
+        if (waiting.length === 0 && timer !== null) {
+            clearInterval(timer)
+            timer = null
+        }
+    }
+
     return {
         send(frame) {
             if (closed) return
-            let sent: unknown
-            try {
-                sent = peer.send(frame)
-            } catch {
-                sent = 0
+            if (waiting.length === 0 && rtBacklog(peer) < RT_SOCKET_HIGH_WATER_BYTES) {
+                push(frame)
+                return
             }
-            if ((RT_IS_BUN && sent === 0) || rtBacklog(peer) > RT_BACKLOG_CLOSE_BYTES) {
-                closed = true
-                peer.close(4408, 'Connection too slow')
-            }
+            waiting.push(frame)
+            waitingBytes += frame.length
+            if (waitingBytes + rtBacklog(peer) > RT_BACKLOG_CLOSE_BYTES) return shut(4408, 'Connection too slow')
+            timer ??= setInterval(flush, RT_FLUSH_MS)
         },
         close(code, reason) {
-            closed = true
-            peer.close(code, reason)
+            shut(code ?? 1000, reason ?? '')
         }
     }
+}
+
+function rtHostOf(url: string | null | undefined): string | null {
+    if (!url) return null
+    try {
+        return new URL(url).host.toLowerCase()
+    } catch {
+        return null
+    }
+}
+
+/**
+ * A browser always sends Origin on the upgrade: one from another site is a page trying to ride the
+ * player's session cookie, so it is refused. It must match the site's auth URL (production) or the
+ * host the request was made to (dev on another port). No Origin is a non-browser client, which still
+ * needs the session cookie.
+ */
+function rtOriginAllowed(headers: Headers): boolean {
+    const origin = headers.get('origin')
+    if (origin === null) return true
+    const host = rtHostOf(origin)
+    if (!host) return false
+    const allowed = [
+        rtHostOf(process.env.BETTER_AUTH_URL),
+        headers.get('host')?.toLowerCase(),
+        headers.get('x-forwarded-host')?.split(',')[0]?.trim().toLowerCase()
+    ]
+    return allowed.includes(host)
 }
 
 async function rtAuthenticate(peer: RtPeerLike): Promise<RtHubSocket | null> {
@@ -74,6 +149,10 @@ async function rtAuthenticate(peer: RtPeerLike): Promise<RtHubSocket | null> {
             return null
         }
         const headers = new Headers(peer.request?.headers as HeadersInit | undefined)
+        if (!rtOriginAllowed(headers)) {
+            peer.close(4403, 'Forbidden')
+            return null
+        }
         const session = await auth.api.getSession({ headers })
         if (!session?.user?.id) {
             peer.close(4401, 'Unauthorized')

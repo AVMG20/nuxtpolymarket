@@ -21,7 +21,7 @@ import {
     RT_STEP_BUDGET_MS
 } from '#shared/utils/rail-tycoon/limits'
 import { decodeServerMsg, encodeClientMsg, type RtClientMsg, type RtErrorCode, type RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
-import { decodeWorldOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldOrThrow, decodeWorldPartsOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 
@@ -103,7 +103,8 @@ class FakeRegistry {
                         maxCompanies: 4,
                         myCompanyId: world.members.get(userId) ?? null,
                         lastActiveAt: world.lastActiveAt,
-                        inviteCode: world.inviteCode
+                        inviteCode: world.inviteCode,
+                        isPublic: false
                     }))
             },
             rtCreateWorld: async (userId, userName, name) => {
@@ -169,11 +170,11 @@ class FakeRegistry {
                     world: decodeWorldOrThrow(world.save)
                 }
             },
-            rtSaveCheckpoint: async (id, bytes, _tick, expectedRevision, _now, options = {}) => {
+            rtSaveCheckpoint: async (id, parts, _tick, expectedRevision, _now, options = {}) => {
                 const world = this.worlds.get(id)
                 if (!world) throw httpError(404, 'World not found')
                 if (world.revision !== expectedRevision) throw httpError(409, 'World was saved by another writer')
-                world.save = bytes.slice()
+                world.save = encodeWorld(decodeWorldPartsOrThrow(parts))
                 world.revision++
                 this.saves.set(id, (this.saves.get(id) ?? 0) + 1)
                 if (options.member) world.members.set(options.member.userId, options.member.companyId)
@@ -262,7 +263,7 @@ async function settle(ms = 30): Promise<void> {
 /** Sends open and waits for its answer: opened, or an error code. */
 async function open(client: Client, worldId: string, inviteCode: string | null = null): Promise<RtServerMsg> {
     const before = client.socket.frames.length
-    client.send({ type: 'open', worldId, inviteCode })
+    client.send({ type: 'open', worldId, inviteCode, have: [] })
     await until(() => client.socket.frames.slice(before).some(msg => msg.type === 'opened' || msg.type === 'error'), `open of ${worldId}`)
     return client.socket.frames.slice(before).find(msg => msg.type === 'opened' || msg.type === 'error')!
 }
@@ -409,7 +410,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         const first = registry.add('alice')
         const alice = connect('alice')
         // open then delete: the room opens, then the delete removes it
-        alice.send({ type: 'open', worldId: first.id, inviteCode: null })
+        alice.send({ type: 'open', worldId: first.id, inviteCode: null, have: [] })
         alice.send({ type: 'delete', worldId: first.id })
         await until(() => alice.socket.of('worldDeleted').length === 1)
         await settle()
@@ -421,7 +422,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         second.members.set('bob', 1)
         const bob = connect('bob')
         alice.send({ type: 'delete', worldId: second.id })
-        bob.send({ type: 'open', worldId: second.id, inviteCode: null })
+        bob.send({ type: 'open', worldId: second.id, inviteCode: null, have: [] })
         await until(() => bob.socket.errors().length === 1)
         expect(bob.socket.errors()).toEqual(['noAccess'])
         expect(hub.liveRoomCount).toBe(0)
@@ -435,12 +436,12 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
             const alice = connect('alice')
             const bob = connect('bob')
             if (order === 'openFirst') {
-                alice.send({ type: 'open', worldId: world.id, inviteCode: null })
+                alice.send({ type: 'open', worldId: world.id, inviteCode: null, have: [] })
                 bob.send({ type: 'join', inviteCode: world.inviteCode })
             } else {
                 bob.send({ type: 'join', inviteCode: world.inviteCode })
                 await until(() => registry.lookups === 1)
-                alice.send({ type: 'open', worldId: world.id, inviteCode: null })
+                alice.send({ type: 'open', worldId: world.id, inviteCode: null, have: [] })
             }
             await until(() => bob.socket.of('joined').length === 1 && alice.socket.of('opened').length === 1, order)
             await settle()
@@ -512,8 +513,8 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         await openLoaded(bob, y.id)
         vi.advanceTimersByTime(RT_OPEN_COOLDOWN_MS)
 
-        alice.send({ type: 'open', worldId: y.id, inviteCode: y.inviteCode })
-        bob.send({ type: 'open', worldId: x.id, inviteCode: x.inviteCode })
+        alice.send({ type: 'open', worldId: y.id, inviteCode: y.inviteCode, have: [] })
+        bob.send({ type: 'open', worldId: x.id, inviteCode: x.inviteCode, have: [] })
         await until(() => alice.socket.of('opened').length === 2 && bob.socket.of('opened').length === 2, 'both opens')
         expect(alice.socket.of('opened')[1]).toMatchObject({ worldId: y.id, role: 'spectator' })
         expect(bob.socket.of('opened')[1]).toMatchObject({ worldId: x.id, role: 'spectator' })
@@ -644,10 +645,18 @@ describe('rail tycoon hub: cooldowns', () => {
         const world = registry.add('alice')
         const alice = connect('alice')
         await openLoaded(alice, world.id)
-        alice.send({ type: 'resync', worldId: world.id })
+        const opened = alice.socket.of('opened')[0]!
+        expect(alice.socket.of('part').length).toBeGreaterThanOrEqual(opened.parts.length)
+        expect(alice.socket.of('snapshotEnd')).toHaveLength(1)
+        const partsBefore = alice.socket.of('part').length
+        // the room has not stepped: every part the client offers is current, so none is sent again
+        alice.send({ type: 'resync', worldId: world.id, have: opened.parts })
         vi.advanceTimersByTime(1000)
-        alice.send({ type: 'resync', worldId: world.id })
+        alice.send({ type: 'resync', worldId: world.id, have: [] })
         expect(alice.socket.of('resync')).toHaveLength(1)
+        expect(alice.socket.of('resync')[0]!.parts).toEqual(opened.parts)
+        expect(alice.socket.of('part')).toHaveLength(partsBefore)
+        expect(alice.socket.of('snapshotEnd')).toHaveLength(2)
         expect(alice.socket.errors()).toEqual(['tooSoon'])
     })
 
@@ -665,7 +674,7 @@ describe('rail tycoon hub: cooldowns', () => {
     it('a second create within the cooldown is tooSoon; a create at the open-world cap is refused before generation', async () => {
         const { registry, connect } = setup()
         const alice = connect('alice')
-        const create: RtClientMsg = { type: 'create', name: 'Alpha', side: 64, maxCompanies: 4, sharing: true }
+        const create: RtClientMsg = { type: 'create', name: 'Alpha', side: 64, maxCompanies: 4, sharing: true, isPublic: false }
         alice.send(create)
         alice.send(create)
         await until(() => alice.socket.of('joined').length === 1 && alice.socket.errors().length === 1)

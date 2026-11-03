@@ -2,15 +2,15 @@ import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
-import { RT_RESYNC_BEHIND_TICKS } from '#shared/utils/rail-tycoon/limits'
+import { RT_PART_FRAGMENT_BYTES, RT_RESYNC_BEHIND_TICKS } from '#shared/utils/rail-tycoon/limits'
 import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RT_PROTOCOL_VERSION, encodeServerMsg, type RtClientMsg, type RtServerMsg, type RtStampedCommand } from '#shared/utils/rail-tycoon/protocol'
-import { encodeWorld } from '#shared/utils/rail-tycoon/save'
+import { encodeWorldParts, rtChunkOfTile, rtPartHash } from '#shared/utils/rail-tycoon/save'
 import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
 import { RtTrack, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RT_OWNER_NONE, RtOrderKind, RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
-import { RtLockstep, rtGunzip, type RtSnapshotMsg } from '../../app/utils/rail-tycoon/lockstep'
+import { RtLockstep, rtGunzip, type RtSnapshot } from '../../app/utils/rail-tycoon/lockstep'
 import { RtNet, type RtSocket } from '../../app/utils/rail-tycoon/net'
 
 /* ------------------------------------------------------------------------------------------
@@ -71,14 +71,40 @@ class Room {
         }
     }
 
-    opened(): RtSnapshotMsg {
+    /** The snapshot as RtNet assembles it: the room sends only the parts whose hash differs from `have`. */
+    snapshot(have: readonly string[] = [], withPending = true): RtSnapshot {
         const tick = this.world.tick
-        const pending = [...this.stamped.values()].flat().filter(s => s.tick >= tick).sort((a, b) => a.tick - b.tick)
+        const pending = withPending ? [...this.stamped.values()].flat().filter(s => s.tick >= tick).sort((a, b) => a.tick - b.tick) : []
+        const parts = encodeWorldParts(this.world)
+        const hashes = parts.map(rtPartHash)
+        const zipped = new Map<number, Uint8Array>()
+        hashes.forEach((hash, k) => {
+            if (have[k] !== hash) zipped.set(k, new Uint8Array(gzipSync(parts[k]!)))
+        })
         return {
-            type: 'opened', worldId: 'w1', role: 'player', owner: true, company: 0, inviteCode: 'ABCDEFGHJKMNPQRS',
-            tick, serverNow: 0, snapshot: new Uint8Array(gzipSync(encodeWorld(this.world))), pending
+            head: { type: 'opened', worldId: 'w1', role: 'player', owner: true, company: 0, inviteCode: 'ABCDEFGHJKMNPQRS', tick, serverNow: 0, parts: hashes },
+            zipped,
+            pending,
+            broken: false
         }
     }
+
+    /** The frames the room sends for that snapshot, each part split into `fragment`-byte fragments. */
+    frames(have: readonly string[] = [], fragment = RT_PART_FRAGMENT_BYTES, withPending = true): RtServerMsg[] {
+        const snapshot = this.snapshot(have, withPending)
+        const out: RtServerMsg[] = [snapshot.head]
+        for (const [index, bytes] of snapshot.zipped) {
+            for (let at = 0; at < bytes.length; at += fragment) {
+                out.push({ type: 'part', index, last: at + fragment >= bytes.length, bytes: bytes.subarray(at, at + fragment) })
+            }
+        }
+        out.push({ type: 'snapshotEnd', tick: snapshot.head.tick, pending: snapshot.pending })
+        return out
+    }
+}
+
+function hashesOf(world: RtWorld): string[] {
+    return encodeWorldParts(world).map(rtPartHash)
 }
 
 function decodeOk(s: RtStampedCommand): RtCommand {
@@ -88,7 +114,7 @@ function decodeOk(s: RtStampedCommand): RtCommand {
 
 async function client(room: Room) {
     const sent: RtClientMsg[] = []
-    const lock = await RtLockstep.create(room.opened(), msg => sent.push(msg))
+    const lock = await RtLockstep.create(room.snapshot(), msg => sent.push(msg))
     if (!lock) throw new Error('lockstep refused the snapshot')
     const resyncs: string[] = []
     lock.on('resync', reason => resyncs.push(reason))
@@ -149,17 +175,79 @@ describe('RtLockstep', () => {
         catchUp(lock, 300)
         expect(resyncs).toEqual(['hash'])
         expect(lock.world.tick).toBe(200)
-        expect(sent.at(-1)).toEqual({ type: 'resync', worldId: 'w1' })
+        // the hash at 100 matched, so the resync offers this world's parts and holds them
+        const have = hashesOf(lock.world)
+        expect(sent.at(-1)).toEqual({ type: 'resync', worldId: 'w1', have })
+        expect([...lock.heldParts.keys()].sort()).toEqual([...new Set(have)].sort())
         // stepping stops until a new snapshot replaces it
         expect(lock.frame()).toBe(0)
     })
 
-    it('far behind the allowance it asks for a resync instead of replaying', async () => {
+    it('far behind the allowance it asks for a resync instead of replaying, offering nothing before a hash matched', async () => {
         const room = new Room()
-        const { lock, resyncs } = await client(room)
+        const { lock, sent, resyncs } = await client(room)
         lock.receive({ type: 'allowance', tick: RT_RESYNC_BEHIND_TICKS + 1 })
         expect(lock.frame()).toBe(0)
         expect(resyncs).toEqual(['behind'])
+        expect(sent.at(-1)).toEqual({ type: 'resync', worldId: 'w1', have: [] })
+        expect(lock.heldParts.size).toBe(0)
+    })
+
+    it('rebuilds from the parts it offered: the room sends only the ones that changed', async () => {
+        const room = new Room()
+        const script = shuttle(room.world, 10)
+        script.forEach((c, k) => room.stamp(1 + k, 0, c))
+        const { lock } = await client(room)
+        room.runTo(400)
+        for (const [tick, hash] of room.hashes) lock.receive({ type: 'hash', tick, hash })
+        catchUp(lock, 150)
+        const have = lock.offerParts()
+        expect(have.length).toBe(1 + 16)
+        // the room moved on 250 ticks: the train and the economy moved, the map did not
+        const snapshot = room.snapshot(have)
+        expect(snapshot.zipped.size).toBeGreaterThan(0)
+        expect(snapshot.zipped.size).toBeLessThan(have.length)
+        expect(snapshot.zipped.has(0)).toBe(true)
+        const sent: RtClientMsg[] = []
+        const rebuilt = await RtLockstep.create(snapshot, msg => sent.push(msg), { previous: lock, local: lock.heldParts })
+        expect(rebuilt).not.toBeNull()
+        expect(rebuilt!.world.hash()).toBe(room.world.hash())
+        expect(sent).toEqual([{ type: 'loaded', worldId: 'w1' }])
+    })
+
+    it('a left-out part it does not hold, or a part that does not match its hash, asks for a full resync', async () => {
+        const room = new Room()
+        shuttle(room.world, 10).forEach((c, k) => room.stamp(1 + k, 0, c))
+        room.runTo(20)
+        const full = room.snapshot()
+        const sent: RtClientMsg[] = []
+        // the room left part 3 out, but nothing holds it
+        const missing = new Map(full.zipped)
+        missing.delete(3)
+        expect(await RtLockstep.create({ ...full, zipped: missing }, msg => sent.push(msg))).toBeNull()
+        // part 3 swapped for part 4's bytes: it inflates, but not to its hash
+        const swapped = new Map(full.zipped)
+        swapped.set(3, full.zipped.get(4)!)
+        expect(await RtLockstep.create({ ...full, zipped: swapped }, msg => sent.push(msg))).toBeNull()
+        // an older copy of the right chunk: it decodes, but lacks a tree planted since
+        const w = room.world
+        let tile = w.map.idx(40, 40)
+        while (w.map.kind[tile] !== RtTileKind.clear) tile++
+        const before = room.snapshot()
+        w.map.setTile(tile, RtTileKind.tree, RT_OWNER_NONE, 0)
+        const after = room.snapshot()
+        const chunk = 1 + rtChunkOfTile(64, tile)
+        expect(after.head.parts[chunk]).not.toBe(before.head.parts[chunk])
+        const stale = new Map(after.zipped).set(chunk, before.zipped.get(chunk)!)
+        expect(await RtLockstep.create({ ...after, zipped: stale }, msg => sent.push(msg))).toBeNull()
+        expect((await RtLockstep.create(after, () => {}))!.world.map.kind[tile]).toBe(RtTileKind.tree)
+        // a held part filed under the wrong hash: chunk 4 where chunk 3 belongs does not decode
+        const lied = new Map([[full.head.parts[3]!, encodeWorldParts(room.world)[4]!]])
+        expect(await RtLockstep.create({ ...full, zipped: missing }, msg => sent.push(msg), { local: lied })).toBeNull()
+        // and a snapshot RtNet found broken is never built at all
+        expect(await RtLockstep.create({ ...full, broken: true }, msg => sent.push(msg))).toBeNull()
+        expect(sent).toEqual(Array(5).fill({ type: 'resync', worldId: 'w1', have: [] }))
+        expect(await RtLockstep.create(full, () => {})).not.toBeNull()
     })
 
     it('a command stamped for a tick already passed asks for a resync', async () => {
@@ -199,12 +287,14 @@ describe('RtLockstep', () => {
 
     it('a snapshot that does not inflate, or inflates past the cap, is refused with a resync request', async () => {
         const room = new Room()
-        const opened = room.opened()
-        expect(await rtGunzip(opened.snapshot, 100)).toBeNull()
-        expect((await rtGunzip(opened.snapshot))!.length).toBe(encodeWorld(room.world).length)
+        const snapshot = room.snapshot()
+        const entity = snapshot.zipped.get(0)!
+        expect(await rtGunzip(entity, 10)).toBeNull()
+        expect((await rtGunzip(entity))!.length).toBe(encodeWorldParts(room.world)[0]!.length)
         const sent: RtClientMsg[] = []
-        expect(await RtLockstep.create({ ...opened, snapshot: new Uint8Array([1, 2, 3]) }, msg => sent.push(msg))).toBeNull()
-        expect(sent).toEqual([{ type: 'resync', worldId: 'w1' }])
+        const garbage = new Map(snapshot.zipped).set(0, new Uint8Array([1, 2, 3]))
+        expect(await RtLockstep.create({ ...snapshot, zipped: garbage }, msg => sent.push(msg))).toBeNull()
+        expect(sent).toEqual([{ type: 'resync', worldId: 'w1', have: [] }])
     })
 
     it('reports payments and vehicle list changes', async () => {
@@ -336,11 +426,13 @@ describe('RtNet', () => {
         // a holder object: a let assigned inside the listener would narrow to null at the await
         const build: { promise: Promise<RtLockstep | null> | null } = { promise: null }
         const direct: RtServerMsg[] = []
-        net.on('message', msg => {
-            if (msg.type === 'opened') build.promise = RtLockstep.create(msg, m => net.send(m))
-            else direct.push(msg)
+        net.on('snapshot', (snapshot) => {
+            build.promise = RtLockstep.create(snapshot, m => net.send(m))
         })
-        sockets[0]!.deliver({ type: 'opened', ...room.opened(), pending: [] })
+        net.on('message', msg => direct.push(msg))
+        // small fragments, so each part is joined from several frames
+        for (const msg of room.frames([], 40, false)) sockets[0]!.deliver(msg)
+        expect(build.promise).not.toBeNull()
         // these arrive while the snapshot is still inflating
         sockets[0]!.deliver({ type: 'command', ...s })
         sockets[0]!.deliver({ type: 'allowance', tick: 300 })
@@ -358,5 +450,54 @@ describe('RtNet', () => {
         // after release, world messages flow straight through again
         sockets[0]!.deliver({ type: 'allowance', tick: 400 })
         expect(direct).toEqual([{ type: 'allowance', tick: 400 }])
+    })
+
+    it('joins each part from its fragments, and drops snapshot frames that come without a head', () => {
+        const room = new Room()
+        shuttle(room.world, 10).forEach((c, k) => room.stamp(1 + k, 0, c))
+        room.runTo(20)
+        const { net, sockets } = fakeNet()
+        net.connect()
+        sockets[0]!.open()
+        const snapshots: RtSnapshot[] = []
+        net.on('snapshot', snapshot => snapshots.push(snapshot))
+        const frames = room.frames([], 16)
+        const expected = room.snapshot()
+        expect(frames.length).toBeGreaterThan(2 * expected.head.parts.length)
+        for (const msg of frames) sockets[0]!.deliver(msg)
+        expect(snapshots).toHaveLength(1)
+        expect(snapshots[0]!.broken).toBe(false)
+        expect(snapshots[0]!.head).toEqual(expected.head)
+        expect(snapshots[0]!.pending).toEqual(expected.pending)
+        expect([...snapshots[0]!.zipped]).toEqual([...expected.zipped])
+        // a part or an end after the snapshot finished belongs to nothing
+        sockets[0]!.deliver(frames[1]!)
+        sockets[0]!.deliver(frames.at(-1)!)
+        expect(snapshots).toHaveLength(1)
+    })
+
+    it('breaks a snapshot whose parts interleave, repeat, run past the head or stop short, or whose end is for another tick', () => {
+        const room = new Room()
+        room.runTo(20)
+        const [head, ...rest] = room.frames([], 1 << 20)
+        const end = rest.at(-1) as Extract<RtServerMsg, { type: 'snapshotEnd' }>
+        const part = (index: number, last: boolean): RtServerMsg => ({ type: 'part', index, last, bytes: new Uint8Array([index + 1]) })
+        const run = (frames: RtServerMsg[]) => {
+            const { net, sockets } = fakeNet()
+            net.connect()
+            sockets[0]!.open()
+            const broken: boolean[] = []
+            net.on('snapshot', snapshot => broken.push(snapshot.broken))
+            for (const msg of frames) sockets[0]!.deliver(msg)
+            return broken
+        }
+        expect(run([head!, part(0, false), part(0, true), part(1, true), end])).toEqual([false])
+        expect(run([head!, part(0, false), part(1, true), part(0, true), end])).toEqual([true])
+        expect(run([head!, part(0, true), part(0, true), end])).toEqual([true])
+        expect(run([head!, part(17, true), end])).toEqual([true])
+        expect(run([head!, part(0, false), end])).toEqual([true])
+        expect(run([head!, part(0, true), { ...end, tick: end.tick + 1 }])).toEqual([true])
+        // a new head starts over: the first snapshot is never emitted
+        expect(run([head!, part(0, false), head!, part(1, true), end])).toEqual([false])
     })
 })

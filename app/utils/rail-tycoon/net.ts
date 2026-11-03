@@ -4,14 +4,19 @@
 // refuses is dropped) and handed to listeners; client messages go out through encodeClientMsg. It
 // pings every 2 s for the latency readout and reconnects with backoff capped at 3 s, also after the
 // server closed it for a send backlog (4408), and emits reconnected so the view opens its
-// world again. Close codes 4401 (not signed in) and 4409 (replaced by a newer tab) stop it for good,
+// world again. Close codes 4401 (not signed in), 4403 (opened from another site) and 4409 (replaced
+// by a newer tab) stop it for good,
 // as does a hello from another protocol version or build: a tab running the previous deploy's
 // simulation can never stay in lockstep.
 //
-// While a lockstep is being built from an opened or resync message (an async gunzip), the world's
-// later messages are held in arrival order and handed over by release(), so none is lost.
+// A snapshot arrives as an opened or resync head, part frames and snapshotEnd; RtNet puts them
+// together and emits one snapshot. From the head until the lockstep built from it is in place (an
+// async gunzip), the world's later messages are held in arrival order and handed over by release(),
+// so none is lost.
 
+import { RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
 import { decodeServerMsg, encodeClientMsg, RT_PROTOCOL_VERSION, type RtClientMsg, type RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
+import type { RtSnapshot, RtSnapshotMsg } from './lockstep'
 
 /** Why the socket stopped for good; the UI shows it. */
 export type RtNetStopReason = 'unauthorized' | 'replaced' | 'outdated'
@@ -45,7 +50,9 @@ export interface RtNetOptions {
 }
 
 export interface RtNetEvents {
+    /** Every message but the snapshot frames and pong. */
     message: RtServerMsg
+    snapshot: RtSnapshot
     open: undefined
     /** Open again after a drop: the view re-opens its world. */
     reconnected: undefined
@@ -60,6 +67,16 @@ const OPEN = 1
 
 type Listener<K extends keyof RtNetEvents> = (value: RtNetEvents[K]) => void
 
+/** A snapshot whose end has not arrived yet. */
+interface RtAssembly {
+    head: RtSnapshotMsg
+    zipped: Map<number, Uint8Array>
+    /** Fragments of the part being received, which must be finished before another starts. */
+    open: { index: number, fragments: Uint8Array[] } | null
+    bytes: number
+    broken: boolean
+}
+
 export class RtNet {
     stopped: RtNetStopReason | null = null
     /** Round trip of the last ping in ms, or null before the first pong. */
@@ -73,6 +90,7 @@ export class RtNet {
     private closing = false
     private holding = false
     private held: RtServerMsg[] = []
+    private assembly: RtAssembly | null = null
     private readonly listeners = new Map<keyof RtNetEvents, Set<(value: never) => void>>()
     private readonly o: Required<Omit<RtNetOptions, 'buildId' | 'url'>> & { buildId: string, url: string }
 
@@ -168,12 +186,57 @@ export class RtNet {
             this.held.push(msg)
             return
         }
-        // a snapshot starts a lockstep build: hold what follows until release
-        if (msg.type === 'opened' || msg.type === 'resync') {
-            this.holding = true
-            this.held = []
+        switch (msg.type) {
+            case 'opened':
+            case 'resync':
+                // a snapshot starts a lockstep build: hold what follows until release
+                this.holding = true
+                this.held = []
+                this.assembly = { head: msg, zipped: new Map(), open: null, bytes: 0, broken: false }
+                return
+            case 'part':
+                if (this.assembly) this.addPart(this.assembly, msg)
+                return
+            case 'snapshotEnd': {
+                const assembly = this.assembly
+                if (!assembly) return
+                this.assembly = null
+                this.emit('snapshot', {
+                    head: assembly.head,
+                    zipped: assembly.zipped,
+                    pending: msg.pending,
+                    broken: assembly.broken || assembly.open !== null || msg.tick !== assembly.head.tick
+                })
+                return
+            }
+            default:
+                this.emit('message', msg)
         }
-        this.emit('message', msg)
+    }
+
+    /** Adds one fragment; a part the head has no hash for, sent twice or interleaved, or past the cap breaks the snapshot. */
+    private addPart(assembly: RtAssembly, msg: Extract<RtServerMsg, { type: 'part' }>): void {
+        if (assembly.broken) return
+        assembly.bytes += msg.bytes.length
+        const open = assembly.open ?? { index: msg.index, fragments: [] }
+        if (open.index !== msg.index || msg.index >= assembly.head.parts.length || assembly.zipped.has(msg.index)
+            || assembly.bytes > RT_MAX_SAVE_BYTES) {
+            assembly.broken = true
+            assembly.zipped.clear()
+            assembly.open = null
+            return
+        }
+        open.fragments.push(msg.bytes)
+        assembly.open = open
+        if (!msg.last) return
+        assembly.open = null
+        const whole = new Uint8Array(open.fragments.reduce((sum, fragment) => sum + fragment.length, 0))
+        let at = 0
+        for (const fragment of open.fragments) {
+            whole.set(fragment, at)
+            at += fragment.length
+        }
+        assembly.zipped.set(msg.index, whole)
     }
 
     private onClose(socket: RtSocket, code: number): void {
@@ -181,8 +244,9 @@ export class RtNet {
         this.socket = null
         this.stopTimers()
         this.discardHeld()
+        this.assembly = null
         if (this.closing || this.stopped) return
-        if (code === 4401) return this.stop('unauthorized')
+        if (code === 4401 || code === 4403) return this.stop('unauthorized')
         if (code === 4409) return this.stop('replaced')
         const delay = Math.min(RT_NET_BACKOFF_MAX_MS, RT_NET_BACKOFF_MIN_MS * 2 ** this.attempt)
         this.attempt++

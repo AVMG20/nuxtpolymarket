@@ -1,18 +1,24 @@
 /**
- * Rail Tycoon world storage: a world row's gzipped binary save in, a live RtWorld out, and
+ * Rail Tycoon world storage: a world row's gzipped parts in, a live RtWorld out, and
  * revision-guarded checkpoints back.
  *
+ * A world is stored as parts (save.ts encodeWorldParts): the row's save holds the entity part and
+ * rail_tycoon_chunks one row per 16x16-tile chunk with its hash, so a checkpoint rewrites only the
+ * chunks that changed. A row without chunks holds a whole-world save from before parts; it loads
+ * as one, and its next checkpoint writes it as parts.
+ *
  * Every export carries the rt prefix, because Nitro auto-imports server/utils recursively.
- * The stored bytes are untrusted: a compressed save over RT_MAX_SAVE_BYTES is never fetched,
- * gunzip stops at RT_GUNZIP_MAX_BYTES (zip-bomb guard), and the decoder refuses anything malformed.
+ * The stored bytes are untrusted: compressed parts over RT_MAX_SAVE_BYTES together are never
+ * fetched, gunzip stops at RT_GUNZIP_MAX_BYTES (zip-bomb guard) for the parts together, and the
+ * decoder refuses anything malformed.
  */
 import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
+import { railTycoonChunks, railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
 import { RT_GUNZIP_MAX_BYTES, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
-import { decodeWorldOrThrow } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldOrThrow, decodeWorldPartsOrThrow, RT_SAVE_MAGIC, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
 import type { RtWorldStatus } from './registry'
 
@@ -44,31 +50,47 @@ function rtLoadFailureReason(stage: string, error: unknown): string {
     return `${stage}: ${message.slice(0, RT_LOAD_LOG_REASON_CHARS)}`
 }
 
+function rtStartsWith(bytes: Uint8Array, magic: readonly number[]): boolean {
+    return magic.every((byte, k) => bytes[k] === byte)
+}
+
 /**
- * The world in a stored save. Gunzip runs off the event loop with its output capped, so a bomb
- * fails with ERR_BUFFER_TOO_LARGE instead of allocating; any decode failure, including an
- * unexpected non-RtBadData error, is a failed load rather than a thrown one.
+ * The world in stored parts: the row's save first, then the chunks in order. Gunzip runs off the
+ * event loop with its output capped by what the parts before it left of RT_GUNZIP_MAX_BYTES, so a
+ * bomb fails with ERR_BUFFER_TOO_LARGE instead of allocating; any decode failure, including an
+ * unexpected non-RtBadData error, is a failed load rather than a thrown one. A save with the
+ * whole-world magic and no chunks loads as a whole world.
  */
-async function rtWorldFromSave(save: Uint8Array): Promise<RtSaveOutcome> {
-    let raw: Uint8Array
+async function rtWorldFromParts(stored: readonly Uint8Array[]): Promise<RtSaveOutcome> {
+    const raw: Uint8Array[] = []
+    let left = RT_GUNZIP_MAX_BYTES
     try {
-        raw = await rtGunzip(save, { maxOutputLength: RT_GUNZIP_MAX_BYTES })
+        for (const part of stored) {
+            const bytes = await rtGunzip(part, { maxOutputLength: Math.max(1, left) })
+            left -= bytes.length
+            raw.push(bytes)
+        }
     } catch (error) {
         return { ok: false, reason: rtLoadFailureReason('gunzip', error) }
     }
     try {
-        return { ok: true, world: decodeWorldOrThrow(raw) }
+        if (raw.length === 1 && rtStartsWith(raw[0]!, RT_SAVE_MAGIC)) return { ok: true, world: decodeWorldOrThrow(raw[0]!) }
+        return { ok: true, world: decodeWorldPartsOrThrow(raw) }
     } catch (error) {
         return { ok: false, reason: rtLoadFailureReason('decode', error) }
     }
 }
 
+/** Compressed bytes of a world's stored parts, its save and every chunk. */
+const rtStoredBytes = sql<number>`octet_length(${railTycoonWorlds.save}) + (select coalesce(sum(octet_length(rt_sized.data)), 0) from rail_tycoon_chunks as rt_sized where rt_sized.world_id = ${railTycoonWorlds.id})`.mapWith(Number)
+
 /**
  * Brings a persisted world back into memory with the row metadata a room needs, or null when the
- * row is missing or its save does not load. A save that does not load is logged once at error
- * level with the world id and the reason, never the bytes. One SELECT reads the metadata and the
- * save together, so the revision returned is the one the decoded save was written at; the bytes
- * of an oversized save never leave the database.
+ * row is missing or its parts do not load. Parts that do not load are logged once at error
+ * level with the world id and the reason, never the bytes. The row is read with its total stored
+ * size first, so the bytes of an oversized world never leave the database; the save and the chunks
+ * are then read in one statement, so they are one checkpoint's parts and the revision returned is
+ * the one they were written at.
  */
 export async function rtLoadWorld(id: string, exec: DbExecutor = db): Promise<RtLoadedWorld | null> {
     const [row] = await exec.select({
@@ -78,16 +100,29 @@ export async function rtLoadWorld(id: string, exec: DbExecutor = db): Promise<Rt
         revision: railTycoonWorlds.revision,
         lastActiveAt: railTycoonWorlds.lastActiveAt,
         inviteCode: railTycoonWorlds.inviteCode,
-        saveBytes: sql<number>`octet_length(${railTycoonWorlds.save})`.mapWith(Number),
-        save: sql<Uint8Array | null>`case when octet_length(${railTycoonWorlds.save}) <= ${RT_MAX_SAVE_BYTES} then ${railTycoonWorlds.save} end`
+        storedBytes: rtStoredBytes
     })
         .from(railTycoonWorlds)
         .where(eq(railTycoonWorlds.id, id))
     if (!row) return null
 
-    const outcome: RtSaveOutcome = row.save
-        ? await rtWorldFromSave(row.save)
-        : { ok: false, reason: `compressed save is ${row.saveBytes} bytes, over the ${RT_MAX_SAVE_BYTES} cap` }
+    let outcome: RtSaveOutcome
+    if (row.storedBytes > RT_MAX_SAVE_BYTES) {
+        outcome = { ok: false, reason: `compressed world is ${row.storedBytes} bytes, over the ${RT_MAX_SAVE_BYTES} cap` }
+    } else {
+        // one statement: a checkpoint committing in between cannot pair one revision's save with another's chunks
+        const result = await exec.execute<{ revision: number, data: Uint8Array }>(sql`
+            select ${railTycoonWorlds.revision} as revision, ${railTycoonWorlds.save} as data, -1 as chunk_id
+            from ${railTycoonWorlds} where ${railTycoonWorlds.id} = ${id}
+            union all
+            select null, ${railTycoonChunks.data}, ${railTycoonChunks.chunkId}
+            from ${railTycoonChunks} where ${railTycoonChunks.worldId} = ${id}
+            order by chunk_id`)
+        const rows = result.rows
+        if (rows.length === 0) return null
+        row.revision = Number(rows[0]!.revision)
+        outcome = await rtWorldFromParts(rows.map(part => part.data))
+    }
     if (!outcome.ok) {
         console.error(`[rail-tycoon] world ${JSON.stringify(row.id)} save does not load (${outcome.reason})`)
         return null
@@ -112,11 +147,59 @@ export interface RtCheckpointOptions {
     member?: { userId: string, companyId: number }
 }
 
+/** A world's parts gzipped for storage: the entity part for the row's save, then each chunk with its hash. */
+export interface RtStoredParts {
+    save: Buffer
+    chunks: { hash: string, data: Buffer }[]
+    /** Compressed bytes of the save and every chunk together. */
+    bytes: number
+}
+
+/**
+ * Gzips every part off the event loop. A world over RT_MAX_SAVE_BYTES compressed is 413, so parts
+ * rtLoadWorld would refuse are never stored.
+ */
+export async function rtCompressParts(parts: RtWorldParts): Promise<RtStoredParts> {
+    const zipped = await Promise.all(parts.map(part => rtGzip(part)))
+    const bytes = zipped.reduce((sum, part) => sum + part.length, 0)
+    if (bytes > RT_MAX_SAVE_BYTES) {
+        throw createError({ statusCode: 413, statusMessage: `World save is ${bytes} bytes compressed, over the ${RT_MAX_SAVE_BYTES} cap` })
+    }
+    return {
+        save: zipped[0]!,
+        chunks: zipped.slice(1).map((data, k) => ({ hash: rtPartHash(parts[k + 1]!), data })),
+        bytes
+    }
+}
+
+/**
+ * Writes the chunks whose stored hash differs (or that are not stored yet) and drops any past the
+ * map's last chunk. Runs on the caller's transaction, which holds the world row.
+ */
+export async function rtWriteChunks(exec: DbExecutor, worldId: string, chunks: RtStoredParts['chunks']): Promise<number> {
+    const stored = await exec.select({ chunkId: railTycoonChunks.chunkId, hash: railTycoonChunks.hash })
+        .from(railTycoonChunks)
+        .where(eq(railTycoonChunks.worldId, worldId))
+        .orderBy(asc(railTycoonChunks.chunkId))
+    const known = new Map(stored.map(row => [row.chunkId, row.hash]))
+    const changed = chunks.flatMap((chunk, chunkId) => known.get(chunkId) === chunk.hash ? [] : [{ worldId, chunkId, hash: chunk.hash, data: chunk.data }])
+    if (changed.length > 0) {
+        await exec.insert(railTycoonChunks).values(changed).onConflictDoUpdate({
+            target: [railTycoonChunks.worldId, railTycoonChunks.chunkId],
+            set: { hash: sql`excluded.hash`, data: sql`excluded.data` }
+        })
+    }
+    if (stored.length > chunks.length) {
+        await exec.delete(railTycoonChunks).where(and(eq(railTycoonChunks.worldId, worldId), gte(railTycoonChunks.chunkId, chunks.length)))
+    }
+    return changed.length
+}
+
 /** The checkpoint's statements, all on `exec`: lock, compare the revision, write, then the member row. */
 async function rtWriteCheckpoint(
     exec: DbExecutor,
     id: string,
-    save: Buffer,
+    stored: RtStoredParts,
     tick: number,
     expectedRevision: number,
     now: Date,
@@ -132,22 +215,24 @@ async function rtWriteCheckpoint(
 
     // The integer revision in the WHERE backs the lock; never a timestamp.
     const [saved] = await exec.update(railTycoonWorlds)
-        .set({ revision: expectedRevision + 1, save, bytes: save.length, tick, savedAt: now, lastActiveAt: now })
+        .set({ revision: expectedRevision + 1, save: stored.save, bytes: stored.bytes, tick, savedAt: now, lastActiveAt: now })
         .where(and(eq(railTycoonWorlds.id, id), eq(railTycoonWorlds.revision, expectedRevision)))
         .returning({ revision: railTycoonWorlds.revision })
     if (!saved) throw createError({ statusCode: 409, statusMessage: 'World was saved by another writer' })
+    await rtWriteChunks(exec, id, stored.chunks)
 
     if (member) await exec.insert(railTycoonMembers).values({ worldId: id, userId: member.userId, companyId: member.companyId })
     return saved.revision
 }
 
 /**
- * Writes a checkpoint of world `id` and returns its new revision. `encodedBytes` is the world
- * encoded synchronously at a tick boundary and must not be reused while this runs; it is
+ * Writes a checkpoint of world `id` and returns its new revision. `parts` is the world encoded
+ * synchronously at a tick boundary (encodeWorldParts) and must not be reused while this runs; it is
  * gzipped off the event loop before any lock is taken. The row is locked FOR UPDATE and its
  * integer revision must equal `expectedRevision`, or this throws 409; a missing world is 404 and
- * a compressed save over RT_MAX_SAVE_BYTES is 413, so a save rtLoadWorld would refuse is never
- * stored. `now` is the server clock and becomes savedAt and lastActiveAt.
+ * parts over RT_MAX_SAVE_BYTES compressed are 413, so a world rtLoadWorld would refuse is never
+ * stored. Only the chunks whose hash changed are rewritten. `now` is the server clock and becomes
+ * savedAt and lastActiveAt.
  *
  * With options.tx every statement runs on the caller's transaction (which should already hold the
  * world row lock); without it the save opens its own. options.member is inserted in that same
@@ -155,17 +240,13 @@ async function rtWriteCheckpoint(
  */
 export async function rtSaveCheckpoint(
     id: string,
-    encodedBytes: Uint8Array,
+    parts: RtWorldParts,
     tick: number,
     expectedRevision: number,
     now: Date,
     options: RtCheckpointOptions = {}
 ): Promise<number> {
-    const save = await rtGzip(encodedBytes)
-    if (save.length > RT_MAX_SAVE_BYTES) {
-        throw createError({ statusCode: 413, statusMessage: `World save is ${save.length} bytes compressed, over the ${RT_MAX_SAVE_BYTES} cap` })
-    }
-
-    const write = (exec: DbExecutor) => rtWriteCheckpoint(exec, id, save, tick, expectedRevision, now, options.member)
+    const stored = await rtCompressParts(parts)
+    const write = (exec: DbExecutor) => rtWriteCheckpoint(exec, id, stored, tick, expectedRevision, now, options.member)
     return options.tx ? write(options.tx) : db.transaction(write)
 }

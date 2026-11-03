@@ -1,7 +1,9 @@
 // Rail Tycoon — the client's copy of the world.
 //
-// Built from an opened (or resync) message: the gzip snapshot is inflated under RT_GUNZIP_MAX_BYTES,
-// decoded, and the commands the room had already stamped are queued. After that the
+// Built from a snapshot (RtNet puts the opened or resync head, its part frames and snapshotEnd
+// together): each part the room sent is inflated under one RT_GUNZIP_MAX_BYTES budget and must match
+// its hash, each part it left out is one this client offered (its own world's, or a cached visit's),
+// the parts are decoded, and the commands the room had already stamped are queued. After that the
 // client steps on its own, never ahead of the room's frame allowance, running several ticks per
 // animation frame to catch up as the original's joining clients do.
 //
@@ -15,8 +17,8 @@
 
 import { decodeCommand, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RT_CLIENT_STEPS_PER_FRAME, RT_GUNZIP_MAX_BYTES, RT_RESYNC_BEHIND_TICKS } from '#shared/utils/rail-tycoon/limits'
-import type { RtClientMsg, RtPauseReason, RtRole, RtServerMsg, RtSnapshotBody } from '#shared/utils/rail-tycoon/protocol'
-import { decodeWorld } from '#shared/utils/rail-tycoon/save'
+import type { RtClientMsg, RtPauseReason, RtRole, RtServerMsg, RtStampedCommand } from '#shared/utils/rail-tycoon/protocol'
+import { decodeWorldParts, encodeWorldParts, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import { RT_OWNER_NONE } from '#shared/utils/rail-tycoon/types'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
 
@@ -42,8 +44,31 @@ export interface RtLockstepEvents {
     resync: RtResyncReason
 }
 
-/** The world parts of an opened or resync message. */
+/** The head of a snapshot: an opened or resync message. */
 export type RtSnapshotMsg = Extract<RtServerMsg, { type: 'opened' } | { type: 'resync' }>
+
+/** A snapshot as RtNet assembled it. */
+export interface RtSnapshot {
+    head: RtSnapshotMsg
+    /** The gzipped bytes of each part the room sent, by part index. */
+    zipped: ReadonlyMap<number, Uint8Array>
+    /** snapshotEnd's commands. */
+    pending: readonly RtStampedCommand[]
+    /** A part frame out of order or over the caps, or an end that does not match the head. */
+    broken: boolean
+}
+
+/** Decoded parts the client holds, by rtPartHash: its own world's, or a cached visit's. */
+export type RtLocalParts = ReadonlyMap<string, Uint8Array>
+
+export interface RtLockstepCreateOptions {
+    /** The lockstep a resync replaces: its role carries over. */
+    previous?: RtLockstep
+    /** Parts the room may have left out because this client offered their hashes. */
+    local?: RtLocalParts
+    /** Called with the parts the world was built from, for the part cache. */
+    keep?: (parts: RtWorldParts) => void
+}
 
 interface Queued {
     company: number
@@ -79,6 +104,24 @@ export async function rtGunzip(bytes: Uint8Array, limit = RT_GUNZIP_MAX_BYTES): 
     }
 }
 
+/**
+ * Every part of the snapshot, in order: the room's inflated under one shared budget, the rest from
+ * `local`. Null when one will not inflate, does not match its hash, or is not held.
+ */
+async function rtAssembleParts(snapshot: RtSnapshot, local: RtLocalParts): Promise<RtWorldParts | null> {
+    const parts: Uint8Array[] = []
+    let budget = RT_GUNZIP_MAX_BYTES
+    for (const [index, hash] of snapshot.head.parts.entries()) {
+        const zipped = snapshot.zipped.get(index)
+        const bytes = zipped ? await rtGunzip(zipped, budget) : local.get(hash) ?? null
+        if (!bytes || (zipped && rtPartHash(bytes) !== hash)) return null
+        budget -= bytes.length
+        if (budget < 0) return null
+        parts.push(bytes)
+    }
+    return parts
+}
+
 type Listener<K extends keyof RtLockstepEvents> = (value: RtLockstepEvents[K]) => void
 
 export class RtLockstep {
@@ -92,6 +135,9 @@ export class RtLockstep {
     private readonly hashes = new Map<number, number>()
     private readonly profits = new Map<number, number>()
     private vehicleCount: number
+    /** A room hash has matched this world: its parts are worth offering when asking again. */
+    private verified = false
+    private held: Map<string, Uint8Array> = new Map()
     private readonly listeners = new Map<keyof RtLockstepEvents, Set<(value: never) => void>>()
 
     private constructor(
@@ -109,15 +155,17 @@ export class RtLockstep {
     }
 
     /**
-     * Builds the lockstep from an opened message (or a resync answer, keeping the previous role),
-     * queues its pending commands and sends loaded. A snapshot that will not inflate or decode asks
-     * for a resync and resolves to null.
+     * Builds the lockstep from a snapshot (a resync answer keeps the previous role), queues its
+     * pending commands and sends loaded. A snapshot that will not assemble or decode asks for a full
+     * resync, offering nothing, and resolves to null.
      */
-    static async create(msg: RtSnapshotMsg, send: (msg: RtClientMsg) => void, previous?: RtLockstep): Promise<RtLockstep | null> {
-        const bytes = await rtGunzip(msg.snapshot)
-        const world = bytes ? decodeWorld(bytes) : null
-        if (!world || world.tick !== msg.tick) {
-            send({ type: 'resync', worldId: msg.worldId })
+    static async create(snapshot: RtSnapshot, send: (msg: RtClientMsg) => void, options: RtLockstepCreateOptions = {}): Promise<RtLockstep | null> {
+        const msg = snapshot.head
+        const { previous } = options
+        const parts = snapshot.broken ? null : await rtAssembleParts(snapshot, options.local ?? new Map())
+        const world = parts ? decodeWorldParts(parts) : null
+        if (!parts || !world || world.tick !== msg.tick) {
+            send({ type: 'resync', worldId: msg.worldId, have: [] })
             return null
         }
         const opened = msg.type === 'opened' ? msg : null
@@ -131,9 +179,32 @@ export class RtLockstep {
             send
         )
         // a pending command already behind the snapshot: it asked for a resync, wait for that answer
-        if (!lockstep.queuePending(msg)) return null
+        if (!lockstep.queuePending(snapshot.pending)) return null
+        options.keep?.(parts)
         send({ type: 'loaded', worldId: msg.worldId })
         return lockstep
+    }
+
+    /**
+     * The hashes to offer when asking for this world again (an open after a drop, a resync): this
+     * world's parts, held so the next build can use the ones the room leaves out. None before a room
+     * hash has matched, so parts that may be what went wrong are never offered back.
+     */
+    offerParts(): string[] {
+        this.held = new Map()
+        if (!this.verified) return []
+        const hashes: string[] = []
+        for (const part of encodeWorldParts(this.world)) {
+            const hash = rtPartHash(part)
+            this.held.set(hash, part)
+            hashes.push(hash)
+        }
+        return hashes
+    }
+
+    /** The parts the last offerParts held. */
+    get heldParts(): RtLocalParts {
+        return this.held
     }
 
     on<K extends keyof RtLockstepEvents>(event: K, listener: Listener<K>): () => void {
@@ -152,8 +223,8 @@ export class RtLockstep {
         return this.role === 'player' && this.company !== null && this.resyncing === null
     }
 
-    private queuePending(body: RtSnapshotBody): boolean {
-        for (const stamped of body.pending) {
+    private queuePending(pending: readonly RtStampedCommand[]): boolean {
+        for (const stamped of pending) {
             if (!this.enqueue(stamped.tick, stamped.company, stamped.command)) return false
         }
         return true
@@ -207,7 +278,10 @@ export class RtLockstep {
 
     private checkHash(tick: number, hash: number): boolean {
         this.hashes.delete(tick)
-        if (this.world.hash() === hash) return true
+        if (this.world.hash() === hash) {
+            this.verified = true
+            return true
+        }
         this.requestResync('hash')
         return false
     }
@@ -216,7 +290,7 @@ export class RtLockstep {
     requestResync(reason: RtResyncReason): void {
         if (this.resyncing) return
         this.resyncing = reason
-        this.send({ type: 'resync', worldId: this.worldId })
+        this.send({ type: 'resync', worldId: this.worldId, have: this.offerParts() })
         this.emit('resync', reason)
     }
 

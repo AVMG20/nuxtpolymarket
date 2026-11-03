@@ -10,6 +10,10 @@
 // before the game view opens its own, so a tab never holds two (the hub keeps one per user).
 // An invite the page picked up from the rt-invite cookie is sent as a join once the socket is up;
 // `invited` tells the page the hub answered, so it clears the cookie and a reload never joins twice.
+//
+// The public lobby and the world drawings come over HTTP: a drawing is too large for the socket's
+// world list. Joining a lobby world is an ordinary join with the invite code the lobby lists.
+import type { EmblemData } from '#shared/utils/emblem'
 import { RT_MAP_SIDES } from '#shared/utils/rail-tycoon/map'
 import { isRtInviteCode } from '#shared/utils/rail-tycoon/limits'
 import { RT_PROTOCOL_BOUNDS, type RtErrorCode, type RtRole, type RtServerMsg, type RtWorldSummary } from '#shared/utils/rail-tycoon/protocol'
@@ -33,6 +37,18 @@ const toast = useToast()
 
 type Action = 'create' | 'join' | 'invite' | 'stop' | 'delete'
 
+/** One world in the public lobby (lobby.get.ts). */
+interface RtLobbyWorld {
+  id: string
+  name: string
+  ownerName: string
+  memberCount: number
+  maxCompanies: number | null
+  lastActiveAt: number
+  inviteCode: string
+  avatar: string | null
+}
+
 const NAME_MAX_BYTES = RT_PROTOCOL_BOUNDS.nameBytes
 const MIN_COMPANIES = RT_PROTOCOL_BOUNDS.minCompanies
 const MAX_COMPANIES = RT_PROTOCOL_BOUNDS.companies
@@ -50,10 +66,25 @@ const form = reactive({
   name: '',
   side: 128,
   maxCompanies: 4,
-  sharing: true
+  sharing: true,
+  isPublic: false
 })
 const joinCode = ref('')
 const joinError = ref<string | null>(null)
+
+const lobby = ref<RtLobbyWorld[] | null>(null)
+/** The lobby world a join is waiting on. */
+const lobbyJoining = ref<string | null>(null)
+/** Drawings of the player's own worlds by id; a world missing here has none. */
+const avatars = ref<Record<string, string>>({})
+/** World ids the drawings were fetched for, so a list refresh fetches only for a new world. */
+const avatarsFor = new Set<string>()
+/** The world whose drawing is open in the editor, with the draft. */
+const editingAvatar = ref<RtWorldSummary | null>(null)
+const avatarDraft = ref<string | null>(null)
+const avatarSaving = ref(false)
+/** The world whose public setting is being saved. */
+const publicSaving = ref<string | null>(null)
 
 const confirmStop = ref<RtWorldSummary | null>(null)
 const confirmDelete = ref<RtWorldSummary | null>(null)
@@ -138,11 +169,90 @@ function send(msg: Parameters<RtNet['send']>[0]): boolean {
 function refresh() {
   if (pending.value) return
   net?.send({ type: 'list' })
+  loadLobby()
 }
 
 function finish() {
   pending.value = null
   pendingWorld.value = null
+  lobbyJoining.value = null
+}
+
+// ─── Lobby and drawings ──────────────────────────────────────────────────
+
+async function loadLobby() {
+  try {
+    const data = await apiFetch<{ worlds: RtLobbyWorld[] }>('/api/rail-tycoon/lobby')
+    lobby.value = data.worlds
+  } catch (e) {
+    if (lobby.value === null) lobby.value = []
+    toast.add({ title: apiErrorMessage(e, 'Could not load the public worlds'), color: 'error' })
+  }
+}
+
+/** Fetches the drawings once the list holds a world they were not fetched for. */
+async function loadAvatars(list: readonly RtWorldSummary[]) {
+  if (list.every(w => avatarsFor.has(w.id))) return
+  for (const w of list) avatarsFor.add(w.id)
+  try {
+    const data = await apiFetch<{ avatars: Record<string, string> }>('/api/rail-tycoon/avatars')
+    avatars.value = data.avatars
+  } catch {
+    // a drawing is decoration: the list works without it, and the next new world fetches again
+    for (const w of list) avatarsFor.delete(w.id)
+  }
+}
+
+function lobbyFull(world: RtLobbyWorld): boolean {
+  return world.maxCompanies !== null && world.memberCount >= world.maxCompanies
+}
+
+function joinLobby(world: RtLobbyWorld) {
+  if (!connected.value || pending.value || lobbyFull(world)) return
+  joinError.value = null
+  if (send({ type: 'join', inviteCode: world.inviteCode })) {
+    pending.value = 'join'
+    lobbyJoining.value = world.id
+  }
+}
+
+async function setPublic(world: RtWorldSummary, isPublic: boolean) {
+  if (publicSaving.value) return
+  publicSaving.value = world.id
+  try {
+    await apiFetch(`/api/rail-tycoon/worlds/${world.id}`, { method: 'PATCH', body: { isPublic } })
+    if (worlds.value) worlds.value = worlds.value.map(w => w.id === world.id ? { ...w, isPublic } : w)
+  } catch (e) {
+    toast.add({ title: apiErrorMessage(e, 'Could not change the world'), color: 'error' })
+  } finally {
+    publicSaving.value = null
+  }
+}
+
+function editAvatar(world: RtWorldSummary) {
+  cancelDialogs()
+  editingAvatar.value = world
+  avatarDraft.value = avatars.value[world.id] ?? null
+}
+
+function onAvatarDraft(value: EmblemData) {
+  avatarDraft.value = JSON.stringify(value)
+}
+
+async function saveAvatar(value: EmblemData | null) {
+  const world = editingAvatar.value
+  if (!world || avatarSaving.value) return
+  avatarSaving.value = true
+  try {
+    const saved = await apiFetch<{ avatar: string | null }>(`/api/rail-tycoon/worlds/${world.id}`, { method: 'PATCH', body: { avatar: value } })
+    const others = Object.entries(avatars.value).filter(([id]) => id !== world.id)
+    avatars.value = Object.fromEntries(saved.avatar === null ? others : [...others, [world.id, saved.avatar]])
+    editingAvatar.value = null
+  } catch (e) {
+    toast.add({ title: apiErrorMessage(e, 'Could not save the drawing'), color: 'error' })
+  } finally {
+    avatarSaving.value = false
+  }
 }
 
 function sendInvite() {
@@ -162,6 +272,7 @@ function onMessage(msg: RtServerMsg) {
     case 'worldList':
       worlds.value = [...msg.worlds]
       if (pending.value === 'stop') finish()
+      loadAvatars(msg.worlds)
       return
     case 'joined': {
       const wasInvite = pending.value === 'invite'
@@ -185,8 +296,14 @@ function onMessage(msg: RtServerMsg) {
 
 function onError(code: RtErrorCode) {
   const action = pending.value
+  const fromLobby = lobbyJoining.value !== null
   finish()
   const text = rtServerErrorText(code)
+  if (fromLobby) {
+    toast.add({ title: text, color: 'error' })
+    loadLobby()
+    return
+  }
   if (action === 'invite') {
     emit('invited')
     // keep the code in the join field, so a cooldown or a busy server is one click from a retry
@@ -210,7 +327,8 @@ function create() {
     name: form.name.trim(),
     side: form.side,
     maxCompanies: form.maxCompanies,
-    sharing: form.sharing
+    sharing: form.sharing,
+    isPublic: form.isPublic
   })
   if (ok) pending.value = 'create'
 }
@@ -277,10 +395,11 @@ function cancelDialogs() {
   confirmStop.value = null
   confirmDelete.value = null
   deleteTyped.value = ''
+  if (!avatarSaving.value) editingAvatar.value = null
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && (confirmStop.value || confirmDelete.value)) cancelDialogs()
+  if (e.key === 'Escape' && (confirmStop.value || confirmDelete.value || editingAvatar.value)) cancelDialogs()
 }
 
 function reload() {
@@ -316,6 +435,8 @@ onMounted(() => {
     })
   )
   net.connect()
+  // the lobby is HTTP, so it loads whether or not the socket is up yet
+  loadLobby()
   // RtNet has no close event: mirror its state for the buttons
   connectionPoll = setInterval(() => {
     const up = net?.connected ?? false
@@ -364,6 +485,7 @@ watch(() => props.invite, () => sendInvite())
       </div>
 
       <div class="rtc-grid">
+        <div class="rtc-main">
         <!-- the player's worlds -->
         <section class="rtc-panel rtc-worlds" aria-labelledby="rtc-worlds-h">
           <div class="rtc-panel-head">
@@ -391,11 +513,13 @@ watch(() => props.invite, () => sendInvite())
                   :data-status="world.status"
                 >
                   <div class="rtc-world-main">
+                    <ProfileEmblem :emblem="avatars[world.id]" :name="world.name" class="rtc-avatar" data-part="avatar" />
                     <div class="rtc-world-name">
                       <span class="rtc-name-text">{{ world.name }}</span>
                       <span class="rtc-badge" :class="world.status === 'open' ? 'rtc-badge-open' : 'rtc-badge-closed'">
                         {{ world.status === 'open' ? 'Open' : 'Closed' }}
                       </span>
+                      <span v-if="world.isPublic" class="rtc-badge rtc-badge-public" data-part="public-badge">Public</span>
                     </div>
                     <div class="rtc-world-meta">
                       <span><UIcon name="i-lucide-users" class="size-3.5" /> {{ membersText(world) }}</span>
@@ -422,6 +546,26 @@ watch(() => props.invite, () => sendInvite())
                       {{ copied === world.id ? 'Copied' : 'Copy invite link' }}
                     </button>
                     <template v-if="world.isOwner">
+                      <button type="button" class="rtc-btn" data-action="edit-avatar" :disabled="avatarSaving" @click="editAvatar(world)">
+                        <UIcon name="i-lucide-brush" class="size-4" /> Drawing
+                      </button>
+                      <button
+                        v-if="world.status === 'open'"
+                        type="button"
+                        class="rtc-btn"
+                        data-action="toggle-public"
+                        :aria-pressed="world.isPublic"
+                        :disabled="publicSaving !== null"
+                        :title="world.isPublic ? 'Take it out of the public lobby' : 'List it in the public lobby, so anyone can join'"
+                        @click="setPublic(world, !world.isPublic)"
+                      >
+                        <UIcon
+                          :name="publicSaving === world.id ? 'i-lucide-loader-circle' : world.isPublic ? 'i-lucide-lock' : 'i-lucide-globe'"
+                          class="size-4"
+                          :class="{ 'animate-spin': publicSaving === world.id }"
+                        />
+                        {{ world.isPublic ? 'Make private' : 'Make public' }}
+                      </button>
                       <button
                         v-if="world.status === 'open'"
                         type="button"
@@ -476,6 +620,48 @@ watch(() => props.invite, () => sendInvite())
           </template>
         </section>
 
+        <!-- the public lobby: open public worlds the player has not joined -->
+        <section class="rtc-panel" aria-labelledby="rtc-lobby-h">
+          <div class="rtc-panel-head">
+            <h2 id="rtc-lobby-h">Public worlds</h2>
+          </div>
+          <p v-if="lobby === null" class="rtc-empty">Loading…</p>
+          <p v-else-if="!lobby.length" class="rtc-empty">No public worlds to join right now. Make one of yours public to list it here.</p>
+          <ul v-else class="rtc-list rtc-lobby">
+            <li v-for="world in lobby" :key="world.id" class="rtc-world" :data-lobby-world-id="world.id">
+              <div class="rtc-world-main">
+                <ProfileEmblem :emblem="world.avatar" :name="world.name" class="rtc-avatar" data-part="avatar" />
+                <div class="rtc-world-name">
+                  <span class="rtc-name-text">{{ world.name }}</span>
+                  <span v-if="lobbyFull(world)" class="rtc-badge rtc-badge-closed">Full</span>
+                </div>
+                <div class="rtc-world-meta">
+                  <span><UIcon name="i-lucide-crown" class="size-3.5" /> {{ world.ownerName }}</span>
+                  <span><UIcon name="i-lucide-users" class="size-3.5" /> {{ world.maxCompanies === null ? `${world.memberCount} members` : `${world.memberCount} of ${world.maxCompanies} members` }}</span>
+                  <span><UIcon name="i-lucide-clock" class="size-3.5" /> {{ lastActive(world.lastActiveAt) }}</span>
+                </div>
+              </div>
+              <div class="rtc-world-actions">
+                <button
+                  type="button"
+                  class="rtc-btn rtc-btn-main"
+                  data-action="join-public"
+                  :disabled="!connected || !!pending || lobbyFull(world)"
+                  @click="joinLobby(world)"
+                >
+                  <UIcon
+                    :name="lobbyJoining === world.id ? 'i-lucide-loader-circle' : 'i-lucide-log-in'"
+                    class="size-4"
+                    :class="{ 'animate-spin': lobbyJoining === world.id }"
+                  />
+                  Join
+                </button>
+              </div>
+            </li>
+          </ul>
+        </section>
+        </div>
+
         <div class="rtc-side">
           <!-- create -->
           <form class="rtc-panel" aria-labelledby="rtc-create-h" @submit.prevent="create">
@@ -520,6 +706,14 @@ watch(() => props.invite, () => sendInvite())
               </span>
             </label>
 
+            <label class="rtc-check">
+              <input v-model="form.isPublic" type="checkbox" data-field="public">
+              <span>
+                <b>Public</b>
+                <small>List it in the public lobby, so anyone can join without an invite.</small>
+              </span>
+            </label>
+
             <button type="submit" class="rtc-btn rtc-btn-main rtc-btn-wide" data-action="create" :disabled="!canCreate">
               <UIcon :name="pending === 'create' ? 'i-lucide-loader-circle' : 'i-lucide-plus'" class="size-4" :class="{ 'animate-spin': pending === 'create' }" />
               Create world
@@ -552,6 +746,32 @@ watch(() => props.invite, () => sendInvite())
       </div>
 
       <slot name="footer" />
+    </div>
+
+    <div v-if="editingAvatar" class="rtc-overlay" role="dialog" aria-label="World drawing" @click.self="cancelDialogs">
+      <div class="rtc-notice rtc-avatar-editor">
+        <h2>Drawing for {{ editingAvatar.name }}</h2>
+        <p>Everyone in the world sees it above its name, and so does the lobby when it is public.</p>
+        <ProfileEmblemEditor
+          :loading="avatarSaving"
+          :model-value="avatarDraft"
+          @save="saveAvatar"
+          @update:model-value="onAvatarDraft"
+        />
+        <div class="rtc-confirm-actions rtc-avatar-actions">
+          <button
+            v-if="avatars[editingAvatar.id]"
+            type="button"
+            class="rtc-btn rtc-btn-danger"
+            data-action="clear-avatar"
+            :disabled="avatarSaving"
+            @click="saveAvatar(null)"
+          >
+            <UIcon name="i-lucide-eraser" class="size-4" /> Remove drawing
+          </button>
+          <button type="button" class="rtc-btn" :disabled="avatarSaving" @click="cancelDialogs">Close</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="stopNotice" class="rtc-overlay" role="alertdialog">
@@ -633,9 +853,28 @@ watch(() => props.invite, () => sendInvite())
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.rtc-main,
 .rtc-side {
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+.rtc-avatar {
+  display: flex;
+  width: 44px;
+  margin-bottom: 6px;
+}
+.rtc-badge-public {
+  color: #7ec8e3;
+}
+.rtc-notice.rtc-avatar-editor {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.rtc-avatar-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 .rtc-panel {
   padding: 14px 16px;
