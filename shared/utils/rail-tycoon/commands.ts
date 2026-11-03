@@ -2,7 +2,7 @@
  * Player commands: the only way a company changes the world. Every peer applies the same
  * stamped command stream at the same ticks, so applyCommand is deterministic, never throws and
  * refuses anything the UI could not have produced the same way as an illegal move (Michael,
- * 2026-10-29). The build and vehicle rules (goals 03 to 07) decide what is possible; this layer adds
+ * 2026-10-29). The build and vehicle rules decide what is possible; this layer adds
  * ownership, money, caps, the line and area drags and the signal refresh.
  */
 
@@ -331,8 +331,8 @@ export function rtStationFootprint(map: RtMap, origin: number, axis: number, tra
     const out: number[] = []
     if (!map.validTile(origin) || !isInt(tracks) || !isInt(length)) return out
     const [x, y] = [map.tileX(origin), map.tileY(origin)]
-    for (let t = 0; t < Math.min(tracks, 8); t++) {
-        for (let l = 0; l < Math.min(length, 16); l++) {
+    for (let t = 0; t < Math.min(tracks, RT_MAX_PLATFORMS); t++) {
+        for (let l = 0; l < Math.min(length, RT_MAX_PLATFORM_LENGTH); l++) {
             const [tx, ty] = axis === RtAxis.x ? [x + l, y + t] : [x + t, y + l]
             if (map.inBounds(tx, ty)) out.push(map.idx(tx, ty))
         }
