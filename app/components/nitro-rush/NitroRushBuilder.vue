@@ -4,7 +4,7 @@ import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/stor
 import { MAX_NAME_LENGTH, MAX_SECTIONS, rideTag, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { ROAD } from '#shared/utils/nitro-rush/tracks'
 
-/** The track builder: lay pre-built sections on a map until the course is drivable. */
+/** The track builder: lay sections one at a time, or from the drawer, until the course is drivable. */
 const props = defineProps<{
     track: CustomTrack
     /** False for a course that isn't stored yet, which has nothing to delete. */
@@ -19,21 +19,18 @@ const emit = defineEmits<{
 
 const { draft, cursor, walk, compiled, gap, full, length, canUndo, walkUpTo, insert, removeAt, moveTo, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
 
-/** The top-down map or the course in 3D, and picking sections from cards or building a piece at a time; remembered in this browser. */
-const remembered = readStorage<{ view: string, mode: string }>(STORAGE_KEYS.builderView, { view: 'map', mode: 'pick' })
-const view = ref<'map' | '3d'>(remembered.view === '3d' ? '3d' : 'map')
-const mode = ref<'pick' | 'build'>(remembered.mode === 'build' ? 'build' : 'pick')
-watch([view, mode], ([v, m]) => writeStorage(STORAGE_KEYS.builderView, { view: v, mode: m }))
+/** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
+const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
+const view = ref<'map' | '3d'>(remembered.view === 'map' ? 'map' : '3d')
+watch(view, v => writeStorage(STORAGE_KEYS.builderView, { view: v }))
 
-const building = computed(() => mode.value === 'build')
-const { choice, next, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert }, building)
-
-/** Building is seen best in 3D, so it opens there; the map stays a click away. */
-function startBuilding() {
-    if (building.value) return
-    mode.value = 'build'
-    view.value = '3d'
-}
+/** The drawer with every section; it paints its pictures on mounting, so that waits for the first opening. */
+const drawerOpen = ref(false)
+const drawerOpened = ref(false)
+watch(drawerOpen, () => {
+    drawerOpened.value = true
+})
+const { choice, next, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert })
 
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
@@ -148,13 +145,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
         </div>
       </div>
 
-      <div class="nr-card nr-card-tight relative flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
-        <div class="nr-toggle is-small self-start lg:absolute lg:right-3.5 lg:top-3.5 lg:z-10" role="radiogroup" aria-label="How to add sections">
-          <button role="radio" :aria-checked="!building" :class="{ 'is-active': !building }" @click="mode = 'pick'">PICK</button>
-          <button role="radio" :aria-checked="building" :class="{ 'is-active': building }" @click="startBuilding">BUILD</button>
-        </div>
-        <NitroRushBuilderConstruct v-if="building" class="lg:pr-40" :choice="choice" :next="next" :disabled="full" @pick="pick" @build="build" />
-        <NitroRushBuilderPalette v-else :disabled="full" @add="insert" />
+      <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
+        <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" @pick="pick" @build="build">
+          <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
+            ALL SECTIONS
+            <UIcon :name="drawerOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="size-3.5" />
+          </button>
+        </NitroRushBuilderConstruct>
+        <NitroRushBuilderPalette v-if="drawerOpened" v-show="drawerOpen" class="nr-drawer" :disabled="full" @add="insert" />
       </div>
 
       <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0">

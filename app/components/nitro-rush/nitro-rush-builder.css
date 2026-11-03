@@ -228,24 +228,50 @@
     gap: 4px;
 }
 
-/* Doubled up because nr-play's size comes from a sheet that loads after this one. */
-.nr-root .nr-construct .nr-construct-build {
+/* Wraps to a new row as one; only a line too narrow for both splits them. */
+.nr-root .nr-construct-pair {
     display: flex;
-    flex: 1 1 10rem;
-    flex-direction: column;
-    align-items: center;
-    padding: 6px 16px;
-    font-size: 18px;
-    line-height: 1.1;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+    min-width: 0;
+    max-width: 100%;
 }
 
-.nr-root .nr-construct-next {
-    font-family: system-ui, sans-serif;
-    font-size: 11px;
-    font-style: normal;
-    font-weight: 600;
+/* A fixed width, or a longer next piece's name would knock it onto a new row. */
+.nr-root .nr-construct-action {
+    width: 13rem;
+    max-width: 100%;
+    margin-left: auto;
+    align-items: flex-end;
+}
+
+/* Doubled up because nr-play and nr-label come from a sheet that loads after this one. */
+.nr-root .nr-construct .nr-construct-build {
+    padding: 4px 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 0 10px rgb(255 43 214 / 0.5);
+    animation: none;
+}
+
+.nr-root .nr-construct .nr-construct-next {
+    max-width: 100%;
+    overflow: hidden;
     letter-spacing: 0;
+    text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.nr-root .nr-drawer {
+    padding-top: 10px;
+    border-top: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.nr-root .nr-drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .nr-root .nr-toggle button.is-active {

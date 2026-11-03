@@ -12,12 +12,12 @@ interface ConstructionCourse {
     insert: (id: SectionId) => void
 }
 
-/** Building a piece at a time: the controls' settings, the section they'd lay next and its ghost while `active`. */
-export function useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert }: ConstructionCourse, active: Ref<boolean>) {
+/** Building a piece at a time: the controls' settings, the section they'd lay next and its ghost. */
+export function useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert }: ConstructionCourse) {
     const choice = ref<Construction>({ curve: 'straight', size: 'medium', length: 60, slope: 'slope-flat', bank: 'bank-flat' })
     const state = computed(() => stateAfter(walk.value, cursor.value))
     const next = computed(() => nextSection(choice.value, state.value))
-    const ghost = computed(() => active.value && !full.value ? lastPieceWalk(walkUpTo(next.value)) : null)
+    const ghost = computed(() => !full.value ? lastPieceWalk(walkUpTo(next.value)) : null)
 
     let building = false
 

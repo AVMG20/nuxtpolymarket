@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { useNitroRushConstruction } from '../../app/composables/useNitroRushConstruction'
 import { walkCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 
-function construct(sections: SectionId[], active = true) {
+function construct(sections: SectionId[], full = false) {
     const laid = ref(sections)
     const cursor = ref(sections.length - 1)
     const walkOf = (s: SectionId[]) => walkCustomTrack({ id: 'custom-t', name: 'T', closed: false, sections: s })
@@ -14,11 +14,11 @@ function construct(sections: SectionId[], active = true) {
     const course = {
         cursor,
         walk: computed(() => walkOf(laid.value)),
-        full: ref(false),
+        full: ref(full),
         walkUpTo: (id: SectionId) => walkOf([...laid.value.slice(0, cursor.value + 1), id]),
         insert
     }
-    return { laid, cursor, ...useNitroRushConstruction(course, ref(active)) }
+    return { laid, cursor, ...useNitroRushConstruction(course) }
 }
 
 describe('building a piece at a time', () => {
@@ -56,7 +56,7 @@ describe('building a piece at a time', () => {
         expect(ghost.end.heading).toBeCloseTo(0)
     })
 
-    it('has no ghost unless building', () => {
-        expect(construct(['straight-20'], false).ghost.value).toBeNull()
+    it('has no ghost once the course is full', () => {
+        expect(construct(['straight-20'], true).ghost.value).toBeNull()
     })
 })

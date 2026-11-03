@@ -77,43 +77,48 @@ const SIZES: { id: BendSize, label: string }[] = [
       </div>
     </div>
 
-    <div class="nr-construct-group">
-      <span class="nr-label">SLOPE</span>
-      <div class="nr-toggle is-small is-row" role="radiogroup" aria-label="Slope">
-        <button
-          v-for="s in SLOPE_STEPS"
-          :key="s.id"
-          role="radio"
-          :aria-checked="choice.slope === s.id"
-          :aria-label="nextLabel(s.id)"
-          :title="nextLabel(s.id)"
-          :class="{ 'is-active': choice.slope === s.id }"
-          @click="$emit('pick', { slope: s.id })"
-        >
-          <UIcon :name="s.icon" class="size-4" />
-        </button>
+    <div class="nr-construct-pair">
+      <div class="nr-construct-group">
+        <span class="nr-label">SLOPE</span>
+        <div class="nr-toggle is-small is-row" role="radiogroup" aria-label="Slope">
+          <button
+            v-for="s in SLOPE_STEPS"
+            :key="s.id"
+            role="radio"
+            :aria-checked="choice.slope === s.id"
+            :aria-label="nextLabel(s.id)"
+            :title="nextLabel(s.id)"
+            :class="{ 'is-active': choice.slope === s.id }"
+            @click="$emit('pick', { slope: s.id })"
+          >
+            <UIcon :name="s.icon" class="size-4" />
+          </button>
+        </div>
+      </div>
+
+      <div class="nr-construct-group">
+        <span class="nr-label">BANK</span>
+        <div class="nr-toggle is-small is-row" role="radiogroup" aria-label="Bank">
+          <button
+            v-for="s in BANK_STEPS"
+            :key="s.id"
+            role="radio"
+            :aria-checked="choice.bank === s.id"
+            :class="{ 'is-active': choice.bank === s.id }"
+            @click="$emit('pick', { bank: s.id })"
+          >
+            {{ s.name.toUpperCase() }}
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="nr-construct-group">
-      <span class="nr-label">BANK</span>
-      <div class="nr-toggle is-small is-row" role="radiogroup" aria-label="Bank">
-        <button
-          v-for="s in BANK_STEPS"
-          :key="s.id"
-          role="radio"
-          :aria-checked="choice.bank === s.id"
-          :class="{ 'is-active': choice.bank === s.id }"
-          @click="$emit('pick', { bank: s.id })"
-        >
-          {{ s.name.toUpperCase() }}
-        </button>
+    <div class="nr-construct-group nr-construct-action">
+      <span class="nr-label nr-construct-next" :title="nextLabel(next)">{{ nextLabel(next) }}</span>
+      <div class="flex items-center gap-2">
+        <button class="nr-play nr-construct-build" :disabled="disabled" @click="$emit('build')">BUILD</button>
+        <slot />
       </div>
     </div>
-
-    <button class="nr-play nr-construct-build" :disabled="disabled" @click="$emit('build')">
-      BUILD
-      <span class="nr-construct-next">{{ nextLabel(next) }}</span>
-    </button>
   </div>
 </template>
