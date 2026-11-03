@@ -4,6 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+import { HASH_GLSL } from './glsl'
 
 /**
  * Bloom, then one pass that does the rest of the juice: radial zoom blur for
@@ -18,7 +19,6 @@ const RushShader = {
         uTint: { value: new THREE.Color(1, 1, 1) },
         uTintAmount: { value: 0 },
         uVignette: { value: 0.3 },
-        uGrain: { value: 0.016 },
         uSaturation: { value: 1 },
         uTime: { value: 0 }
     },
@@ -36,11 +36,10 @@ const RushShader = {
         uniform vec3 uTint;
         uniform float uTintAmount;
         uniform float uVignette;
-        uniform float uGrain;
         uniform float uSaturation;
         uniform float uTime;
         varying vec2 vUv;
-        float grainHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        ${HASH_GLSL}
         void main() {
             // Blur toward a focus a little above centre, where the road meets the horizon.
             vec2 dir = vUv - vec2(0.5, 0.56);
@@ -70,10 +69,11 @@ const RushShader = {
             col += uFlash;
             float v = smoothstep(0.95, 0.3, dist * (1.0 + uVignette));
             col *= mix(1.0, v, clamp(0.6 + uVignette * 0.4, 0.0, 1.0));
-            // Film grain, strongest in the shadows like a real sensor.
-            float g = grainHash(vUv * 1000.0 + fract(uTime) * 100.0) - 0.5;
-            float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-            col += g * uGrain * (1.0 - clamp(lum, 0.0, 1.0));
+            // One grain per pixel, scaled with the colour: this buffer is linear, so added noise blows up in the shadows.
+            // Far less dither than Void Runner's 0.004: AgX lifts shadows much harder than its ACES.
+            // A different offset per axis, so the pattern reshuffles rather than sliding diagonally.
+            float grain = hash(gl_FragCoord.xy + floor(fract(uTime * 0.37) * 997.0) * vec2(1.0, 1.618)) - 0.5;
+            col = col * (1.0 + grain * 0.05) + grain * 0.0005;
             gl_FragColor = vec4(max(col, vec3(0.0)), 1.0);
         }`
 }

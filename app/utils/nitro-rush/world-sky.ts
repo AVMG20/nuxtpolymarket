@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { HASH_GLSL } from './glsl'
 import { skylineTexture } from './textures'
 import type { WorldKit } from './world-kit'
 
@@ -21,7 +22,7 @@ const SkyShader = {
         uniform float uTime;
         varying vec3 vDir;
 
-        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        ${HASH_GLSL}
         float noise(vec2 p) {
             vec2 i = floor(p);
             vec2 f = fract(p);

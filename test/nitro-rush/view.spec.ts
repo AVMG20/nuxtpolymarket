@@ -40,6 +40,51 @@ describe('adaptive resolution', () => {
         expect(run(r, 1 / 60, 30)).toBe(false)
         expect(r.ratio).toBe(1.5)
     })
+
+    it('holds a standard screen to the pixel budget but never below native', () => {
+        const r = new AdaptiveResolution(1)
+        r.fit(2560, 1440)
+        expect(r.ratio).toBe(1.5)
+        r.fit(3200, 1800)
+        expect(r.ratio * r.ratio * 3200 * 1800).toBeCloseTo(9e6, 0)
+        r.fit(7680, 4320)
+        expect(r.ratio).toBe(1)
+    })
+
+    it('climbs back when the view shrinks, but not past a ratio that ran slow', () => {
+        const r = new AdaptiveResolution(1)
+        r.fit(3840, 2160)
+        r.fit(1920, 1080)
+        run(r, 1 / 120, 60)
+        expect(r.ratio).toBe(1.5)
+
+        const slow = new AdaptiveResolution(1)
+        run(slow, 1 / 30, 4)
+        expect(slow.ratio).toBe(1.25)
+        slow.fit(1920, 1080)
+        run(slow, 1 / 120, 60, 4)
+        expect(slow.ratio).toBe(1.25)
+    })
+
+    it('renders native rather than supersample too little to help', () => {
+        const r = new AdaptiveResolution(1)
+        r.fit(3840, 2160)
+        expect(r.ratio).toBe(1)
+    })
+
+    it('never drops below a scaled standard screen\'s own pixels', () => {
+        const r = new AdaptiveResolution(1.25)
+        r.fit(4096, 1728)
+        expect(r.ratio).toBe(1.25)
+        run(r, 1 / 30, 30)
+        expect(r.ratio).toBe(1.25)
+    })
+
+    it('leaves retina to its own ratio at any size', () => {
+        const r = new AdaptiveResolution(2)
+        r.fit(3840, 2160)
+        expect(r.ratio).toBe(2)
+    })
 })
 
 describe('chase camera on a bank', () => {

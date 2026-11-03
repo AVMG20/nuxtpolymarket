@@ -313,6 +313,7 @@ export class NitroRushEngine {
         const h = Math.max(1, this.host.clientHeight)
         this.width = w
         this.height = h
+        this.resolution.fit(w, h)
         this.renderer.setPixelRatio(this.resolution.ratio)
         this.renderer.setSize(w, h, false)
         this.post.setSize(w, h, this.resolution.ratio)
