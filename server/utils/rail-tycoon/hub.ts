@@ -1,7 +1,7 @@
 /**
  * Rail Tycoon hub: ties authenticated sockets, the world registry and live rooms together.
  *
- * One socket per user (a newer one closes the older with 4409), a token bucket per connection, and
+ * One socket per user (a newer one closes the older as replaced), a token bucket per connection, and
  * every frame decoded by decodeClientMsg, the anti-cheat boundary. Every lifecycle step of one world
  * (open, join, stop, delete, unload) runs in that world's promise chain, so they never interleave and
  * the live-or-offline decision is taken inside it; a step that needs two chains takes them in
@@ -36,6 +36,7 @@ import {
     encodeServerMsg,
     RT_PROTOCOL_BOUNDS,
     RT_PROTOCOL_VERSION,
+    RtCloseCode,
     type RtClientMsg,
     type RtErrorCode,
     type RtServerMsg,
@@ -55,6 +56,7 @@ import {
     type RtJoinedWorld,
     type RtWorldListing
 } from './registry'
+import { rtDescribeError, rtFullBucket, rtTakeToken, type RtTokenBucket } from './limiter'
 import { RtRoom, type RtRoomDeps, type RtRoomPeer, type RtStepBudget } from './room'
 import { rtLoadWorld, rtSaveCheckpoint } from './store'
 
@@ -69,7 +71,7 @@ const RT_USER_STATE_TTL_MS = 600000
 const TIMED_OUT = Symbol('rt-chain-timeout')
 type RtTimedOut = typeof TIMED_OUT
 
-/** One authenticated socket as the hub sees it; the ws route adds the backlog close (4408). */
+/** One authenticated socket as the hub sees it; the ws route adds the backlog close (tooSlow). */
 export interface RtHubSocket {
     send(frame: Uint8Array): void
     close(code: number, reason: string): void
@@ -102,8 +104,7 @@ export interface RtHubDeps extends RtHubRoomDeps {
 interface RtConn {
     socket: RtHubSocket
     user: RtHubUser
-    tokens: number
-    tokensAt: number
+    bucket: RtTokenBucket
     closed: boolean
     /** The one room this socket is attached to, and the peer it is attached as. */
     room: RtRoom | null
@@ -142,9 +143,6 @@ function messageOf(error: unknown): string {
     return typeof text === 'string' ? text : ''
 }
 
-function describe(error: unknown): string {
-    return error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : 'non-error thrown'
-}
 
 const noop = () => {}
 
@@ -194,23 +192,22 @@ export class RtHub {
 
     /**
      * Takes an authenticated socket and greets it with hello. A user's older socket is closed with
-     * 4409 and detached; above RT_MAX_PEERS the new one is closed with 4503. False when refused.
+     * replaced and detached; above RT_MAX_PEERS the new one is closed as serverFull. False when refused.
      */
     connect(socket: RtHubSocket, user: RtHubUser): boolean {
         const previous = this.byUser.get(user.id)
         if (this.conns.size - (previous ? 1 : 0) >= RT_MAX_PEERS) {
-            this.closeSocket(socket, 4503, 'Server full')
+            this.closeSocket(socket, RtCloseCode.serverFull, 'Server full')
             return false
         }
         if (previous) {
             this.drop(previous)
-            this.closeSocket(previous.socket, 4409, 'Opened in another tab')
+            this.closeSocket(previous.socket, RtCloseCode.replaced, 'Opened in another tab')
         }
         const conn: RtConn = {
             socket,
             user: { id: user.id, name: user.name },
-            tokens: RT_SOCKET_MSG_BURST,
-            tokensAt: this.deps.now(),
+            bucket: rtFullBucket(RT_SOCKET_MSG_BURST, this.deps.now()),
             closed: false,
             room: null,
             peer: null,
@@ -250,7 +247,7 @@ export class RtHub {
         }
         this.userState(conn.user.id).seenAt = this.deps.now()
         this.route(conn, msg).catch((error) => {
-            this.deps.log('error', `[rail-tycoon] hub ${msg.type} failed (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] hub ${msg.type} failed (${rtDescribeError(error)})`)
             this.refuse(conn, 'busy')
         })
     }
@@ -278,12 +275,7 @@ export class RtHub {
     }
 
     private takeToken(conn: RtConn): boolean {
-        const now = this.deps.now()
-        conn.tokens = Math.min(RT_SOCKET_MSG_BURST, conn.tokens + Math.max(0, now - conn.tokensAt) * RT_SOCKET_MSG_RATE / 1000)
-        conn.tokensAt = now
-        if (conn.tokens < 1) return false
-        conn.tokens -= 1
-        return true
+        return rtTakeToken(conn.bucket, this.deps.now(), RT_SOCKET_MSG_RATE, RT_SOCKET_MSG_BURST)
     }
 
     private userState(userId: string): RtUserState {
@@ -563,7 +555,7 @@ export class RtHub {
                 try {
                     await room.unload()
                 } catch (error) {
-                    this.deps.log('warn', `[rail-tycoon] deleted world ${JSON.stringify(worldId)} unload failed (${describe(error)})`)
+                    this.deps.log('warn', `[rail-tycoon] deleted world ${JSON.stringify(worldId)} unload failed (${rtDescribeError(error)})`)
                 }
             }
             this.deleted.delete(worldId)
@@ -603,7 +595,7 @@ export class RtHub {
         if (status === 403) return this.ownerRefusal(userId, worldId)
         if (status === 404) return 'noAccess'
         if (status === 409) return /closed/i.test(messageOf(error)) ? 'worldClosed' : 'noAccess'
-        this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(worldId)} owner write failed (${describe(error)})`)
+        this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(worldId)} owner write failed (${rtDescribeError(error)})`)
         return 'busy'
     }
 
@@ -741,7 +733,7 @@ export class RtHub {
                 if (this.rooms.get(room.id) !== room || room.peerCount > 0) return
                 await room.unload()
                 if (room.isUnloaded) this.forget(room)
-            }).catch(error => this.deps.log('warn', `[rail-tycoon] idle unload of ${JSON.stringify(room.id)} failed (${describe(error)})`))
+            }).catch(error => this.deps.log('warn', `[rail-tycoon] idle unload of ${JSON.stringify(room.id)} failed (${rtDescribeError(error)})`))
         }
         for (const [userId, state] of this.users) {
             if (!this.byUser.has(userId) && state.lookups === 0 && now - state.seenAt > RT_USER_STATE_TTL_MS) this.users.delete(userId)
@@ -808,13 +800,13 @@ export class RtHub {
         try {
             frame = encodeServerMsg(msg)
         } catch (error) {
-            this.deps.log('error', `[rail-tycoon] hub ${msg.type} frame cannot be encoded (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] hub ${msg.type} frame cannot be encoded (${rtDescribeError(error)})`)
             return
         }
         try {
             conn.socket.send(frame)
         } catch (error) {
-            this.deps.log('warn', `[rail-tycoon] hub send failed (${describe(error)})`)
+            this.deps.log('warn', `[rail-tycoon] hub send failed (${rtDescribeError(error)})`)
         }
     }
 }

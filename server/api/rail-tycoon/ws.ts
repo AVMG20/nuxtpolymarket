@@ -1,6 +1,7 @@
 import { auth } from '#server/utils/auth'
 import { useRtHub, type RtHubSocket } from '#server/utils/rail-tycoon/hub'
 import { RT_BACKLOG_CLOSE_BYTES, RT_MAX_PEERS, RT_SOCKET_HIGH_WATER_BYTES } from '#shared/utils/rail-tycoon/limits'
+import { RtCloseCode } from '#shared/utils/rail-tycoon/protocol'
 
 // Rail Tycoon socket: one binary connection per tab, routed by RtHub. Authenticated in `open`
 // (crossws exposes the upgrade request headers there); frames that arrive while the session lookup
@@ -46,7 +47,7 @@ const RT_FLUSH_MS = 10
  * RT_SOCKET_HIGH_WATER_BYTES unsent they wait here instead, so a snapshot's many part frames never
  * push Bun past its 16 MiB backpressure limit, where it drops frames. Lockstep cannot survive a
  * dropped frame, so a peer whose backlog (waiting frames included) passes RT_BACKLOG_CLOSE_BYTES, or
- * whose frame was dropped anyway, is closed with 4408 (it reconnects and reopens) rather than left
+ * whose frame was dropped anyway, is closed as tooSlow (it reconnects and reopens) rather than left
  * missing a frame.
  */
 function rtSocketFor(peer: RtPeerLike): RtHubSocket {
@@ -68,16 +69,20 @@ function rtSocketFor(peer: RtPeerLike): RtHubSocket {
         }
     }
 
+    function tooSlow() {
+        shut(RtCloseCode.tooSlow, 'Connection too slow')
+    }
+
     function push(frame: Uint8Array): boolean {
         let sent: unknown
         try {
             sent = peer.send(frame)
         } catch {
-            shut(4408, 'Connection too slow')
+            tooSlow()
             return false
         }
         if (RT_IS_BUN && sent === 0) {
-            shut(4408, 'Connection too slow')
+            tooSlow()
             return false
         }
         return true
@@ -104,11 +109,11 @@ function rtSocketFor(peer: RtPeerLike): RtHubSocket {
             }
             waiting.push(frame)
             waitingBytes += frame.length
-            if (waitingBytes + rtBacklog(peer) > RT_BACKLOG_CLOSE_BYTES) return shut(4408, 'Connection too slow')
+            if (waitingBytes + rtBacklog(peer) > RT_BACKLOG_CLOSE_BYTES) return tooSlow()
             timer ??= setInterval(flush, RT_FLUSH_MS)
         },
         close(code, reason) {
-            shut(code ?? 1000, reason ?? '')
+            shut(code ?? RtCloseCode.normal, reason ?? '')
         }
     }
 }
@@ -145,17 +150,17 @@ async function rtAuthenticate(peer: RtPeerLike): Promise<RtHubSocket | null> {
     try {
         const hub = useRtHub()
         if (hub.peerCount >= RT_MAX_PEERS) {
-            peer.close(4503, 'Server full')
+            peer.close(RtCloseCode.serverFull, 'Server full')
             return null
         }
         const headers = new Headers(peer.request?.headers as HeadersInit | undefined)
         if (!rtOriginAllowed(headers)) {
-            peer.close(4403, 'Forbidden')
+            peer.close(RtCloseCode.forbidden, 'Forbidden')
             return null
         }
         const session = await auth.api.getSession({ headers })
         if (!session?.user?.id) {
-            peer.close(4401, 'Unauthorized')
+            peer.close(RtCloseCode.unauthorized, 'Unauthorized')
             return null
         }
         const socket = rtSocketFor(peer)
@@ -163,7 +168,7 @@ async function rtAuthenticate(peer: RtPeerLike): Promise<RtHubSocket | null> {
     } catch (error) {
         console.error('[rail-tycoon] socket auth failed', error)
         try {
-            peer.close(1011, 'Server error')
+            peer.close(RtCloseCode.serverError, 'Server error')
         } catch {
             // already gone
         }

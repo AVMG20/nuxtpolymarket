@@ -11,15 +11,17 @@ import { and, asc, desc, eq, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { railTycoonMembers, railTycoonWorlds, user } from '#server/database/schema'
 import { clampUtf8 } from '#shared/utils/rail-tycoon/bytes'
+import { rtFoundCompany } from '#shared/utils/rail-tycoon/commands'
 import {
     isRtInviteCode,
     RT_INVITE_CODE_ALPHABET,
     RT_INVITE_CODE_LENGTH,
     RT_MAX_OPEN_WORLDS,
-    RT_MAX_WORLDS_PER_OWNER
+    RT_MAX_WORLDS_PER_OWNER,
+    rtWorldFull
 } from '#shared/utils/rail-tycoon/limits'
 import { RT_MAP_SIDES } from '#shared/utils/rail-tycoon/map'
-import { RT_PROTOCOL_BOUNDS } from '#shared/utils/rail-tycoon/protocol'
+import { RT_PROTOCOL_BOUNDS, type RtLobbyWorld } from '#shared/utils/rail-tycoon/protocol'
 import { encodeWorldParts } from '#shared/utils/rail-tycoon/save'
 import type { RtWorldSettings } from '#shared/utils/rail-tycoon/types'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
@@ -91,17 +93,8 @@ export async function rtListWorldsForUser(userId: string): Promise<RtWorldListin
     return rows.map(row => ({ ...row, isOwner: row.ownerId === userId }))
 }
 
-/** One row of the public lobby; the invite code is listed, since a public world is open to anyone. */
-export interface RtPublicWorld {
-    id: string
-    name: string
-    ownerName: string
-    memberCount: number
-    maxCompanies: number | null
-    lastActiveAt: Date
-    inviteCode: string
-    avatar: string | null
-}
+/** One row of the public lobby as the database gives it: RtLobbyWorld with its time still a Date. */
+export type RtPublicWorld = Omit<RtLobbyWorld, 'lastActiveAt'> & { lastActiveAt: Date }
 
 /** Open public worlds the user neither owns nor has joined, most recently active first, at most 50. */
 export async function rtListPublicWorlds(userId: string): Promise<RtPublicWorld[]> {
@@ -273,7 +266,7 @@ export async function rtCreateWorld(userId: string, userName: string, name: stri
 
     // the layout seed is site infrastructure, so it comes from the site's CSPRNG
     const world = RtWorld.create(generateWorld(randomInt(0, 0xffffffff), { side: settings.side }), settings)
-    const companyId = world.addCompany(userName)
+    const companyId = rtFoundCompany(world, userName)
     if (companyId === null) throw createError({ statusCode: 500, statusMessage: 'A new world refused its owner' })
     const stored = await rtCompressParts(encodeWorldParts(world))
 
@@ -319,7 +312,7 @@ export interface RtJoinedWorld {
  * routes a live world's join to RtRoom.join). Lock-then-read: the world row is locked FOR
  * UPDATE before anything is read, so parallel joins queue and each sees the save the one before it
  * wrote. An existing member gets their membership back unchanged; a closed or full world is 409, an
- * unknown code 404 and a malformed one 400. The member row's company is exactly the id addCompany
+ * unknown code 404 and a malformed one 400. The member row's company is exactly the id rtFoundCompany
  * returned, and it commits with the save in the locked transaction.
  */
 export async function rtJoinWorld(userId: string, userName: string, inviteCode: string): Promise<RtJoinedWorld> {
@@ -346,11 +339,11 @@ export async function rtJoinWorld(userId: string, userName: string, inviteCode: 
         const [{ members } = { members: 0 }] = await tx.select({ members: sql<number>`count(*)`.mapWith(Number) })
             .from(railTycoonMembers)
             .where(eq(railTycoonMembers.worldId, world.id))
-        if (world.maxCompanies !== null && members >= world.maxCompanies) throw createError({ statusCode: 409, statusMessage: 'World is full' })
+        if (rtWorldFull(world.maxCompanies, members)) throw createError({ statusCode: 409, statusMessage: 'World is full' })
 
         const loaded = await rtLoadWorld(world.id, tx)
         if (!loaded) throw createError({ statusCode: 500, statusMessage: 'World save does not load' })
-        const companyId = loaded.world.addCompany(userName)
+        const companyId = rtFoundCompany(loaded.world, userName)
         if (companyId === null) throw createError({ statusCode: 409, statusMessage: 'World is full' })
 
         await rtSaveCheckpoint(world.id, encodeWorldParts(loaded.world), loaded.world.tick, loaded.revision, new Date(), {

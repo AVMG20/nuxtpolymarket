@@ -13,17 +13,17 @@
  * decoder refuses anything malformed.
  */
 import { promisify } from 'node:util'
-import { gunzip, gzip } from 'node:zlib'
+import { gunzip } from 'node:zlib'
 import { and, asc, eq, gte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { railTycoonChunks, railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
 import { RT_GUNZIP_MAX_BYTES, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
-import { decodeWorldOrThrow, decodeWorldPartsOrThrow, RT_SAVE_MAGIC, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
+import { decodeWorldOrThrow, decodeWorldPartsOrThrow, RT_SAVE_MAGIC, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
+import { rtGzipParts, type RtStoredParts } from './compress'
 import type { RtWorldStatus } from './registry'
 
 const rtGunzip = promisify(gunzip)
-const rtGzip = promisify(gzip)
 
 /** Longest decoder message a failed load logs; the messages carry counts and ids, never save bytes. */
 const RT_LOAD_LOG_REASON_CHARS = 200
@@ -145,31 +145,21 @@ export interface RtCheckpointOptions {
     tx?: DbExecutor
     /** A member row (a live join's company) written in the same transaction as the save. */
     member?: { userId: string, companyId: number }
+    /** `parts` already gzipped (the room's pre-write check made them), so they are not compressed twice. */
+    stored?: RtStoredParts
 }
 
-/** A world's parts gzipped for storage: the entity part for the row's save, then each chunk with its hash. */
-export interface RtStoredParts {
-    save: Buffer
-    chunks: { hash: string, data: Buffer }[]
-    /** Compressed bytes of the save and every chunk together. */
-    bytes: number
+/** Compressed parts within RT_MAX_SAVE_BYTES, or 413: parts rtLoadWorld would refuse are never stored. */
+function rtCapped(stored: RtStoredParts): RtStoredParts {
+    if (stored.bytes > RT_MAX_SAVE_BYTES) {
+        throw createError({ statusCode: 413, statusMessage: `World save is ${stored.bytes} bytes compressed, over the ${RT_MAX_SAVE_BYTES} cap` })
+    }
+    return stored
 }
 
-/**
- * Gzips every part off the event loop. A world over RT_MAX_SAVE_BYTES compressed is 413, so parts
- * rtLoadWorld would refuse are never stored.
- */
+/** Gzips every part off the event loop (rtGzipParts); over RT_MAX_SAVE_BYTES compressed is 413. */
 export async function rtCompressParts(parts: RtWorldParts): Promise<RtStoredParts> {
-    const zipped = await Promise.all(parts.map(part => rtGzip(part)))
-    const bytes = zipped.reduce((sum, part) => sum + part.length, 0)
-    if (bytes > RT_MAX_SAVE_BYTES) {
-        throw createError({ statusCode: 413, statusMessage: `World save is ${bytes} bytes compressed, over the ${RT_MAX_SAVE_BYTES} cap` })
-    }
-    return {
-        save: zipped[0]!,
-        chunks: zipped.slice(1).map((data, k) => ({ hash: rtPartHash(parts[k + 1]!), data })),
-        bytes
-    }
+    return rtCapped(await rtGzipParts(parts))
 }
 
 /**
@@ -246,7 +236,7 @@ export async function rtSaveCheckpoint(
     now: Date,
     options: RtCheckpointOptions = {}
 ): Promise<number> {
-    const stored = await rtCompressParts(parts)
+    const stored = options.stored ? rtCapped(options.stored) : await rtCompressParts(parts)
     const write = (exec: DbExecutor) => rtWriteCheckpoint(exec, id, stored, tick, expectedRevision, now, options.member)
     return options.tx ? write(options.tx) : db.transaction(write)
 }

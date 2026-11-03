@@ -12,6 +12,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { db } from '#server/database'
 import { railTycoonChunks, railTycoonMembers, railTycoonWorlds } from '#server/database/schema'
+import { rtGzipParts } from '#server/utils/rail-tycoon/compress'
 import { rtLoadWorld, rtSaveCheckpoint } from '#server/utils/rail-tycoon/store'
 import { RT_GUNZIP_MAX_BYTES, RT_INVITE_CODE_ALPHABET, RT_INVITE_CODE_LENGTH, RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
 import { RtTileKind } from '#shared/utils/rail-tycoon/map'
@@ -341,6 +342,9 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             const parts = encodeWorldParts(world).map((part, k) => (k === 0 ? part : new Uint8Array(randomBytes(each))))
 
             await expect(rtSaveCheckpoint(row.id, parts, 1, 0, new Date())).rejects.toMatchObject({ statusCode: 413 })
+            // parts the caller compressed already are held to the same cap
+            const zipped = await rtGzipParts(parts)
+            await expect(rtSaveCheckpoint(row.id, encodeWorldParts(world), 1, 0, new Date(), { stored: zipped })).rejects.toMatchObject({ statusCode: 413 })
             const stored = await readRow(row.id)
             expect(stored.revision).toBe(0)
             expect(stored.save.equals(row.save)).toBe(true)

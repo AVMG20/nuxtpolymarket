@@ -101,6 +101,8 @@ function makeDeps(store: FakeStore) {
             if (store.gate) await store.gate
             if (expectedRevision !== store.revision) throw Object.assign(new Error('World was saved by another writer'), { statusCode: 409 })
             if (options.member && store.failMember) throw new Error('member insert failed')
+            // the room's pre-write check compressed the parts already; the store must not do it again
+            if (!options.stored || options.stored.chunks.length !== parts.length - 1) throw new Error('checkpoint without its compressed parts')
             const world = decodeWorldPartsOrThrow(parts)
             store.save = gzipSync(encodeWorld(world))
             store.revision++

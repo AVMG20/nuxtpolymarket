@@ -28,7 +28,7 @@ import {
     RT_OPEN_COOLDOWN_MS,
     RT_SOCKET_MSG_BURST
 } from '#shared/utils/rail-tycoon/limits'
-import { RtDir, RtMap } from '#shared/utils/rail-tycoon/map'
+import { RtDir } from '#shared/utils/rail-tycoon/map'
 import {
     decodeClientMsg,
     decodeServerMsg,
@@ -43,7 +43,7 @@ import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, RtRoadStopShape } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 
 const TICK = RT_CATALOG.time.tickMs
 const DAY_TICKS = RT_CATALOG.time.dayTicks
@@ -66,18 +66,9 @@ function must(world: RtWorld, company: number, command: RtCommand) {
 
 /** A blank map with the honest company (0) and the hostile one (1). */
 function blankWorld(sharing: boolean, money = 1_000_000): RtWorld {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 8, sharing },
-        map: new RtMap(SIDE),
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 8, sharing }, {
         rngState: 7,
-        tick: 0,
-        date: rtStartDate(),
-        pathfinderCursor: 0,
-        companies: [rtNewCompany(HONEST, 'Honest', 0, 0), rtNewCompany(HOSTILE, 'Hostile', 1, 0)],
-        towns: [],
-        industries: [],
-        stations: [],
-        vehicles: []
+        companies: [rtNewCompany(HONEST, 'Honest', 0, 0), rtNewCompany(HOSTILE, 'Hostile', 1, 0)]
     })
     for (const company of world.companyList()) company.money = money
     return world

@@ -1,8 +1,7 @@
 // Rail Tycoon live room: one world in memory, stepped every 27 ms only while a player is attached.
 // A deploy drops every socket and the room is rebuilt from its last checkpoint, so at most
 // RT_CHECKPOINT_MS (2 minutes) of play is lost.
-import { promisify } from 'node:util'
-import { gzip, gzipSync } from 'node:zlib'
+import { gzipSync } from 'node:zlib'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import {
     applyCommand,
@@ -10,8 +9,12 @@ import {
     encodeCommand,
     RT_SERVER_COMPANY,
     RtCommandKind,
+    rtApplyCommands,
+    rtApplyTick,
+    rtFoundCompanyCommand,
     type RtCommand,
-    type RtCommandResult
+    type RtCommandResult,
+    type RtDueCommand
 } from '#shared/utils/rail-tycoon/commands'
 import {
     RT_CHECKPOINT_MS,
@@ -42,10 +45,10 @@ import {
 import { decodeWorldPartsOrThrow, encodeWorldParts, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
 import { RT_NONE } from '#shared/utils/rail-tycoon/types'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
+import { rtGzipParts, type RtStoredParts } from './compress'
+import { rtDescribeError, rtFullBucket, rtTakeToken, type RtTokenBucket } from './limiter'
 import type { RtAccess, RtWorldStatus } from './registry'
 import type { RtLoadedWorld } from './store'
-
-const rtGzip = promisify(gzip)
 
 const TICK_MS = RT_CATALOG.time.tickMs
 /** Wall-clock debt a late timer may carry, and the most steps one callback runs. */
@@ -76,7 +79,7 @@ export interface RtRoomDeps {
         tick: number,
         expectedRevision: number,
         now: Date,
-        options?: { member?: { userId: string, companyId: number } }
+        options?: { member?: { userId: string, companyId: number }, stored?: RtStoredParts }
     ): Promise<number>
     rtCloseWorld(userId: string, worldId: string): Promise<unknown>
     /** Membership lookup for join: a player answer means the user already has a company here. */
@@ -148,9 +151,6 @@ function statusCodeOf(error: unknown): number | undefined {
     return typeof code === 'number' ? code : undefined
 }
 
-function describe(error: unknown): string {
-    return error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : 'non-error thrown'
-}
 
 /**
  * A live world. The hub owns sockets, access and per-world serialization; the room owns
@@ -169,7 +169,7 @@ export class RtRoom {
 
     private readonly peers = new Map<RtRoomPeer, RtPeerState>()
     private queue: RtQueued[] = []
-    private readonly buckets = new Map<string, { tokens: number, at: number }>()
+    private readonly buckets = new Map<string, RtTokenBucket>()
 
     private running = false
     private intervalHandle: unknown = null
@@ -304,7 +304,7 @@ export class RtRoom {
                 ...head
             }), have)
         } catch (error) {
-            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} snapshot at tick ${this.room.tick} cannot be sent (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} snapshot at tick ${this.room.tick} cannot be sent (${rtDescribeError(error)})`)
             return this.refusePeer(peer, 'worldBroken')
         }
 
@@ -414,7 +414,7 @@ export class RtRoom {
             try {
                 this.processTick()
             } catch (error) {
-                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} step at tick ${this.room.tick} threw (${describe(error)})`)
+                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} step at tick ${this.room.tick} threw (${rtDescribeError(error)})`)
                 this.fail('error')
                 return
             }
@@ -442,7 +442,7 @@ export class RtRoom {
         try {
             parts = this.encode()
         } catch (error) {
-            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} does not encode at tick ${this.room.tick} (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} does not encode at tick ${this.room.tick} (${rtDescribeError(error)})`)
             this.fail('error')
             return Promise.reject(error)
         }
@@ -489,7 +489,7 @@ export class RtRoom {
             await this.deps.rtCloseWorld(userId, this.id)
         } catch (error) {
             if (!this.isUnloaded) {
-                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} stop failed at tick ${this.room.tick} (${describe(error)})`)
+                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} stop failed at tick ${this.room.tick} (${rtDescribeError(error)})`)
                 this.fail('error')
             }
             return { ok: false, code: 'busy' }
@@ -625,18 +625,16 @@ export class RtRoom {
 
     /** Applies every command stamped for this tick, in stamp order, then steps. */
     private processTick(): void {
-        this.applyDue(this.room.tick)
-        this.room.step()
+        rtApplyTick(this.room, this.takeDue(this.room.tick))
         if (this.room.tick % RT_HASH_EVERY === 0) this.broadcast({ type: 'hash', tick: this.room.tick, hash: this.room.hash() })
     }
 
     /** Applies and removes every queued command stamped for `tick` or earlier, in queue order. */
-    private applyDue(tick: number): void {
+    /** Takes the queued commands stamped at or before `tick` off the queue, one at a time as they apply. */
+    private* takeDue(tick: number): Generator<RtDueCommand> {
         while (this.queue.length > 0 && this.queue[0]!.stamped.tick <= tick) {
             const entry = this.queue.shift()!
-            // computed first: an optional call would skip its argument when there is no callback
-            const result = applyCommand(this.room, entry.stamped.company ?? RT_SERVER_COMPANY, entry.command, true)
-            if (entry.onApplied) entry.onApplied(result)
+            yield { company: entry.stamped.company ?? RT_SERVER_COMPANY, command: entry.command, onApplied: entry.onApplied }
         }
     }
 
@@ -703,16 +701,9 @@ export class RtRoom {
     /* ---- internals: join ---- */
 
     private async foundCompany(userId: string, userName: string): Promise<RtJoinOutcome> {
-        const colour = this.room.firstUnusedColour()
-        let bytes: Uint8Array
-        try {
-            bytes = encodeCommand({ kind: RtCommandKind.foundCompany, name: userName, colour })
-        } catch {
-            // a name the codec cannot carry: the world gives the company its default name
-            bytes = encodeCommand({ kind: RtCommandKind.foundCompany, name: '', colour })
-        }
-        const command = decodeCommand(bytes, this.room.map.side)
-        if (!command || !applyCommand(this.room, RT_SERVER_COMPANY, command, false).ok) return { ok: false, code: 'worldFull' }
+        const found = rtFoundCompanyCommand(this.room, userName)
+        if (!found) return { ok: false, code: 'worldFull' }
+        const { command, bytes } = found
 
         let timer: unknown = null
         const deadline = new Promise<'timeout'>((resolve) => {
@@ -725,7 +716,7 @@ export class RtRoom {
             if (outcome === 'timeout') throw new Error(`live join timed out after ${RT_LIVE_JOIN_TIMEOUT_MS} ms`)
             return { ok: true, companyId: outcome, existing: false }
         } catch (error) {
-            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} live join failed at tick ${this.room.tick} (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} live join failed at tick ${this.room.tick} (${rtDescribeError(error)})`)
             this.fail('joinFailed')
             return { ok: false, code: 'busy' }
         } finally {
@@ -766,7 +757,7 @@ export class RtRoom {
     private applyPausedJoin(command: RtCommand, bytes: Uint8Array): RtCommandResult {
         const tick = this.room.tick
         this.broadcast({ type: 'command', tick, company: null, command: bytes })
-        this.applyDue(tick)
+        rtApplyCommands(this.room, this.takeDue(tick))
         const result = applyCommand(this.room, RT_SERVER_COMPANY, command, true)
         this.mutation++
         if (result.ok) this.holdWrites = true
@@ -798,13 +789,9 @@ export class RtRoom {
     /** Per user, so a reconnect does not refill it. */
     private takeToken(userId: string): boolean {
         const now = this.deps.now()
-        const bucket = this.buckets.get(userId) ?? { tokens: RT_ROOM_CMD_BURST, at: now }
-        bucket.tokens = Math.min(RT_ROOM_CMD_BURST, bucket.tokens + Math.max(0, now - bucket.at) * RT_ROOM_CMD_RATE / 1000)
-        bucket.at = now
+        const bucket = this.buckets.get(userId) ?? rtFullBucket(RT_ROOM_CMD_BURST, now)
         this.buckets.set(userId, bucket)
-        if (bucket.tokens < 1) return false
-        bucket.tokens -= 1
-        return true
+        return rtTakeToken(bucket, now, RT_ROOM_CMD_RATE, RT_ROOM_CMD_BURST)
     }
 
     /* ---- internals: snapshots and frames ---- */
@@ -868,7 +855,7 @@ export class RtRoom {
         try {
             frames = this.snapshotFrames(head => ({ type: 'resync', worldId: this.id, ...head }), have)
         } catch (error) {
-            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} resync at tick ${this.room.tick} cannot be sent (${describe(error)})`)
+            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} resync at tick ${this.room.tick} cannot be sent (${rtDescribeError(error)})`)
             return
         }
         for (const frame of frames) this.sendTo(peer, frame)
@@ -883,7 +870,7 @@ export class RtRoom {
         try {
             peer.send(frame)
         } catch (error) {
-            this.deps.log('warn', `[rail-tycoon] world ${JSON.stringify(this.id)} send failed (${describe(error)})`)
+            this.deps.log('warn', `[rail-tycoon] world ${JSON.stringify(this.id)} send failed (${rtDescribeError(error)})`)
         }
     }
 
@@ -915,10 +902,10 @@ export class RtRoom {
     }
 
     private async write(job: RtCheckpointJob): Promise<void> {
-        const refused = await this.refuseReason(job)
-        if (refused !== null) {
-            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} checkpoint at tick ${job.tick} refused, stored save kept (${refused})`)
-            for (const waiter of job.waiters) waiter.reject(new Error(`checkpoint refused: ${refused}`))
+        const checked = await this.checkParts(job)
+        if (typeof checked === 'string') {
+            this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} checkpoint at tick ${job.tick} refused, stored save kept (${checked})`)
+            for (const waiter of job.waiters) waiter.reject(new Error(`checkpoint refused: ${checked}`))
             this.fail('error')
             return
         }
@@ -928,7 +915,7 @@ export class RtRoom {
         }
         try {
             const revision = await this.deps.rtSaveCheckpoint(
-                this.id, job.parts, job.tick, this.revisionNow, new Date(this.deps.now()), job.member ? { member: job.member } : {}
+                this.id, job.parts, job.tick, this.revisionNow, new Date(this.deps.now()), job.member ? { member: job.member, stored: checked } : { stored: checked }
             )
             this.revisionNow = revision
             this.savedTick = job.tick
@@ -940,7 +927,7 @@ export class RtRoom {
                 this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} was saved by another writer; unloading at tick ${this.room.tick}`)
                 this.fail('conflict')
             } else {
-                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} checkpoint at tick ${job.tick} failed (${describe(error)})`)
+                this.deps.log('error', `[rail-tycoon] world ${JSON.stringify(this.id)} checkpoint at tick ${job.tick} failed (${rtDescribeError(error)})`)
             }
         }
     }
@@ -948,24 +935,26 @@ export class RtRoom {
     /**
      * Parts that would not load again are never written over the only save. Checks the sizes
      * rtLoadWorld enforces (compressed and decoded, all parts together), then that the parts decode to
-     * the hash the live world had when they were encoded. Null when the parts are safe to write.
+     * the hash the live world had when they were encoded. Returns the compressed parts to write, or
+     * why they must not be.
      */
-    private async refuseReason(job: RtCheckpointJob): Promise<string | null> {
+    private async checkParts(job: RtCheckpointJob): Promise<RtStoredParts | string> {
         const decoded = job.parts.reduce((sum, part) => sum + part.length, 0)
         if (decoded > RT_GUNZIP_MAX_BYTES) return `decoded save is ${decoded} bytes, over the ${RT_GUNZIP_MAX_BYTES} cap`
+        let stored: RtStoredParts
         try {
-            const compressed = (await Promise.all(job.parts.map(part => rtGzip(part)))).reduce((sum, part) => sum + part.length, 0)
-            if (compressed > RT_MAX_SAVE_BYTES) return `compressed save is ${compressed} bytes, over the ${RT_MAX_SAVE_BYTES} cap`
+            stored = await rtGzipParts(job.parts)
         } catch (error) {
-            return `gzip: ${describe(error)}`
+            return `gzip: ${rtDescribeError(error)}`
         }
+        if (stored.bytes > RT_MAX_SAVE_BYTES) return `compressed save is ${stored.bytes} bytes, over the ${RT_MAX_SAVE_BYTES} cap`
         try {
             const hash = decodeWorldPartsOrThrow(job.parts).hash()
             if (hash !== job.hash) return `decoded hash ${hash} differs from the live hash ${job.hash}`
         } catch (error) {
-            return `does not decode: ${describe(error)}`
+            return `does not decode: ${rtDescribeError(error)}`
         }
-        return null
+        return stored
     }
 
     /* ---- internals: failure ---- */
