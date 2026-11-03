@@ -7,7 +7,7 @@ import { RT_MAX_PLATFORMS, RT_MAX_PLATFORM_LENGTH, RtAxis, RtRoadStopShape, RtSt
 import { RT_ROAD_X, RT_ROAD_Y } from '#shared/utils/rail-tycoon/track'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import type { RtPickerScene } from '~/utils/rail-tycoon/picker'
-import { RtRailDirection, RtRoadDirection, RtToolKind, rtRailDirectionPieces } from '~/utils/rail-tycoon/tools'
+import { RtRailDirection, RtRoadDirection, RtToolKind, rtRailDirectionPieces, type RtToolOptions } from '~/utils/rail-tycoon/tools'
 import { useRtGame } from '~/utils/rail-tycoon/windows'
 import RtPickerPicture from './RtPickerPicture.vue'
 import RtWindow from './RtWindow.vue'
@@ -15,28 +15,13 @@ import RtWindow from './RtWindow.vue'
 withDefaults(defineProps<{ windowKey?: string }>(), { windowKey: 'buildPicker' })
 
 const game = useRtGame()
-const options = game.tools.options
 
-/** Bumped on every change, since the options object is not reactive; a preview also means one (R on the map). */
-const version = ref(0)
-let offPreview: (() => void) | null = null
-onMounted(() => {
-  offPreview = game.tools.on('preview', () => {
-    version.value++
-  })
-})
-onBeforeUnmount(() => offPreview?.())
-
-function set(apply: () => void) {
-  apply()
-  version.value++
-  game.refreshTool()
+function set(patch: Partial<RtToolOptions>) {
+  game.tools.setOptions(patch)
 }
 
 const state = computed(() => {
-  void version.value
-  // the toolbar's bus and lorry (and both depot) buttons share a tool and differ only in an option
-  void game.toolOptions.value
+  const options = game.toolOptions.value
   return {
     tool: game.tool.value,
     railDirection: options.railDirection,
@@ -136,7 +121,7 @@ function close() {
             :aria-pressed="state.railDirection === choice.direction"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.railDirection = choice.direction))"
+            @click="set({ railDirection: choice.direction })"
           >
             <RtPickerPicture :scene="railScene(choice.direction)" />
           </button>
@@ -150,7 +135,7 @@ function close() {
             :aria-pressed="state.railDirection === RtRailDirection.auto"
             aria-label="Autorail: track along the drag"
             title="Autorail: track along the drag"
-            @click="set(() => (options.railDirection = RtRailDirection.auto))"
+            @click="set({ railDirection: RtRailDirection.auto })"
           >
             <RtPickerPicture :scene="railScene(RtRailDirection.auto)" />
           </button>
@@ -169,7 +154,7 @@ function close() {
             :aria-pressed="state.roadDirection === choice.direction"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.roadDirection = choice.direction))"
+            @click="set({ roadDirection: choice.direction })"
           >
             <RtPickerPicture :scene="roadScene(choice.bits)" />
           </button>
@@ -183,7 +168,7 @@ function close() {
             :aria-pressed="state.roadDirection === RtRoadDirection.auto"
             aria-label="Autoroad: road along the drag"
             title="Autoroad: road along the drag"
-            @click="set(() => (options.roadDirection = RtRoadDirection.auto))"
+            @click="set({ roadDirection: RtRoadDirection.auto })"
           >
             <RtPickerPicture :scene="roadScene(RT_ROAD_X | RT_ROAD_Y)" />
           </button>
@@ -202,7 +187,7 @@ function close() {
             :aria-pressed="state.axis === choice.axis"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.stationAxis = choice.axis))"
+            @click="set({ stationAxis: choice.axis })"
           >
             <RtPickerPicture :scene="stationScene(choice.axis)" />
           </button>
@@ -216,7 +201,7 @@ function close() {
             class="rt-picker-num"
             :class="{ 'rt-picker-on': state.tracks === n }"
             :aria-pressed="state.tracks === n"
-            @click="set(() => (options.stationTracks = n))"
+            @click="set({ stationTracks: n })"
           >
             {{ n }}
           </button>
@@ -230,7 +215,7 @@ function close() {
             class="rt-picker-num"
             :class="{ 'rt-picker-on': state.length === n }"
             :aria-pressed="state.length === n"
-            @click="set(() => (options.stationLength = n))"
+            @click="set({ stationLength: n })"
           >
             {{ n }}
           </button>
@@ -249,7 +234,7 @@ function close() {
             :aria-pressed="state.facing === choice.facing"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.depotFacing = choice.facing))"
+            @click="set({ depotFacing: choice.facing })"
           >
             <RtPickerPicture :scene="depotScene(choice.facing)" />
           </button>
@@ -266,7 +251,7 @@ function close() {
             class="rt-picker-num rt-picker-text"
             :class="{ 'rt-picker-on': state.stop === choice.stop }"
             :aria-pressed="state.stop === choice.stop"
-            @click="set(() => (options.stopType = choice.stop))"
+            @click="set({ stopType: choice.stop })"
           >
             {{ choice.label }}
           </button>
@@ -282,7 +267,7 @@ function close() {
             :aria-pressed="state.shape === choice.shape"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.stopShape = choice.shape))"
+            @click="set({ stopShape: choice.shape })"
           >
             <RtPickerPicture :scene="stopScene(choice.shape)" />
           </button>
@@ -298,7 +283,7 @@ function close() {
             :aria-pressed="state.shape === choice.shape"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.stopShape = choice.shape))"
+            @click="set({ stopShape: choice.shape })"
           >
             <RtPickerPicture :scene="stopScene(choice.shape)" />
           </button>
@@ -317,7 +302,7 @@ function close() {
             :aria-pressed="state.signal === choice.signal"
             :aria-label="choice.label"
             :title="choice.label"
-            @click="set(() => (options.signalType = choice.signal))"
+            @click="set({ signalType: choice.signal })"
           >
             <RtPickerPicture :scene="signalScene(choice.signal)" />
           </button>

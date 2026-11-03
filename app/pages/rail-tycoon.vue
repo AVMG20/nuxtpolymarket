@@ -25,7 +25,7 @@ import RtVehicleListWindow from '~/components/rail-tycoon/RtVehicleListWindow.vu
 import RtVehicleWindow from '~/components/rail-tycoon/RtVehicleWindow.vue'
 import RtWorldChooser from '~/components/rail-tycoon/RtWorldChooser.vue'
 import { rtServerErrorText, useRtWindows, type RtLeaveReason, type RtWindowEntry, type RtWindowKind } from '~/utils/rail-tycoon/windows'
-import { rtQueryTarget } from '~/utils/rail-tycoon/world-windows'
+import { rtQueryTarget } from '~/utils/rail-tycoon/query'
 
 definePageMeta({ layout: false })
 

@@ -5,7 +5,8 @@
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import RtWindow from './RtWindow.vue'
 import { rtCompanyCss, rtFormatMoney, useRtGame, useRtWindows } from '~/utils/rail-tycoon/windows'
-import { rtAgeText, rtSortVehicleRows, rtVehicleRows, type RtVehicleSortKey } from '~/utils/rail-tycoon/world-windows'
+import { rtSortVehicleRows, rtVehicleRows, type RtVehicleSortKey } from '~/utils/rail-tycoon/vehicle-view'
+import { rtAgeText } from '~/utils/rail-tycoon/view-format'
 
 withDefaults(defineProps<{
   windowKey?: string

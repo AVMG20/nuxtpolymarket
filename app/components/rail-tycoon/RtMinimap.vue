@@ -13,7 +13,7 @@ import {
   rtMinimapFromWorld,
   rtMinimapScale,
   rtMinimapToWorld
-} from '~/utils/rail-tycoon/world-windows'
+} from '~/utils/rail-tycoon/minimap'
 
 withDefaults(defineProps<{
   windowKey?: string

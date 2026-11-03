@@ -5,25 +5,22 @@
 // Buy sends buyVehicle and opens the new vehicle's window once it shows up in the depot.
 // The vehicles standing in the depot are listed below, a click opens one.
 import { RT_CATALOG, type RtVehicleModelSpec } from '#shared/utils/rail-tycoon/catalog'
-import { RtCommandKind, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RtCommandKind, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
-import { rtModelCargo } from '#shared/utils/rail-tycoon/vehicles'
+import { rtMaxWagons, rtModelCargo } from '#shared/utils/rail-tycoon/vehicles'
 import RtWindow from './RtWindow.vue'
 import { rtCommandErrorText, rtCompanyCss, rtFormatMoney, useRtGame, useRtWindows } from '~/utils/rail-tycoon/windows'
 import {
   rtBuyableModels,
   rtCapacityText,
-  rtCargoCss,
-  rtCargoName,
   rtConsistSummary,
   rtDepotKindAt,
-  rtMaxWagons,
   rtPlannedConsist,
-  rtVehicleName,
   rtVehiclesInDepot,
-  rtVehicleStatus,
   rtWagonModels
-} from '~/utils/rail-tycoon/world-windows'
+} from '~/utils/rail-tycoon/buy-view'
+import { rtVehicleName, rtVehicleStatus } from '~/utils/rail-tycoon/vehicle-view'
+import { rtCargoCss, rtCargoName } from '~/utils/rail-tycoon/view-format'
 
 const props = withDefaults(defineProps<{
   windowKey: string
@@ -35,7 +32,6 @@ const props = withDefaults(defineProps<{
 
 const game = useRtGame()
 const windows = useRtWindows()
-const toast = useToast()
 
 /** How long to wait for a bought vehicle to appear before giving up on opening its window (ms). */
 const APPEAR_TIMEOUT_MS = 15000
@@ -83,7 +79,7 @@ const view = computed(() => {
   if (!map.validTile(props.id) || depotKind.value === null) return null
   const owner = world.company(map.owner[props.id]!)
   const cmd = command.value
-  const check = cmd && companyId !== null ? applyCommand(world, companyId, cmd, false) : null
+  const check = cmd ? game.tryCommand(cmd) : null
   return {
     title: `${owner?.name ?? 'Depot'}: ${isTrain.value ? 'train' : 'road vehicle'} depot`,
     accent: owner ? rtCompanyCss(owner.colour) : null,
@@ -113,10 +109,7 @@ function buy() {
   const cmd = command.value
   if (!ls || !cmd || cmd.kind !== RtCommandKind.buyVehicle) return
   const known = new Set(ls.world.vehicleList().map(vehicle => vehicle.id))
-  if (!game.sendCommand(cmd)) {
-    toast.add({ title: 'Not connected to the world, try again in a moment', color: 'warning' })
-    return
-  }
+  if (!game.sendCommandOrWarn(cmd)) return
   awaiting = { known, model: cmd.model, until: Date.now() + APPEAR_TIMEOUT_MS }
 }
 

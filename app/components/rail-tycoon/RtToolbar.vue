@@ -4,12 +4,11 @@
 // use and leave. There is no station list in version 1; stations open by a query click.
 import { RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
-import { RtToolKind } from '~/utils/rail-tycoon/tools'
+import { RtToolKind, type RtToolOptions } from '~/utils/rail-tycoon/tools'
 import { useRtGame, useRtWindows, type RtWindowKind } from '~/utils/rail-tycoon/windows'
 
 const game = useRtGame()
 const windows = useRtWindows()
-const toast = useToast()
 
 interface ToolButton {
   id: string
@@ -20,7 +19,7 @@ interface ToolButton {
   setup?: () => void
 }
 
-const options = game.tools.options
+const setOptions = (patch: Partial<RtToolOptions>) => game.tools.setOptions(patch)
 
 const railTools: ToolButton[] = [
   { id: 'rail', label: 'Build railway track', icon: 'i-lucide-train-track', tool: RtToolKind.rail },
@@ -30,9 +29,7 @@ const railTools: ToolButton[] = [
     label: 'Build train depot (R turns it)',
     icon: 'i-lucide-warehouse',
     tool: RtToolKind.depot,
-    setup: () => {
-      options.depotKind = RtVehicleKind.rail
-    }
+    setup: () => setOptions({ depotKind: RtVehicleKind.rail })
   },
   { id: 'signal', label: 'Build signals (click a signal to turn it)', icon: 'i-lucide-signpost', tool: RtToolKind.signal },
   { id: 'parking', label: 'Build parking spot on a dead end (Ctrl+click removes it)', icon: 'i-lucide-square-parking', tool: RtToolKind.parking }
@@ -45,27 +42,21 @@ const roadTools: ToolButton[] = [
     label: 'Build bus stop',
     icon: 'i-lucide-bus',
     tool: RtToolKind.roadStop,
-    setup: () => {
-      options.stopType = RtStationTile.bus
-    }
+    setup: () => setOptions({ stopType: RtStationTile.bus })
   },
   {
     id: 'truckStop',
     label: 'Build lorry stop',
     icon: 'i-lucide-truck',
     tool: RtToolKind.roadStop,
-    setup: () => {
-      options.stopType = RtStationTile.truck
-    }
+    setup: () => setOptions({ stopType: RtStationTile.truck })
   },
   {
     id: 'roadDepot',
     label: 'Build road vehicle depot (R turns it)',
     icon: 'i-lucide-store',
     tool: RtToolKind.depot,
-    setup: () => {
-      options.depotKind = RtVehicleKind.road
-    }
+    setup: () => setOptions({ depotKind: RtVehicleKind.road })
   }
 ]
 
@@ -76,7 +67,7 @@ const otherTools: ToolButton[] = [
 
 /** Which button is lit: the tool, told apart by the options for the tools two buttons share. */
 const activeId = computed(() => {
-  void game.toolOptions.value
+  const options = game.toolOptions.value
   const tool = game.tool.value
   switch (tool) {
     case RtToolKind.rail: return 'rail'
@@ -127,33 +118,18 @@ function openWindow(kind: RtWindowKind) {
 
 const menuOpen = ref(false)
 const confirmStop = ref(false)
-const copied = ref(false)
 const menuRoot = ref<HTMLElement | null>(null)
-let copiedTimer: ReturnType<typeof setTimeout> | undefined
-
-const inviteLink = computed(() => {
-  const code = game.inviteCode.value
-  return code ? `${window.location.origin}/rail-tycoon/invite/${code}` : null
-})
+const invite = useRtCopyInvite()
+const copied = computed(() => invite.copied.value !== null)
 
 function toggleMenu() {
   menuOpen.value = !menuOpen.value
   confirmStop.value = false
 }
 
-async function copyInvite() {
-  const link = inviteLink.value
-  if (!link) return
-  try {
-    await navigator.clipboard.writeText(link)
-    copied.value = true
-    clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => {
-      copied.value = false
-    }, 1500)
-  } catch {
-    toast.add({ title: 'Couldn\'t copy the invite link', description: link, color: 'error' })
-  }
+function copyInvite() {
+  const code = game.inviteCode.value
+  if (code) void invite.copy(code, game.worldId)
 }
 
 function stopWorld() {
@@ -163,9 +139,7 @@ function stopWorld() {
   }
   confirmStop.value = false
   menuOpen.value = false
-  if (!game.send({ type: 'stop', worldId: game.worldId })) {
-    toast.add({ title: 'Not connected, try again in a moment', color: 'warning' })
-  }
+  game.sendOrWarn({ type: 'stop', worldId: game.worldId })
 }
 
 function leave() {
@@ -186,7 +160,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointer, true)
-  clearTimeout(copiedTimer)
 })
 </script>
 
@@ -284,7 +257,7 @@ onBeforeUnmount(() => {
         </button>
       </UTooltip>
       <div v-if="menuOpen" class="rt-tb-dropdown" role="menu">
-        <button v-if="inviteLink" type="button" role="menuitem" class="rt-tb-item" @click="copyInvite">
+        <button v-if="game.inviteCode.value" type="button" role="menuitem" class="rt-tb-item" @click="copyInvite">
           <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-link'" class="size-4" />
           {{ copied ? 'Invite link copied' : 'Copy invite link' }}
         </button>

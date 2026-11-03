@@ -5,30 +5,27 @@
 // unloading flags, sent as setOrders after validateOrders passes; Start or Stop, Send to depot,
 // Reverse for trains and Sell, which only works stopped in a depot. A follow toggle keeps the
 // camera on it. Another company's vehicle shows the same facts, read only.
-import { RtCommandKind, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
-import { RT_MAX_ORDERS, validateOrders } from '#shared/utils/rail-tycoon/orders'
+import { RtCommandKind, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RT_MAX_ORDERS, rtOrdersToggleFlag, validateOrders } from '#shared/utils/rail-tycoon/orders'
 import { RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtOrder } from '#shared/utils/rail-tycoon/types'
 import { rtVehicleSellValue } from '#shared/utils/rail-tycoon/vehicles'
 import RtWindow from './RtWindow.vue'
-import { rtVehicleBadge } from '~/utils/rail-tycoon/renderer'
+import { rtVehicleBadge } from '~/utils/rail-tycoon/vehicle-draw'
 import { RtToolKind, type RtPicked, type RtPickKind } from '~/utils/rail-tycoon/tools'
 import { rtCompanyCss, rtFormatMoney, useRtGame, useRtWindows } from '~/utils/rail-tycoon/windows'
+import { rtConsistSummary, rtConsistText } from '~/utils/rail-tycoon/buy-view'
 import {
-  rtAgeText,
-  rtConsistSummary,
-  rtConsistText,
   rtOrderErrorText,
   rtOrdersInsert,
   rtOrdersMove,
   rtOrdersRemove,
-  rtOrdersToggleFlag,
   rtOrderText,
   rtReliabilityPercent,
   rtVehicleCargo,
   rtVehicleName,
-  rtVehicleStatus,
-  rtOrderPickOwner as pickOwner
-} from '~/utils/rail-tycoon/world-windows'
+  rtVehicleStatus
+} from '~/utils/rail-tycoon/vehicle-view'
+import { rtAgeText } from '~/utils/rail-tycoon/view-format'
 
 const props = withDefaults(defineProps<{
   windowKey: string
@@ -41,6 +38,7 @@ const props = withDefaults(defineProps<{
 const game = useRtGame()
 const windows = useRtWindows()
 const toast = useToast()
+const pickOwner = game.orderPickOwner
 
 const selected = ref(-1)
 const follow = ref(false)
@@ -49,10 +47,7 @@ const picking = computed(() => pickOwner.value === props.windowKey ? pickKind.va
 
 /** Whether the command would pass its rule now, tried without applying it. */
 function allowed(command: RtCommand): boolean {
-  const ls = game.lockstep.value
-  const companyId = game.companyId.value
-  if (!ls || companyId === null) return false
-  return applyCommand(ls.world, companyId, command, false).ok
+  return game.tryCommand(command)?.ok === true
 }
 
 const view = computed(() => {
@@ -128,7 +123,7 @@ watch(() => view.value?.orders.length ?? 0, (length) => {
 // ─── Commands ────────────────────────────────────────────────────────────
 
 function send(command: RtCommand) {
-  if (!game.sendCommand(command)) toast.add({ title: 'Not connected to the world, try again in a moment', color: 'warning' })
+  game.sendCommandOrWarn(command)
 }
 
 function startStop() {

@@ -69,7 +69,7 @@ const view = computed(() => {
 })
 
 function changeLoan(steps: 1 | -1) {
-  game.sendCommand({ kind: RtCommandKind.changeLoan, steps })
+  game.sendCommandOrWarn({ kind: RtCommandKind.changeLoan, steps })
 }
 
 // ─── Income graph ────────────────────────────────────────────────────────

@@ -9,7 +9,8 @@ import { RtFacility } from '#shared/utils/rail-tycoon/types'
 import RtWindow from './RtWindow.vue'
 import type { RtToolPreview } from '~/utils/rail-tycoon/tools'
 import { rtCompanyCss, useRtGame, useRtWindows } from '~/utils/rail-tycoon/windows'
-import { rtCargoCss, rtCargoName, rtStationAccepts, rtStationCargoRows } from '~/utils/rail-tycoon/world-windows'
+import { rtStationAccepts, rtStationCargoRows } from '~/utils/rail-tycoon/station-view'
+import { rtCargoCss, rtCargoName } from '~/utils/rail-tycoon/view-format'
 
 const props = withDefaults(defineProps<{
   windowKey: string
