@@ -107,5 +107,5 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         canUndo.value = history.length > 0
     }
 
-    return { draft, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo }
+    return { draft, closed, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo }
 }

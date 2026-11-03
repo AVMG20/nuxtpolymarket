@@ -14,6 +14,7 @@ const props = defineProps<{
     selected: number | null
     /** The piece about to be built. */
     ghost: LayoutWalk | null
+    ghostBlocked: boolean
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
 
@@ -56,7 +57,7 @@ function resetView() {
 /** The ghost as a course to draw, with where it ends. */
 const ghostCourse = computed(() => {
     const def = props.ghost && draftTrackDef(props.ghost, false)
-    return def ? { def, end: props.ghost!.end } : null
+    return def ? { def, end: props.ghost!.end, blocked: props.ghostBlocked } : null
 })
 
 watch(course, c => preview?.setCourse(c, range.value))

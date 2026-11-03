@@ -263,6 +263,10 @@
     white-space: nowrap;
 }
 
+.nr-root .nr-construct .nr-construct-next.is-blocked {
+    color: #ff6b7d;
+}
+
 .nr-root .nr-drawer {
     padding-top: 10px;
     border-top: 1px solid rgb(255 255 255 / 0.12);

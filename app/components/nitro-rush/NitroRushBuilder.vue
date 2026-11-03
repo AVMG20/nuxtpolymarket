@@ -17,7 +17,7 @@ const emit = defineEmits<{
     delete: [id: string]
 }>()
 
-const { draft, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+const { draft, closed, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
 const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
@@ -30,7 +30,7 @@ const drawerOpened = ref(false)
 watch(drawerOpen, () => {
     drawerOpened.value = true
 })
-const { choice, next, shownWalk, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert })
+const { choice, next, shownWalk, ghost, blocked, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
 
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
@@ -123,6 +123,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
             :loop="draft.closed"
             :selected="cursor >= 0 ? cursor : null"
             :ghost="ghost"
+            :ghost-blocked="blocked"
             @pick="select"
           />
           <NitroRushBuilderMap
@@ -133,6 +134,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
             :half-width="ROAD.halfWidth"
             :selected="cursor >= 0 ? cursor : null"
             :ghost="ghost"
+            :ghost-blocked="blocked"
             @pick="select"
           />
           <div class="nr-toggle is-small absolute right-2.5 top-2.5" role="radiogroup" aria-label="Builder view">
@@ -156,7 +158,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
-        <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" @pick="pick" @build="build">
+        <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" @pick="pick" @build="build">
           <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
             ALL SECTIONS
             <UIcon :name="drawerOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="size-3.5" />

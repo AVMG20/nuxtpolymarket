@@ -12,6 +12,7 @@ const FOV = 50
 /** Courses smaller than this still frame as if they were this wide, so one section isn't blown up. */
 const MIN_RADIUS = 60
 const GHOST_COLOR = 0x3df2ff
+const GHOST_BLOCKED_COLOR = 0xff3b52
 /** Above the road it may overlap when a piece goes in mid-course, and the selection's highlight. */
 const GHOST_LIFT = 0.08
 
@@ -96,9 +97,10 @@ export class BuilderPreview {
     }
 
     /** Shows the piece about to be built, or nothing; it isn't part of the road, so it survives the road's rebuilds. */
-    setGhost(ghost: { def: TrackDef, end: NonNullable<PreviewCourse['end']> } | null) {
+    setGhost(ghost: { def: TrackDef, end: NonNullable<PreviewCourse['end']>, blocked: boolean } | null) {
         this.clearGhost()
         if (ghost) {
+            this.ghostMat.color.setHex(ghost.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR)
             const track = new Track(ghost.def)
             const deck = new THREE.Mesh(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, GHOST_LIFT, ROAD_TILE_LENGTH), this.ghostMat)
             const marker = endMarker(ghost.end, this.mats.markerGeo, this.ghostMat)

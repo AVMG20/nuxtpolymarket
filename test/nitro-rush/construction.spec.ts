@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { useNitroRushConstruction } from '../../app/composables/useNitroRushConstruction'
 import { walkCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 
-function construct(sections: SectionId[], full = false) {
+function construct(sections: SectionId[], full = false, closed = false) {
     const laid = ref(sections)
     const cursor = ref(sections.length - 1)
-    const walkOf = (s: SectionId[]) => walkCustomTrack({ id: 'custom-t', name: 'T', closed: false, sections: s })
+    const walkOf = (s: SectionId[]) => walkCustomTrack({ id: 'custom-t', name: 'T', closed, sections: s })
     const insert = (id: SectionId) => {
         laid.value = [...laid.value.slice(0, cursor.value + 1), id, ...laid.value.slice(cursor.value + 1)]
         cursor.value++
@@ -14,6 +14,7 @@ function construct(sections: SectionId[], full = false) {
     const course = {
         cursor,
         walk: computed(() => walkOf(laid.value)),
+        closed: ref(closed),
         full: ref(full),
         walkUpTo: (id: SectionId) => walkOf([...laid.value.slice(0, cursor.value + 1), id]),
         insert
@@ -36,6 +37,41 @@ describe('building a piece at a time', () => {
         const c = construct(['start', 'straight-20'])
         expect(c.shownWalk.value.rise).toBe(0)
         expect(c.ghost.value!.rise).toBe(0)
+    })
+
+    it('blocks a piece that runs into other road, and builds nothing', () => {
+        // Back round to cross its own road at the same height.
+        const c = construct(['start', 'straight-100', 'right-tight', 'right-tight', 'straight-60', 'right-tight'])
+        c.pick({ curve: 'straight', length: 60 })
+        expect(c.blocked.value).toBe(true)
+        const laid = c.laid.value
+        c.build()
+        expect(c.laid.value).toBe(laid)
+    })
+
+    it('blocks a crossing just past the start of an unfinished loop, which is no join', () => {
+        const c = construct(['start', 'left-tight', 'left-hairpin', 'straight-10', 'left-tight'], false, true)
+        c.pick({ curve: 'straight', length: 10 })
+        expect(c.next.value).toBe('straight-10')
+        expect(c.blocked.value).toBe(true)
+    })
+
+    it('lets the same crossing through once it passes high enough over', () => {
+        const flat = construct(['start', 'straight-100', 'right-tight', 'right-tight', 'straight-60', 'right-tight'])
+        flat.pick({ curve: 'straight', length: 60 })
+        expect(flat.blocked.value).toBe(true)
+        const c = construct(['start', 'straight-100', 'slope-up-steep', 'right-tight', 'right-tight', 'straight-60', 'right-tight'])
+        c.pick({ curve: 'straight', length: 60 })
+        expect(c.blocked.value).toBe(false)
+    })
+
+    it('doesn\'t block an open road or the last run into a loop\'s own start', () => {
+        expect(construct(['start', 'straight-100']).blocked.value).toBe(false)
+        const home: SectionId[] = ['start', 'straight-100', 'right-tight', 'straight-60', 'right-tight', 'straight-100', 'straight-20', 'right-tight', 'straight-60']
+        const c = construct(home, false, true)
+        c.pick({ curve: 'right-90', size: 'tight' })
+        expect(c.next.value).toBe('right-tight')
+        expect(c.blocked.value).toBe(false)
     })
 
     it('keeps a second change asked for while the first is built', () => {

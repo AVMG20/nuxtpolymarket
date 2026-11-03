@@ -67,3 +67,11 @@ export function clearanceFault(road: RoadPoints, closed: boolean, wallOffset: nu
     const { apart } = clearanceSpan(wallOffset)
     return firstClash(road, wallOffset, (i, j) => closed && n - (j - i) < apart)
 }
+
+/** Whether a road still being laid clashes on its last piece; an older clash isn't this piece's fault, and only a run in from behind the line (+z) is a loop's join. */
+export function lastPieceClashes(road: RoadPoints & Pick<LayoutWalk, 'pieceStarts'>, closed: boolean, wallOffset: number) {
+    const n = road.pts.length
+    const from = road.pieceStarts[road.pieceStarts.length - 1]!
+    const { apart } = clearanceSpan(wallOffset)
+    return firstClash(road, wallOffset, (i, j) => j < from || (closed && n - (j - i) < apart && road.pts[j]![1] >= 0)) !== null
+}

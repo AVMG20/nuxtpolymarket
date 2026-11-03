@@ -10,6 +10,7 @@ const props = defineProps<{
     selected: number | null
     /** The piece about to be built. */
     ghost: LayoutWalk | null
+    ghostBlocked: boolean
 }>()
 const emit = defineEmits<{ pick: [index: number] }>()
 
@@ -26,6 +27,7 @@ const GROUND = [61, 242, 255] as const
 const HIGH = [255, 210, 61] as const
 const PINK = '#ff2bd6'
 const GHOST = 'rgba(61, 242, 255, 0.5)'
+const GHOST_BLOCKED = 'rgba(255, 59, 82, 0.6)'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
 /** Grid steps in metres, the finest whose cells are at least this many CSS px wide. */
 const GRID_STEPS = [10, 50, 250, 1000]
@@ -204,14 +206,15 @@ function draw() {
     ctx.stroke()
 
     if (ghost) {
-        ctx.strokeStyle = GHOST
+        const colour = props.ghostBlocked ? GHOST_BLOCKED : GHOST
+        ctx.strokeStyle = colour
         ctx.lineWidth = road
         ctx.lineCap = 'butt'
         ctx.beginPath()
         ghostPath.forEach(([x, z], i) => i ? ctx.lineTo(sx(x), sy(z)) : ctx.moveTo(sx(x), sy(z)))
         ctx.stroke()
         chevron(ctx, sx(ghost.end.x), sy(ghost.end.z), ghost.end.heading, marker)
-        ctx.fillStyle = GHOST
+        ctx.fillStyle = colour
         ctx.fill()
     }
 }
@@ -254,7 +257,7 @@ function onClick(e: MouseEvent) {
     if (best) emit('pick', best.piece)
 }
 
-watch(() => [props.walk, props.closed, props.halfWidth, props.selected, props.ghost], draw)
+watch(() => [props.walk, props.closed, props.halfWidth, props.selected, props.ghost, props.ghostBlocked], draw)
 
 onMounted(() => {
     resize()

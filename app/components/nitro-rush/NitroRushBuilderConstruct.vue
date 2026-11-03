@@ -7,6 +7,8 @@ defineProps<{
     choice: Construction
     next: SectionId
     disabled: boolean
+    /** The next piece would run too close to other road. */
+    blocked: boolean
 }>()
 defineEmits<{ pick: [change: Partial<Construction>], build: [] }>()
 
@@ -114,9 +116,10 @@ const SIZES: { id: BendSize, label: string }[] = [
     </div>
 
     <div class="nr-construct-group nr-construct-action">
-      <span class="nr-label nr-construct-next" :title="nextLabel(next)">{{ nextLabel(next) }}</span>
+      <span v-if="blocked" class="nr-label nr-construct-next is-blocked">Too close to other road</span>
+      <span v-else class="nr-label nr-construct-next" :title="nextLabel(next)">{{ nextLabel(next) }}</span>
       <div class="flex items-center gap-2">
-        <button class="nr-play nr-construct-build" :disabled="disabled" @click="$emit('build')">BUILD</button>
+        <button class="nr-play nr-construct-build" :disabled="disabled || blocked" @click="$emit('build')">BUILD</button>
         <slot />
       </div>
     </div>
