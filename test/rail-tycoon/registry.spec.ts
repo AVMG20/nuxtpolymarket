@@ -120,16 +120,19 @@ async function ownedCounts(ownerId: string) {
  * before any of them inserts, unless the guard makes them wait their turn.
  */
 async function lineUp<T>(count: number, start: () => Promise<T>[]): Promise<PromiseSettledResult<T>[]> {
+    // the lock and its poll share one connection; the rest of the burst past what the pool holds
+    // beside it waits for a connection instead, and runs once the lock is let go
+    const target = Math.min(count, Number(process.env.DATABASE_POOL_MAX ?? 30) - 1)
     let burst!: Promise<PromiseSettledResult<T>[]>
     await db.transaction(async (tx) => {
         await tx.execute(sql`lock table rail_tycoon_worlds in share mode`)
         burst = Promise.allSettled(start())
         const deadline = Date.now() + 3000
         while (Date.now() < deadline) {
-            const { rows } = await db.execute<{ waiting: number }>(sql`select count(*)::int as waiting from pg_locks
+            const { rows } = await tx.execute<{ waiting: number }>(sql`select count(*)::int as waiting from pg_locks
                 where not granted
                 and ((locktype = 'relation' and relation = 'rail_tycoon_worlds'::regclass) or locktype = 'advisory')`)
-            if (rows[0]!.waiting >= count) break
+            if (rows[0]!.waiting >= target) break
             await new Promise(resolve => setTimeout(resolve, 10))
         }
     })

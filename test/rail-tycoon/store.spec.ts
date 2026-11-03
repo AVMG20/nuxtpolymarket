@@ -173,13 +173,21 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             return result.rows
         }
 
-        /** Waits, up to 5 s, until at least `count` sessions are blocked on a lock touching the worlds table. */
-        async function waitForLockWaiters(count: number) {
+        /**
+         * Waits, up to 5 s, until at least `count` sessions are blocked on a lock touching the worlds
+         * table, or as many as the pool holds beside the lock holder. It polls on the holder's own
+         * connection, so a burst that fills the pool cannot starve it; the rest of the burst waits for
+         * a connection instead, and runs once the holder lets go.
+         */
+        async function waitForLockWaiters(holder: Pick<typeof db, 'execute'>, count: number) {
+            const target = Math.min(count, Number(process.env.DATABASE_POOL_MAX ?? 30) - 1)
             const deadline = Date.now() + 5000
             while (Date.now() < deadline) {
-                const result = await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity
+                // a transaction reads pg_stat_activity from one snapshot unless it is cleared
+                await holder.execute(sql`select pg_stat_clear_snapshot()`)
+                const result = await holder.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity
                     where datname = current_database() and wait_event_type = 'Lock' and query ilike '%rail_tycoon_worlds%'`)
-                if (Number(result.rows[0]!.n) >= count) return
+                if (Number(result.rows[0]!.n) >= target) return
                 await new Promise(resolve => setTimeout(resolve, 20))
             }
         }
@@ -292,18 +300,18 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
 
             // Hold the row lock until all ten are queued on it, so every one reads before any
             // writes and the race is forced rather than left to scheduling.
-            let held!: () => void
+            let held!: (tx: Pick<typeof db, 'execute'>) => void
             let release!: () => void
-            const lockHeld = new Promise<void>(resolve => { held = resolve })
+            const lockHeld = new Promise<Pick<typeof db, 'execute'>>(resolve => { held = resolve })
             const released = new Promise<void>(resolve => { release = resolve })
             const holder = db.transaction(async (tx) => {
                 await tx.select({ id: railTycoonWorlds.id }).from(railTycoonWorlds).where(eq(railTycoonWorlds.id, row.id)).for('update')
-                held()
+                held(tx)
                 await released
             })
-            await lockHeld
+            const lockTx = await lockHeld
             const saves = Array.from({ length: 10 }, (_, i) => rtSaveCheckpoint(row.id, bytes, 100 + i, 0, new Date()))
-            await waitForLockWaiters(10)
+            await waitForLockWaiters(lockTx, 10)
             release()
             await holder
 
