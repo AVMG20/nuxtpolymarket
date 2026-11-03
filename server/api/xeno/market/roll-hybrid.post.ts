@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
   const yieldLevel = single ? only.yield : 0
 
   await db.transaction(async (tx) => {
-    await debitGems(userId, costGems, tx)
+    await debitGems(userId, costGems, 'xeno', tx)
     await tx.insert(xenoPlants).values({ userId, typeId, speed, yield: yieldLevel })
   })
 

@@ -16,7 +16,7 @@ import {
 } from '#shared/utils/gamelogic/town-contracts'
 
 /** Prefixed `polytown` so analytics group it with the rest of the town's income. Garnished like any earning. */
-const CATEGORY = 'polytown:contract'
+const CATEGORY = 'polytown'
 
 const CONTRACT_ID = /^[0-9a-f-]{36}$/i
 
@@ -205,7 +205,7 @@ export async function claimTownContractBonus(userId: string) {
             throw createError({ statusCode: 400, statusMessage: message })
         }
 
-        await creditGems(userId, claimed.bonusGems, tx)
+        await creditGems(userId, claimed.bonusGems, 'polytown', tx)
 
         const [wallet] = await tx.select({ balance: user.balance, gems: user.gems }).from(user).where(eq(user.id, userId))
         return {

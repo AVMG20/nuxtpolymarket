@@ -453,7 +453,7 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
                 .where(and(inArray(tableWagers.id, ids), eq(tableWagers.settled, false)))
                 .returning({ amount: tableWagers.amount })
             const sum = round4(rows.reduce((acc, row) => acc + Number(row.amount), 0))
-            if (sum > 0) await credit(userId, sum.toFixed(4), this.config.game, tx)
+            if (sum > 0) await credit(userId, sum.toFixed(4), this.config.game, tx, { refund: true })
             return sum
         })
         if (total > 0) void this.pushBalance(userId)

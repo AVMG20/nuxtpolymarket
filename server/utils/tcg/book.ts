@@ -96,7 +96,7 @@ export async function placeBuyOrder(
 
         // Escrow the whole order up front — the book only ever shows funded
         // bids, which is what makes "sell instantly" instant.
-        await debit(userId, (price * quantity).toFixed(4), 'tcg:market', tx)
+        await debit(userId, (price * quantity).toFixed(4), 'tcg', tx)
 
         const [row] = await tx.insert(tcgBuyOrder).values({
             userId,
@@ -129,7 +129,7 @@ export async function cancelBuyOrder(userId: string, orderId: string): Promise<v
 
         const remaining = cancelled!.quantity - cancelled!.filled
         if (remaining > 0) {
-            await credit(userId, (parseFloat(cancelled!.price) * remaining).toFixed(4), 'tcg:market', tx)
+            await credit(userId, (parseFloat(cancelled!.price) * remaining).toFixed(4), 'tcg', tx, { refund: true })
         }
     })
 }
@@ -198,7 +198,7 @@ export async function sellIntoBid(userId: string, copyId: string): Promise<BookF
         const proceeds = sellerProceeds(price)
         // The bidder escrowed the full price at placement; the seller gets
         // 95% and the 5% spread is burned — nothing more moves for the buyer.
-        await credit(userId, proceeds.toFixed(4), 'tcg:market', tx)
+        await credit(userId, proceeds.toFixed(4), 'tcg', tx)
 
         await tx.update(tcgCopy).set({ ownerId: best!.userId }).where(eq(tcgCopy.id, copyId))
         await tx.insert(tcgCopyTransfer).values({

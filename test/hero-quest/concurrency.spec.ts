@@ -656,7 +656,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
         it('sells one save slot to a burst of purchases, for its Gems once', async () => {
             await ensureHqState(USER_ID)
-            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS)
+            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS, 'test')
 
             const result = await burst(10, () => db.transaction(tx => buyShopTrack(tx, USER_ID, 'traitSaveSlots')))
 
@@ -668,7 +668,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         it('never sells a save slot it was not paid for, on the linear step', async () => {
             await ensureHqState(USER_ID)
             // the first two levels, 250 + 750, and not the third
-            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS * 2 + TRAIT_SAVE_SLOT_COST_STEP_GEMS + 100)
+            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS * 2 + TRAIT_SAVE_SLOT_COST_STEP_GEMS + 100, 'test')
 
             await burst(12, () => db.transaction(tx => buyShopTrack(tx, USER_ID, 'traitSaveSlots')))
 
@@ -696,7 +696,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
         it('sells one block, not N, for one block of Gems', async () => {
             await ensureHqState(USER_ID)
-            await creditGems(USER_ID, battleSpeedPrice(2, 30))
+            await creditGems(USER_ID, battleSpeedPrice(2, 30), 'test')
 
             const before = Date.now()
             const result = await burst(10, () => db.transaction(tx => purchaseBattleSpeed(tx, USER_ID, 2, 30)))
@@ -724,7 +724,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
         it('extends by exactly the blocks paid for when every purchase can pay', async () => {
             await ensureHqState(USER_ID)
-            await creditGems(USER_ID, battleSpeedPrice(3, 30) * 10)
+            await creditGems(USER_ID, battleSpeedPrice(3, 30) * 10, 'test')
 
             const before = Date.now()
             const result = await burst(10, () => db.transaction(tx => purchaseBattleSpeed(tx, USER_ID, 3, 30)))

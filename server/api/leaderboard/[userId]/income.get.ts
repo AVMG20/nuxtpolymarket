@@ -25,8 +25,10 @@ export default defineEventHandler(async (event) => {
         .from(transactions)
         .where(and(
             eq(transactions.userId, userId),
+            eq(transactions.currency, 'coins'),
             gte(transactions.createdAt, since),
-            eq(transactions.type, 'credit')
+            eq(transactions.type, 'credit'),
+            eq(transactions.refund, false)
         ))
         .groupBy(transactions.category)
 

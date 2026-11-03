@@ -30,7 +30,7 @@ const inBailout = (debt: number, repaid = 0) => seedBankState(USER_ID, {
 })
 
 const garnishRows = () => db.select().from(transactions)
-    .where(and(eq(transactions.userId, USER_ID), eq(transactions.category, 'bank:garnish')))
+    .where(and(eq(transactions.userId, USER_ID), eq(transactions.category, 'bank'), eq(transactions.type, 'debit')))
 
 // One pool for the file: closing it inside a suite would strand the next one.
 afterAll(async () => { if (!SKIP) await db.$client.end() })
@@ -85,13 +85,17 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await seedUser(USER_ID)
         await inDebt(1_000)
 
-        await credit(USER_ID, '100.0000', 'shapezz:weapon-refund')
-        await credit(USER_ID, '100.0000', 'live-blackjack:recovery')
-        await credit(USER_ID, '100.0000', 'bank')
+        await credit(USER_ID, '100.0000', 'shapezz', undefined, { refund: true })
+        await credit(USER_ID, '100.0000', 'live-blackjack', undefined, { refund: true })
+        await credit(USER_ID, '100.0000', 'gem exchange', undefined, { refund: true })
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(300, 4)
         expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 2)
         expect(await garnishRows()).toHaveLength(0)
+
+        const credits = await db.select().from(transactions)
+            .where(and(eq(transactions.userId, USER_ID), eq(transactions.type, 'credit')))
+        expect(credits.every(row => row.refund)).toBe(true)
     })
 
     it('writes one garnish ledger row per garnished credit', async () => {

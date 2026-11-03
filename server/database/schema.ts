@@ -5,6 +5,7 @@ import type {
     PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { Currency } from '#shared/utils/currency'
 import type { HackerzRunSave } from '#shared/utils/gamelogic/hackerz'
 import type { GmOffer, GmShopItem } from '#shared/utils/gamelogic/gold-miner'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
@@ -93,13 +94,23 @@ export const transactions = pgTable(
         amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
         type: text('type').notNull(),
         category: text('category'),
+        // 'coins' rows move `user.balance` and carry a 4-decimal amount; 'gems' rows
+        // move `user.gems` and carry a whole number. Every sum over `amount` has to
+        // filter on this, or gems get counted as coins.
+        currency: text('currency').$type<Currency>().notNull().default('coins'),
+        // A credit that returns the player's own money (escrow, change, cancelled
+        // orders, crash refunds, bank withdrawals). Never income, never garnished.
+        refund: boolean('refund').notNull().default(false),
         createdAt: timestamp('created_at').defaultNow().notNull()
     },
     table => [
         index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt),
         // The site-wide audit filters on createdAt alone, which the composite index
         // above cannot serve because userId leads it.
-        index('transactions_createdAt_idx').on(table.createdAt)
+        index('transactions_createdAt_idx').on(table.createdAt),
+        // The gem audit, and finding when gem logging started, without scanning
+        // every coin row first.
+        index('transactions_currency_createdAt_idx').on(table.currency, table.createdAt)
     ]
 )
 

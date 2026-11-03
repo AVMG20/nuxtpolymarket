@@ -337,7 +337,7 @@ class LiveBlackjackTable {
      */
     private async stake(seat: SeatState, amount: number, kind: string) {
         const id = await db.transaction(async (tx) => {
-            await debit(seat.userId, amount.toFixed(4), kind === 'bet' ? CATEGORY : `${CATEGORY}:${kind}`, tx)
+            await debit(seat.userId, amount.toFixed(4), CATEGORY, tx)
             await accumulateRake(seat.userId, amount, tx)
             const [row] = await tx.insert(liveBlackjackWagers).values({
                 userId: seat.userId,
@@ -983,7 +983,7 @@ class LiveBlackjackTable {
                 ))
                 .returning({ amount: liveBlackjackWagers.amount })
             const sum = round4(rows.reduce((acc, row) => acc + Number(row.amount), 0))
-            if (sum > 0) await credit(userId, sum.toFixed(4), `${CATEGORY}:refund`, tx)
+            if (sum > 0) await credit(userId, sum.toFixed(4), CATEGORY, tx, { refund: true })
             return sum
         })
         if (total > 0) void this.pushBalance(userId)

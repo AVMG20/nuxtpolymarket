@@ -103,7 +103,8 @@ export const MILESTONE_TRACKS: readonly MilestoneTrack[] = [
         progress: s => s.prestiges,
         reward: k => [
             { kind: 'all_seals', amount: linear(MILESTONE_PRESTIGE_SEALS_BASE, MILESTONE_PRESTIGE_SEALS_STEP, k) },
-            { kind: 'gems', amount: linear(MILESTONE_PRESTIGE_GEMS_BASE, MILESTONE_PRESTIGE_GEMS_STEP, k) }
+            // rounded because the step is fractional and gems are whole
+            { kind: 'gems', amount: Math.round(linear(MILESTONE_PRESTIGE_GEMS_BASE, MILESTONE_PRESTIGE_GEMS_STEP, k)) }
         ]
     },
     ...RAIDS.map((raid): MilestoneTrack => ({

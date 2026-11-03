@@ -2,6 +2,7 @@
 import { format } from 'date-fns'
 import { useElementSize } from '@vueuse/core'
 import { GENRES, GENRE_LABELS, GENRE_DESCRIPTIONS, type Genre } from '#shared/utils/game-genres'
+import type { Currency } from '#shared/utils/currency'
 
 type Metric = 'net' | 'emitted' | 'spent'
 type Tone = 'success' | 'error' | 'neutral'
@@ -24,7 +25,10 @@ interface AuditSeriesRow {
 
 interface AuditOverview {
   window: '24h' | '7d' | '30d'
+  currency: Currency
   since: string
+  /** First gem row ever logged; null while nothing has been. */
+  gemLedgerSince: string | null
   days: number
   bucket: 'hour' | 'day'
   totalPlayers: number
@@ -49,6 +53,17 @@ const WINDOWS = [
   { value: '30d' as const, label: '30 days' }
 ]
 const windowKey = ref<'24h' | '7d' | '30d'>('24h')
+
+// ---- Currency (drives the server query) ----
+// Coins and gems are separate ledgers and never add up, so the whole page shows
+// one at a time.
+const CURRENCY_TABS = [
+  { value: 'coins' as const, label: 'Coins', icon: 'i-lucide-coins' },
+  { value: 'gems' as const, label: 'Gems', icon: 'i-lucide-gem' }
+]
+const currency = ref<Currency>('coins')
+const currencyIcon = computed(() => currency.value === 'gems' ? 'i-lucide-gem' : 'i-lucide-coins')
+const currencyIconClass = computed(() => currency.value === 'gems' ? 'text-cyan-400' : 'text-amber-400')
 
 // ---- Metric ----
 // `net` is the house's bottom line; the one-sided metrics strip the other side
@@ -111,12 +126,13 @@ function displayNet(n: number) {
 
 const { data, pending } = useFetch<AuditOverview>('/api/audit/overview', {
   lazy: true,
-  query: computed(() => ({ window: windowKey.value }))
+  query: computed(() => ({ window: windowKey.value, currency: currency.value }))
 })
 
 // Keep the previous window's numbers on screen while the next one loads rather
 // than flashing skeletons on every toggle.
-const loading = computed(() => pending.value && !data.value)
+// A currency switch is the exception: the old figures are in the wrong unit.
+const loading = computed(() => pending.value && (!data.value || data.value.currency !== currency.value))
 
 // ---- Genre + game filters (client-side, no refetch) ----
 const genre = ref<Genre | 'all'>('all')
@@ -181,6 +197,19 @@ const windowLabel = computed(() => WINDOWS.find(w => w.value === windowKey.value
 const sinceLabel = computed(() => {
   if (!data.value?.since) return ''
   return format(new Date(data.value.since), 'd MMM yyyy HH:mm')
+})
+
+// Gem movements were only logged from a certain moment on, so gem figures can
+// cover just part of the selected window.
+const gemNote = computed(() => {
+  if (currency.value !== 'gems' || loading.value || !data.value) return ''
+  const first = data.value.gemLedgerSince
+  if (!first) return 'Gem logging has just started, so there are no gem figures yet.'
+  const start = format(new Date(first), 'd MMM yyyy HH:mm')
+  const partial = new Date(first).getTime() > new Date(data.value.since).getTime()
+  return partial
+    ? `Gem figures start at ${start}, so this window is only partly covered.`
+    : `Gem figures start at ${start}.`
 })
 
 // ---- Summary cards ----
@@ -319,10 +348,10 @@ const { data: topPlayers, pending: playersPending } = useLazyAsyncData(
   'audit-top-players',
   () => selectedGame.value
     ? $fetch<{ players: TopPlayer[] }>('/api/audit/players', {
-        query: { label: selectedGame.value, window: windowKey.value, metric: metric.value }
+        query: { label: selectedGame.value, window: windowKey.value, metric: metric.value, currency: currency.value }
       })
     : Promise.resolve(null),
-  { immediate: false, watch: [selectedGame, windowKey, metric] }
+  { immediate: false, watch: [selectedGame, windowKey, metric, currency] }
 )
 
 const topPlayerRows = computed(() =>
@@ -373,20 +402,44 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
           Audit
         </h1>
         <p class="text-sm text-muted mt-0.5">
-          Site-wide ledger · last {{ windowLabel }}<span v-if="sinceLabel"> · since {{ sinceLabel }}</span>
+          Site-wide {{ currency }} ledger · last {{ windowLabel }}<span v-if="sinceLabel"> · since {{ sinceLabel }}</span>
         </p>
       </div>
-      <UFieldGroup>
-        <UButton
-          v-for="w in WINDOWS"
-          :key="w.value"
-          :color="windowKey === w.value ? 'primary' : 'neutral'"
-          :variant="windowKey === w.value ? 'solid' : 'outline'"
-          :label="w.label"
-          @click="windowKey = w.value"
-        />
-      </UFieldGroup>
+      <div class="flex flex-wrap items-center gap-3">
+        <UFieldGroup>
+          <UButton
+            v-for="c in CURRENCY_TABS"
+            :key="c.value"
+            :color="currency === c.value ? 'primary' : 'neutral'"
+            :variant="currency === c.value ? 'solid' : 'outline'"
+            :label="c.label"
+            :icon="c.icon"
+            @click="currency = c.value"
+          />
+        </UFieldGroup>
+        <UFieldGroup>
+          <UButton
+            v-for="w in WINDOWS"
+            :key="w.value"
+            :color="windowKey === w.value ? 'primary' : 'neutral'"
+            :variant="windowKey === w.value ? 'solid' : 'outline'"
+            :label="w.label"
+            @click="windowKey = w.value"
+          />
+        </UFieldGroup>
+      </div>
     </div>
+
+    <p
+      v-if="gemNote"
+      class="-mt-3 flex items-center gap-1.5 text-xs text-muted"
+    >
+      <UIcon
+        name="i-lucide-info"
+        class="size-3.5 shrink-0"
+      />
+      {{ gemNote }}
+    </p>
 
     <!-- Genre + metric -->
     <div class="flex flex-wrap items-center justify-between gap-3">
@@ -460,8 +513,14 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
           :key="card.key"
           :class="card.lead ? TONE_TINT[card.tone] : ''"
         >
-          <p class="text-xs text-muted font-medium uppercase tracking-wide">
-            {{ card.label }}
+          <p class="flex items-center gap-1.5 text-xs text-muted font-medium uppercase tracking-wide">
+            <span class="truncate">{{ card.label }}</span>
+            <UIcon
+              v-if="card.key !== 'transactions'"
+              :name="currencyIcon"
+              class="size-3.5 shrink-0"
+              :class="currencyIconClass"
+            />
           </p>
           <p
             class="text-2xl font-bold mt-1 truncate"
@@ -489,7 +548,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
               Cumulative {{ METRIC_HEADINGS[metric].toLowerCase() }}
             </h2>
             <p class="text-xs text-muted mt-0.5">
-              {{ scopeLabel }} · bucketed by {{ data?.bucket ?? 'hour' }}
+              {{ scopeLabel }} · in {{ currency }} · bucketed by {{ data?.bucket ?? 'hour' }}
             </p>
           </div>
           <div
@@ -521,7 +580,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
           class="size-10 opacity-20"
         />
         <p class="text-sm">
-          No transactions in this window
+          No {{ currency }} transactions in this window
         </p>
       </div>
       <ChartsChartLine
@@ -545,7 +604,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
             Top players · {{ selectedGame }}
           </h2>
           <span class="text-xs text-muted">
-            by {{ METRIC_COLUMN[metric].toLowerCase() }} · last {{ windowLabel }}
+            by {{ METRIC_COLUMN[metric].toLowerCase() }} in {{ currency }} · last {{ windowLabel }}
           </span>
         </div>
       </template>
@@ -564,7 +623,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
         v-else-if="!topPlayerRows.length"
         class="py-6 text-center text-sm text-muted"
       >
-        No players recorded for {{ selectedGame }} in this window
+        No {{ currency }} recorded for {{ selectedGame }} in this window
       </p>
       <ol
         v-else
@@ -612,7 +671,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
             {{ METRIC_HEADINGS[metric] }} per game
           </h2>
           <span class="text-xs text-muted">
-            sorted by {{ METRIC_COLUMN[metric].toLowerCase() }} · click a row to isolate it
+            {{ currency }} · sorted by {{ METRIC_COLUMN[metric].toLowerCase() }} · click a row to isolate it
           </span>
         </div>
       </template>
@@ -636,7 +695,7 @@ const GENRE_COLOR: Record<Genre, 'primary' | 'success' | 'warning' | 'neutral'> 
           class="size-10 opacity-20"
         />
         <p class="text-sm">
-          Nothing recorded for {{ scopeLabel }} in this window
+          No {{ currency }} recorded for {{ scopeLabel }} in this window
         </p>
       </div>
       <div

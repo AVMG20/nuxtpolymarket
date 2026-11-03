@@ -44,7 +44,7 @@ export async function playerBuyPacks(setId: string, userId: string, pairs: numbe
             .returning()
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Daily pack allowance reached' })
 
-        await debitGems(userId, pairs * shop.gemsPerPair, tx)
+        await debitGems(userId, pairs * shop.gemsPerPair, 'tcg', tx)
 
         const packs: PackRow[] = []
         for (let i = 0; i < packCount; i++) {
@@ -72,7 +72,7 @@ export async function claimBundle(setId: string, userId: string, now: Date = new
             .returning()
         if (!bundle) throw createError({ statusCode: 400, statusMessage: 'Bundle already claimed this week' })
 
-        await debitGems(userId, shop.bundleGems, tx)
+        await debitGems(userId, shop.bundleGems, 'tcg', tx)
 
         // Sequential draws serialize concurrent buyers under the set row
         // lock for the duration of this transaction — acceptable at 7 players.

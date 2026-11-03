@@ -30,7 +30,7 @@ import {
     type TownStreakScale
 } from '#shared/utils/gamelogic/town-streak'
 
-const CATEGORY = 'polytown:streak'
+const CATEGORY = 'polytown'
 
 type StreakRow = typeof townStreak.$inferSelect
 
@@ -123,7 +123,7 @@ export async function getTownStreak(userId: string) {
 
 async function payReward(tx: DbExecutor, userId: string, reward: Pick<TownStreakReward, 'coins' | 'gems' | 'resources'>) {
     if (reward.coins > 0) await credit(userId, reward.coins.toFixed(4), CATEGORY, tx)
-    if (reward.gems > 0) await creditGems(userId, reward.gems, tx)
+    if (reward.gems > 0) await creditGems(userId, reward.gems, 'polytown', tx)
     for (const [id, qty] of Object.entries(reward.resources) as [TownResourceId, number][]) {
         if (qty > 0) await addInventory(tx, userId, id, qty)
     }

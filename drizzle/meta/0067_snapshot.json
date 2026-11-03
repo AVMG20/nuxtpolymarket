@@ -1,6 +1,6 @@
 {
-  "id": "abed31af-e8f1-4f1f-893d-fe16a8ab738b",
-  "prevId": "8bc74b2a-9abd-4467-b3c4-1abb08109899",
+  "id": "cace953e-0324-4276-a12f-2150c82d8cba",
+  "prevId": "0fdff366-eb98-4c7b-8a5c-683671e768a3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6299,268 +6299,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.rail_tycoon_members": {
-      "name": "rail_tycoon_members",
-      "schema": "",
-      "columns": {
-        "world_id": {
-          "name": "world_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "joined_at": {
-          "name": "joined_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "rail_tycoon_members_world_company_idx": {
-          "name": "rail_tycoon_members_world_company_idx",
-          "columns": [
-            {
-              "expression": "world_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "rail_tycoon_members_world_id_rail_tycoon_worlds_id_fk": {
-          "name": "rail_tycoon_members_world_id_rail_tycoon_worlds_id_fk",
-          "tableFrom": "rail_tycoon_members",
-          "tableTo": "rail_tycoon_worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "rail_tycoon_members_user_id_user_id_fk": {
-          "name": "rail_tycoon_members_user_id_user_id_fk",
-          "tableFrom": "rail_tycoon_members",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "rail_tycoon_members_world_id_user_id_pk": {
-          "name": "rail_tycoon_members_world_id_user_id_pk",
-          "columns": [
-            "world_id",
-            "user_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.rail_tycoon_worlds": {
-      "name": "rail_tycoon_worlds",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "invite_code": {
-          "name": "invite_code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "side": {
-          "name": "side",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "max_companies": {
-          "name": "max_companies",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_public": {
-          "name": "is_public",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "avatar": {
-          "name": "avatar",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "save": {
-          "name": "save",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tick": {
-          "name": "tick",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "saved_at": {
-          "name": "saved_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_active_at": {
-          "name": "last_active_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "rail_tycoon_worlds_ownerId_idx": {
-          "name": "rail_tycoon_worlds_ownerId_idx",
-          "columns": [
-            {
-              "expression": "owner_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "rail_tycoon_worlds_public_idx": {
-          "name": "rail_tycoon_worlds_public_idx",
-          "columns": [
-            {
-              "expression": "last_active_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"rail_tycoon_worlds\".\"is_public\" and \"rail_tycoon_worlds\".\"status\" = 'open'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "rail_tycoon_worlds_owner_id_user_id_fk": {
-          "name": "rail_tycoon_worlds_owner_id_user_id_fk",
-          "tableFrom": "rail_tycoon_worlds",
-          "tableTo": "user",
-          "columnsFrom": [
-            "owner_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "rail_tycoon_worlds_invite_code_unique": {
-          "name": "rail_tycoon_worlds_invite_code_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "invite_code"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.riftborn_state": {
       "name": "riftborn_state",
       "schema": "",
@@ -11691,6 +11429,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'coins'"
+        },
+        "refund": {
+          "name": "refund",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -11724,6 +11476,27 @@
         "transactions_createdAt_idx": {
           "name": "transactions_createdAt_idx",
           "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_currency_createdAt_idx": {
+          "name": "transactions_currency_createdAt_idx",
+          "columns": [
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "created_at",
               "isExpression": false,

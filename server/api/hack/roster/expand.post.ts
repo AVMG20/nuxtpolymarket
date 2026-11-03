@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
       .returning()
     if (!updated) throw createError({ statusCode: 409, statusMessage: 'Roster changed, try again' })
 
-    await debit(userId, cost.toFixed(4), 'HackOps', tx)
+    await debit(userId, cost.toFixed(4), 'hackops', tx)
 
     return { rosterSlots: updated.rosterSlots }
   })

@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
     const cost = count * PATHWARDEN_SURGE_COST_GEMS
     return db.transaction(async (tx) => {
         const state = await getLockedPathwardenState(tx, userId)
-        const gems = debugMode ? null : await debitGems(userId, cost, tx)
+        const gems = debugMode ? null : await debitGems(userId, cost, 'pathwarden', tx)
         const [updated] = await tx.update(pathwardenState)
             .set({ surgeCharges: sql`${pathwardenState.surgeCharges} + ${count}` })
             .where(eq(pathwardenState.userId, userId))

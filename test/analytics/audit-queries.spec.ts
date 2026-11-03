@@ -11,6 +11,7 @@ import {
     topPlayersForLabel,
     type AuditWindow
 } from '#server/utils/audit'
+import { normaliseCategory } from '#shared/utils/analytics-categories'
 import { GENRES, prefixesForGenre } from '#shared/utils/game-genres'
 import { cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -22,6 +23,9 @@ import { cleanupUser, seedUser } from '../setup/db-helpers'
 const WINDOWS = Object.keys(AUDIT_WINDOWS) as AuditWindow[]
 
 const LEDGER_USER = 'test-audit-queries'
+
+/** Only ever written as a gem row, so it must never surface in the coin audit. */
+const GEM_ONLY_CATEGORY = 'audit-gem-only-seed'
 
 /**
  * One row per category the tables know about, plus an uncategorised one and a
@@ -49,6 +53,10 @@ async function seedLedger() {
         type: i % 2 === 0 ? 'credit' : 'debit',
         category
     })))
+    await db.insert(transactions).values([
+        { userId: LEDGER_USER, amount: '7', type: 'credit', category: GEM_ONLY_CATEGORY, currency: 'gems' },
+        { userId: LEDGER_USER, amount: '7', type: 'credit', category: 'miner', currency: 'gems' }
+    ])
 }
 
 beforeAll(seedLedger)
@@ -68,6 +76,25 @@ describe('auditOverview', () => {
     })
 })
 
+describe('currency split', () => {
+    it('keeps gem rows out of the coin audit and coin rows out of the gem audit', async () => {
+        const label = normaliseCategory(GEM_ONLY_CATEGORY)
+        const coins = await auditOverview('24h', 'coins')
+        const gems = await auditOverview('24h', 'gems')
+
+        expect(coins.games.find(g => g.label === label)).toBeUndefined()
+        expect(gems.games.find(g => g.label === label)?.credits).toBeGreaterThanOrEqual(7)
+        expect(gems.games.find(g => g.label === normaliseCategory('a-game-nobody-mapped-yet'))).toBeUndefined()
+
+        // The seed user is the only one with gem rows under Miner, but the
+        // coin side may hold real players, so look the seed user up by id.
+        const gemTop = await topPlayersForLabel('Miner', '24h', 'emitted', 5, 'gems')
+        expect(gemTop.find(p => p.userId === LEDGER_USER)?.credits).toBe(7)
+        const coinTop = await topPlayersForLabel('Miner', '24h', 'emitted', 1000, 'coins')
+        expect(coinTop.find(p => p.userId === LEDGER_USER)?.credits ?? 0).toBeLessThan(7)
+    })
+})
+
 describe('topPlayersForLabel', () => {
     it('ranks by each metric, for single- and multi-prefix labels and the null-category one', async () => {
         for (const label of ['Blackjack', 'Miner', 'General']) {
@@ -80,6 +107,13 @@ describe('topPlayersForLabel', () => {
                 )
                 expect(values).toEqual([...values].sort((a, b) => b - a))
             }
+        }
+    })
+
+    it('finds the players behind hyphenated categories, mapped or not', async () => {
+        for (const category of ['hero-quest', 'a-game-nobody-mapped-yet']) {
+            const players = await topPlayersForLabel(normaliseCategory(category), '30d', 'net', 1000)
+            expect(players.map(p => p.userId), category).toContain(LEDGER_USER)
         }
     })
 })

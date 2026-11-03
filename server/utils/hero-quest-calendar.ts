@@ -105,8 +105,8 @@ export async function claimCalendar(tx: DbExecutor, userId: string, makeup: bool
         .returning()
     if (!claimed) throw createError({ statusCode: 409, statusMessage: 'The calendar changed; try again' })
 
-    if (reward.kind === 'gold' && Number(amount) > 0) await credit(userId, Number(amount).toFixed(4), 'hero-quest:calendar', tx)
-    if (reward.kind === 'gems') await creditGems(userId, reward.amount, tx)
+    if (reward.kind === 'gold' && Number(amount) > 0) await credit(userId, Number(amount).toFixed(4), 'hero-quest', tx)
+    if (reward.kind === 'gems') await creditGems(userId, reward.amount, 'hero-quest', tx)
 
     return { day: pick.day + 1, makeup, kind: reward.kind, amount }
 }

@@ -21,13 +21,13 @@ import {
     FREE_PULL_COOLDOWN_MINUTES,
     LEVELS_PER_STAR,
     MAX_GACHA_LEVEL,
+    MAX_PULL_SIZE,
     MAX_STAR,
     PULLS_TO_LEVEL_UP,
     RARITY_EPITHETS,
     RARITY_STAT_MULTIPLIERS,
     SEAL_LADDER_BASE_GOLD,
     SEAL_LADDER_GROWTH,
-    HUNDRED_PULL_COST,
     HUNDRED_PULL_SIZE,
     SINGLE_PULL_COST,
     TEN_PULL_COST,
@@ -185,11 +185,27 @@ export interface PullCost {
     pulls: number
 }
 
+/** Whether a pull can be this big: a single, or a power of ten up to `MAX_PULL_SIZE`. */
+export function isPullSize(count: unknown): count is number {
+    if (count === 1) return true
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < TEN_PULL_SIZE || count > MAX_PULL_SIZE) return false
+    let rest = count
+    while (rest % 10 === 0) rest /= 10
+    return rest === 1
+}
+
+/** Every size from ten up is that many 10-pulls, so a bigger press never changes the price per pull. */
 export function pullCost(count: number): PullCost {
-    if (count === TEN_PULL_SIZE) return { seals: TEN_PULL_COST, pulls: TEN_PULL_SIZE }
-    if (count === HUNDRED_PULL_SIZE) return { seals: HUNDRED_PULL_COST, pulls: HUNDRED_PULL_SIZE }
+    if (count >= TEN_PULL_SIZE && isPullSize(count)) return { seals: count / TEN_PULL_SIZE * TEN_PULL_COST, pulls: count }
     const pulls = Math.max(1, Math.floor(count))
     return { seals: pulls * SINGLE_PULL_COST, pulls }
+}
+
+/** The biggest pull from a hundred up that `seals` covers, or null while they cover none. */
+export function bulkPullSize(seals: number): number | null {
+    let size: number | null = null
+    for (let next = HUNDRED_PULL_SIZE; next <= MAX_PULL_SIZE && pullCost(next).seals <= seals; next *= 10) size = next
+    return size
 }
 
 /**

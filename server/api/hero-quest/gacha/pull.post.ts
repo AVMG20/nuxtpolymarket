@@ -28,10 +28,14 @@ import {
 } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
 import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content/gear'
-import { HUNDRED_PULL_SIZE, TEN_PULL_SIZE } from '#shared/utils/hero-quest/constants'
+import { HUNDRED_PULL_SIZE, PULL_TALLY_SIZE, TEN_PULL_SIZE } from '#shared/utils/hero-quest/constants'
+import type { Rarity } from '#shared/utils/hero-quest/types'
 import { randomFloat } from '#shared/utils/random'
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/** A huge pull hands the event loop back this often, so it can't stall everyone else's requests. */
+const PULLS_PER_YIELD = 10_000
 
 /**
  * Pay for a pull with Seals. **Claim-then-reward** — the conditional debit *is* the mutex.
@@ -108,8 +112,8 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
     const free = body.free === true
     const requested = free ? TEN_PULL_SIZE : body.count ?? 1
     const cost = pullCost(requested)
-    // a free pull never buys Seals, and a 100-pull is only offered once its Seals are held
-    const autoBuy = free || requested === HUNDRED_PULL_SIZE ? undefined : body.autoBuy
+    // a free pull never buys Seals, and a 100-pull or bigger is only offered once its Seals are held
+    const autoBuy = free || requested >= HUNDRED_PULL_SIZE ? undefined : body.autoBuy
 
     // Bank progress first so the pull can't be used to dodge a settle, and so the Seals a
     // milestone just granted are visible to this request.
@@ -140,11 +144,16 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
         )
 
         const pulls: HqPullRecord[] = []
+        const tallied = cost.pulls >= PULL_TALLY_SIZE
+        const rarities: Record<Rarity, number> = { common: 0, uncommon: 0, rare: 0, epic: 0, legendary: 0, mythic: 0 }
+        const touched = new Set<string>()
+        let newItems = 0
         let essenceGained = 0
 
         let rollLevel = gachaLevel
         for (let index = 0; index < cost.pulls; index++) {
-            // a 100-pull rolls each ten at the level the tens before it reached, exactly as ten 10-pulls would
+            if (index > 0 && index % PULLS_PER_YIELD === 0) await new Promise(resolve => setImmediate(resolve))
+            // a bulk pull rolls each ten at the level the tens before it reached, exactly as that many 10-pulls would
             if (index > 0 && index % TEN_PULL_SIZE === 0) rollLevel = applyPulls(gachaLevel, progress[system] ?? 0, index).level
             // Rarity from the level's drop table, then a uniform pick inside it. Every roster
             // populates every rarity, so a rolled rarity is the rarity paid out.
@@ -164,21 +173,26 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
             }
 
             entries.set(definition.id, entry)
-            pulls.push({
-                contentId: definition.id,
-                name: definition.name,
-                rarity: definition.rarity,
-                isNew,
-                star: entry.star,
-                level: entry.level,
-                essence
-            })
+            touched.add(definition.id)
+            rarities[definition.rarity]++
+            if (isNew) newItems++
+            if (!tallied) {
+                pulls.push({
+                    contentId: definition.id,
+                    name: definition.name,
+                    rarity: definition.rarity,
+                    isNew,
+                    star: entry.star,
+                    level: entry.level,
+                    essence
+                })
+            }
         }
 
         // One upsert per distinct item *touched*, not one per pull — a 10-pull that hits the
         // same item three times writes its final merged state once, and copies this pull never
         // saw are not rewritten at all.
-        for (const contentId of new Set(pulls.map(pull => pull.contentId))) {
+        for (const contentId of touched) {
             const entry = entries.get(contentId)!
             await tx.insert(hqCollection)
                 .values({ userId, system, contentId, ...entry })
@@ -221,6 +235,7 @@ export default defineEventHandler(async (event): Promise<HqPullResponse> => {
         return {
             system,
             pulls,
+            tally: tallied ? { pulls: cost.pulls, rarities, newItems } : null,
             free,
             sealsSpent: free ? 0 : cost.seals,
             seals: sealBalance(after, system),

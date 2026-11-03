@@ -1,7 +1,8 @@
-import { and, eq, gte, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenState, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { debitGems } from '#server/utils/balance'
 import { PATHWARDEN_SKINS } from '#shared/utils/gamelogic/pathwarden'
 
 export default defineEventHandler(async (event) => {
@@ -20,16 +21,17 @@ export default defineEventHandler(async (event) => {
         const owned = Array.from(new Set(['warden-stone', ...(state.ownedSkinIds ?? [])]))
         if (owned.includes(skin.id)) throw createError({ statusCode: 400, statusMessage: 'Skin already owned' })
 
-        const [updatedUser] = debugMode
-            ? await tx.select({ gems: user.gems }).from(user).where(eq(user.id, userId))
-            : await tx.update(user)
-                .set({ gems: sql`${user.gems} - ${skin.gemCost}` })
-                .where(and(eq(user.id, userId), gte(user.gems, skin.gemCost)))
-                .returning({ gems: user.gems })
-        if (!updatedUser) throw createError({ statusCode: 400, statusMessage: `Need ${skin.gemCost} gems` })
+        let gems: number | undefined
+        if (debugMode) {
+            const [current] = await tx.select({ gems: user.gems }).from(user).where(eq(user.id, userId))
+            gems = current?.gems
+        } else {
+            gems = await debitGems(userId, skin.gemCost, 'pathwarden', tx)
+        }
+        if (gems === undefined) throw createError({ statusCode: 404, statusMessage: 'User not found' })
         await tx.update(pathwardenState)
             .set({ ownedSkinIds: [...owned, skin.id], equippedSkinId: skin.id })
             .where(eq(pathwardenState.userId, userId))
-        return { skinId: skin.id, equipped: true, gems: updatedUser.gems, cost: debugMode ? 0 : skin.gemCost }
+        return { skinId: skin.id, equipped: true, gems, cost: debugMode ? 0 : skin.gemCost }
     })
 })

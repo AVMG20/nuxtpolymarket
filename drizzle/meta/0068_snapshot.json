@@ -1,6 +1,6 @@
 {
-  "id": "da985b60-f75c-41ec-9ba6-c55b32c89655",
-  "prevId": "abed31af-e8f1-4f1f-893d-fe16a8ab738b",
+  "id": "7ff73c18-9ec6-4cd3-b8ab-40db3d3c60a5",
+  "prevId": "cace953e-0324-4276-a12f-2150c82d8cba",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -11750,6 +11750,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'coins'"
+        },
+        "refund": {
+          "name": "refund",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -11783,6 +11797,27 @@
         "transactions_createdAt_idx": {
           "name": "transactions_createdAt_idx",
           "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_currency_createdAt_idx": {
+          "name": "transactions_currency_createdAt_idx",
+          "columns": [
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "created_at",
               "isExpression": false,

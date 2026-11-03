@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const price = itemSellPrice(item.rarity as HackRarity)
-    await credit(userId, price.toFixed(4), 'HackOps', tx)
+    await credit(userId, price.toFixed(4), 'hackops', tx)
 
     return { sold: true, price }
   })

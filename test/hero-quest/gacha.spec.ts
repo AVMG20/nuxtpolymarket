@@ -7,11 +7,13 @@ import { describe, expect, it } from 'vitest'
 import {
     applyDupes,
     applyPulls,
+    bulkPullSize,
     craftCostFor,
     dropRatesFor,
     dupesToLevelUp,
     essenceValueFor,
     isMaxed,
+    isPullSize,
     ladderDateKey,
     newEntry,
     pullCost,
@@ -25,6 +27,7 @@ import {
     HUNDRED_PULL_SIZE,
     LEVELS_PER_STAR,
     MAX_GACHA_LEVEL,
+    MAX_PULL_SIZE,
     MAX_STAR,
     SEAL_LADDER_BASE_GOLD,
     TEN_PULL_SIZE
@@ -131,6 +134,25 @@ describe('pull cost', () => {
 
     it('prices the 100-pull as ten 10-pulls', () => {
         expect(pullCost(HUNDRED_PULL_SIZE)).toEqual({ seals: 90, pulls: 100 })
+    })
+
+    it('prices every tenfold size past that the same way', () => {
+        expect(pullCost(1_000)).toEqual({ seals: 900, pulls: 1_000 })
+        expect(pullCost(1_000_000)).toEqual({ seals: 900_000, pulls: 1_000_000 })
+    })
+
+    it('takes a single or a power of ten, up to the size the Seal column can hold', () => {
+        for (const size of [1, 10, 100, 1_000, 10_000, MAX_PULL_SIZE]) expect(isPullSize(size), String(size)).toBe(true)
+        for (const size of [0, -10, 5, 20, 1_500, 10.5, MAX_PULL_SIZE * 10, '100', null]) expect(isPullSize(size), String(size)).toBe(false)
+    })
+
+    it('offers the biggest bulk pull the Seals cover, and none below a hundred', () => {
+        expect(bulkPullSize(89)).toBeNull()
+        expect(bulkPullSize(90)).toBe(100)
+        expect(bulkPullSize(899)).toBe(100)
+        expect(bulkPullSize(900)).toBe(1_000)
+        expect(bulkPullSize(25_000)).toBe(10_000)
+        expect(bulkPullSize(2_147_483_647)).toBe(MAX_PULL_SIZE)
     })
 
     it('escalates the Gold ladder per purchase and resets from the base', () => {

@@ -1,8 +1,9 @@
-import { sql, gte, eq, desc, isNull, inArray, and, type SQL } from 'drizzle-orm'
+import { sql, gte, eq, desc, isNull, inArray, and, min, type SQL } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions, user } from '#server/database/schema'
 import { GENERAL_LABEL, normaliseCategory, prefixesForLabel } from '#shared/utils/analytics-categories'
 import { GENRES, genreForLabel, prefixesForGenre, type Genre } from '#shared/utils/game-genres'
+import type { Currency } from '#shared/utils/currency'
 
 // Every read the audit page makes goes through here, so the two endpoints and
 // the tests that cover them all interpret the ledger the same way.
@@ -78,10 +79,25 @@ export const genreSql = sql<Genre>`CASE ${sql.join(
 export const GENRE_ALIAS = 'genre'
 export const genreGroupBySql = sql.raw(`"${GENRE_ALIAS}"`)
 
-export function inWindowFor(window: AuditWindow, label?: string): SQL | undefined {
-    const since = gte(transactions.createdAt, windowStart(window))
-    if (!label) return since
-    return and(since, categoryFilterForLabel(label))
+/**
+ * Rows of one currency inside the window. Coins and gems share the ledger, so
+ * every audit read must pick one: their amounts never add up.
+ */
+export function inWindowFor(window: AuditWindow, currency: Currency, label?: string): SQL | undefined {
+    const scope = and(eq(transactions.currency, currency), gte(transactions.createdAt, windowStart(window)))
+    if (!label) return scope
+    return and(scope, categoryFilterForLabel(label))
+}
+
+/**
+ * When gem movements started being logged. Gems moved before that left no
+ * rows, so the page has to say where its gem figures begin.
+ */
+export async function gemLedgerSince(): Promise<Date | null> {
+    const [row] = await db.select({ first: min(transactions.createdAt) })
+        .from(transactions)
+        .where(eq(transactions.currency, 'gems'))
+    return row?.first ?? null
 }
 
 const distinctPlayersSql = sql<number>`COUNT(DISTINCT ${transactions.userId})::int`
@@ -122,9 +138,9 @@ export interface AuditPlayerRow {
  * and `debits` (put in by players) — so the client can switch which one it
  * measures by without another round trip.
  */
-export async function auditOverview(window: AuditWindow) {
+export async function auditOverview(window: AuditWindow, currency: Currency = 'coins') {
     const { hours, bucket } = AUDIT_WINDOWS[window]
-    const inWindow = inWindowFor(window)
+    const inWindow = inWindowFor(window, currency)
     const bucketSql = sql<Date>`date_trunc(${sql.raw(`'${bucket}'`)}, ${transactions.createdAt})`
     // No bound parameters, so repeating this expression in GROUP BY renders
     // identically and Postgres matches the two copies. `genreSql` cannot do the
@@ -200,6 +216,7 @@ export async function auditOverview(window: AuditWindow) {
 
     return {
         window,
+        currency,
         since: windowStart(window),
         days: hours / 24,
         bucket,
@@ -222,7 +239,8 @@ export async function topPlayersForLabel(
     label: string,
     window: AuditWindow,
     metric: AuditMetric,
-    limit: number
+    limit: number,
+    currency: Currency = 'coins'
 ): Promise<AuditPlayerRow[]> {
     const rows = await db.select({
         userId: transactions.userId,
@@ -234,7 +252,7 @@ export async function topPlayersForLabel(
     })
         .from(transactions)
         .innerJoin(user, eq(user.id, transactions.userId))
-        .where(inWindowFor(window, label))
+        .where(inWindowFor(window, currency, label))
         .groupBy(transactions.userId, user.name, user.image)
         .orderBy(desc(metricSql(metric)))
         .limit(limit)

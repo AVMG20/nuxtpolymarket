@@ -49,8 +49,12 @@ const CATEGORY_LABELS: Record<string, string> = {
     'call-of-xeno': 'Call of Xeno',
     'storm-the-house': 'Storm the House',
     'voxel-arena': 'Voxel Arena',
+    'hero-quest': 'Hero Quest',
     battler: 'Battler',
     tcg: 'TCG',
+    // The vendor buyback keeps its own category so the admin page can watch
+    // the module's only coin faucet.
+    'tcg vendor': 'TCG',
     prestige: 'Prestige',
     draft: 'Draft',
     assets: 'Assets',
@@ -81,8 +85,10 @@ const LABEL_TO_PREFIXES = Object.entries(CATEGORY_LABELS)
         return acc
     }, {})
 
-// Falls back to the label itself so a category that isn't in the table yet
-// still round-trips through the filter instead of matching nothing.
+// A category not in the table yet must still match: title-casing lost its separator, so try both.
 export function prefixesForLabel(label: string): string[] {
-    return LABEL_TO_PREFIXES[label] ?? [label.toLowerCase()]
+    const known = LABEL_TO_PREFIXES[label]
+    if (known) return known
+    const lower = label.toLowerCase()
+    return [...new Set([lower, lower.replaceAll(' ', '-')])]
 }

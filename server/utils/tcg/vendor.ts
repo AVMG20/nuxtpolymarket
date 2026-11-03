@@ -60,7 +60,7 @@ export async function vendorCopy(userId: string, copyId: string, amount: number)
             .returning()
         if (!claimed) badRequest('The vendor only buys raw cards')
 
-        await credit(userId, amount.toFixed(4), 'tcg:vendor', tx)
+        await credit(userId, amount.toFixed(4), 'tcg vendor', tx)
         return { amount }
     })
 }

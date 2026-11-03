@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
         const cost = shapezzPermanentUpgradeCost(upgradeId, level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Upgrade is already maxed' })
 
-        await debit(userId, cost.toFixed(4), 'shapezz:workshop', tx)
+        await debit(userId, cost.toFixed(4), 'shapezz', tx)
         await tx.update(shapezzState).set({ [column]: level + 1 }).where(eq(shapezzState.userId, userId))
 
         return { upgradeId, level: level + 1, cost }

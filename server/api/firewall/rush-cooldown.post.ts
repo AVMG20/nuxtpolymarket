@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
         if (remainingMs <= 0) throw createError({ statusCode: 400, statusMessage: 'The uplink is already ready' })
 
         const cost = firewallCooldownRushCost(remainingMs)
-        const gems = await debitGems(userId, cost, tx)
+        const gems = await debitGems(userId, cost, 'firewall', tx)
         await tx.update(firewallState)
             .set({ lastRunFinishedAt: null })
             .where(eq(firewallState.userId, userId))

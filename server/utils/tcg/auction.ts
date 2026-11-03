@@ -98,7 +98,7 @@ async function settleIn(tx: Tx, auctionId: string): Promise<boolean> {
     const price = parseFloat(claimed.currentBid)
     // The winner's coins are already escrowed; the seller gets 95%, the 5%
     // burns — same split as every other coin leg on this market.
-    await credit(claimed.sellerId, sellerProceeds(price).toFixed(4), 'tcg:market', tx)
+    await credit(claimed.sellerId, sellerProceeds(price).toFixed(4), 'tcg', tx)
 
     if (claimed.kind === 'copy' && claimed.copyId) {
         const copy = await lockCopyForUpdate(tx, claimed.copyId)
@@ -171,9 +171,9 @@ export async function bid(userId: string, auctionId: string, amount: number): Pr
 
         // Escrow the new top bid, then release the displaced one — at every
         // instant exactly one bidder's coins are held.
-        await debit(userId, amount.toFixed(4), 'tcg:market', tx)
+        await debit(userId, amount.toFixed(4), 'tcg', tx)
         if (auction.currentBidderId && auction.currentBid) {
-            await credit(auction.currentBidderId, auction.currentBid, 'tcg:market', tx)
+            await credit(auction.currentBidderId, auction.currentBid, 'tcg', tx, { refund: true })
         }
 
         await tx.update(tcgAuction)

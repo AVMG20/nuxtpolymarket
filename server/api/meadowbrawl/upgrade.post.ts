@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
         const cost = meadowbrawlUpgradeCost(def, level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Upgrade is already maxed' })
 
-        await debit(userId, cost.toFixed(4), 'meadowbrawl:upgrade', tx)
+        await debit(userId, cost.toFixed(4), 'meadowbrawl', tx)
         const [updated] = await tx.update(meadowbrawlState)
             .set({ [column]: level + 1 })
             .where(eq(meadowbrawlState.userId, userId))
