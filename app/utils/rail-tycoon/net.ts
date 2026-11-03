@@ -3,9 +3,9 @@
 // One binary WebSocket to /api/rail-tycoon/ws. Frames are decoded with decodeServerMsg (a frame it
 // refuses is dropped) and handed to listeners; client messages go out through encodeClientMsg. It
 // pings every 2 s for the latency readout and reconnects with backoff capped at 3 s, also after the
-// server closed it for a send backlog (4408), and emits reconnected so the view opens its
-// world again. Close codes 4401 (not signed in), 4403 (opened from another site) and 4409 (replaced
-// by a newer tab) stop it for good,
+// server closed it for a send backlog (RtCloseCode.tooSlow), and emits reconnected so the view opens
+// its world again. Closes as unauthorized (not signed in), forbidden (opened from another site) and
+// replaced (by a newer tab) stop it for good,
 // as does a hello from another protocol version or build: a tab running the previous deploy's
 // simulation can never stay in lockstep.
 //
@@ -15,7 +15,7 @@
 // so none is lost.
 
 import { RT_MAX_SAVE_BYTES } from '#shared/utils/rail-tycoon/limits'
-import { decodeServerMsg, encodeClientMsg, RT_PROTOCOL_VERSION, type RtClientMsg, type RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
+import { decodeServerMsg, encodeClientMsg, RT_PROTOCOL_VERSION, RtCloseCode, type RtClientMsg, type RtServerMsg } from '#shared/utils/rail-tycoon/protocol'
 import type { RtSnapshot, RtSnapshotMsg } from './lockstep'
 
 /** Why the socket stopped for good; the UI shows it. */
@@ -143,7 +143,7 @@ export class RtNet {
     close(): void {
         this.closing = true
         this.stopTimers()
-        this.socket?.close(1000)
+        this.socket?.close(RtCloseCode.normal)
         this.socket = null
     }
 
@@ -246,8 +246,8 @@ export class RtNet {
         this.discardHeld()
         this.assembly = null
         if (this.closing || this.stopped) return
-        if (code === 4401 || code === 4403) return this.stop('unauthorized')
-        if (code === 4409) return this.stop('replaced')
+        if (code === RtCloseCode.unauthorized || code === RtCloseCode.forbidden) return this.stop('unauthorized')
+        if (code === RtCloseCode.replaced) return this.stop('replaced')
         const delay = Math.min(RT_NET_BACKOFF_MAX_MS, RT_NET_BACKOFF_MIN_MS * 2 ** this.attempt)
         this.attempt++
         this.retryTimer = this.o.setTimeout(() => {
@@ -262,7 +262,7 @@ export class RtNet {
         this.stopTimers()
         const socket = this.socket
         this.socket = null
-        socket?.close(1000)
+        socket?.close(RtCloseCode.normal)
         this.emit('stopped', reason)
     }
 

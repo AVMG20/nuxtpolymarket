@@ -1,55 +1,47 @@
 import { describe, expect, it } from 'vitest'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { RtCommandKind, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
-import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
-import { RtOrderError } from '#shared/utils/rail-tycoon/orders'
-import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
+import { RtDir, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtOrderError, rtOrdersToggleFlag } from '#shared/utils/rail-tycoon/orders'
+import { RtAxis, rtPlatformTrack } from '#shared/utils/rail-tycoon/stations-build'
 import { RtOrderFlag, RtOrderKind, RtVehicleKind, RtVehicleState, type RtOrder } from '#shared/utils/rail-tycoon/types'
-import { rtConsistHalfTiles } from '#shared/utils/rail-tycoon/vehicles'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { rtConsistHalfTiles, rtMaxWagons } from '#shared/utils/rail-tycoon/vehicles'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 import {
-    RT_MINIMAP_WIDTH,
-    rtAgeText,
     rtBuyableModels,
     rtCapacityText,
     rtConsistSummary,
     rtConsistText,
     rtDepotKindAt,
-    rtMaxWagons,
-    rtMinimapColour,
-    rtMinimapFromWorld,
-    rtMinimapScale,
-    rtMinimapToWorld,
+    rtPlannedConsist,
+    rtVehiclesInDepot,
+    rtWagonModels
+} from '../../app/utils/rail-tycoon/buy-view'
+import { RT_MINIMAP_WIDTH, rtMinimapColour, rtMinimapFromWorld, rtMinimapScale, rtMinimapToWorld } from '../../app/utils/rail-tycoon/minimap'
+import { rtQueryTarget } from '../../app/utils/rail-tycoon/query'
+import { rtStationAccepts, rtStationCargoRows } from '../../app/utils/rail-tycoon/station-view'
+import {
     rtOrderErrorText,
     rtOrdersInsert,
     rtOrdersMove,
     rtOrdersRemove,
-    rtOrdersToggleFlag,
     rtOrderText,
-    rtPercent,
-    rtPlannedConsist,
-    rtQueryTarget,
     rtSortVehicleRows,
-    rtStationAccepts,
-    rtStationCargoRows,
     rtVehicleCargo,
     rtVehicleName,
     rtVehicleRows,
-    rtVehiclesInDepot,
     rtVehicleStatus,
-    rtWagonModels,
     type RtVehicleRow
-} from '../../app/utils/rail-tycoon/world-windows'
+} from '../../app/utils/rail-tycoon/vehicle-view'
+import { rtAgeText, rtPercent } from '../../app/utils/rail-tycoon/view-format'
 
 const ME = 0
 const RIVAL = 1
 const M = RT_CATALOG.vehicles.models
 
 function flatWorld(side = 64): RtWorld {
-    const w = new RtWorld({
-        settings: { side, maxCompanies: 8, sharing: false }, map: new RtMap(side), rngState: 5, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)],
-        towns: [], industries: [], stations: [], vehicles: []
+    const w = RtWorld.empty({ side, maxCompanies: 8, sharing: false }, {
+        rngState: 5, companies: [rtNewCompany(ME, 'Mine', 0, 0), rtNewCompany(RIVAL, 'Rival', 1, 0)]
     })
     for (const company of w.companyList()) company.money = 1_000_000
     return w
@@ -253,8 +245,13 @@ describe('query clicks (for the game page)', () => {
         const train = w.vehicleList()[0]!
         // inside the depot it is not on the map: the depot still opens the buy window
         expect(rtQueryTarget(w, ME, depot)).toEqual({ kind: 'buyVehicle', id: depot })
+        // stood on the platform, as a mover leaves it: in the vehicle and in the occupancy registry
+        const piece = rtPlatformTrack(w.map.payload[stationTile]!)
+        w.occupied.releaseVehicle(train.id)
+        w.occupied.holdPiece(train.id, stationTile, piece)
         train.state = RtVehicleState.loading
         train.tiles = [stationTile]
+        train.pieces = [piece]
         expect(rtQueryTarget(w, ME, stationTile)).toEqual({ kind: 'vehicle', id: train.id })
     })
 })

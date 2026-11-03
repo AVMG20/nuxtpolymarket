@@ -7,7 +7,7 @@ import { RT_ROAD_X, RT_ROAD_Y } from '#shared/utils/rail-tycoon/track'
 import { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import { rtPickerSceneItems, type RtPickerScene } from '../../app/utils/rail-tycoon/picker'
 import { RtRailDirection, rtRailDirectionPieces } from '../../app/utils/rail-tycoon/tools'
-import type { RtSpriteLookup } from '../../app/utils/rail-tycoon/renderer'
+import type { RtSpriteLookup } from '../../app/utils/rail-tycoon/tile-draw'
 
 const json = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../public/rail-tycoon/opengfx/atlas.json'), 'utf8')) as {
     meta: RtSpriteLookup['meta']

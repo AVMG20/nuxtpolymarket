@@ -3,14 +3,13 @@
 // game's own commands, drawn by the renderer's own tile rules (rtTileDrawList) from the OpenGFX atlas
 // onto a 2D canvas, so a picker always shows what the map will.
 import { applyCommand, RtCommandKind, type RtCommand } from '#shared/utils/rail-tycoon/commands'
-import { RtMap } from '#shared/utils/rail-tycoon/map'
 import type { RtSignalType } from '#shared/utils/rail-tycoon/signals'
 import type { RtAxis, RtRoadStopShape, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_TRACK_COUNT, RtTrack } from '#shared/utils/rail-tycoon/track'
 import type { RtVehicleKind } from '#shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
-import { rtTileDrawList, type RtDrawItem, type RtSpriteLookup } from './renderer'
-import { RT_ATLAS_BASE_URL } from './sprites'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { rtTileDrawList, type RtDrawItem, type RtSpriteLookup } from './tile-draw'
+import { RT_ATLAS_BASE_URL, rtFetchAtlasJson, type RtAtlasJson } from './sprites'
 
 /** One picture a picker offers. */
 export type RtPickerScene =
@@ -24,30 +23,13 @@ export type RtPickerScene =
     | { kind: 'roadStop', stop: typeof RtStationTile.bus | typeof RtStationTile.truck, shape: RtRoadStopShape }
     | { kind: 'signal', signalType: RtSignalType }
 
-interface AtlasJson {
-    meta: { industryLayouts: Record<string, [number, number, number][]> }
-    sprites: Record<string, { x: number, y: number, w: number, h: number, ox: number, oy: number, layer?: 'rear' | 'front' | null }>
-}
-
 const SIDE = 64
 const AT = 32 * SIDE + 32
 const OWNER = 0
 
 /** The tile the scene builds on, as the map would draw it. */
 export function rtPickerSceneItems(scene: RtPickerScene, lookup: RtSpriteLookup): RtDrawItem[] {
-    const world = new RtWorld({
-        settings: { side: SIDE, maxCompanies: 2, sharing: false },
-        map: new RtMap(SIDE),
-        rngState: 1,
-        tick: 0,
-        date: rtStartDate(),
-        pathfinderCursor: 0,
-        companies: [rtNewCompany(OWNER, 'Picker', 0, 0)],
-        towns: [],
-        industries: [],
-        stations: [],
-        vehicles: []
-    })
+    const world = RtWorld.empty({ side: SIDE, maxCompanies: 2, sharing: false }, { companies: [rtNewCompany(OWNER, 'Picker', 0, 0)] })
     world.company(OWNER)!.money = 1e9
     const commands: RtCommand[] = []
     switch (scene.kind) {
@@ -81,11 +63,11 @@ export function rtPickerSceneItems(scene: RtPickerScene, lookup: RtSpriteLookup)
     return rtTileDrawList(world, AT, lookup)
 }
 
-let atlas: Promise<{ image: HTMLImageElement, json: AtlasJson, lookup: RtSpriteLookup }> | null = null
+let atlas: Promise<{ image: HTMLImageElement, json: RtAtlasJson, lookup: RtSpriteLookup }> | null = null
 
 function loadAtlas() {
     atlas ??= (async () => {
-        const json = await $fetch<AtlasJson>(`${RT_ATLAS_BASE_URL}atlas.json`)
+        const json = await rtFetchAtlasJson()
         const image = new Image()
         image.src = `${RT_ATLAS_BASE_URL}atlas.png`
         await image.decode()

@@ -56,7 +56,7 @@ export function rtWorldToTile(wx: number, wy: number, height: number = 0): RtPoi
 }
 
 /** Corner heights of tile (x, y) as [n, w, e, s]; n is corner (x, y), w (x + 1, y), e (x, y + 1), s (x + 1, y + 1). */
-export function rtTileCorners(map: RtMap, x: number, y: number): [number, number, number, number] {
+export function rtCornerHeightsAt(map: RtMap, x: number, y: number): [number, number, number, number] {
     const c = map.side + 1
     const top = y * c + x
     const h = map.heights
@@ -84,7 +84,7 @@ function inTriangle(ax: number, ay: number, bx: number, by: number, cx: number, 
  * diagonal and the east corner right of it, so the two triangles either side of it cover it exactly.
  */
 export function rtTileContainsWorld(map: RtMap, x: number, y: number, wx: number, wy: number): boolean {
-    const [hn, hw, he, hs] = rtTileCorners(map, x, y)
+    const [hn, hw, he, hs] = rtCornerHeightsAt(map, x, y)
     const nx = (y - x) * HALF_W
     const ny = (x + y) * HALF_H
     const step = RT_CAMERA_HEIGHT_STEP

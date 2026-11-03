@@ -12,13 +12,13 @@
 
 import { inject, reactive, type InjectionKey, type Ref, type ShallowRef } from 'vue'
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
-import type { RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { RtCommandError, type RtCommand, type RtCommandResult } from '#shared/utils/rail-tycoon/commands'
 import { changeLoan } from '#shared/utils/rail-tycoon/economy'
 import type { RtClientMsg, RtErrorCode, RtPauseReason, RtRole } from '#shared/utils/rail-tycoon/protocol'
 import type { RtCompany, RtDate } from '#shared/utils/rail-tycoon/types'
 import type { RtCamera } from './camera'
 import type { RtLockstep } from './lockstep'
-import type { RtToolKind, RtTools } from './tools'
+import type { RtToolKind, RtToolOptions, RtTools } from './tools'
 
 /* ------------------------------------------------------------------------------------------
  * Window registry
@@ -190,19 +190,28 @@ export interface RtGameContext {
     readonly closed: Readonly<Ref<boolean>>
     /** The selected tool, mirrored from RtTools for the toolbar's highlight. */
     readonly tool: Readonly<Ref<RtToolKind>>
-    /** Bumped by selectTool and refreshTool: read it with tools.options, which is not reactive. */
-    readonly toolOptions: Readonly<Ref<number>>
+    /**
+     * The vehicle window whose orders editor holds the map's pick mode (its window key), or null: one
+     * at a time across every open vehicle window, so a pick lands in the window that asked for it.
+     */
+    readonly orderPickOwner: Ref<string | null>
+    /** The tool options, mirrored from RtTools; change them with tools.setOptions(). */
+    readonly toolOptions: Readonly<ShallowRef<Readonly<RtToolOptions>>>
     /** Whether this client may send commands now (a player of an open world, in step, connected). */
     canCommand(): boolean
     /** The player's company as it is now (not reactive), or null. */
     company(): RtCompany | null
     /** Sends a player command; false when it was not sent (spectator, closed, resyncing, offline). A refusal comes back as an error toast. */
     sendCommand(command: RtCommand): boolean
+    /** sendCommand, with a warning toast when the command was not sent. */
+    sendCommandOrWarn(command: RtCommand): boolean
+    /** The player's command checked against the world as it is now, without applying it; null for a spectator or before the world loads. */
+    tryCommand(command: RtCommand): RtCommandResult | null
     /** Sends a world-level message such as stop; false when the socket is down. */
     send(msg: RtClientMsg): boolean
+    /** send, with a warning toast when the socket is down. */
+    sendOrWarn(msg: RtClientMsg): boolean
     selectTool(tool: RtToolKind): void
-    /** Re-runs the tool preview after a tool option changed. */
-    refreshTool(): void
     zoom(step: 1 | -1): void
     centreOnTile(tile: number): void
     /** Back to the chooser. */
@@ -298,28 +307,28 @@ export const RT_MAX_LOAN = RT_CATALOG.economy.maxLoan
  * ---------------------------------------------------------------------------------------- */
 
 /** RtCommandError codes (commands.ts), as the toast a refused command shows. */
-const COMMAND_ERRORS: readonly string[] = [
-    'Something is in the way',
-    'Owned by someone else',
-    'Land sloped in the wrong direction',
-    'Can\'t build on water',
-    'Something is in the way',
-    'Too close to the edge of the map',
-    'Station too spread out',
-    'Already built',
-    'Can\'t do that here',
-    'Too many of those in this world',
-    'Not enough cash',
-    'You have no company in this world',
-    'Those orders can\'t be used',
-    'Can\'t change the loan',
-    'No depot in reach',
-    'The vehicle can\'t do that now',
-    'Road is in the wrong direction'
-]
+const COMMAND_ERRORS: Readonly<Record<RtCommandError, string>> = {
+    [RtCommandError.occupied]: 'Something is in the way',
+    [RtCommandError.notOwner]: 'Owned by someone else',
+    [RtCommandError.badSlope]: 'Land sloped in the wrong direction',
+    [RtCommandError.water]: 'Can\'t build on water',
+    [RtCommandError.conflict]: 'Something is in the way',
+    [RtCommandError.edge]: 'Too close to the edge of the map',
+    [RtCommandError.tooSpread]: 'Station too spread out',
+    [RtCommandError.alreadyBuilt]: 'Already built',
+    [RtCommandError.invalid]: 'Can\'t do that here',
+    [RtCommandError.limit]: 'Too many of those in this world',
+    [RtCommandError.money]: 'Not enough cash',
+    [RtCommandError.noCompany]: 'You have no company in this world',
+    [RtCommandError.orders]: 'Those orders can\'t be used',
+    [RtCommandError.loan]: 'Can\'t change the loan',
+    [RtCommandError.noDepot]: 'No depot in reach',
+    [RtCommandError.state]: 'The vehicle can\'t do that now',
+    [RtCommandError.wrongDirection]: 'Road is in the wrong direction'
+}
 
 export function rtCommandErrorText(code: number): string {
-    return COMMAND_ERRORS[code] ?? 'That action was refused'
+    return COMMAND_ERRORS[code as RtCommandError] ?? 'That action was refused'
 }
 
 const SERVER_ERRORS: Record<RtErrorCode, string> = {

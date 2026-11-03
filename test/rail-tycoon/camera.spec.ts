@@ -11,7 +11,7 @@ import {
     RtCamera,
     RtScrollKey,
     rtForEachTileInRange,
-    rtTileCorners,
+    rtCornerHeightsAt,
     rtTileToWorld,
     rtWorldToTile
 } from '../../app/utils/rail-tycoon/camera'
@@ -35,7 +35,7 @@ function hillyMap(): RtMap {
 
 /** Screen position of the middle of tile (x, y)'s surface: the mean of its four projected corners. */
 function tileCentre(camera: RtCamera, map: RtMap, x: number, y: number): RtPoint {
-    const [n, w, e, s] = rtTileCorners(map, x, y)
+    const [n, w, e, s] = rtCornerHeightsAt(map, x, y)
     const pts = [camera.tileToScreen(x, y, n), camera.tileToScreen(x + 1, y, w), camera.tileToScreen(x, y + 1, e), camera.tileToScreen(x + 1, y + 1, s)]
     return { x: pts.reduce((a, p) => a + p.x, 0) / 4, y: pts.reduce((a, p) => a + p.y, 0) / 4 }
 }
@@ -242,7 +242,7 @@ describe('rail tycoon camera', () => {
             // every tile with a corner inside the viewport is visited
             for (let y = 0; y < 64; y++) {
                 for (let x = 0; x < 64; x++) {
-                    const [n, w, e, s] = rtTileCorners(map, x, y)
+                    const [n, w, e, s] = rtCornerHeightsAt(map, x, y)
                     const corners = [camera.tileToScreen(x, y, n), camera.tileToScreen(x + 1, y, w), camera.tileToScreen(x, y + 1, e), camera.tileToScreen(x + 1, y + 1, s)]
                     const shows = corners.some(p => p.x >= 0 && p.x <= 640 && p.y >= 0 && p.y <= 480)
                     if (shows && !visited.has(map.idx(x, y))) expect.fail(`zoom ${zoom}: tile ${x},${y} shows but was culled`)

@@ -6,30 +6,33 @@ import { RT_CATALOG, RT_INDUSTRY_TYPE_IDS, RT_VEHICLE_MODEL_IDS } from '#shared/
 import { RT_ROAD_DIR_BIT, RtDir, RtSlope } from '#shared/utils/rail-tycoon/map'
 import {
     RT_COMPANY_BASE_SHADE,
+    rtClearTransparent,
+    rtCompanyColour,
+    rtCompanyRamp,
+    rtIsRecolouredName,
+    rtMaskChannel,
+    rtMaskShade,
+    rtPackRects,
+    rtPlaceholderPixels,
+    rtRecolourInto,
+    rtRectHasMask
+} from '../../app/utils/rail-tycoon/sprites'
+import type { RtAtlasJson } from '../../app/utils/rail-tycoon/sprites'
+import {
     RT_RAIL_PIECES,
     RT_SIDE_NAMES,
     RT_SLOPE_CORNERS,
     RT_SPRITE_DIRECTIONS,
     RT_WATER_CYCLE_MS,
     RT_WATER_FRAMES,
-    rtClearTransparent,
     rtCoastSpriteName,
-    rtCompanyColour,
-    rtCompanyRamp,
     rtCrossingSpriteName,
     rtDepotSpriteNames,
     rtFoundationSpriteName,
     rtHouseSpriteName,
     rtIndustrySpriteName,
-    rtIsRecolouredName,
-    rtMaskChannel,
-    rtMaskShade,
-    rtPackRects,
-    rtPlaceholderPixels,
     rtRailPiecesFromBits,
     rtRailSpriteNames,
-    rtRecolourInto,
-    rtRectHasMask,
     rtRoadSidesFromBits,
     rtRoadSpriteName,
     rtRoadStopSpriteNames,
@@ -42,8 +45,8 @@ import {
     rtVehicleSpriteName,
     rtWaterFrameAt,
     rtWaterSpriteName
-} from '../../app/utils/rail-tycoon/sprites'
-import type { RtAtlasJson, RtRailPiece, RtSlopeName } from '../../app/utils/rail-tycoon/sprites'
+} from '../../app/utils/rail-tycoon/sprite-names'
+import type { RtRailPiece, RtSlopeName } from '../../app/utils/rail-tycoon/sprite-names'
 
 const outDir = resolve(import.meta.dirname, '../../public/rail-tycoon/opengfx')
 const atlas = JSON.parse(readFileSync(join(outDir, 'atlas.json'), 'utf8')) as RtAtlasJson

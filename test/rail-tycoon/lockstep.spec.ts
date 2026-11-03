@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { RT_CARGO_IDS, RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { RtCommandKind, applyCommand, decodeCommand, encodeCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RT_PART_FRAGMENT_BYTES, RT_RESYNC_BEHIND_TICKS } from '#shared/utils/rail-tycoon/limits'
-import { RtDir, RtMap, RtTileKind } from '#shared/utils/rail-tycoon/map'
+import { RtDir, RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RT_PROTOCOL_VERSION, encodeServerMsg, type RtClientMsg, type RtServerMsg, type RtStampedCommand } from '#shared/utils/rail-tycoon/protocol'
 import { encodeWorldParts, rtChunkOfTile, rtPartHash } from '#shared/utils/rail-tycoon/save'
 import { RtAxis } from '#shared/utils/rail-tycoon/stations-build'
 import { RtTrack, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RT_OWNER_NONE, RtOrderKind, RtVehicleKind } from '#shared/utils/rail-tycoon/types'
-import { RtWorld, rtNewCompany, rtStartDate } from '#shared/utils/rail-tycoon/world'
+import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
 import { RtLockstep, rtGunzip, type RtSnapshot } from '../../app/utils/rail-tycoon/lockstep'
 import { RtNet, type RtSocket } from '../../app/utils/rail-tycoon/net'
 
@@ -19,10 +19,7 @@ import { RtNet, type RtSocket } from '../../app/utils/rail-tycoon/net'
  * ---------------------------------------------------------------------------------------- */
 
 function flatWorld(): RtWorld {
-    const w = new RtWorld({
-        settings: { side: 64, maxCompanies: 8, sharing: false }, map: new RtMap(64), rngState: 21, tick: 0, date: rtStartDate(),
-        pathfinderCursor: 0, companies: [rtNewCompany(0, 'Player', 0, 0)], towns: [], industries: [], stations: [], vehicles: []
-    })
+    const w = RtWorld.empty({ side: 64, maxCompanies: 8, sharing: false }, { rngState: 21, companies: [rtNewCompany(0, 'Player', 0, 0)] })
     w.company(0)!.money = 1e9
     return w
 }
@@ -318,6 +315,8 @@ describe('RtLockstep', () => {
         expect(vehicles).toBe(1)
         // the first round trip runs empty; a 16-tile shuttle first earns around day 40
         expect(paid).toBeGreaterThan(0)
+        // every delivery is reported in full, a running-cost day's included: one company, so no sharing cut
+        expect(paid).toBeCloseTo(lock.world.company(0)!.financeThisYear.trainIncome, 6)
     })
 })
 

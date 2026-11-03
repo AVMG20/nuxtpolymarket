@@ -19,18 +19,20 @@ import {
     RtCommandError,
     RtCommandKind,
     applyCommand,
+    rtAreaRect,
     rtLineMaxTiles,
     rtRailLineWalk,
     rtStationFootprint,
     type RtCommand
 } from '#shared/utils/rail-tycoon/commands'
+import { rtCatchmentOf } from '#shared/utils/rail-tycoon/stations'
 import { RtTileKind, type RtDir, type RtMap } from '#shared/utils/rail-tycoon/map'
 import { RtSignalType, rtSignalTypeAt } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, RtRoadStopShape, RtStationTile, rtBayShape, rtShapeIsBay, rtStationId } from '#shared/utils/rail-tycoon/stations-build'
 import { RT_ROAD_X, RT_ROAD_Y, RT_TRACK_COUNT, RtTrack, rtRailTilePieces } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RtVehicleKind } from '#shared/utils/rail-tycoon/types'
 import type { RtWorld } from '#shared/utils/rail-tycoon/world'
-import { rtTileCorners, rtWorldToTile, type RtCamera } from './camera'
+import { rtCornerHeightsAt, rtWorldToTile, type RtCamera } from './camera'
 
 /* ------------------------------------------------------------------------------------------
  * Types
@@ -131,6 +133,8 @@ export interface RtToolEvents {
     preview: RtToolPreview | null
     /** The selected tool changed, pick mode included. */
     tool: RtToolKind
+    /** The options changed: a new object each time, so a view can hold it in a shallow ref. */
+    options: Readonly<RtToolOptions>
 }
 
 /** Where the tools read the world and who the player is. */
@@ -262,29 +266,11 @@ export function rtAreaDrag(map: RtMap, start: number, end: number): number {
 export function rtPointerTile(camera: RtCamera, map: RtMap, px: number, py: number): { tile: number, at: RtSubTile } | null {
     const hit = camera.screenToTile(px, py, map)
     if (!hit) return null
-    const [n, w, e, s] = rtTileCorners(map, hit.x, hit.y)
+    const [n, w, e, s] = rtCornerHeightsAt(map, hit.x, hit.y)
     const world = camera.screenToWorld(px, py)
     const point = rtWorldToTile(world.x, world.y, (n + w + e + s) / 4)
     const inside = (v: number) => Math.min(0.999, Math.max(0, v))
     return { tile: map.idx(hit.x, hit.y), at: { fx: inside(point.x - hit.x), fy: inside(point.y - hit.y) } }
-}
-
-/** The tiles within `radius` of any footprint tile, clipped to the map. */
-function catchmentOf(map: RtMap, footprint: readonly number[], radius: number): number[] {
-    if (footprint.length === 0) return []
-    let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
-    for (const tile of footprint) {
-        const [x, y] = [map.tileX(tile), map.tileY(tile)]
-        x0 = Math.min(x0, x)
-        y0 = Math.min(y0, y)
-        x1 = Math.max(x1, x)
-        y1 = Math.max(y1, y)
-    }
-    const out: number[] = []
-    for (let y = Math.max(0, y0 - radius); y <= Math.min(map.side - 1, y1 + radius); y++) {
-        for (let x = Math.max(0, x0 - radius); x <= Math.min(map.side - 1, x1 + radius); x++) out.push(map.idx(x, y))
-    }
-    return out
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -302,7 +288,8 @@ interface Gesture {
 
 export class RtTools {
     tool: RtToolKind = RtToolKind.none
-    readonly options: RtToolOptions = {
+    /** Replaced, never changed in place: setOptions() is the only writer. */
+    private current: Readonly<RtToolOptions> = {
         railDirection: RtRailDirection.auto,
         roadDirection: RtRoadDirection.auto,
         signalType: RtSignalType.path,
@@ -325,6 +312,17 @@ export class RtTools {
     private readonly listeners = new Map<keyof RtToolEvents, Set<(value: never) => void>>()
 
     constructor(private readonly context: RtToolContext) {}
+
+    get options(): Readonly<RtToolOptions> {
+        return this.current
+    }
+
+    /** Changes some options, tells the listeners and recomputes the preview. */
+    setOptions(patch: Partial<RtToolOptions>): void {
+        this.current = { ...this.current, ...patch }
+        this.emit('options', this.current)
+        this.refresh()
+    }
 
     on<K extends keyof RtToolEvents>(event: K, listener: Listener<K>): () => void {
         let set = this.listeners.get(event)
@@ -392,11 +390,10 @@ export class RtTools {
             return
         }
         if (key === 'r' || key === 'R') {
-            if (this.tool === RtToolKind.depot) this.options.depotFacing = (this.options.depotFacing + 1) & 3
-            else if (this.tool === RtToolKind.railStation) this.options.stationAxis = this.options.stationAxis === RtAxis.x ? RtAxis.y : RtAxis.x
-            else if (this.tool === RtToolKind.roadStop) this.options.stopShape = rtTurnRoadStopShape(this.options.stopShape)
-            else return
-            this.refresh()
+            const o = this.current
+            if (this.tool === RtToolKind.depot) this.setOptions({ depotFacing: (o.depotFacing + 1) & 3 })
+            else if (this.tool === RtToolKind.railStation) this.setOptions({ stationAxis: o.stationAxis === RtAxis.x ? RtAxis.y : RtAxis.x })
+            else if (this.tool === RtToolKind.roadStop) this.setOptions({ stopShape: rtTurnRoadStopShape(o.stopShape) })
         }
     }
 
@@ -505,7 +502,7 @@ export class RtTools {
         } else {
             const endTile = rtAreaDrag(map, start, tile)
             command = start === endTile ? { kind: RtCommandKind.demolish, tile: start } : { kind: RtCommandKind.demolishArea, tile: start, endTile }
-            preview = this.previewSingle(world, command, ...areaOf(map, start, endTile))
+            preview = this.previewSingle(world, command, ...rtAreaRect(map, start, endTile))
         }
         gesture.command = command
         this.setPreview(preview)
@@ -566,7 +563,7 @@ export class RtTools {
         }
         if (command.kind === RtCommandKind.buildRailStation || command.kind === RtCommandKind.buildRoadStop) {
             const radius = command.kind === RtCommandKind.buildRailStation ? RT_CATALOG.catchment.rail : RT_CATALOG.catchment.roadStop
-            preview.catchment = catchmentOf(world.map, tiles, radius)
+            preview.catchment = rtCatchmentOf(world.map, tiles, () => radius)
         }
         return preview
     }
@@ -634,12 +631,4 @@ export class RtTools {
 
 function emptyPreview(tiles: number[]): RtToolPreview {
     return { tiles, blocked: [], catchment: [], cost: 0, ok: false, error: null, hint: null }
-}
-
-function areaOf(map: RtMap, a: number, b: number): number[] {
-    const [x0, x1] = [Math.min(map.tileX(a), map.tileX(b)), Math.max(map.tileX(a), map.tileX(b))]
-    const [y0, y1] = [Math.min(map.tileY(a), map.tileY(b)), Math.max(map.tileY(a), map.tileY(b))]
-    const out: number[] = []
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push(map.idx(x, y))
-    return out
 }

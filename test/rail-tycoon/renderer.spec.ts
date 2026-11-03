@@ -18,15 +18,8 @@ import { RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtCompany, type RtIn
 import { RT_CATALOG } from '#shared/utils/rail-tycoon/catalog'
 import { RT_CAMERA_ZOOMS, rtForEachTileInRange, rtTileToWorld, type RtTileRange } from '../../app/utils/rail-tycoon/camera'
 import {
-    RT_FLOAT_MAX,
-    RT_FLOAT_MS,
-    RT_FLOAT_RISE,
-    RtFloatTexts,
-    rtFloatLook,
-    rtFormatIncome,
     rtGroundDepth,
     rtGrowRange,
-    rtIsParkingSpot,
     rtObjectDepth,
     rtPartDepth,
     rtRangeArea,
@@ -34,14 +27,19 @@ import {
     rtRenderResolution,
     rtSignalPoint,
     rtSurfaceHeight,
-    rtTileDrawList,
-    rtTileInRange,
+    rtTileInRange
+} from '../../app/utils/rail-tycoon/render-space'
+import { rtIsParkingSpot, rtTileDrawList, type RtDrawItem, type RtDrawWorld, type RtSpriteLookup } from '../../app/utils/rail-tycoon/tile-draw'
+import {
+    RT_FLOAT_MAX,
+    RT_FLOAT_MS,
+    RT_FLOAT_RISE,
+    RtFloatTexts,
+    rtFloatLook,
+    rtFormatIncome,
     rtVehicleBadge,
-    rtVehicleParts,
-    type RtDrawItem,
-    type RtDrawWorld,
-    type RtSpriteLookup
-} from '../../app/utils/rail-tycoon/renderer'
+    rtVehicleParts
+} from '../../app/utils/rail-tycoon/vehicle-draw'
 
 const lookup: RtSpriteLookup = {
     meta: { industryLayouts: { coalMine: [[1, 1, 0], [2, 2, 3]] } },

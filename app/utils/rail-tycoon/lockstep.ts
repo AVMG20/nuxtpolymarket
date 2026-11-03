@@ -15,7 +15,7 @@
 // Events feed the renderer and the windows: dirty tiles, payments (where and how much), vehicle list
 // changes, pause and resume, role changes and resync requests.
 
-import { decodeCommand, applyCommand, type RtCommand } from '#shared/utils/rail-tycoon/commands'
+import { decodeCommand, rtApplyTick, type RtCommand } from '#shared/utils/rail-tycoon/commands'
 import { RT_CLIENT_STEPS_PER_FRAME, RT_GUNZIP_MAX_BYTES, RT_RESYNC_BEHIND_TICKS } from '#shared/utils/rail-tycoon/limits'
 import type { RtClientMsg, RtPauseReason, RtRole, RtServerMsg, RtStampedCommand } from '#shared/utils/rail-tycoon/protocol'
 import { decodeWorldParts, encodeWorldParts, rtPartHash, type RtWorldParts } from '#shared/utils/rail-tycoon/save'
@@ -133,8 +133,9 @@ export class RtLockstep {
 
     private readonly queue = new Map<number, Queued[]>()
     private readonly hashes = new Map<number, number>()
-    private readonly profits = new Map<number, number>()
-    private vehicleCount: number
+    /** The world's events during a step, told once the step is done. */
+    private paid: RtPayment[] = []
+    private vehiclesChanged = false
     /** A room hash has matched this world: its parts are worth offering when asking again. */
     private verified = false
     private held: Map<string, Uint8Array> = new Map()
@@ -150,8 +151,14 @@ export class RtLockstep {
         private readonly send: (msg: RtClientMsg) => void
     ) {
         this.allowance = world.tick
-        this.vehicleCount = world.vehicleList().length
-        for (const vehicle of world.vehicleList()) this.profits.set(vehicle.id, vehicle.profitThisYear)
+        world.events = {
+            payment: (vehicle, profit) => {
+                this.paid.push({ tile: vehicle.tiles[0] ?? -1, amount: profit, company: vehicle.owner })
+            },
+            vehicles: () => {
+                this.vehiclesChanged = true
+            }
+        }
     }
 
     /**
@@ -322,32 +329,20 @@ export class RtLockstep {
         const tick = world.tick
         const hash = this.hashes.get(tick)
         if (hash !== undefined && !this.checkHash(tick, hash)) return
-        const commands = this.queue.get(tick)
-        if (commands) {
-            this.queue.delete(tick)
-            for (const { company, command } of commands) applyCommand(world, company, command, true)
-        }
-        world.step()
+        const commands = this.queue.get(tick) ?? []
+        this.queue.delete(tick)
+        rtApplyTick(world, commands)
         this.notice()
     }
 
-    /** Payments and vehicle list changes since the last tick, from the vehicles' profits. */
+    /** The tick's payments and vehicle list change, as the world reported them during it. */
     private notice(): void {
-        const vehicles = this.world.vehicleList()
-        for (const vehicle of vehicles) {
-            const before = this.profits.get(vehicle.id)
-            // a rise in this year's profit is a delivery paid; the new-year roll and running costs only lower it
-            if (before !== undefined && vehicle.profitThisYear > before) {
-                this.emit('payment', { tile: vehicle.tiles[0] ?? -1, amount: vehicle.profitThisYear - before, company: vehicle.owner })
-            }
-            this.profits.set(vehicle.id, vehicle.profitThisYear)
-        }
-        if (vehicles.length !== this.vehicleCount || this.profits.size !== vehicles.length) {
-            this.vehicleCount = vehicles.length
-            const alive = new Set(vehicles.map(vehicle => vehicle.id))
-            for (const id of [...this.profits.keys()]) if (!alive.has(id)) this.profits.delete(id)
-            this.emit('vehicles', undefined)
-        }
+        const paid = this.paid
+        this.paid = []
+        for (const payment of paid) this.emit('payment', payment)
+        if (!this.vehiclesChanged) return
+        this.vehiclesChanged = false
+        this.emit('vehicles', undefined)
     }
 
     /** The command message for a player's command, or null when this client may not send one now. */
