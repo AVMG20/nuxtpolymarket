@@ -52,13 +52,12 @@ import {
 } from './types'
 import { agePackets } from './cargo'
 import { rtDepotKind } from './depots'
-import { industryTick } from './industries'
 import { rtDropViolationsOf, rtInspectCrossings, rtProsecuteAccidents, rtUncrashedIds } from './inspector'
 import { rtRecountInfrastructure } from './infrastructure'
 import { rtLoadHooks } from './loading'
 import { findRailRoute, findRoadRoute, RtRouteOutcome } from './pathfinder'
 import { stepRoadVehicle } from './road-vehicle'
-import { stationsTick } from './stations'
+import { rtTickTileEntities } from './tile-entities'
 import { rtTownMonthly, townTick } from './towns'
 import { rtRemoveTrain, stepTrain } from './train'
 import { rtIsVehicleDayTick, rtVehicleDay, rtVehicleSellValue } from './vehicles'
@@ -1189,7 +1188,8 @@ export class RtWorld {
      * vehicle in id order from the pathfinder cursor, its daily step (age, breakdown, service, running
      * cost booked as it accrues) before its move, a block it enters or leaves updated before the next
      * vehicle moves; accidents on foreign crossings charged to their causers
-     * (inspector.ts); towns then industries in id order; station acceptance and ratings;
+     * (inspector.ts); towns in id order; the tile entities (rtTickTileEntities: industries' production,
+     * then stations' acceptance and ratings, each in id order);
      * cargo aboard ageing every packetAgeTicks; on a new month the towns' monthly update, the crossing
      * inspector's visits and each company's month end in id order, resetting a company that went bankrupt; on 1 January the
      * new-year roll of finances and vehicle profits. Commands for the tick are applied before
@@ -1206,8 +1206,7 @@ export class RtWorld {
         if (uncrashed) rtProsecuteAccidents(this, uncrashed)
         const towns = this.townList()
         for (const town of towns) townTick(this, town, this.rng, this.tick)
-        for (const industry of this.industryList()) industryTick(this, industry, this.rng, this.tick)
-        stationsTick(this, this.rng, this.tick)
+        rtTickTileEntities(this, this.rng, this.tick)
         if (this.tick % RT_CATALOG.time.packetAgeTicks === 0) {
             for (const vehicle of this.vehicleList()) agePackets(vehicle.cargo)
         }

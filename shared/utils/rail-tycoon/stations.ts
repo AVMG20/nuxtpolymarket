@@ -267,17 +267,19 @@ export function rtRatingDue(station: RtStation, tick: number): boolean {
 }
 
 /**
- * The per-tick station step for RtWorld.step: every station in ascending id recomputes its acceptance on
- * its acceptance tick and updates its ratings on its rating tick, drawing from the world's rng.
+ * One tick of a station, its tile entity's tick: it recomputes its acceptance on its acceptance tick
+ * and updates its ratings on its rating tick, drawing from the world's rng.
  */
-export function stationsTick(world: RtAcceptanceWorld, rng: SeededRandom, tick: number): void {
-    for (const station of world.stations) {
-        if (!station) continue
-        if (rtAcceptanceDue(station, tick)) updateAcceptance(world, station)
-        if (rtRatingDue(station, tick)) {
-            updateStationRatings(station, tick, rng, id => world.stations[id] ?? undefined)
-        }
+export function rtStationTick(world: RtAcceptanceWorld, station: RtStation, rng: SeededRandom, tick: number): void {
+    if (rtAcceptanceDue(station, tick)) updateAcceptance(world, station)
+    if (rtRatingDue(station, tick)) {
+        updateStationRatings(station, tick, rng, id => world.stations[id] ?? undefined)
     }
+}
+
+/** Every station's tick in ascending id, as rtTickTileEntities runs them. */
+export function stationsTick(world: RtAcceptanceWorld, rng: SeededRandom, tick: number): void {
+    for (const station of world.stations) if (station) rtStationTick(world, station, rng, tick)
 }
 
 /* ------------------------------------------------------------------------------------------
