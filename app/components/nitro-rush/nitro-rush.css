@@ -130,12 +130,33 @@
     font-size: 26px;
     font-style: italic;
     color: #fff;
+    position: relative;
     background: linear-gradient(90deg, var(--nr-pink), var(--nr-orange));
     box-shadow: 0 0 28px rgb(255 43 214 / 0.8), inset 0 -3px 0 rgb(0 0 0 / 0.25);
     cursor: pointer;
     transition: transform 0.12s;
+}
+
+/* :where keeps this below the builder's own BUILD shadow. */
+.nr-root .nr-play:where(:not(:disabled)) { box-shadow: none; }
+
+/* Two glows cross-faded by opacity: animating box-shadow repaints on the main thread every frame, over a running game. */
+.nr-root .nr-play:not(:disabled)::before,
+.nr-root .nr-play:not(:disabled)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
     animation: nr-glow 1.4s ease-in-out infinite alternate;
 }
+
+.nr-root .nr-play:not(:disabled)::before {
+    box-shadow: 0 0 18px rgb(255 43 214 / 0.6);
+    animation-direction: alternate-reverse;
+}
+
+.nr-root .nr-play:not(:disabled)::after { box-shadow: 0 0 38px rgb(255 138 31 / 0.9); }
 
 .nr-root .nr-play:hover { transform: scale(1.05); }
 .nr-root .nr-play:active { transform: scale(0.97); }
@@ -594,8 +615,8 @@
 }
 
 @keyframes nr-glow {
-    from { box-shadow: 0 0 18px rgb(255 43 214 / 0.6); }
-    to { box-shadow: 0 0 38px rgb(255 138 31 / 0.9); }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 @keyframes nr-float {

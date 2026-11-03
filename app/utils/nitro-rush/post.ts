@@ -4,6 +4,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
+import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js'
+import { CopyShader } from 'three/addons/shaders/CopyShader.js'
 import { HASH_GLSL } from './glsl'
 
 /**
@@ -78,21 +80,67 @@ const RushShader = {
         }`
 }
 
+/** Draws the scene multisampled, then hands it on single-sampled: bloom blends into what it reads, which on an MSAA buffer resolves the whole screen again. */
+class ScenePass extends Pass {
+    // Smooth edges on the cars, HDR headroom for bloom; the stencil keeps ghosts off the car.
+    // Nothing reads its depth or stencil afterwards, and resolving stencil is slow on D3D.
+    readonly target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, stencilBuffer: true, resolveDepthBuffer: false, resolveStencilBuffer: false })
+    private readonly draw: RenderPass
+    private readonly material = new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.clone(CopyShader.uniforms),
+        vertexShader: CopyShader.vertexShader,
+        fragmentShader: CopyShader.fragmentShader,
+        blending: THREE.NoBlending,
+        depthTest: false,
+        depthWrite: false
+    })
+    private readonly copy = new FullScreenQuad(this.material)
+
+    constructor(scene: THREE.Scene, camera: THREE.Camera) {
+        super()
+        this.needsSwap = false
+        this.draw = new RenderPass(scene, camera)
+    }
+
+    override setSize(width: number, height: number) {
+        this.target.setSize(width, height)
+    }
+
+    override render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget) {
+        this.draw.render(renderer, writeBuffer, this.target, 0, false)
+        this.material.uniforms.tDiffuse!.value = this.target.texture
+        renderer.setRenderTarget(readBuffer)
+        this.copy.render(renderer)
+    }
+
+    override dispose() {
+        this.target.dispose()
+        this.material.dispose()
+        this.copy.dispose()
+    }
+}
+
 export class RushPost {
     readonly composer: EffectComposer
     readonly bloom: UnrealBloomPass
     readonly rush: ShaderPass
+    private readonly scenePass: ScenePass
 
     constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
-        // Multisampled, half-float target: smooth edges on the cars, HDR headroom for bloom; the stencil keeps ghosts off the car.
-        const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, stencilBuffer: true })
-        this.composer = new EffectComposer(renderer, target)
-        this.composer.addPass(new RenderPass(scene, camera))
+        // Past the scene pass only fullscreen quads get drawn: no samples, depth or stencil to pay for.
+        this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }))
+        this.scenePass = new ScenePass(scene, camera)
+        this.composer.addPass(this.scenePass)
         this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.9)
         this.composer.addPass(this.bloom)
         this.rush = new ShaderPass(RushShader)
         this.composer.addPass(this.rush)
         this.composer.addPass(new OutputPass())
+    }
+
+    /** Where the scene's materials draw, which three builds their shaders for. */
+    get sceneTarget() {
+        return this.scenePass.target
     }
 
     setSize(w: number, h: number, pixelRatio: number) {
@@ -118,6 +166,7 @@ export class RushPost {
     }
 
     dispose() {
+        this.scenePass.dispose()
         this.bloom.dispose()
         this.rush.dispose()
         this.composer.dispose()

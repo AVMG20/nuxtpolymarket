@@ -371,7 +371,10 @@ onMounted(() => {
         popup: pushPopup,
         phase: (p) => {
             phase.value = p
-            if (p === 'attract') paused.value = false
+            if (p === 'attract') {
+                paused.value = false
+                hud.value = null
+            }
             if (p === 'finished') engine?.releaseControls()
         },
         record: onRecord

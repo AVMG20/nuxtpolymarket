@@ -252,7 +252,11 @@
     font-size: 13px;
     line-height: 1.5;
     box-shadow: 0 0 10px rgb(255 43 214 / 0.5);
-    animation: none;
+}
+
+.nr-root .nr-construct .nr-construct-build::before,
+.nr-root .nr-construct .nr-construct-build::after {
+    display: none;
 }
 
 .nr-root .nr-construct .nr-construct-next {

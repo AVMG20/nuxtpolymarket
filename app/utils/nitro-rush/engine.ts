@@ -12,6 +12,7 @@ import { GhostView } from './ghost-view'
 import { withGhost } from './record'
 import { carInput } from './input'
 import { RushPost } from './post'
+import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
 import { decodeGhost, encodeGhost, replacesGhost, type Ghost } from '#shared/utils/nitro-rush/ghost'
 import { formatLapTime, LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
@@ -113,7 +114,8 @@ export class NitroRushEngine {
         this.events = events
         this.audio = audio
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+        // Only the post chain's last fullscreen quad reaches the canvas, so MSAA or depth there buys nothing.
+        this.renderer = new THREE.WebGLRenderer({ antialias: false, depth: false, powerPreference: 'high-performance' })
         this.renderer.toneMapping = THREE.AgXToneMapping
         this.renderer.toneMappingExposure = 1.15
         this.renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -146,6 +148,7 @@ export class NitroRushEngine {
         this.resizeObserver = new ResizeObserver(() => this.resize())
         this.resizeObserver.observe(host)
         this.resize()
+        prewarm(this.renderer, this.scene, this.cam.camera, this.post.sceneTarget)
         this.lastTime = performance.now()
         this.raf = requestAnimationFrame(this.frame)
     }
@@ -204,6 +207,7 @@ export class NitroRushEngine {
         this.cam.setTrack(this.track)
         this.world = this.buildWorld()
         this.sizeWorld()
+        prewarm(this.renderer, this.scene, this.cam.camera, this.post.sceneTarget)
         this.record = { ...EMPTY_RECORD }
         this.bestGhost = null
         this.toMenu()
@@ -660,7 +664,12 @@ export class NitroRushEngine {
         const live = this.phase !== 'attract'
         this.audio.engine(speedK, nitro, live)
         this.audio.setIntensity(racing ? 0.25 + speedK * 0.75 : 0)
+        // Nothing shows a HUD on the menu, and each one re-renders the game's root component.
+        if (live) this.emitHud(nitro)
+    }
 
+    private emitHud(nitro: boolean) {
+        const s = this.state
         const timer = this.timer
         this.events.hud({
             lap: this.lapNumber(),

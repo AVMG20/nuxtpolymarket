@@ -87,7 +87,9 @@ export function buildRoad({ track, group, own, add }: WorldKit, reflectionSize: 
         textureHeight: reflectionSize.h,
         clipBias: 0.003,
         color: 0xffffff,
-        shader: WetShader
+        shader: WetShader,
+        // The streak blur smears away any edge MSAA would smooth.
+        multisample: 0
     })
     const refMat = reflector.material as THREE.ShaderMaterial
     refMat.transparent = true
