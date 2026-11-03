@@ -15,6 +15,7 @@ import {
     RtOccupiedRegistry,
     RtWorld,
     rtCleanCompanyName,
+    rtNameSkeleton,
     rtLowestFreeId,
     rtNewCompany,
     rtStartDate,
@@ -559,6 +560,26 @@ describe('RtWorld.addCompany', () => {
         expect(rtCleanCompanyName('x'.repeat(100000))).toBe('x'.repeat(RT_CATALOG.caps.maxNameBytes))
         expect(rtCleanCompanyName(' '.repeat(5000) + 'Late')).toBe('Late')
         expect(saved(world)).not.toBeNull()
+    })
+
+    it('drops invisible characters and refuses a name that only looks different from another company\'s', () => {
+        expect(rtCleanCompanyName('Big​Bridge⁦  　 Rail﻿')).toBe('BigBridge Rail')
+        // Greek omicron, Cyrillic a, a zero-width space, another case and spacing, 0 for o, I for l
+        for (const lookalike of ['Gοod Rail', 'Good Rаil', 'Go​od Rail', 'GOOD  rail', 'goodrail', 'G00d RaiI']) {
+            const world = RtWorld.create(generateWorld(8, { side: 64 }), SETTINGS)
+            const mine = world.addCompany('Good Rail')!
+            const rival = world.addCompany(lookalike)!
+            expect(world.company(rival)!.name).toBe(`Company ${rival + 1}`)
+            expect(applyCommand(world, rival, { kind: RtCommandKind.renameCompany, name: lookalike }, false))
+                .toMatchObject({ ok: false, error: RtCommandError.conflict })
+            expect(world.company(mine)!.name).toBe('Good Rail')
+        }
+        expect(rtNameSkeleton('Modern Rail')).toBe(rtNameSkeleton('Modem Rail'))
+        const world = RtWorld.create(generateWorld(8, { side: 64 }), SETTINGS)
+        world.addCompany('Good Rail')
+        const other = world.addCompany('Gold Rail')!
+        expect(world.company(other)!.name).toBe('Gold Rail')
+        expect(applyCommand(world, other, { kind: RtCommandKind.renameCompany, name: 'Great Rail' }, false).ok).toBe(true)
     })
 
     it('keeps twin worlds hashing equal and tells a different join apart', () => {

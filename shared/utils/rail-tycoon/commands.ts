@@ -48,7 +48,7 @@ import {
 import { rtReverseTrain } from './train'
 import { RT_NONE, RT_OWNER_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtCompany, type RtFinance, type RtOrder, type RtStation, type RtVehicle } from './types'
 import { buyVehicle, sellVehicle } from './vehicles'
-import { rtCleanCompanyName, type RtWorld } from './world'
+import { rtCleanCompanyName, rtNameSkeleton, type RtWorld } from './world'
 
 /** Command kinds. Fixed for protocol version 1 (the encoder writes them as a u8); a new one takes a new value. */
 export const RtCommandKind = {
@@ -588,8 +588,9 @@ function companyCommand(world: RtWorld, company: RtCompany, command: RtCommand, 
         case RtCommandKind.renameCompany: {
             const name = rtCleanCompanyName(command.name)
             if (name === '') return fail(RtCommandError.invalid)
+            const looks = rtNameSkeleton(name)
             for (const other of world.companyList()) {
-                if (other.id !== company.id && other.name === name) return fail(RtCommandError.conflict)
+                if (other.id !== company.id && rtNameSkeleton(other.name) === looks) return fail(RtCommandError.conflict)
             }
             if (apply) company.name = name
             return ok(0)
