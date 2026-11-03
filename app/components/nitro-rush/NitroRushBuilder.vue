@@ -30,7 +30,7 @@ const drawerOpened = ref(false)
 watch(drawerOpen, () => {
     drawerOpened.value = true
 })
-const { choice, next, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert })
+const { choice, next, shownWalk, ghost, pick, build } = useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert })
 
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
@@ -42,10 +42,10 @@ const { armed, tap } = useNitroRushConfirmTap()
 const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
     const g = gap.value
-    if (g && !walk.value.notLevel && (g.distance > 0.5 || g.turn !== 0 || g.climb > 0.01 || g.bank !== 0 || g.grade !== 0)) {
+    if (g && !walk.value.notLevel && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
         if (g.turn) parts.push(`turn ${Math.abs(g.turn)}° ${g.turn > 0 ? 'right' : 'left'}`)
-        if (g.climb > 0.01) parts.push(`${Math.round(g.climb)} m down`)
+        if (Math.abs(g.climb) > 0.01) parts.push(`${Math.round(Math.abs(g.climb))} m ${g.climb > 0 ? 'down' : 'up'}`)
         if (g.bank !== 0) parts.push('level the bank')
         if (g.grade !== 0) parts.push('level the slope')
         return { ok: false, text: `Join the road back up to the start: ${parts.join(', ')}` }
@@ -117,7 +117,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <NitroRushBuilderPreview
             v-if="view === '3d'"
             class="absolute inset-0"
-            :walk="walk"
+            :walk="shownWalk"
             :closes="closes"
             :loop="draft.closed"
             :selected="cursor >= 0 ? cursor : null"
@@ -127,7 +127,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <NitroRushBuilderMap
             v-else
             class="absolute inset-0"
-            :walk="walk"
+            :walk="shownWalk"
             :closed="draft.closed"
             :half-width="ROAD.halfWidth"
             :selected="cursor >= 0 ? cursor : null"

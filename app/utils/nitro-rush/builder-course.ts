@@ -14,8 +14,8 @@ export interface PreviewCourse {
     lines: readonly { type: LineBlock, at: number }[]
     /** Where the next section attaches, unless the loop is closed; heading as layouts give it. */
     end: { x: number, y: number, z: number, heading: number } | null
-    /** A loop still open shows where it has to come back to. */
-    showOrigin: boolean
+    /** The height of the start a loop still open has to come back to; null when there's nothing to show. */
+    originY: number | null
 }
 
 /** How far the end marker floats above the road. */
@@ -42,17 +42,17 @@ export class CourseMaterials {
     }
 }
 
-/** A marker over where a road ends; a draft's road stops at the ground, so its marker does too. */
+/** A marker over where a road ends. */
 export function endMarker(end: NonNullable<PreviewCourse['end']>, geometry: THREE.BufferGeometry, material: THREE.Material) {
     const marker = new THREE.Mesh(geometry, material)
-    marker.position.set(end.x, Math.max(0, end.y) + MARKER_LIFT, end.z)
+    marker.position.set(end.x, end.y + MARKER_LIFT, end.z)
     // Layout headings turn right with +; three's y rotation turns left.
     marker.rotation.y = -end.heading
     return marker
 }
 
 /** The road with its real walls, deck and pillars, its lines and markers; returns the deck, which is what picking hits. */
-export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'end' | 'showOrigin'>, mats: CourseMaterials, { endWalls = true } = {}) {
+export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'end' | 'originY'>, mats: CourseMaterials, { endWalls = true } = {}) {
     const { track, group } = kit
     // Wall to wall: the game fills the run-off between road and walls with aprons.
     const deck = kit.add(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, 0, ROAD_TILE_LENGTH), mats.deck)
@@ -62,9 +62,9 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
         kit.add(ribbon(track, s - 1.2, s + 1.2, -track.halfWidth, track.halfWidth, 0.02, 2.4), mats.lines[line.type])
     }
     if (course.end) group.add(endMarker(course.end, mats.markerGeo, mats.marker))
-    if (course.showOrigin) {
+    if (course.originY !== null) {
         const origin = new THREE.Mesh(mats.markerGeo, mats.origin)
-        origin.position.set(0, MARKER_LIFT, 0)
+        origin.position.set(0, course.originY + MARKER_LIFT, 0)
         group.add(origin)
     }
     return deck

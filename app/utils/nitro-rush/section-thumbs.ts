@@ -92,7 +92,7 @@ export class SectionThumbPainter {
         const group = new THREE.Group()
         const parts: { dispose(): void }[] = []
         // No end walls: on a card they'd read as a dead end, not a piece that joins on.
-        layCourse(worldKit(track, group, parts), { lines: walk.lines, end: walk.end, showOrigin: false }, this.mats, { endWalls: false })
+        layCourse(worldKit(track, group, parts), { lines: walk.lines, end: walk.end, originY: null }, this.mats, { endWalls: false })
         this.scene.add(group)
         this.aim(fitView(cardExtent(track, walk.end), VIEW_DIR, WIDTH / HEIGHT))
         this.renderer.render(this.scene, this.camera)

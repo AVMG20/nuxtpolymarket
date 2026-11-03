@@ -264,10 +264,17 @@ describe('ramps and spirals', () => {
         expect(t.pointAt(over.s).y - at.y).toBeGreaterThan(MIN_CLEARANCE)
     })
 
+    it('lifts a loop that dips so it stands on its lowest point and closes where it began', () => {
+        const def = buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 8), corner('right', 50), straight(100), corner('right', 50)]))
+        expect(Math.min(...def.heights!)).toBeCloseTo(0)
+        expect(def.heights![0]).toBeCloseTo(8)
+        expect(def.heights!.at(-1)).toBeCloseTo(8)
+    })
+
     it('rejects heights a road cannot be built with', () => {
         expect(() => buildTrack(helix(6))).toThrow(/passes .* m from another stretch/)
-        expect(() => buildTrack(loop([...hill.slice(0, 5), straight(100), ...hill.slice(6)]))).toThrow(/off the ground/)
-        expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/below the ground/)
+        expect(() => buildTrack(loop([...hill.slice(0, 5), straight(100), ...hill.slice(6)]))).toThrow(/from the height it began/)
+        expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(100, -8), corner('right', 50), ramp(100, 4), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/from the height it began/)
         expect(() => buildTrack(loop([start, straight(80), corner('right', 50), ramp(50, 8), straight(50), corner('right', 50), ramp(100, -8), corner('right', 50), straight(100), corner('right', 50)]))).toThrow(/longer than/)
         expect(() => buildTrack(sprint([straight(30), start, straight(100), spiral('right', 40, 100, 4), straight(100), finish, straight(100)]))).toThrow(/steps of 45/)
     })

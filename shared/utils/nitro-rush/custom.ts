@@ -187,18 +187,22 @@ export function mapWalkHeights(walk: LayoutWalk, f: (y: number) => number): Layo
     return { ...walk, ys: walk.ys.map(f), end: { ...walk.end, y: f(walk.end.y) } }
 }
 
-/** One section on its own, raised so a downhill piece keeps its drop instead of being cut off at the ground. */
-export function sectionWalk(id: SectionId): LayoutWalk {
-    const section: Section = SECTIONS[id]
-    const walk = walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.from)
-    const lift = Math.max(0, -Math.min(walk.end.y, ...walk.ys))
-    return mapWalkHeights(walk, y => y + lift)
+/** The same road raised to stand `rise` above where it set off, so roads lifted by different amounts share one ground. */
+export function raisedTo(walk: LayoutWalk, rise: number): LayoutWalk {
+    const by = rise - walk.rise
+    return by ? { ...mapWalkHeights(walk, y => y + by), rise } : walk
 }
 
-/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down, and the bank and grade left to level. */
+/** One section on its own; a downhill piece keeps its drop, like any road, by standing on its lowest point. */
+export function sectionWalk(id: SectionId): LayoutWalk {
+    const section: Section = SECTIONS[id]
+    return walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.from)
+}
+
+/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down (- to climb), and the bank and grade left to level. */
 export function loopGap(walk: LayoutWalk) {
-    const { x, z, heading, y, lift, bank, grade } = walk.end
-    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: y - lift, bank, grade }
+    const { x, z, heading, aboveStart, bank, grade } = walk.end
+    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: aboveStart, bank, grade }
 }
 
 /** How the state a section starts out in changes it, for its row in the list; a piece that sets that state itself doesn't ride it. */
@@ -237,7 +241,7 @@ export function draftTrackDef(walk: LayoutWalk, closes: boolean): TrackDef | nul
     }
     if (points.length < 2) return null
     const def: TrackDef = { id: 'draft', name: 'Draft', group: closes ? 'circuits' : 'sprints', points, ...ROAD }
-    if (heights.some(y => y !== 0)) def.heights = heights.map(y => Math.max(0, y))
+    if (heights.some(y => y !== 0)) def.heights = heights
     if (ups.some(u => u[0] !== 0 || u[1] !== 1 || u[2] !== 0)) def.ups = ups
     if (walk.rails.length) def.rails = walk.rails
     if (walk.gaps.length) def.gaps = walk.gaps

@@ -1,6 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { nextSection, stateAfter, stepsFor, type Construction } from '#shared/utils/nitro-rush/construct'
-import { lastPieceWalk, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { lastPieceWalk, raisedTo, type SectionId } from '#shared/utils/nitro-rush/custom'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 
 /** What construction needs of the course being built. */
@@ -17,7 +17,11 @@ export function useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert 
     const choice = ref<Construction>({ curve: 'straight', size: 'medium', length: 60, slope: 'slope-flat', bank: 'bank-flat' })
     const state = computed(() => stateAfter(walk.value, cursor.value))
     const next = computed(() => nextSection(choice.value, state.value))
-    const ghost = computed(() => !full.value ? lastPieceWalk(walkUpTo(next.value)) : null)
+    const withNext = computed(() => full.value ? null : walkUpTo(next.value))
+    // A ghost that digs deeper lifts the whole road, so the road shows that lift along with it.
+    const rise = computed(() => Math.max(walk.value.rise, withNext.value?.rise ?? 0))
+    const shownWalk = computed(() => raisedTo(walk.value, rise.value))
+    const ghost = computed(() => withNext.value && lastPieceWalk(raisedTo(withNext.value, rise.value)))
 
     let building = false
 
@@ -37,5 +41,5 @@ export function useNitroRushConstruction({ cursor, walk, full, walkUpTo, insert 
         building = false
     }
 
-    return { choice, next, ghost, pick, build }
+    return { choice, next, shownWalk, ghost, pick, build }
 }

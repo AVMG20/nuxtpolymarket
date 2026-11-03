@@ -86,6 +86,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const curve = new THREE.CatmullRomCurve3(Array.from({ length: 25 }, (_, i) => archAt(Math.PI * i / 24)))
     const archGeo = own(new THREE.TubeGeometry(curve, 64, ARCH_TUBE, 10))
     const neonGeo = own(new THREE.TubeGeometry(curve, 64, 0.07, 6))
+    const legGeo = own(new THREE.CylinderGeometry(ARCH_TUBE, ARCH_TUBE, 1, 10))
     const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
     const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
@@ -99,6 +100,15 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
         g.position.set(p.x, p.y, p.z)
         g.rotation.y = headingOf(p.tx, p.tz)
         g.add(new THREE.Mesh(archGeo, steel))
+        // The feet stand outside the walls, so on raised road they'd hang in the air.
+        if (p.y > 0) {
+            for (const side of [1, -1]) {
+                const leg = new THREE.Mesh(legGeo, steel)
+                leg.scale.y = p.y
+                leg.position.set(side * span, -p.y / 2, 0)
+                g.add(leg)
+            }
+        }
         for (const face of [1, -1]) {
             const neon = new THREE.Mesh(neonGeo, neonMat)
             neon.position.z = face * ARCH_TUBE

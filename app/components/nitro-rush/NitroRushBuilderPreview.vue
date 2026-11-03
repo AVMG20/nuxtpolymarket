@@ -27,7 +27,7 @@ let pressed: { x: number, y: number } | null = null
 const course = computed<PreviewCourse | null>(() => {
     const def = draftTrackDef(props.walk, props.closes)
     if (!def) return null
-    return { def, lines: props.walk.lines, end: props.closes ? null : props.walk.end, showOrigin: props.loop && !props.closes }
+    return { def, lines: props.walk.lines, end: props.closes ? null : props.walk.end, originY: props.loop && !props.closes ? props.walk.rise : null }
 })
 
 /** The selected section's walk points, the last one running on to where the road ends. */

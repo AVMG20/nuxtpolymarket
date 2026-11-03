@@ -65,8 +65,33 @@ describe('slope state', () => {
         expect(loopGap(walkCustomTrack(course(true, ['start', 'slope-up']))).grade).toBe(0.1)
     })
 
-    it('won\'t dig a slope into the ground', () => {
-        expect(compileCustomTrack(sprint(['slope-down', 'slope-flat'])).error).toMatch(/below the ground/)
+    describe('a road that digs down', () => {
+        const dug = sprint(['slope-down', 'straight-20', 'slope-flat'])
+
+        it('lifts as a whole, so its lowest point sits on the ground and the climb is unchanged', () => {
+            const walk = walkCustomTrack(dug)
+            expect(walk.rise).toBeCloseTo(6)
+            expect(walk.ys[0]).toBeCloseTo(walk.rise)
+            expect(Math.min(...walk.ys)).toBeCloseTo(0)
+            const def = compileCustomTrack(dug).def!
+            expect(Math.min(...def.heights!)).toBeCloseTo(0)
+            expect(def.heights![0]).toBeCloseTo(walk.rise)
+        })
+
+        it('leaves a road that never goes below where it set off alone', () => {
+            const walk = walkCustomTrack(sprint(['slope-up', 'straight-20', 'slope-flat']))
+            expect(walk.rise).toBe(0)
+            expect(walk.ys[0]).toBe(0)
+        })
+
+        it('can be driven from its raised start line', () => {
+            const road = new Track(compileCustomTrack(dug).def!)
+            expect(ghostDrivesTrack(road, drive(road))).toBe(true)
+        })
+
+        it('tells a loop how far it has left to climb back to its start line', () => {
+            expect(loopGap(walkCustomTrack(course(true, ['start', 'slope-down', 'straight-20', 'slope-flat']))).climb).toBeCloseTo(-6)
+        })
     })
 
     it('tags a section with what it rides, but not a piece that sets that state', () => {

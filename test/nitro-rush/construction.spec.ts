@@ -22,6 +22,22 @@ function construct(sections: SectionId[], full = false) {
 }
 
 describe('building a piece at a time', () => {
+    it('shows a ghost that digs deeper on the same ground as the road it lifts', () => {
+        const c = construct(['start', 'straight-20'])
+        c.pick({ slope: 'slope-down-steep' })
+        const { rise, ys, end } = c.shownWalk.value
+        expect(rise).toBeGreaterThan(0)
+        expect(ys[0]).toBeCloseTo(rise)
+        expect(c.ghost.value!.ys[0]).toBeCloseTo(end.y)
+        expect(Math.min(...c.ghost.value!.ys, c.ghost.value!.end.y)).toBeCloseTo(0)
+    })
+
+    it('shows the road as it is when the ghost doesn\'t dig any deeper', () => {
+        const c = construct(['start', 'straight-20'])
+        expect(c.shownWalk.value.rise).toBe(0)
+        expect(c.ghost.value!.rise).toBe(0)
+    })
+
     it('keeps a second change asked for while the first is built', () => {
         const c = construct(['straight-20'])
         c.pick({ slope: 'slope-up', bank: 'bank-right', curve: 'right-90' })

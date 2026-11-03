@@ -81,7 +81,8 @@ describe('custom track sections', () => {
             expect(e.z).toBeCloseTo(full.z, 3)
             expect(e.y).toBeCloseTo(full.y, 3)
         }
-        expect(end(['right-half-spiral-down']).y).toBeCloseTo(-6, 3)
+        const down = walkCustomTrack(sprint(['right-half-spiral-down']))
+        expect(down.end.y - down.rise).toBeCloseTo(-6, 3)
         expect(end(['right-quarter-spiral-up']).y).toBeCloseTo(3, 3)
     })
 
@@ -167,9 +168,10 @@ describe('banks', () => {
         expect(banked(['ramp-up', 'bank-left', 'ramp-down', 'bank-flat']).pointAt(0).y).toBe(0)
     })
 
-    it('still stops a banked ramp going under the ground, lifted centre or not', () => {
-        expect(compileCustomTrack(sprint(['straight-20', 'start', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200'])).error).toBeTruthy()
-        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200'])).error).toMatch(/below the ground/)
+    it('lifts a banked ramp clear of the ground by its low edge, not its centre', () => {
+        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200']))
+        expect(walk.rise).toBeGreaterThan(0)
+        expect(Math.min(...walk.ys.map((y, i) => y - walk.lifts[i]!))).toBeCloseTo(0, 3)
     })
 
     it('has to level out before a course ends', () => {

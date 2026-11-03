@@ -1,4 +1,7 @@
+import { clearanceFault, CLOSE_TOLERANCE, layoutFault, STEP } from './road-checks'
 import { Track, wallFoot, type TrackDef, type TrackGroup } from './track'
+
+export { MIN_CLEARANCE } from './road-checks'
 
 /**
  * Courses built from blocks, the way a track builder lays them: each piece
@@ -61,15 +64,11 @@ export interface TrackLayout {
 
 /** Start, finish and checkpoint blocks are short straights with their line across the middle. */
 export const LINE_BLOCK_LENGTH = 20
-const STEP = 2
 /** Room for the grid behind the start line, and to stop after the finish. */
 const MIN_RUN_UP = 20
 const MIN_RUN_OFF = 60
-const CLOSE_TOLERANCE = 0.01
 /** Metres a ramp or spiral takes to ease into its slope and back out of it. */
 const EASE_LENGTH = 30
-/** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between; a half spiral climbs it. */
-export const MIN_CLEARANCE = 6
 /** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
 export const GRID = 10
 /** Steepest grade of a jump's kicker, at its lip; the kicker is as long as that takes, in whole grid steps. */
@@ -120,6 +119,9 @@ export function climbAt(d: number, length: number) {
     return g * (d - e / 2)
 }
 
+/** Whether a heading lies along the map's axes, which is when the road sits on the grid. */
+export const onAxis = (a: number) => Math.abs(Math.sin(2 * a)) < 1e-9
+
 /** Why a layout doesn't make a course; `reason` is the bare why, for showing a track builder. */
 export class TrackLayoutError extends Error {
     constructor(readonly trackId: string, readonly reason: string) {
@@ -167,8 +169,10 @@ export interface LayoutWalk {
     pieceStarts: number[]
     /** The state each piece starts out in. */
     states: RoadState[]
+    /** How far the whole road sits raised so its lowest point is on the ground, which is also the start's height. */
+    rise: number
     /** Where the last piece ends and the state it leaves; `y` is the centre's height, `lift` of it the bank's. */
-    end: RoadState & { x: number, z: number, heading: number, y: number, lift: number }
+    end: RoadState & { x: number, z: number, heading: number, y: number, lift: number, aboveStart: number }
     /** The first piece laid on a bank or slope that can't be, which only a finished course minds. */
     notLevel: string | null
 }
@@ -190,7 +194,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const gaps: [number, number][] = []
     const lines: { type: LineBlock, at: number }[] = []
     let { x, z, heading: h } = layout.origin
-    // Courses begin on the ground.
+    // Measured from where the road sets off until the walk's done, when the lowest point goes on the ground.
     let y = 0
     // The bank the road is on, in radians: + low on the right.
     let roll = (from.bank ?? 0) * RADIANS
@@ -227,7 +231,6 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
         roll = bank
         grade = slope
     }
-    const onAxis = (a: number) => Math.abs(Math.sin(2 * a)) < 1e-9
     // Metres from `v` on to the next grid line, going up.
     const toGrid = (v: number) => {
         const r = ((-v % GRID) + GRID) % GRID
@@ -383,7 +386,13 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
             run(LINE_BLOCK_LENGTH / 2)
         }
     }
-    return { pts, ys, lifts, ups, rails, gaps, lines, pieceStarts, states, notLevel, end: { x, z, heading: h, y: y + liftOf(roll), lift: liftOf(roll), bank: roll / RADIANS, grade } }
+    // Derived rather than stored, and nothing for a road that never goes below where it set off.
+    const low = Math.min(y, ...ys.map((v, i) => v - lifts[i]!))
+    const rise = low < -CLOSE_TOLERANCE ? -low : 0
+    return {
+        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, rails, gaps, lines, pieceStarts, states, notLevel, rise,
+        end: { x, z, heading: h, y: y + rise + liftOf(roll), lift: liftOf(roll), aboveStart: y, bank: roll / RADIANS, grade }
+    }
 }
 
 export function buildTrack(layout: TrackLayout): TrackDef {
@@ -391,19 +400,14 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
-    const { pts, ys, lifts, ups, rails, gaps, lines, notLevel, end: { x, z, heading: h, y, lift, bank, grade } } = walkLayout(layout)
-    if (notLevel) fail(`level the road out before ${notLevel}`)
-
-    const count = (type: LineBlock) => lines.filter(l => l.type === type).length
-    if (count('start') !== 1) fail('needs exactly one start block')
+    const { pts, ys, lifts, ups, rails, gaps, lines, notLevel, end: { x, z, heading: h, y, aboveStart, bank, grade } } = walkLayout(layout)
+    const fault = layoutFault({ notLevel, lines }, closed)
+    if (fault) fail(fault)
     if (closed) {
-        if (count('finish') > 0) fail('a loop has no finish block; the start line ends each lap')
         if (Math.hypot(x - layout.origin.x, z - layout.origin.z) > CLOSE_TOLERANCE || Math.cos(h - layout.origin.heading) < 1 - 1e-9) {
             fail(`the pieces end at (${x.toFixed(2)}, ${z.toFixed(2)}) instead of closing the loop`)
         }
-        if (Math.abs(y - lift) > CLOSE_TOLERANCE) fail(`the loop ends ${(y - lift).toFixed(2)} m off the ground instead of back where it began`)
-    } else if (count('finish') !== 1) {
-        fail('an open course needs exactly one finish block')
+        if (Math.abs(aboveStart) > CLOSE_TOLERANCE) fail(`the loop ends ${aboveStart.toFixed(2)} m from the height it began at`)
     }
     if (bank || grade) fail('the road has to level out before it ends')
     if (!closed) {
@@ -412,9 +416,9 @@ export function buildTrack(layout: TrackLayout): TrackDef {
         lifts.push(0)
         ups.push(UP)
     }
-    if (ys.some((v, i) => v - lifts[i]! < -CLOSE_TOLERANCE)) fail('the road dips below the ground')
     const startAt = lines.find(l => l.type === 'start')!.at
-    checkClearance(pts, ys, lifts, closed, layout.wallOffset, fail)
+    const clash = clearanceFault({ pts, ys, lifts }, closed, layout.wallOffset)
+    if (clash) fail(clash)
 
     // A loop is rotated to begin at the start line, where its lap clock reads zero.
     const shift = closed ? startAt : 0
@@ -450,41 +454,4 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     if (checkpoints.some(s => s <= startS || s >= finishS)) fail('every checkpoint must lie between the start and the finish')
     if (checkpoints.length) def.checkpoints = checkpoints
     return def
-}
-
-/** Wherever two stretches of road far apart along the course cover the same ground, one must pass over the other with room to drive under. */
-function checkClearance(pts: [number, number][], ys: number[], lifts: number[], closed: boolean, wallOffset: number, fail: (why: string) => never) {
-    const n = pts.length
-    // Deck edge to deck edge, with the wall's footprint on both.
-    const reach = (wallOffset + 1) * 2
-    // Closer than this along the road, two points are the same stretch bending (a hairpin), not a crossing.
-    const apart = Math.ceil(reach * 3 / STEP)
-    // Points bucketed in cells `reach` wide, so each one is only checked against its own cell and the eight round it.
-    const cellOf = (i: number) => [Math.floor(pts[i]![0] / reach), Math.floor(pts[i]![1] / reach)] as const
-    const cells = new Map<string, number[]>()
-    for (let i = 0; i < n; i++) {
-        const [cx, cz] = cellOf(i)
-        const key = `${cx},${cz}`
-        const cell = cells.get(key)
-        if (cell) cell.push(i)
-        else cells.set(key, [i])
-    }
-    for (let i = 0; i < n; i++) {
-        const [cx, cz] = cellOf(i)
-        const near: number[] = []
-        for (let ox = -1; ox <= 1; ox++) {
-            for (let oz = -1; oz <= 1; oz++) near.push(...cells.get(`${cx + ox},${cz + oz}`) ?? [])
-        }
-        near.sort((a, b) => a - b)
-        for (const j of near) {
-            if (j < i + apart) continue
-            if (closed && n - (j - i) < apart) continue
-            const dx = pts[i]![0] - pts[j]![0]
-            const dz = pts[i]![1] - pts[j]![1]
-            if (dx * dx + dz * dz >= reach * reach) continue
-            // A bank's raised edge comes that much closer than its centre.
-            const dy = Math.max(0, Math.abs(ys[i]! - ys[j]!) - lifts[i]! - lifts[j]!)
-            if (dy < MIN_CLEARANCE - CLOSE_TOLERANCE) fail(`the road at (${pts[i]![0].toFixed(0)}, ${pts[i]![1].toFixed(0)}) passes ${dy.toFixed(1)} m from another stretch; it needs ${MIN_CLEARANCE} m`)
-        }
-    }
 }
