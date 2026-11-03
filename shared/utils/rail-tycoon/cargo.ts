@@ -65,6 +65,22 @@ export function rtCapPackets(packets: RtCargoPacket[], max: number): void {
 }
 
 /**
+ * Keeps a station's waiting packets, summed over its cargos, at most `max` (the save's bound): while
+ * there are more, the longest cargo list (the lowest cargo on a tie) merges two of its packets.
+ */
+export function rtCapStationPackets(station: RtStation, max: number): void {
+    let total = 0
+    for (const goods of station.cargo) total += goods.packets.length
+    while (total > max) {
+        let longest: RtCargoPacket[] | null = null
+        for (const goods of station.cargo) if (!longest || goods.packets.length > longest.length) longest = goods.packets
+        if (!longest || longest.length < 2) return
+        rtCapPackets(longest, longest.length - 1)
+        total--
+    }
+}
+
+/**
  * Hands `amount256` (units times 256, rating-scaled) to one station: the low 8 bits join the
  * station's per-cargo fraction, whole units become a packet from sourceTile. Arriving cargo gives the
  * cargo a rating, as the original. Returns the whole units added.
@@ -84,6 +100,7 @@ function updateStationWaiting(station: RtStation, cargo: number, amount256: numb
         transitPeriods: 0,
         feederShare: 0
     }, RT_CATALOG.caps.maxPacketsPerStation)
+    rtCapStationPackets(station, RT_CATALOG.caps.maxPacketsPerStation)
     goods.hasRating = true
     return units
 }

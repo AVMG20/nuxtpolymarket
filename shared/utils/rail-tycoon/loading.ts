@@ -8,6 +8,7 @@
  */
 
 import { RT_CATALOG } from './catalog'
+import { rtCapPackets, rtCapStationPackets } from './cargo'
 import { bookMoney, chargeSharing, deliveryPayment, stationSharingShare } from './economy'
 import { acceptDelivery, rtIndustryAccepts, rtIndustryTiles } from './industries'
 import type { RtMap } from './map'
@@ -187,6 +188,7 @@ export function loadUnload(world: RtLoadWorld, vehicle: RtVehicle, stationId: nu
         if (accepts(station, packet.cargo)) continue
         while (station.cargo.length <= packet.cargo) station.cargo.push(rtNewStationCargo())
         addPacket(station.cargo[packet.cargo]!.packets, packet)
+        rtCapStationPackets(station, RT_CATALOG.caps.maxPacketsPerStation)
     }
     const unloadLeft = vehicle.cargo.some(packet => unloadable(station, flags, packet))
     if (unloadLeft) return false
@@ -219,6 +221,7 @@ export function loadUnload(world: RtLoadWorld, vehicle: RtVehicle, stationId: nu
             budget -= packet.count
             addPacket(vehicle.cargo, packet)
         }
+        rtCapPackets(vehicle.cargo, RT_CATALOG.caps.maxPacketsPerVehicle)
         if (on.length > 0) {
             goods.cyclesSincePickup = 0
             station.lastPickupTick = world.tick

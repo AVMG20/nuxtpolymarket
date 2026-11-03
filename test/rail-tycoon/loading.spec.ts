@@ -19,7 +19,7 @@ import {
     type RtTown,
     type RtVehicle
 } from '#shared/utils/rail-tycoon/types'
-import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
+import { RT_VEHICLE_MODELS, buyVehicle, rtConsistCapacity } from '#shared/utils/rail-tycoon/vehicles'
 import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const C = RT_CATALOG.cargos
@@ -151,6 +151,33 @@ describe('rail tycoon loading and unloading', () => {
         // a transfer pays nothing yet, and the transferred cargo keeps its origin for the final payment
         expect(world.companies[0]!.money).toBe(before)
         expect(stop.cargo[COAL]!.packets[0]!.sourceTile).toBe(map.idx(10, 10))
+    })
+
+    it('keeps a station within its packet bound when cargo is transferred to it', () => {
+        const { world, map } = setup()
+        const stop = stopAt(world, 30, RtStationTile.truck)
+        stop.acceptance = 0
+        stop.cargo[COAL]!.packets = Array.from({ length: 900 }, (_, k) => packet(COAL, 1, k))
+        const lorry = vehicle(world, M.coalLorry.index, [{ kind: RtOrderKind.gotoStation, target: stop.id, flags: RtOrderFlag.unload }])
+        lorry.cargo = Array.from({ length: 200 }, (_, k) => packet(COAL, 1, map.idx(k % 64, 40 + (k >> 6))))
+        expect(until(world, lorry, stop, 1000)).toBeGreaterThan(0)
+        expect(aboard(lorry, COAL)).toBe(0)
+        expect(stop.cargo[COAL]!.packets.length).toBe(RT_CATALOG.caps.maxPacketsPerStation)
+        expect(waiting(stop, COAL)).toBe(1100)
+    })
+
+    it('keeps a long train within its packet bound when it loads many small packets', () => {
+        const { world, map } = setup()
+        const stop = stopAt(world, 30, RtStationTile.bus)
+        stop.cargo[PASSENGERS]!.packets = Array.from({ length: 1024 }, (_, k) => packet(PASSENGERS, 1, map.idx(k % 64, 40 + (k >> 6))))
+        const carrier = vehicle(world, M.townBus.index)
+        const wagon = RT_VEHICLE_MODELS.findIndex(m => m.kind === 'rail' && m.cargo === 'passengers')
+        carrier.consist = [carrier.consist[0]!, ...Array<number>(RT_CATALOG.vehicles.maxTrainVehicles - 1).fill(wagon)]
+        const capacity = rtConsistCapacity(carrier.consist)[PASSENGERS]!
+        expect(capacity).toBeGreaterThan(RT_CATALOG.caps.maxPacketsPerVehicle)
+        until(world, carrier, stop, 1000)
+        expect(carrier.cargo.length).toBeLessThanOrEqual(RT_CATALOG.caps.maxPacketsPerVehicle)
+        expect(aboard(carrier, PASSENGERS)).toBe(Math.min(capacity, 1024))
     })
 
     it('loads waiting cargo up to capacity and marks the load attempt, pickup tick, speed and age', () => {

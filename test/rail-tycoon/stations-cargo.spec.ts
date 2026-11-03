@@ -390,6 +390,28 @@ describe('rail tycoon stations and cargo', () => {
             expect(station[0]!.sourceTile).toBe(0)
         })
 
+        it('keeps a busy station\'s packets over all its cargos within the save bound, so the world still saves', () => {
+            const map = new RtMap(SIDE)
+            const houses: number[] = []
+            for (let y = 26; y <= 34; y++) for (let x = 26; x <= 34; x++) if (x !== 30 || y !== 30) houses.push(map.idx(x, y))
+            for (const house of houses) addHouse(map, house)
+            const world = newWorld([], [], map)
+            const station = placeStation(world, 0, 0, [map.idx(30, 30)], RtStationTile.rail)
+            for (const cargo of [PAX, MAIL]) {
+                station.cargo[cargo]!.rating = 255
+                station.cargo[cargo]!.loadAttempted = true
+            }
+            // every packet has a different source from the one before it, so none merges on arrival
+            for (let round = 0; round < 1200; round++) {
+                for (const cargo of [PAX, MAIL]) distributeProduction(world, [houses[round % houses.length]!], cargo, 10)
+            }
+            const lists = station.cargo.map(goods => goods.packets.length)
+            expect(lists[PAX]! + lists[MAIL]!).toBe(RT_CATALOG.caps.maxPacketsPerStation)
+            expect(rtPacketTotal(station.cargo[PAX]!.packets)).toBe(1200 * 10)
+            const back = decodeWorld(encodeWorld(world))
+            expect(back?.hash()).toBe(world.hash())
+        })
+
         it('ages packets by one per call and saturates', () => {
             const packets = [packet(PAX, 1, 0, 0), packet(PAX, 1, 0, RT_CATALOG.payment.maxTransitPeriods - 1)]
             agePackets(packets)
