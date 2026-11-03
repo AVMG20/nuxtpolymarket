@@ -85,13 +85,15 @@ function startTrain(world: RtWorld, passengers = 50): RtVehicle {
 }
 
 /** A stopped bus of `owner` standing on the crossing, as if it had stalled there. */
-function parkCar(world: RtWorld, owner: number, tile: number, passengers: number): RtVehicle {
+/** A bus standing on `tile`: broken down there (an accident), or stopped there by its owner. */
+function parkCar(world: RtWorld, owner: number, tile: number, passengers: number, how: 'brokenDown' | 'stopped' = 'brokenDown'): RtVehicle {
     const depot = world.map.idx(30 + owner * 3, 30)
     must(world, owner, { kind: RtCommandKind.buildDepot, tile: depot, vehicleKind: RtVehicleKind.road, facing: 0 })
     const car = world.vehicle(must(world, owner, { kind: RtCommandKind.buyVehicle, depot, model: BUS, wagons: [] })!)!
     world.occupied.leaveDepot(car.id, depot)
     car.state = RtVehicleState.driving
-    car.stopped = true
+    car.stopped = how === 'stopped'
+    if (how === 'brokenDown') car.breakdownTicks = 100_000
     car.tiles = [tile]
     car.pieces = [1]
     car.direction = 1
@@ -122,7 +124,7 @@ function runToCrash(world: RtWorld, car: RtVehicle, limit = 4000): number[] {
 function expectedCharges(world: RtWorld, causer: number, tile: number, crashed: RtVehicle[]): number[] {
     const out = world.companyList().map(() => 0)
     for (const vehicle of crashed) {
-        if (vehicle.owner !== causer) {
+        if (vehicle.owner !== causer && !vehicle.stopped) {
             out[causer]! -= vehicle.value
             out[vehicle.owner]! += vehicle.value
         }
@@ -270,6 +272,16 @@ describe('rail tycoon crossing inspector: accidents', () => {
         expect(delta[2]).toBe(car.value)
         expect(delta[0]).toBeGreaterThanOrEqual(RULES.delayPerDay * rtWreckDays())
         expect(delta[1]).toBeLessThan(-(RULES.investigation + RULES.cleanup + 13 * RULES.perPerson))
+    })
+
+    it('pays nothing back for a bus its owner stopped on the crossing, and still fines the causer', () => {
+        const { world, crossing } = crossingWorld('roadOverRail')
+        const car = parkCar(world, 2, crossing, 0, 'stopped')
+        const train = startTrain(world)
+        const delta = runToCrash(world, car)
+        const crashed = [car, ...(train.state === RtVehicleState.crashed ? [train] : [])]
+        expect(delta).toEqual(expectedCharges(world, 1, crossing, crashed))
+        expect(delta[2]).toBe(0)
     })
 
     it('charges a rail-over-road causer without paying itself for its own train or line', () => {

@@ -13,7 +13,6 @@ import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
 import { RtWorld, rtStartDate } from '#shared/utils/rail-tycoon/world'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
-const TILE = RT_CATALOG.movement.subTileUnits
 const GAP = RT_CATALOG.movement.roadLaneGap
 
 function flatWorld(): RtWorld {
@@ -130,7 +129,7 @@ describe('rail tycoon road vehicle movement', () => {
         expect(arrivals.get(second.id) ?? 0).toBeGreaterThanOrEqual(3)
     })
 
-    it('waits before a level crossing while a train passes, and nothing crashes', () => {
+    it('crosses a line a train shuttles on, the train waiting for it, and nothing crashes', () => {
         const world = flatWorld()
         const map = world.map
         for (let x = 6; x <= 40; x++) buildRail(map, 0, map.idx(x, 10), RtTrack.x, true)
@@ -146,18 +145,21 @@ describe('rail tycoon road vehicle movement', () => {
             { kind: RtOrderKind.gotoStation, target: top, flags: 0 },
             { kind: RtOrderKind.gotoStation, target: bottom, flags: 0 }
         ])
-        let waited = 0
+        let crossings = 0
+        let inside = false
         let crashed = false
         let onCrossingWithTrain = false
         run(world, 12000, undefined, () => {
             if (world.vehicleList().some(car => car.state === RtVehicleState.crashed)) crashed = true
-            if (rtCrossingBarred(world, crossing) && v.speed === 0 && v.progress === TILE && v.state === RtVehicleState.driving
-                && map.neighbour(v.tiles[0]!, v.pieces[0]! as RtDir) === crossing) waited++
+            const now = v.tiles.includes(crossing)
+            if (now && !inside) crossings++
+            inside = now
             if (world.occupied.trainOnPiece(crossing, RtTrack.x) && world.occupied.roadVehicleOnCrossing(crossing)) onCrossingWithTrain = true
         })
         expect(crashed).toBe(false)
         expect(onCrossingWithTrain).toBe(false)
-        expect(waited).toBeGreaterThan(0)
+        expect(crossings).toBeGreaterThanOrEqual(4)
+        expect(train.state).toBe(RtVehicleState.driving)
     })
 
     it('tells a barred crossing apart: a train on it, reserved through it, or heading in from next door', () => {

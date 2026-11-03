@@ -141,7 +141,8 @@ export function rtProsecuteAccidents(world: RtWorld, before: readonly number[]):
             charged.add(vehicle.id)
             const owner = world.company(vehicle.owner)
             const value = Math.floor(Math.max(0, vehicle.value))
-            if (owner && owner !== causer && value > 0) {
+            // a vehicle its owner stopped there was put in the way: no money back for it
+            if (owner && owner !== causer && value > 0 && !vehicle.stopped) {
                 bookMoney(causer, 'fines', -value)
                 bookMoney(owner, 'fines', value)
             }

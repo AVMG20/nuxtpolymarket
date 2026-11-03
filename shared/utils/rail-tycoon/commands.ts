@@ -36,6 +36,7 @@ import {
     RT_ROAD_Y,
     RT_TRACK_COUNT,
     RtBuildError,
+    rtIsCrossing,
     rtRailTilePieces,
     rtTrackdirDirection,
     rtTrackdirExitDir,
@@ -346,6 +347,21 @@ function onOwnTrack(world: RtWorld, vehicle: RtVehicle): boolean {
 }
 
 /**
+ * Why a road vehicle may not be stopped where it stands, or null: it may stop in its own depot, or on
+ * its own and town roads clear of level crossings. Elsewhere it would block another company's depot or bait trains.
+ */
+function roadStopRefusal(world: RtWorld, vehicle: RtVehicle): RtCommandError | null {
+    const map = world.map
+    if (vehicle.state === RtVehicleState.inDepot) return map.owner[vehicle.tiles[0]!] === vehicle.owner ? null : RtCommandError.notOwner
+    for (const tile of vehicle.tiles) {
+        const owner = map.owner[tile]
+        if (map.kind[tile] === RtTileKind.rail && rtIsCrossing(map.payload[tile]!)) return RtCommandError.state
+        if (owner !== vehicle.owner && owner !== RT_OWNER_NONE) return RtCommandError.notOwner
+    }
+    return null
+}
+
+/**
  * The nearest own depot of the vehicle's kind it can reach, by the movers' own pathfinder within one
  * search budget, or RT_NONE. Another company's depot is never a target: a foreign vehicle
  * must never be able to stand in a depot and block its demolition. A train searches behind
@@ -428,6 +444,8 @@ function vehicleCommand(world: RtWorld, company: RtCompany, command: RtCommand, 
             if (command.stopped && vehicle.kind === RtVehicleKind.rail && vehicle.state !== RtVehicleState.inDepot && !onOwnTrack(world, vehicle)) {
                 return fail(RtCommandError.notOwner)
             }
+            const roadRefusal = command.stopped && vehicle.kind === RtVehicleKind.road ? roadStopRefusal(world, vehicle) : null
+            if (roadRefusal !== null) return fail(roadRefusal)
             if (apply) vehicle.stopped = command.stopped
             return ok(0)
         }

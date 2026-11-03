@@ -20,6 +20,7 @@ import {
     RT_ROAD_X,
     RtTrack,
     buildRail,
+    rtIsCrossing,
     rtPieceEdges,
     rtRailTilePieces,
     rtTrackdirOf,
@@ -437,6 +438,34 @@ describe('rail tycoon commands', () => {
         expect(bus.speed).toBeGreaterThan(0)
         refused(w, ME, { kind: K.removeRoad, tile: bus.tiles[0]!, bits: RT_ROAD_X }, RtCommandError.conflict)
         refused(w, ME, { kind: K.demolish, tile: bus.tiles[0]! }, RtCommandError.conflict)
+    })
+
+    it('stops a road vehicle only in its own depot or on its own and town roads, never on a level crossing', () => {
+        const w = world(true)
+        must(w, ME, { kind: K.buildRoadLine, tile: at(w, 6, 10), endTile: at(w, 20, 10) })
+        must(w, RIVAL, { kind: K.buildRoadLine, tile: at(w, 6, 12), endTile: at(w, 20, 12) })
+        must(w, ME, { kind: K.buildDepot, tile: at(w, 5, 10), vehicleKind: RtVehicleKind.road, facing: RtDir.sw })
+        must(w, RIVAL, { kind: K.buildDepot, tile: at(w, 5, 12), vehicleKind: RtVehicleKind.road, facing: RtDir.sw })
+        expect(buildRail(w.map, ME, at(w, 10, 10), RtTrack.y, true).ok).toBe(true)
+        expect(rtIsCrossing(w.map.payload[at(w, 10, 10)]!)).toBe(true)
+        const bus = w.vehicle(must(w, ME, { kind: K.buyVehicle, depot: at(w, 5, 10), model: M.townBus.index, wagons: [] }).id!)!
+        const stop: RtCommand = { kind: K.startStop, vehicle: bus.id, stopped: true }
+        const standOn = (tile: number, state: RtVehicleState) => {
+            bus.stopped = false
+            bus.state = state
+            bus.tiles = [tile]
+            bus.pieces = [0]
+        }
+        standOn(at(w, 5, 12), RtVehicleState.inDepot)
+        refused(w, ME, stop, RtCommandError.notOwner)
+        standOn(at(w, 14, 12), RtVehicleState.driving)
+        refused(w, ME, stop, RtCommandError.notOwner)
+        standOn(at(w, 10, 10), RtVehicleState.driving)
+        refused(w, ME, stop, RtCommandError.state)
+        standOn(at(w, 14, 10), RtVehicleState.driving)
+        must(w, ME, stop)
+        standOn(at(w, 5, 10), RtVehicleState.inDepot)
+        must(w, ME, stop)
     })
 
     it('a signal placed before a free block shows green and before an occupied one red, in the same command', () => {

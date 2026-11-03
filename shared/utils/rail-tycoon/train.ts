@@ -283,6 +283,22 @@ function stopsAtTileEnd(world: RtWorld, vehicle: RtVehicle, next: number, bits: 
     return false
 }
 
+/**
+ * Whether a road vehicle is still driving over a crossing with barriers: they close behind it, so a
+ * train waits for it. One stopped or broken down there is hit, as is any on a foreign crossing (no barriers).
+ */
+function roadVehicleCrossing(world: RtWorld, tile: number): boolean {
+    const map = world.map
+    if (map.kind[tile] !== RtTileKind.rail || !rtIsCrossing(map.payload[tile]!) || rtIsForeignCrossing(map, tile)) return false
+    for (let lane = 0; lane < 4; lane++) {
+        for (const id of world.occupied.roadVehiclesInLane(tile, lane)) {
+            const car = world.vehicle(id)
+            if (car && car.state === RtVehicleState.driving && !car.stopped && car.breakdownTicks === 0) return true
+        }
+    }
+    return false
+}
+
 /** A held train counts its wait; past the limit it turns round. */
 function waitAt(world: RtWorld, vehicle: RtVehicle, limit: number): void {
     vehicle.speed = 0
@@ -387,6 +403,10 @@ function tryEnter(world: RtWorld, vehicle: RtVehicle, dirty: Set<number>): Enter
     const foreign = blockers.find(id => world.vehicle(id)?.owner !== vehicle.owner)
     if (foreign !== undefined) {
         waitAt(world, vehicle, vehicle.id > foreign ? SIG.twoWaySignalWaitTicks : 0)
+        return Enter.held
+    }
+    if (roadVehicleCrossing(world, next)) {
+        waitAt(world, vehicle, 0)
         return Enter.held
     }
 
