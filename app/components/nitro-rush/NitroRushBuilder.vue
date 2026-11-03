@@ -17,7 +17,7 @@ const emit = defineEmits<{
     delete: [id: string]
 }>()
 
-const { draft, cursor, walk, compiled, gap, full, length, canUndo, walkUpTo, insert, removeAt, moveTo, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+const { draft, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
 const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
@@ -41,6 +41,7 @@ const { armed, tap } = useNitroRushConfirmTap()
 
 const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
+    if (loopError.value) return { ok: false, text: friendly(`can't finish the loop: ${loopError.value}`) }
     const g = gap.value
     if (g && !walk.value.notLevel && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
@@ -141,7 +142,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
         </div>
         <div class="nr-build-status" :class="{ 'is-ok': status.ok }">
           <UIcon :name="status.ok ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'" class="size-4 shrink-0" />
-          <span>{{ status.text }}</span>
+          <span class="min-w-0 flex-1">{{ status.text }}</span>
+          <button
+            v-if="draft.closed && !compiled.def"
+            class="nr-ghost nr-small is-locked"
+            :disabled="full || !!loopError"
+            :title="full ? 'That\'s the most sections a track can have' : 'Lay the road back to the start line'"
+            @click="closeLoop"
+          >
+            FINISH THE LOOP
+          </button>
         </div>
       </div>
 

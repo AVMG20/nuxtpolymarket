@@ -1,4 +1,5 @@
-import type { Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
+import { finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { compileCustomTrack, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 
 const MAX_UNDO = 100
@@ -14,12 +15,15 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const cursor = ref(initial.value.sections.length - 1)
     const history: { track: CustomTrack, cursor: number }[] = []
     const canUndo = ref(false)
+    /** Why the last try at finishing the loop came to nothing; it stands until the road changes. */
+    const loopError = ref<string | null>(null)
 
     watch(initial, (t) => {
         draft.value = t
         cursor.value = t.sections.length - 1
         history.length = 0
         canUndo.value = false
+        loopError.value = null
     })
 
     // Read through these, a rename leaves the walk, and the map and preview drawn from it, alone.
@@ -46,6 +50,7 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         history.push({ track: draft.value, cursor: cursor.value })
         if (history.length > MAX_UNDO) history.shift()
         canUndo.value = true
+        loopError.value = null
         draft.value = { ...draft.value, ...next }
         cursor.value = Math.min(nextCursor, draft.value.sections.length - 1)
     }
@@ -70,6 +75,17 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         edit({ sections }, to)
     }
 
+    /** Lays the road back to the start line after the last section, as one edit so one undo takes it all back. */
+    function closeLoop() {
+        const { sections, error } = finishLoop(draft.value)
+        if (!sections) {
+            loopError.value = error
+            return
+        }
+        const all = [...draft.value.sections, ...sections]
+        edit({ sections: all }, all.length - 1)
+    }
+
     function setClosed(closed: boolean) {
         if (closed !== draft.value.closed) edit({ closed })
     }
@@ -87,8 +103,9 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         if (!prev) return
         draft.value = prev.track
         cursor.value = prev.cursor
+        loopError.value = null
         canUndo.value = history.length > 0
     }
 
-    return { draft, cursor, walk, compiled, gap, full, length, canUndo, walkUpTo, insert, removeAt, moveTo, setClosed, setName, select, undo }
+    return { draft, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo }
 }

@@ -15,7 +15,7 @@ export interface Construction {
     bank: SectionId
 }
 
-const BENDS: Record<Exclude<Curve, 'straight'>, Record<BendSize, SectionId>> = {
+export const BENDS: Record<Exclude<Curve, 'straight'>, Record<BendSize, SectionId>> = {
     'left-45': { tight: 'left-eighth-tight', medium: 'left-eighth', wide: 'left-eighth-wide' },
     'left-90': { tight: 'left-tight', medium: 'left-medium', wide: 'left-wide' },
     'left-180': { tight: 'left-hairpin', medium: 'left-hairpin-medium', wide: 'left-hairpin-wide' },
@@ -24,7 +24,7 @@ const BENDS: Record<Exclude<Curve, 'straight'>, Record<BendSize, SectionId>> = {
     'right-180': { tight: 'right-hairpin', medium: 'right-hairpin-medium', wide: 'right-hairpin-wide' }
 }
 
-const STRAIGHTS = { 10: 'straight-10', 20: 'straight-20', 60: 'straight-60', 100: 'straight-100', 200: 'straight-200' } as const satisfies Record<number, SectionId>
+export const STRAIGHTS = { 10: 'straight-10', 20: 'straight-20', 60: 'straight-60', 100: 'straight-100', 200: 'straight-200' } as const satisfies Record<number, SectionId>
 export type StraightLength = keyof typeof STRAIGHTS
 export const STRAIGHT_LENGTHS = Object.keys(STRAIGHTS).map(Number) as StraightLength[]
 
@@ -48,7 +48,7 @@ export const BANK_STEPS: readonly StateStep[] = [
 ]
 
 /** The bank or grade a state piece leaves the road on. */
-function targetOf(id: SectionId) {
+export function targetOf(id: SectionId) {
     const piece: TrackPiece = SECTIONS[id].piece
     return piece.type === 'slope' || piece.type === 'bank' ? piece.to : 0
 }
