@@ -28,8 +28,8 @@ type Part = 'shell' | 'tail' | 'head'
 function buildTemplate(): Map<Part, THREE.BufferGeometry> {
     const car = buildPlayerCar(0xffffff)
     const slots = modelShared().slots
-    // Seats, the dash, the shadow and the flames would only clutter a see-through car.
-    const skip = new Set<THREE.Material>([slots.cabin, slots.interior, modelShared().shadow])
+    // Decals, the shadow and the flames would only clutter a see-through car.
+    const skip = new Set<THREE.Material>([slots.decal, modelShared().shadow])
     const partOf = (m: THREE.Material): Part | null => {
         if (skip.has(m) || m.blending === THREE.AdditiveBlending) return null
         if (m === slots.tail || m === slots.lens) return 'tail'

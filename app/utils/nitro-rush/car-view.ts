@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { WHEEL_R } from './car-body'
 import { modelShared } from './car-kit'
 import { buildPlayerCar, type PlayerCar } from './models'
 import { marksCar } from './stencil'
@@ -47,7 +48,7 @@ export class CarView {
         this.car.body.rotation.set(this.pitch, 0, this.roll)
         const steerVisual = -s.steer * 0.45 / (1 + Math.abs(s.speed) / 30)
         for (const w of this.frontWheels) w.rotation.y = (w.userData.baseYaw ?? 0) + steerVisual
-        for (const w of this.car.wheels) w.rotation.x -= s.speed * dt / 0.37 * (w.userData.dir ?? 1)
+        for (const w of this.car.wheels) w.rotation.x -= s.speed * dt / WHEEL_R * (w.userData.dir ?? 1)
         const flicker = 0.75 + Math.random() * 0.5
         for (const f of this.car.flames) {
             const k = nitro ? 1.6 * flicker : (throttle ? 0.3 * flicker : 0.001)
