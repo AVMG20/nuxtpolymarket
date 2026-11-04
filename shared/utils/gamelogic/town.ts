@@ -1224,11 +1224,12 @@ export const TOWN_NO_BONUS: TownBonus = {
  * first stage stands and only while a road reaches its front, like any other
  * building; a stage still going up gives nothing until it is done.
  */
-export function townMonumentBonus(buildings: TownSimBuilding[], now: number): TownBonus {
+export function townMonumentBonus(buildings: TownSimBuilding[], now: number, roads?: ReadonlySet<string>): TownBonus {
     const total: TownBonus = { ...TOWN_NO_BONUS }
     for (const b of buildings) {
         const monument = getTownMonument(b.type)
-        if (!monument || !isBuilt(b, now) || !townRoadAccess(buildings, b)) continue
+        if (!monument || !isBuilt(b, now)) continue
+        if (roads ? !townRoadAccessIn(roads, b) : !townRoadAccess(buildings, b)) continue
         for (const [key, value] of Object.entries(townMonumentEffect(monument, effectiveLevel(b, now))) as [keyof TownBonus, number][]) {
             total[key] += value
         }
@@ -1935,6 +1936,22 @@ export function townRoadAccess(buildings: TownSimBuilding[], b: TownSimBuilding)
     return frontTilesOf(b).some(f => townRoadAt(buildings, f.wx, f.wy))
 }
 
+/** Every road tile as "x,y", built or not, the same roads `townRoadAt` sees. */
+export function townRoadTiles(buildings: TownSimBuilding[]): Set<string> {
+    const roads = new Set<string>()
+    for (const b of buildings) {
+        if (b.type === 'road' && b.wx !== undefined && b.wy !== undefined) roads.add(`${b.wx},${b.wy}`)
+    }
+    return roads
+}
+
+/** `townRoadAccess` against a prebuilt `townRoadTiles` set, for loops over the whole town. */
+export function townRoadAccessIn(roads: ReadonlySet<string>, b: TownSimBuilding): boolean {
+    if (b.type === 'road') return true
+    if (b.wx === undefined || b.wy === undefined) return true
+    return frontTilesOf(b).some(f => roads.has(`${f.wx},${f.wy}`))
+}
+
 /** Buildings whose front door opens onto (wx, wy) — what removing that road would cut off. */
 export function townBuildingsFronting(buildings: TownSimBuilding[], wx: number, wy: number): TownSimBuilding[] {
     return buildings.filter((b) => {
@@ -2182,10 +2199,11 @@ export function townTierRequirement(
         const def = BUILDING_BY_ID.get(b.type)!
         return isBuilt(b, now) && def.kind !== 'monument' && def.tier === tier - 1
     })
-    const extraPerHouse = townMonumentBonus(buildings, now).popPerHouseLevel
+    const roads = townRoadTiles(buildings)
+    const extraPerHouse = townMonumentBonus(buildings, now, roads).popPerHouseLevel
     let pop = 0
     for (const b of buildings) {
-        if (!isBuilt(b, now) || !townRoadAccess(buildings, b)) continue
+        if (!isBuilt(b, now) || !townRoadAccessIn(roads, b)) continue
         const def = BUILDING_BY_ID.get(b.type)!
         // The same sum deriveTown does: residents the Colosseum added are
         // real residents, and the gate has to see the ones already at work.
@@ -2331,15 +2349,44 @@ export function deriveTown(
     satisfied: TownSatisfied = {},
     network?: TownSupplyNetwork
 ): TownDerived {
-    const bonus = townMonumentBonus(buildings, now)
+    return finishTownDerive(deriveTownLayout(buildings, now, network), happiness, satisfied)
+}
+
+/**
+ * The half of deriveTown that depends only on what stands where at `now`:
+ * staffing, supply, throughput and the layout score. It is nearly all of the
+ * cost, and it only changes when a building finishes, so a settle walking
+ * hundreds of ticks reuses one until the next job lands. Treat it as frozen.
+ */
+interface TownLayoutDerive {
+    bonus: TownBonus
+    popCap: number
+    workersDemanded: number
+    workersEmployed: number
+    industryTiles: number
+    layout: TownLayoutScore
+    reachableTier: number
+    crowding: number
+    /** Warehouse room before the mood and the monuments scale it. */
+    baseStorageCap: number
+    staffing: Map<string, number>
+    districtOf: Map<string, string>
+    districts: Map<string, TownDistrict>
+    supply: Map<string, TownSupplyEntry>
+    throughput: Map<string, number>
+    needsPerTick: Partial<Record<TownResourceId, number>>
+}
+
+function deriveTownLayout(buildings: TownSimBuilding[], now: number, network?: TownSupplyNetwork): TownLayoutDerive {
+    const roads = townRoadTiles(buildings)
+    const bonus = townMonumentBonus(buildings, now, roads)
     let popCap = 0
-    let happinessTarget = TOWN_HAPPINESS_BASE_TARGET
     let storageCap = TOWN_BASE_STORAGE
     let industryTiles = 0
     let workersDemanded = 0
 
     const built = buildings
-        .filter(b => isBuilt(b, now) && townRoadAccess(buildings, b))
+        .filter(b => isBuilt(b, now) && townRoadAccessIn(roads, b))
         .map(b => ({ b, def: BUILDING_BY_ID.get(b.type)!, level: effectiveLevel(b, now) }))
         .sort((a, z) => a.b.createdAt - z.b.createdAt)
 
@@ -2353,11 +2400,6 @@ export function deriveTown(
     const layout = townLayoutScore(builtSims, now)
     const reachableTier = townReachableTier(builtSims, now)
     const crowding = workersDemanded > popCap * TOWN_HAPPINESS_CROWDING_RATIO ? TOWN_HAPPINESS_CROWDING_PENALTY : 0
-    const needsScore = needsHappiness(satisfied, popCap, reachableTier)
-    // Parks and workshops only count through the homes they reach (see
-    // townLayoutScore) — a civic building nobody lives near adds nothing.
-    happinessTarget += layout.parks - layout.industry - crowding + needsScore
-    happinessTarget = Math.max(0, Math.min(100, happinessTarget + bonus.happiness))
 
     // People walk to work along the roads, so each road network staffs itself
     // out of the houses on it. Within a network residents are handed out
@@ -2384,8 +2426,6 @@ export function deriveTown(
         staffing.set(b.id, ratio)
         if (def.storage > 0) storageCap += Math.floor(def.storage * level * ratio)
     }
-    // Applied once the warehouses have reported what they can actually hold.
-    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + bonus.storage))
 
     // Road distances are the expensive half and never change mid-settle, so a
     // caller walking many ticks passes the network in rather than rebuilding it.
@@ -2406,20 +2446,50 @@ export function deriveTown(
     }
 
     return {
+        bonus,
         popCap,
         workersDemanded,
         workersEmployed: popCap - remaining,
-        happinessTarget,
-        storageCap,
         industryTiles,
+        layout,
+        reachableTier,
+        crowding,
+        baseStorageCap: storageCap,
         staffing,
         districtOf,
         districts,
         supply,
         throughput,
+        needsPerTick: townNeedsPerTick(popCap)
+    }
+}
+
+/** The cheap half of deriveTown: what the mood and the stocked needs make of a layout. */
+function finishTownDerive(town: TownLayoutDerive, happiness: number, satisfied: TownSatisfied): TownDerived {
+    const { bonus, layout, crowding } = town
+    const needsScore = needsHappiness(satisfied, town.popCap, town.reachableTier)
+    // Parks and workshops only count through the homes they reach (see
+    // townLayoutScore) — a civic building nobody lives near adds nothing.
+    let happinessTarget = TOWN_HAPPINESS_BASE_TARGET
+    happinessTarget += layout.parks - layout.industry - crowding + needsScore
+    happinessTarget = Math.max(0, Math.min(100, happinessTarget + bonus.happiness))
+
+    return {
+        popCap: town.popCap,
+        workersDemanded: town.workersDemanded,
+        workersEmployed: town.workersEmployed,
+        happinessTarget,
+        // Applied once the warehouses have reported what they can actually hold.
+        storageCap: Math.round(town.baseStorageCap * townMood(happiness).storage * (1 + bonus.storage)),
+        industryTiles: town.industryTiles,
+        staffing: town.staffing,
+        districtOf: town.districtOf,
+        districts: town.districts,
+        supply: town.supply,
+        throughput: town.throughput,
         speedMultiplier: townSpeedMultiplier(happiness),
-        needsPerTick: townNeedsPerTick(popCap),
-        reachableTier,
+        needsPerTick: town.needsPerTick,
+        reachableTier: town.reachableTier,
         happinessBreakdown: {
             base: TOWN_HAPPINESS_BASE_TARGET,
             needs: needsScore,
@@ -2429,6 +2499,30 @@ export function deriveTown(
             monuments: bonus.happiness,
             layout
         }
+    }
+}
+
+/**
+ * A settle's deriveTown, reusing the layout half until the cursor passes the
+ * next build or upgrade finishing. Only a running job's `completesAt` moves
+ * `isBuilt` or `effectiveLevel`, so between two of them the layout is fixed.
+ * The cursor must only move forward.
+ */
+function townSettleDeriver(buildings: TownSimBuilding[], network: TownSupplyNetwork) {
+    const finishes = buildings
+        .filter(b => b.level === 0 || b.upgradingTo !== null)
+        .map(b => b.completesAt)
+        .sort((a, z) => a - z)
+    let passed = 0
+    let layout: TownLayoutDerive | null = null
+    return (happiness: number, cursor: number, satisfied: TownSatisfied): TownDerived => {
+        let reached = passed
+        while (reached < finishes.length && finishes[reached]! <= cursor) reached++
+        if (!layout || reached !== passed) {
+            layout = deriveTownLayout(buildings, cursor, network)
+            passed = reached
+        }
+        return finishTownDerive(layout, happiness, satisfied)
     }
 }
 
@@ -2485,7 +2579,8 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     // Buildings do not move mid-settle, so the road distances behind the supply
     // chains are walked once here instead of on every tick.
     const network = townSupplyNetwork(buildings, now)
-    let derived = deriveTown(buildings, happiness, cursor, satisfied, network)
+    const derive = townSettleDeriver(buildings, network)
+    let derived = derive(happiness, cursor, satisfied)
 
     // Production surge: the share of each tick's progress made before
     // `surgeUntil` is run a second time. Progress carried in from the last
@@ -2538,7 +2633,7 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         surgedProgress = 0
 
         // Re-derive at this instant so newly finished buildings join the tick.
-        derived = deriveTown(buildings, happiness, cursor, satisfied, network)
+        derived = derive(happiness, cursor, satisfied)
 
         for (const b of buildings) {
             if (!isBuilt(b, cursor)) continue
@@ -2566,10 +2661,10 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         }
 
         // Happiness drifts toward the target computed from this tick's town.
-        const target = deriveTown(buildings, happiness, cursor, satisfied, network).happinessTarget
+        const target = derive(happiness, cursor, satisfied).happinessTarget
         if (happiness < target) happiness = Math.min(target, happiness + TOWN_HAPPINESS_DRIFT_PER_TICK)
         else if (happiness > target) happiness = Math.max(target, happiness - TOWN_HAPPINESS_DRIFT_PER_TICK)
-        derived = deriveTown(buildings, happiness, cursor, satisfied, network)
+        derived = derive(happiness, cursor, satisfied)
     }
 
     // Bake finished builds/upgrades into levels so the caller can persist them.

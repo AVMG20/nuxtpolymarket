@@ -37,7 +37,8 @@ import {
     townCeilingPrice,
     townMood,
     townNextMood,
-    townRoadAccess,
+    townRoadAccessIn,
+    townRoadTiles,
     getTownResource,
     townResourceSoldByDefault,
     TOWN_JEWELS_PER_GEM,
@@ -97,6 +98,8 @@ export default defineEventHandler(async (event) => {
 
     // One breadth-first pass over the roads serves both derives below.
     const network = townSupplyNetwork(sim, now)
+    const roads = townRoadTiles(sim)
+    const simById = new Map(sim.map(b => [b.id, b]))
     const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network)
     const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
     const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
@@ -215,7 +218,7 @@ export default defineEventHandler(async (event) => {
             staffing: derived.staffing.get(b.id) ?? null,
             supply: derived.supply.get(b.id) ?? null,
             throughput: derived.throughput.get(b.id) ?? null,
-            connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!),
+            connected: townRoadAccessIn(roads, simById.get(b.id)!),
             // The road network this building is on: who lives along it and
             // how many posts it has. Null while the building is cut off.
             district: derived.districts.get(derived.districtOf.get(b.id) ?? '') ?? null,
