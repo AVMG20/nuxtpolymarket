@@ -2,7 +2,7 @@ import {
     AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
     DRIFT_SLIP_RESPONSE, DRIFT_SLIP_WIDE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION,
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
-    WALL_FRICTION, WALL_HARD_IMPACT, WALL_RESTITUTION, WHEELBASE
+    WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PRESS_HOLD, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
 import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
@@ -49,6 +49,8 @@ export interface CarState {
     onRail: boolean
     /** On rails: the angle from the road's direction to the car's, + to the left. */
     rel: number
+    /** Seconds left in which the car still counts as pressed on a side wall it last hit. */
+    wallPress: number
 }
 
 export interface CarInput {
@@ -63,6 +65,8 @@ export interface CarInput {
 export interface StepEvents {
     /** Speed into the wall on a hit this step, else 0. */
     wallImpact: number
+    /** Rubbing along a side wall this step. */
+    scraping: boolean
     driftStarted: boolean
     /** Seconds the drift lasted, on the step it ended; 0 otherwise. */
     driftEnded: number
@@ -82,6 +86,8 @@ const DRIFT_STEER_THRESHOLD = 0.35
 const GRAVITY = 9.81
 /** Speed kept when a car on rails grazes a wall, per unit of the hit. */
 const RAIL_WALL_BOUNCE = 0.3
+/** Gentler than WALL_FRICTION on purpose: rails have no bend to cut with a wall, and a stall halfway up a looping rolls the car back down. */
+const RAIL_WALL_FRICTION = 0.6
 const railFrame = newTrackFrame()
 const railEntry = newTrackPoint()
 
@@ -96,7 +102,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0,
-        proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.project(x, z, track.segmentAt(s), car.proj)
@@ -158,7 +164,7 @@ export function fireNitro(car: CarState) {
 }
 
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false }
+    const ev: StepEvents = { wallImpact: 0, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false }
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -234,6 +240,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         hitBarrier(car, ev, p.tz * side, -p.tx * side, Math.abs(p.lateral) - limit)
         p.lateral = side * limit
     }
+    scrapeWall(car, ev, Math.abs(p.lateral), limit, dt)
     // ── End barriers across an open course ──
     if (!track.closed) {
         const reach = endReach(car)
@@ -311,7 +318,7 @@ function stepRail(car: CarState, left: number, track: Track, dt: number, ev: Ste
         ev.wallImpact = Math.max(ev.wallImpact, into)
         lateral = Math.sign(lateral) * limit
         car.rel = -car.rel * RAIL_WALL_BOUNCE
-        car.speed *= Math.max(0, 1 - WALL_FRICTION * into / Math.max(Math.abs(car.speed), 1))
+        car.speed *= Math.max(0, 1 - RAIL_WALL_FRICTION * into / Math.max(Math.abs(car.speed), 1))
     }
     // Off either end of the rails, back onto the plan.
     const leaving = !track.railAt(s) && (track.closed || (s > 0 && s < track.length))
@@ -334,6 +341,15 @@ function endReach(car: CarState) {
     return CAR_HALF_LENGTH * Math.abs(Math.cos(angle)) + CAR_HALF_WIDTH * Math.abs(Math.sin(angle))
 }
 
+/** A side wall drags on a car pressed on it for as long as it rubs, however shallow the angle; one merely running alongside is left alone. */
+function scrapeWall(car: CarState, ev: StepEvents, offset: number, limit: number, dt: number) {
+    if (ev.wallImpact > 0) car.wallPress = WALL_PRESS_HOLD
+    else car.wallPress = Math.max(0, car.wallPress - dt)
+    if (car.airborne || car.wallPress === 0 || offset < limit - WALL_TOUCH_GAP) return
+    ev.scraping = true
+    car.speed *= Math.exp(-WALL_SCRAPE * dt)
+}
+
 /** Pushes the car `push` metres out along the barrier's normal (n points away from it) and bounces it off. */
 function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push: number) {
     car.x += nx * push
@@ -351,7 +367,7 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     const tz = nx
     const along = vx * tx + vz * tz
     const across = vx * nx + vz * nz
-    const kept = Math.max(0, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
+    const kept = Math.max(WALL_KEEP_MIN, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
     vx = tx * along * kept + nx * across
     vz = tz * along * kept + nz * across
     // A car hitting sideways keeps rolling the way it was going; grip then swings the nose round.

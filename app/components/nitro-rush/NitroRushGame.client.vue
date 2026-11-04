@@ -3,7 +3,7 @@ import { NitroAudio } from '~/utils/nitro-rush/audio'
 import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
-import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
+import { clearRetiredStorage, readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
 import { EMPTY_RECORD, type Control, type GhostToggles, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
 import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
@@ -352,6 +352,7 @@ function onFullscreen() {
 }
 
 onMounted(() => {
+    clearRetiredStorage()
     records.value = readStorage<Record<string, TrackRecord>>(STORAGE_KEYS.records, {})
     paint.value = findPaint(readStorage<{ id: string }>(STORAGE_KEYS.paint, { id: '' }).id).id
     const a = readStorage(STORAGE_KEYS.audio, { music: true, sfx: true })
