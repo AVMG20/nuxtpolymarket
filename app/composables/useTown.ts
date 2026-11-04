@@ -431,6 +431,15 @@ export const useTown = () => {
     let worldInflight: Promise<void> | null = null
     let worldAgain = false
     let worldFetchedAt = 0
+    // The first world request goes out alongside the state instead of a round
+    // trip behind it. It is still only drawn once the state is in (see the
+    // watch below), so your own town comes first.
+    let worldEarly: Promise<TownWorldView> | null = import.meta.client ? $fetch<TownWorldView>('/api/town/world' as string) : null
+    worldEarly?.catch(() => {})
+    // A player with no town yet got an empty world back; founding one asks again.
+    watch(state, (s) => {
+        if (s && !s.initialized) worldEarly = null
+    })
     function refreshWorld(): Promise<void> {
         if (worldInflight) {
             worldAgain = true
@@ -441,7 +450,9 @@ export const useTown = () => {
                 do {
                     worldAgain = false
                     worldFetchedAt = Date.now()
-                    worldData.value = await $fetch<TownWorldView>('/api/town/world' as string)
+                    const early = worldEarly
+                    worldEarly = null
+                    worldData.value = await (early ?? $fetch<TownWorldView>('/api/town/world' as string))
                 } while (worldAgain)
             } catch {
                 // Scenery only: keep what is drawn and try again on the next
