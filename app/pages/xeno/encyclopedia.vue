@@ -36,7 +36,7 @@ const filters = computed(() => [
   { id: 'all' as const, label: 'All', n: PLANT_TYPES.length },
   { id: 'known' as const, label: 'Discovered', n: discoveredCount.value },
   { id: 'reach' as const, label: 'Within reach', n: withinReach.value.size },
-  { id: 'unknown' as const, label: 'Unknown', n: PLANT_TYPES.length - discoveredCount.value - withinReach.value.size }
+  { id: 'unknown' as const, label: 'Out of reach', n: PLANT_TYPES.length - discoveredCount.value - withinReach.value.size }
 ])
 function setFilter(f: Filter) {
   if (filter.value === f) return
@@ -110,7 +110,7 @@ const entryOffset = computed(() => Math.round(Math.min(Math.max(0, 16 - row.top.
 const statusLabel = computed(() => ({
   known: { text: 'Discovered', color: 'var(--xg-accent-text)' },
   reach: { text: 'Within reach', color: 'var(--xg-uv)' },
-  unknown: { text: 'Unknown', color: 'var(--xg-faint)' }
+  unknown: { text: 'Out of reach', color: 'var(--xg-faint)' }
 })[entryStatus.value])
 </script>
 
@@ -174,18 +174,17 @@ const statusLabel = computed(() => ({
                   : 'bg-transparent border-dashed border-(--xg-edge2) text-(--xg-faint)'
               ]"
               :aria-pressed="showSelected(p.id)"
-              :aria-label="status(p.id) === 'unknown' ? `Unknown tier ${p.tier} species` : `${p.name}, ${status(p.id) === 'known' ? 'discovered' : 'within reach'}`"
+              :aria-label="`${p.name}, ${status(p.id) === 'known' ? 'discovered' : status(p.id) === 'reach' ? 'within reach' : 'out of reach'}`"
               @click="pick(p.id)"
             >
               <span class="size-16 flex items-center justify-center">
-                <span v-if="status(p.id) === 'unknown'" class="size-11 rounded-[14px_14px_14px_4px] border-[1.5px] border-dashed border-(--xg-edge2) flex items-center justify-center font-bold text-lg text-(--xg-faint)">?</span>
-                <XenoPlantIcon v-else :id="p.id" :size="64" stage="ready" :silhouette="status(p.id) === 'reach'" />
+                <XenoPlantIcon :id="p.id" :size="64" stage="ready" :silhouette="status(p.id) !== 'known'" />
               </span>
-              <b class="text-xs leading-tight line-clamp-2">{{ status(p.id) === 'unknown' ? '???' : p.name }}</b>
+              <b class="text-xs leading-tight line-clamp-2">{{ p.name }}</b>
               <span class="text-[11.5px] font-bold" :class="status(p.id) === 'known' ? 'text-(--xg-muted)' : status(p.id) === 'reach' ? 'text-(--xg-uv)' : 'text-(--xg-faint)'">
                 <template v-if="status(p.id) === 'known'">{{ p.voidPlant ? 'Void' : MUTATION_OFFSPRING.has(p.id) ? 'Mutation' : p.isStarter ? 'Starter' : 'Found' }}<template v-if="ownedByType.get(p.id)"> · ×{{ formatNumber(ownedByType.get(p.id)!) }}</template></template>
                 <template v-else-if="status(p.id) === 'reach'">Within reach</template>
-                <template v-else>Unknown</template>
+                <template v-else>Out of reach</template>
               </span>
             </button>
           </div>

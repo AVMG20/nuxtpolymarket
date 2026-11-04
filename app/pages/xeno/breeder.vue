@@ -429,11 +429,6 @@ function recipeParents(m: { parent1: string, parent2: string }): [any, any] | nu
   return b ? [a, b] : null
 }
 
-/** Undiscovered species stay nameless everywhere in the Nursery (recipes and pod odds alike). */
-function knownName(id: string): string {
-  return discovered.value.has(id) ? plantName(id) : 'Unknown species'
-}
-
 const recipes = computed(() => {
   const q = recipeSearch.value.trim().toLowerCase()
   const owned = new Set(breedableInventory.value.map(i => i.typeId))
@@ -446,7 +441,7 @@ const recipes = computed(() => {
     })
     .filter(r => r.target)
     .filter(r => recipeFilter.value === 'all' || (recipeFilter.value === 'have' ? r.have : !r.known))
-    .filter(r => !q || [r.m.offspring, r.m.parent1, r.m.parent2].some(id => discovered.value.has(id) && plantName(id).toLowerCase().includes(q)))
+    .filter(r => !q || [r.m.offspring, r.m.parent1, r.m.parent2].some(id => plantName(id).toLowerCase().includes(q)))
     .sort((a, b) => Number(b.have) - Number(a.have) || b.target!.tier - a.target!.tier || b.chance - a.chance)
 })
 
@@ -502,10 +497,10 @@ const maxPods = computed(() => state.value?.breeder?.maxSlots ?? XENO_MAX_BREEDE
                   <span class="xg-thumb size-11"><XenoPlantIcon :id="r.m.offspring" :size="36" stage="ready" :silhouette="!r.known" /></span>
                   <span class="flex-1 min-w-0">
                     <span class="flex items-center gap-1.5">
-                      <b class="text-[13px] truncate" :class="r.known ? '' : 'text-(--xg-uv)'">{{ knownName(r.m.offspring) }}</b>
+                      <b class="text-[13px] truncate" :class="r.known ? '' : 'text-(--xg-uv)'">{{ plantName(r.m.offspring) }}</b>
                       <XenoTierLabel :tier="r.target!.tier" :is-void="!!r.target!.voidPlant" />
                     </span>
-                    <span class="block text-[11.5px] text-(--xg-faint) truncate">{{ knownName(r.m.parent1) }} + {{ knownName(r.m.parent2) }}</span>
+                    <span class="block text-[11.5px] text-(--xg-faint) truncate">{{ plantName(r.m.parent1) }} + {{ plantName(r.m.parent2) }}</span>
                   </span>
                   <span class="text-right shrink-0">
                     <b class="xg-num text-[13px] block" :class="r.chance > 0 ? 'text-(--xg-uv)' : 'text-(--xg-rose)'">
@@ -720,7 +715,7 @@ const maxPods = computed(() => state.value?.breeder?.maxSlots ?? XENO_MAX_BREEDE
                   >
                     <span>
                       <b class="xg-num" :class="m.chance > 0 ? 'text-(--xg-uv)' : 'text-(--xg-rose)'">{{ m.chance > 0 ? formatPct(m.chance) : `+${formatPct(-(m.base + slotMutationBoost(slot)))} needed` }}</b>
-                      <span class="text-(--xg-muted)"> {{ discovered.has(m.offspring) ? plantName(m.offspring) : 'Unknown species' }}</span>
+                      <span class="text-(--xg-muted) ml-1">{{ plantName(m.offspring) }}</span>
                     </span>
                   </UTooltip>
                 </span>

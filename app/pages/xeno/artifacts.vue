@@ -38,7 +38,7 @@ function missingText(art: ArtifactType, count = 1): string {
   const short: string[] = []
   for (const c of art.cost) {
     const need = c.quantity * count - owned(c.plantTypeId)
-    if (need > 0) short.push(`${formatNumber(need, false)} more ${known.value.has(c.plantTypeId) ? (getPlant(c.plantTypeId)?.name ?? c.plantTypeId) : 'undiscovered plant'}`)
+    if (need > 0) short.push(`${formatNumber(need, false)} more ${getPlant(c.plantTypeId)?.name ?? c.plantTypeId}`)
   }
   if (gemCraft.value) {
     const need = gemCraftCost(art) * count - gems.value
