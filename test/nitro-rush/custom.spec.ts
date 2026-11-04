@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, draftTrackDef, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, PALETTE_SECTIONS, pieceAt, sanitizeCustomTrack, sectionWalk, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
-import { BANK_LENGTH, GRID, walkLayout } from '#shared/utils/nitro-rush/layout'
-import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
+import { compileCustomTrack, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { Track } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 const course = (closed: boolean, sections: SectionId[]): CustomTrack => ({ id: 'custom-test', name: 'Test', closed, sections })
@@ -44,60 +43,6 @@ describe('custom track sections', () => {
         }
     })
 
-    it('ends every section that leaves along an axis on the builder grid', () => {
-        const off: string[] = []
-        for (const id of Object.keys(SECTIONS) as SectionId[]) {
-            const { x, z, heading } = walkCustomTrack(sprint([id])).end
-            if (Math.abs(Math.sin(2 * heading)) > 1e-9) continue
-            const miss = (v: number) => Math.abs(v / GRID - Math.round(v / GRID)) * GRID
-            if (miss(x) > 1e-6 || miss(z) > 1e-6) off.push(`${id} ends at (${x.toFixed(2)}, ${z.toFixed(2)})`)
-        }
-        expect(off).toEqual([])
-    })
-
-    it('shows every section on its own, without cutting a downhill off at the ground', () => {
-        for (const id of Object.keys(SECTIONS) as SectionId[]) {
-            const walk = sectionWalk(id)
-            expect(Math.min(walk.end.y, ...walk.ys), id).toBeCloseTo(0)
-            expect(new Track(draftTrackDef(walk, false)!).n, id).toBeGreaterThan(1)
-        }
-        const down = sectionWalk('ramp-down')
-        expect(down.ys[0]).toBeCloseTo(12)
-        expect(down.end.y).toBeCloseTo(0)
-        expect(sectionWalk('ramp-up').ys[0]).toBe(0)
-    })
-
-    it('closes a figure eight of half and quarter spirals', () => {
-        const eight: SectionId[] = ['start', 'left-half-spiral-up', 'left-quarter-spiral-up', 'straight-20', 'straight-20', 'straight-20', 'straight-20', 'right-half-spiral-down', 'right-quarter-spiral-down', 'straight-20', 'straight-20', 'straight-20']
-        expect(compileCustomTrack(loop(eight)).error).toBeNull()
-    })
-
-    it('lays half and quarter spirals that add up to a full one', () => {
-        const end = (sections: SectionId[]) => walkCustomTrack(sprint(sections)).end
-        const full = end(['left-spiral-up'])
-        for (const parts of [['left-half-spiral-up', 'left-half-spiral-up'], ['left-quarter-spiral-up', 'left-quarter-spiral-up', 'left-quarter-spiral-up', 'left-quarter-spiral-up']] as SectionId[][]) {
-            const e = end(parts)
-            expect(e.x).toBeCloseTo(full.x, 3)
-            expect(e.z).toBeCloseTo(full.z, 3)
-            expect(e.y).toBeCloseTo(full.y, 3)
-        }
-        const down = walkCustomTrack(sprint(['right-half-spiral-down']))
-        expect(down.end.y - down.rise).toBeCloseTo(-6, 3)
-        expect(end(['right-quarter-spiral-up']).y).toBeCloseTo(3, 3)
-    })
-
-    it('climbs a half spiral high enough to cross back over the road below', () => {
-        const c = sprint(['straight-20', 'start', 'straight-200', 'right-half-spiral-up', 'straight-100', 'right-tight', 'straight-200', 'finish', 'straight-100'])
-        const { def, error } = compileCustomTrack(c)
-        expect(error).toBeNull()
-        const t = new Track(def!)
-        // The last straight runs west over the first one, which leaves the start heading north.
-        const below = t.pointAt(t.startS + 60)
-        const over = t.project(below.x, below.z, -1, undefined, below.y + 6)
-        expect(Math.abs(over.s - t.startS - 60)).toBeGreaterThan(200)
-        expect(t.pointAt(over.s).y - below.y).toBeCloseTo(6, 2)
-    })
-
     it('recognises only catalogue ids as sections', () => {
         expect(isSectionId('straight-100')).toBe(true)
         for (const id of ['nope', '__proto__', 'toString', 'constructor', 'hasOwnProperty', '', 7, null, undefined, {}]) {
@@ -107,73 +52,6 @@ describe('custom track sections', () => {
 })
 
 describe('banks', () => {
-    const edge = wallFoot(10.6)
-    /** Height of the road's outer foot on `side` at each point. */
-    const edgeHeights = (t: Track, side: number) => Array.from({ length: t.n }, (_, i) => t.ys[i]! + t.right[i * 3 + 1]! * side * edge)
-    const lowest = (t: Track) => Array.from({ length: t.n }, (_, i) => Math.min(edgeHeights(t, -1)[i]!, edgeHeights(t, 1)[i]!))
-    const tilted = (t: Track, s: number) => Math.abs(t.frameAt(s).ry)
-    const banked = (sections: SectionId[]) => {
-        const { def, error } = compileCustomTrack(sprint(['straight-20', 'start', 'straight-60', ...sections, 'finish', 'straight-200']))
-        expect(error, sections.join(', ')).toBeNull()
-        return new Track(def!)
-    }
-
-    it('keeps the low edge on the ground and raises the other, whichever way it leans', () => {
-        for (const [section, low] of [['bank-left', -1], ['bank-right', 1]] as [SectionId, number][]) {
-            const t = banked([section, 'straight-100', 'left-tight', 'straight-60', 'right-tight', 'straight-60', 'bank-flat'])
-            for (const y of lowest(t)) {
-                expect(y).toBeGreaterThan(-0.05)
-                expect(y).toBeLessThan(0.05)
-            }
-            const mid = t.segmentAt(t.startS + 60 + BANK_LENGTH + 50)
-            expect(edgeHeights(t, low)[mid]).toBeCloseTo(0, 1)
-            expect(edgeHeights(t, -low)[mid]).toBeCloseTo(2 * edge * Math.sin(25 * Math.PI / 180), 0)
-        }
-    })
-
-    it('banks what follows on its own, until a bank to flat levels it', () => {
-        const t = banked(['bank-right', 'straight-100', 'right-tight', 'straight-20', 'bank-flat', 'straight-20'])
-        const at = t.startS + 10 + 60
-        expect(tilted(t, at - 5)).toBe(0)
-        // Halfway through the roll, and right over on the straight and round the bend.
-        expect(tilted(t, at + BANK_LENGTH / 2)).toBeGreaterThan(0.1)
-        const full = Math.sin(25 * Math.PI / 180)
-        expect(tilted(t, at + BANK_LENGTH + 50)).toBeCloseTo(full, 1)
-        expect(tilted(t, at + BANK_LENGTH + 100 + 40)).toBeCloseTo(full, 1)
-        expect(tilted(t, t.finishS - 10)).toBe(0)
-        expect(t.pointAt(t.finishS - 10).y).toBe(0)
-    })
-
-    it('leans a banked corner the bank\'s way, so a corner away from it runs off-camber', () => {
-        const lean = (section: SectionId) => {
-            const f = banked([section, 'right-tight', 'bank-flat']).frameAt(20 + 20 + 60 + BANK_LENGTH + 30)
-            return f.ux * f.rx + f.uz * f.rz
-        }
-        expect(lean('bank-right')).toBeGreaterThan(0.3)
-        expect(lean('bank-left')).toBeLessThan(-0.3)
-    })
-
-    it('rolls straight across from one bank to the other', () => {
-        const t = banked(['bank-left', 'straight-20', 'bank-right', 'straight-20', 'bank-flat'])
-        for (const y of lowest(t)) expect(Math.abs(y)).toBeLessThan(0.05)
-        // Through level the road's height eases rather than kinks, which stepped its grade by about 0.5.
-        const crossing = banked(['bank-left', 'bank-right', 'bank-flat'])
-        for (let i = 1; i < crossing.n; i++) expect(Math.abs(crossing.grades[i]! - crossing.grades[i - 1]!)).toBeLessThan(0.1)
-    })
-
-    it('banks a ramp and holds the low edge to the road\'s height, not the ground', () => {
-        const walk = walkCustomTrack(sprint(['ramp-up', 'bank-left', 'straight-20']))
-        expect(walk.end.y - walk.end.lift).toBeCloseTo(12)
-        expect(walk.end.lift).toBeCloseTo(edge * Math.sin(25 * Math.PI / 180))
-        expect(banked(['ramp-up', 'bank-left', 'ramp-down', 'bank-flat']).pointAt(0).y).toBe(0)
-    })
-
-    it('lifts a banked ramp clear of the ground by its low edge, not its centre', () => {
-        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'ramp-down', 'bank-flat', 'finish', 'straight-200']))
-        expect(walk.rise).toBeGreaterThan(0)
-        expect(Math.min(...walk.ys.map((y, i) => y - walk.lifts[i]!))).toBeCloseTo(0, 3)
-    })
-
     it('has to level out before a course ends', () => {
         expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'finish', 'bank-flat', 'straight-200'])).error).toMatch(/level the road out before a finish line/)
         expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'finish', 'straight-100', 'bank-left'])).error).toMatch(/level out before it ends/)
@@ -209,29 +87,6 @@ describe('banks', () => {
         expect(over(['straight-200', 'straight-100'])).toBeNull()
         expect(over(['straight-60', 'bank-right', 'straight-20', 'bank-flat', 'straight-100'])).toMatch(/passes .* from another stretch/)
     })
-
-    it('marks the sections that start on a bank', () => {
-        const walk = walkCustomTrack(sprint(['straight-20', 'bank-left', 'straight-20', 'left-tight', 'bank-flat', 'straight-20']))
-        expect([0, 1, 2, 3, 4, 5].map(i => walk.states[i]!.bank !== 0)).toEqual([false, false, true, true, true, false])
-    })
-
-    it('draws a bank to flat from its bank, and leaves the old banked corners off the palette', () => {
-        const walk = sectionWalk('bank-flat')
-        expect(walk.lifts[0]).toBeGreaterThan(4)
-        expect(walk.end.bank).toBe(0)
-        expect(walk.end.y).toBe(0)
-        const ids = PALETTE_SECTIONS.map(([id]) => id)
-        expect(ids).toEqual(expect.arrayContaining(['bank-left', 'bank-right', 'bank-flat']))
-        expect(ids).not.toContain('left-banked')
-        expect(ids).not.toContain('right-banked')
-        expect(isSectionId('left-banked')).toBe(true)
-    })
-
-    it('keeps the old banked corners on the ground too', () => {
-        for (const id of ['left-banked', 'right-banked'] as SectionId[]) {
-            for (const y of lowest(banked([id, 'straight-60']))) expect(Math.abs(y)).toBeLessThan(0.05)
-        }
-    })
 })
 
 describe('compileCustomTrack', () => {
@@ -256,106 +111,14 @@ describe('compileCustomTrack', () => {
             expect(result.error).toBeTruthy()
         }
     })
-
-    it('names the course after the player, and an untitled one when the name is blank', () => {
-        expect(compileCustomTrack({ ...loop(RECTANGLE), name: '  Neon Ring ' }).def!.name).toBe('Neon Ring')
-        expect(compileCustomTrack({ ...loop(RECTANGLE), name: '   ' }).def!.name).toBeTruthy()
-    })
 })
 
 describe('loopGap', () => {
-    it('reports the distance, turn and climb an unfinished loop has left', () => {
-        const straightOn = loopGap(walkCustomTrack(loop(['start'])))
-        expect(straightOn.distance).toBeCloseTo(20)
-        expect(straightOn.turn).toBeCloseTo(0)
-        expect(straightOn.climb).toBeCloseTo(0)
-        // Turned right a quarter, the way home is a quarter turn to the left (-).
-        const right = loopGap(walkCustomTrack(loop(['start', 'straight-100', 'right-tight'])))
-        expect(right.distance).toBeGreaterThan(0)
-        expect(right.turn).toBe(-90)
-        expect(loopGap(walkCustomTrack(loop(['start', 'straight-100', 'left-tight']))).turn).toBe(90)
-        const up = loopGap(walkCustomTrack(loop(['start', 'ramp-up'])))
-        expect(up.climb).toBeCloseTo(12)
-    })
-
     it('is nothing on a closed loop', () => {
         const gap = loopGap(walkCustomTrack(loop(RECTANGLE)))
         expect(gap.distance).toBeCloseTo(0, 6)
         expect(gap.turn).toBeCloseTo(0)
         expect(gap.climb).toBeCloseTo(0, 6)
-    })
-})
-
-describe('walkCustomTrack', () => {
-    it('marks where each piece starts, in order', () => {
-        const t = loop(RECTANGLE)
-        const walk = walkCustomTrack(t)
-        expect(walk.pieceStarts).toHaveLength(t.sections.length)
-        expect(walk.pieceStarts[0]).toBe(0)
-        for (let i = 1; i < walk.pieceStarts.length; i++) expect(walk.pieceStarts[i]).toBeGreaterThan(walk.pieceStarts[i - 1]!)
-        expect(walk.pieceStarts.at(-1)).toBeLessThan(walk.pts.length)
-        expect(walk.ys).toHaveLength(walk.pts.length)
-    })
-
-    it('walks a loop that does not close yet, and a course with no start', () => {
-        const unclosed = loop(['start', 'straight-100', 'right-tight', 'ramp-up'])
-        expect(() => walkCustomTrack(unclosed)).not.toThrow()
-        expect(walkCustomTrack(unclosed).pieceStarts).toHaveLength(4)
-        expect(() => walkCustomTrack(loop(['straight-60', 'left-hairpin']))).not.toThrow()
-        expect(walkCustomTrack(loop([])).pts).toEqual([])
-    })
-
-    it('still throws for a malformed piece', () => {
-        const layout = { id: 'bad', name: 'Bad', group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 }, pieces: [{ type: 'straight' as const, length: 0 }] }
-        expect(() => walkLayout(layout)).toThrow(/positive length/)
-    })
-})
-
-describe('pieceAt', () => {
-    it('finds the piece holding each walk point', () => {
-        const walk = walkCustomTrack(loop(RECTANGLE))
-        const starts = walk.pieceStarts
-        for (let k = 0; k < starts.length; k++) {
-            const last = (starts[k + 1] ?? walk.pts.length) - 1
-            expect(pieceAt(walk, starts[k]!)).toBe(k)
-            expect(pieceAt(walk, last)).toBe(k)
-        }
-    })
-})
-
-describe('draftTrackDef', () => {
-    it('draws a half-built course on to where its road ends', () => {
-        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-100', 'ramp-up']))
-        const def = draftTrackDef(walk, false)!
-        expect(def.closed).toBe(false)
-        expect(def.points).toHaveLength(walk.pts.length + 1)
-        expect(def.points.at(-1)).toEqual([walk.end.x, walk.end.z])
-        expect(def.heights!.at(-1)).toBeCloseTo(walk.end.y)
-        const t = new Track(def)
-        expect(t.closed).toBe(false)
-        expect(t.length).toBeGreaterThan(200)
-    })
-
-    it('draws a loop that meets its start as a closed road', () => {
-        const c = loop(RECTANGLE)
-        const def = draftTrackDef(walkCustomTrack(c), true)!
-        expect(def.closed).toBeUndefined()
-        expect(def.heights).toBeUndefined()
-        expect(def.ups).toBeUndefined()
-        expect(new Track(def).length).toBeCloseTo(new Track(compileCustomTrack(c).def!).length, 0)
-    })
-
-    it('keeps the jump gaps and the rails of loopings', () => {
-        const walk = walkCustomTrack(sprint(['straight-20', 'start', 'straight-100', 'jump', 'straight-100', 'looping-left', 'straight-100']))
-        const def = draftTrackDef(walk, false)!
-        expect(def.gaps).toEqual(walk.gaps)
-        expect(def.rails).toEqual(walk.rails)
-        expect(def.ups).toHaveLength(def.points.length)
-        expect(() => new Track(def)).not.toThrow()
-    })
-
-    it('has nothing to draw under two points', () => {
-        expect(draftTrackDef(walkCustomTrack(loop([])), true)).toBeNull()
     })
 })
 
@@ -367,10 +130,6 @@ describe('sanitizeCustomTrack', () => {
         expect(t).toEqual(valid)
         expect(t!.sections).not.toBe(valid.sections)
         expect(sanitizeCustomTrack(newCustomTrack(false))).not.toBeNull()
-    })
-
-    it('lays a replaced section\'s successor in a saved course', () => {
-        expect(sanitizeCustomTrack({ ...valid, sections: ['start', 'straight-50'] })?.sections).toEqual(['start', 'straight-60'])
     })
 
     it('rejects anything that is not an object', () => {

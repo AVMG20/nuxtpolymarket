@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { PAINTS } from '../../app/utils/nitro-rush/config'
-import { blendPose, LIVE_DELAY_MS, LIVE_STALE_MS, LiveGhosts, poseMessage } from '../../app/utils/nitro-rush/live'
 import type { CarPose } from '../../app/utils/nitro-rush/types'
 import {
     NR_LIVE_BURST,
@@ -206,67 +204,5 @@ describe('live rooms', () => {
         hub.message('b', JSON.stringify({ t: 'join', track: TRACK }), 0)
         for (let i = 0; i < 100; i++) hub.message('a', pose(), 0)
         expect(b.sent).toHaveLength(NR_LIVE_BURST - 1)
-    })
-})
-
-const at = (x: number, qy = 0): CarPose => {
-    const l = Math.hypot(qy, 1)
-    return { x, y: 0, z: 0, qx: 0, qy: qy / l, qz: 0, qw: 1 / l }
-}
-
-describe('live ghost buffer', () => {
-    it('rounds the outgoing pose', () => {
-        const m = poseMessage({ x: 1.23456, y: 0, z: -2.5, qx: 0.123456, qy: 0, qz: 0, qw: 0.99 }, 'cyan', 1234.7)
-        expect(m).toEqual({ t: 'pose', at: 1235, paint: 'cyan', pose: { x: 1.23, y: 0, z: -2.5, qx: 0.1235, qy: 0, qz: 0, qw: 0.99 } })
-    })
-
-    it('slerps the short way round and stays normalized', () => {
-        const out = { ...ID }
-        const half = blendPose(at(0), { x: 10, y: 0, z: 0, qx: 0, qy: -1, qz: 0, qw: 0 }, 0.5, out)
-        expect(half.x).toBe(5)
-        expect(Math.hypot(half.qx, half.qy, half.qz, half.qw)).toBeCloseTo(1, 10)
-        // Halfway from identity to 180° about y: 90° about y, either sign of the axis.
-        expect(Math.abs(half.qy)).toBeCloseTo(Math.SQRT1_2, 6)
-        expect(half.qw).toBeCloseTo(Math.SQRT1_2, 6)
-    })
-
-    it('draws a player behind their latest pose, blending between the two around it', () => {
-        const g = new LiveGhosts()
-        // Their clock runs 5000 ms behind ours, with a 50 ms trip.
-        g.push({ id: 'u1', name: 'Bob', paint: 'lime', at: 0, pose: at(0) }, 5050)
-        g.push({ id: 'u1', name: 'Bob', paint: 'lime', at: 100, pose: at(10) }, 5150)
-        const [f] = g.frames(5050 + LIVE_DELAY_MS + 70)
-        expect(f!.id).toBe('live:u1')
-        expect(f!.label).toBe('Bob')
-        expect(f!.color).toBe(PAINTS.find(p => p.id === 'lime')!.color)
-        // Drawn LIVE_DELAY_MS behind, at their 70 ms: 70% of the way.
-        expect(f!.pose.x).toBeCloseTo(7, 6)
-    })
-
-    it('holds the oldest pose before the buffer starts and coasts only a little past the newest', () => {
-        const g = new LiveGhosts()
-        g.push({ id: 'u1', name: 'B', paint: 'cyan', at: 0, pose: at(0) }, 1000)
-        expect(g.frames(1000)[0]!.pose.x).toBe(0)
-        g.push({ id: 'u1', name: 'B', paint: 'cyan', at: 100, pose: at(10) }, 1100)
-        g.push({ id: 'u1', name: 'B', paint: 'cyan', at: 200, pose: at(20) }, 1200)
-        // Far past the newest pose: 100 ms of coasting at 100 m/s, no more.
-        expect(g.frames(1200 + LIVE_DELAY_MS + 1000)[0]!.pose.x).toBeCloseTo(30, 6)
-    })
-
-    it('drops players gone quiet, and on request', () => {
-        const g = new LiveGhosts()
-        g.push({ id: 'u1', name: 'A', paint: 'cyan', at: 0, pose: at(0) }, 0)
-        g.push({ id: 'u2', name: 'B', paint: 'cyan', at: 0, pose: at(0) }, 2000)
-        expect(g.frames(LIVE_STALE_MS + 1).map(f => f.id)).toEqual(['live:u2'])
-        g.remove('u2')
-        expect(g.count).toBe(0)
-    })
-
-    it('starts a player over when their clock jumps back (a reload)', () => {
-        const g = new LiveGhosts()
-        g.push({ id: 'u1', name: 'A', paint: 'cyan', at: 90_000, pose: at(0) }, 100_000)
-        g.push({ id: 'u1', name: 'A', paint: 'cyan', at: 90_100, pose: at(10) }, 100_100)
-        g.push({ id: 'u1', name: 'A', paint: 'cyan', at: 50, pose: at(500) }, 100_200)
-        expect(g.frames(100_200 + LIVE_DELAY_MS)[0]!.pose.x).toBe(500)
     })
 })

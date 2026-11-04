@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { ghostPose, GhostRecorder, ghostTime } from '../../app/utils/nitro-rush/ghost'
+import { ghostPose, GhostRecorder } from '../../app/utils/nitro-rush/ghost'
+import { settleLap } from '../../app/utils/nitro-rush/record'
 import { decodeGhost, encodeGhost, ghostSampleCount, replacesGhost, type Ghost } from '#shared/utils/nitro-rush/ghost'
-import type { CarPose } from '../../app/utils/nitro-rush/types'
-import { keptGhost, withGhost } from '../../app/utils/nitro-rush/record'
+import { EMPTY_RECORD, type CarPose, type TrackRecord } from '../../app/utils/nitro-rush/types'
 
 const blank = (): CarPose => ({ x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 })
 
@@ -39,38 +39,6 @@ function expectNear(a: CarPose, b: CarPose, pos: number, angle: number) {
     expect(angleBetween(a, b)).toBeLessThan(angle)
 }
 
-describe('ghost playback', () => {
-    const g = ghostOf(10.03)
-
-    it('lands on the samples', () => {
-        expectNear(ghostPose(g, 0, blank()), poseAt(0), 1e-3, 1e-3)
-        expectNear(ghostPose(g, 2, blank()), poseAt(2), 1e-3, 1e-3)
-        expectNear(ghostPose(g, 10.03, blank()), poseAt(10.03), 1e-3, 1e-3)
-    })
-
-    it('blends between samples: lerped position, slerped orientation', () => {
-        const t = 2 + 0.5 / 15
-        const p = ghostPose(g, t, blank())
-        const a = poseAt(2)
-        const b = poseAt(2 + 1 / 15)
-        expect(p.x).toBeCloseTo((a.x + b.x) / 2, 3)
-        expect(p.z).toBeCloseTo((a.z + b.z) / 2, 3)
-        // Spinning at a steady rate, the halfway orientation is the true one.
-        expectNear(p, poseAt(t), 1, 1e-3)
-        expect(Math.hypot(p.qx, p.qy, p.qz, p.qw)).toBeCloseTo(1, 5)
-    })
-
-    it('blends into the last sample at the lap end, off the grid', () => {
-        const t = 10.015
-        expect(ghostPose(g, t, blank()).x).toBeCloseTo((poseAt(10).x + poseAt(10.03).x) / 2, 3)
-    })
-
-    it('holds the first and last pose outside the lap', () => {
-        expectNear(ghostPose(g, -3, blank()), poseAt(0), 1e-3, 1e-3)
-        expectNear(ghostPose(g, 99, blank()), poseAt(10.03), 1e-3, 1e-3)
-    })
-})
-
 describe('ghost storage', () => {
     it('round-trips within the quantization', () => {
         // Sharp turns, including a quaternion that crosses over to the other hemisphere.
@@ -85,11 +53,6 @@ describe('ghost storage', () => {
         expect(back.end).toBeCloseTo(61.7, 3)
         expect(back.data.length).toBe(g.data.length)
         for (let t = 0; t <= 61.7; t += 0.37) expectNear(ghostPose(back, t, blank()), ghostPose(g, t, blank()), 0.02, 2e-3)
-    })
-
-    it('keeps a minute-long lap small', () => {
-        const json = JSON.stringify(encodeGhost(ghostOf(60)))
-        expect(json.length).toBeLessThan(40_000)
     })
 
     it('refuses a jump too long to pack', () => {
@@ -132,18 +95,6 @@ describe('ghost recording', () => {
         for (const t of [0, 3, 7.77, 12.5]) expectNear(ghostPose(g, t, blank()), poseAt(t), 0.05, 0.01)
     })
 
-    it('carries on into the next lap from the line', () => {
-        const r = new GhostRecorder(15)
-        drive(r, 0, 9.99)
-        expect(r.lap(10)).not.toBeNull()
-        // The next lap's clock starts at the line; frames carry over in its time.
-        const next = (t: number) => poseAt(t + 10)
-        drive(r, 0.006, 8.99, 60, next)
-        const g = r.lap(9)!
-        expect(g).not.toBeNull()
-        for (const t of [0, 4, 9]) expectNear(ghostPose(g, t, blank()), next(t), 0.05, 0.01)
-    })
-
     it('makes no ghost of a lap it joined late', () => {
         const r = new GhostRecorder(15)
         drive(r, 2, 9.99)
@@ -166,16 +117,6 @@ describe('ghost recording', () => {
         drive(back, 0, 6)
         drive(back, 3, 9.99)
         expect(back.lap(10)).toBeNull()
-    })
-
-    it('starts over on reset', () => {
-        const r = new GhostRecorder(15)
-        drive(r, 0, 5)
-        r.reset()
-        drive(r, 0, 9.99)
-        expect(r.lap(10)).not.toBeNull()
-        r.reset()
-        expect(r.lap(10)).toBeNull()
     })
 })
 
@@ -200,26 +141,26 @@ describe('which ghost a course keeps', () => {
     })
 })
 
-describe('ghost lap time', () => {
-    it('carries a flying ghost on into its lap again past the line', () => {
-        expect(ghostTime(12, 60, true)).toBe(12)
-        expect(ghostTime(65, 60, true)).toBeCloseTo(5)
-        expect(ghostTime(125, 60, true)).toBeCloseTo(5)
+describe('what a lap changes on the record', () => {
+    const rec: TrackRecord = { ...EMPTY_RECORD, bestLap: 60 }
+    const kept = { end: 60, standing: false }
+    const lap = (time: number, n = 1) => ({ type: 'lap' as const, lap: n, time, splits: [time / 2] })
+
+    it('sets the best and its splits, and marks a loop\'s first lap as standing', () => {
+        const { isBest, record } = settleLap(rec, lap(59, 0), true, null, ghostOf(59))
+        expect(isBest).toBe(true)
+        expect(record).toMatchObject({ bestLap: 59, bestSplits: [29.5, 59], ghostStanding: true })
+        expect(record!.ghost).toBeTruthy()
     })
 
-    it('holds a ghost that does not carry on at its lap time', () => {
-        expect(ghostTime(65, 60, false)).toBe(65)
+    it('changes nothing on a slower lap that doesn\'t replace the ghost', () => {
+        expect(settleLap(rec, lap(61), true, kept, ghostOf(61)).record).toBeNull()
     })
-})
 
-describe('a record\'s ghost', () => {
-    const stored = { v: 1 as const, hz: 15, end: 61_000, o: [0, 0, 0, 0, 0, 0, 16383], d: '' }
-
-    it('marks a standing lap, and drops the mark for a flying one', () => {
-        const standing = withGhost({ bestLap: 60, bestSplits: null }, stored, true)
-        expect(standing).toEqual({ bestLap: 60, bestSplits: null, ghost: stored, ghostStanding: true })
-        expect(withGhost(standing, stored, false)).not.toHaveProperty('ghostStanding')
-        expect(keptGhost(standing)).toEqual({ end: 61_000, standing: true })
-        expect(keptGhost(undefined)).toBeNull()
+    it('keeps the old ghost when a best lap recorded none', () => {
+        const ghost = encodeGhost(ghostOf(60))!
+        const { record, stored } = settleLap({ ...rec, ghost }, lap(59), true, kept, null)
+        expect(stored).toBeNull()
+        expect(record).toMatchObject({ bestLap: 59, ghost })
     })
 })

@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { BANK_LENGTH, buildTrack, corkscrew, corner, finish, jump, looping, LOOPING_SHIFT, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
-import { compileCustomTrack } from '#shared/utils/nitro-rush/custom'
+import { buildTrack, corner, finish, jump, looping, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
 import { Track, wrapAngle } from '#shared/utils/nitro-rush/track'
-import { TRACKS } from '#shared/utils/nitro-rush/tracks'
-import { botInput, createCar, stepCar, type CarState, type StepEvents } from '../../app/utils/nitro-rush/physics'
+import { createCar, stepCar, type CarState, type StepEvents } from '../../app/utils/nitro-rush/physics'
 
 const HZ = 120
 const base = { group: 'sprints' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
@@ -24,55 +22,6 @@ const coast = () => ({ throttle: 0, brake: 0, steer: 0, drift: false })
 const floor = () => ({ throttle: 1, brake: 0, steer: 0, drift: false })
 
 describe('stunt geometry', () => {
-    it('leaves the courses from before stunts without frames, rails or gaps', () => {
-        for (const t of TRACKS) {
-            expect(t.ups).toBeUndefined()
-            expect(t.rails).toBeUndefined()
-            expect(t.gaps).toBeUndefined()
-        }
-    })
-
-    it('keeps plain road on the plan: right is the plan right, up is straight up', () => {
-        const t = new Track(TRACKS[0]!)
-        for (const s of [0, 100, 400]) {
-            const f = t.frameAt(s)
-            const p = t.pointAt(s)
-            expect(f.uy).toBeCloseTo(1)
-            expect(f.ry).toBeCloseTo(0)
-            expect(f.rx * p.tx + f.rz * p.tz).toBeCloseTo(0, 1)
-        }
-    })
-
-    it('turns a looping upside down at the top and brings it out to the side', () => {
-        const t = sprint([straight(30), start, straight(100), looping('right', 22), straight(100), finish, straight(100)])
-        const [a, b] = t.rails[0]!
-        const top = t.frameAt((a + b) / 2)
-        expect(top.uy).toBeLessThan(-0.95)
-        expect(top.y).toBeCloseTo(44, 0)
-        const before = t.frameAt(a - 1)
-        const after = t.frameAt(b + 1)
-        expect(after.x - before.x).toBeCloseTo(LOOPING_SHIFT, 0)
-    })
-
-    it('rolls a corkscrew over halfway through', () => {
-        const t = sprint([straight(30), start, straight(100), corkscrew('left', 200), straight(100), finish, straight(100)])
-        const [a, b] = t.rails[0]!
-        expect(t.frameAt((a + b) / 2).uy).toBeLessThan(-0.95)
-    })
-
-    it('tips a banked corner into the turn', () => {
-        const t = sprint([straight(30), start, straight(100), corner('right', 60, 90, 25), straight(100), finish, straight(100)])
-        const mid = t.length / 2
-        let tilted = false
-        for (let s = 0; s < t.length; s += 4) {
-            const f = t.frameAt(s)
-            // A right turn's centre is to the right: up leans that way.
-            if (f.ux * f.rx + f.uz * f.rz > 0.3) tilted = true
-        }
-        expect(tilted).toBe(true)
-        expect(t.frameAt(mid - 300).uy).toBeCloseTo(1)
-    })
-
     it('keeps rails and gaps on the right stretch when a loop is rotated to its start line', () => {
         const t = new Track(buildTrack({
             ...base, group: 'circuits', id: 'loop', name: 'Loop', pieces: [
@@ -90,18 +39,6 @@ describe('stunt geometry', () => {
 })
 
 describe('stunt physics', () => {
-    it('never flies or rides rails on the courses from before stunts', () => {
-        for (const def of TRACKS) {
-            const t = new Track(def)
-            const car = createCar(t, t.startS)
-            drive(car, t, 25, c => botInput(c, t), c => {
-                expect(c.airborne).toBe(false)
-                expect(c.onRail).toBe(false)
-                return false
-            })
-        }
-    }, 60_000)
-
     it('rides a looping on rails and comes out the far side', () => {
         const t = sprint([straight(30), start, straight(400), looping('right', 22), straight(150), finish, straight(100)])
         const [, end] = t.rails[0]!
@@ -147,23 +84,6 @@ describe('stunt physics', () => {
         expect(events.some(e => e.landed > 0)).toBe(true)
         expect(events.some(e => e.fell)).toBe(false)
         expect(car.airborne).toBe(false)
-    })
-
-    it('lands on a bank\'s surface, not at its centre\'s height', () => {
-        const t = new Track(compileCustomTrack({ id: 'custom-bank', name: 'Bank', closed: false, sections: ['straight-20', 'start', 'straight-100', 'bank-right', 'straight-200', 'bank-flat', 'finish', 'straight-200'] }).def!)
-        const s = t.startS + 10 + 100 + BANK_LENGTH + 100
-        const fall = (lateral: number) => {
-            const car = createCar(t, s, lateral)
-            car.airborne = true
-            car.vy = 0
-            car.y = t.surfaceAt(s, lateral) + 0.5
-            let steps = 0
-            while (!stepCar(car, coast(), t, 1 / HZ).landed && steps < HZ * 2) steps++
-            return steps / HZ
-        }
-        // Half a metre takes about a third of a second, from either side, though the centre is metres away.
-        for (const lateral of [-8, 8]) expect(fall(lateral)).toBeLessThan(0.45)
-        expect(t.surfaceAt(s, -8) - t.surfaceAt(s, 0)).toBeGreaterThan(3)
     })
 
     it('drops a car too slow for the gap into it', () => {

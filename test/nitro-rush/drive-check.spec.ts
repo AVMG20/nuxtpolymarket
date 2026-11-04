@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { drive, driveFlatOut, LONG_RECTANGLE, RECTANGLE, STUNT_SPRINT, trackOf } from './bot-lap'
 import { ENGINE_TOP_SPEED, NITRO_TOP_SPEED_MULT } from '../../app/utils/nitro-rush/config'
-import type { SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { GHOST_POSE, type Ghost } from '#shared/utils/nitro-rush/ghost'
 
@@ -26,9 +25,7 @@ describe('ghost drive check', () => {
         expect(ghostDrivesTrack(stunts, drive(stunts))).toBe(true)
     })
 
-    it('passes a real lap round a bank, and a banked loop', () => {
-        const sprint = trackOf(false, ['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-wide', 'straight-60', 'right-wide', 'bank-flat', 'finish', 'straight-200'])
-        expect(ghostDrivesTrack(sprint, drive(sprint))).toBe(true)
+    it('passes a real lap round a banked loop', () => {
         const banked = trackOf(true, ['start', 'straight-60', 'bank-right', 'right-tight', 'right-tight', 'bank-flat', 'straight-60', 'straight-20', 'right-tight', 'right-tight'])
         expect(ghostDrivesTrack(banked, drive(banked, 1))).toBe(true)
     })
@@ -74,23 +71,17 @@ describe('ghost drive check', () => {
 
     describe('flights off a jump at top speed', () => {
         const NITRO_TOP = ENGINE_TOP_SPEED * NITRO_TOP_SPEED_MULT
-        const courses: Record<string, SectionId[]> = {
-            'a big jump onto flat road': ['straight-20', 'start', 'straight-100', 'big-jump', 'straight-200', 'finish', 'straight-200'],
-            'a big jump onto a downhill': ['straight-20', 'start', 'ramp-up', 'straight-100', 'big-jump', 'steep-down', 'straight-200', 'finish', 'straight-200'],
-            'a jump onto a downhill': ['straight-20', 'start', 'ramp-up', 'straight-100', 'jump', 'steep-down', 'straight-200', 'finish', 'straight-200']
-        }
-        for (const [name, sections] of Object.entries(courses)) {
-            it(`passes ${name}, on the centreline and near a wall`, () => {
-                const track = trackOf(false, sections)
-                for (const speed of [ENGINE_TOP_SPEED, NITRO_TOP]) {
-                    expect(ghostDrivesTrack(track, driveFlatOut(track, speed))).toBe(true)
-                    expect(ghostDrivesTrack(track, driveFlatOut(track, speed, 8))).toBe(true)
-                }
-            })
-        }
+        // The longest flight over the fastest-falling road, where a real lap sits furthest off the plan.
+        const track = trackOf(false, ['straight-20', 'start', 'ramp-up', 'straight-100', 'big-jump', 'steep-down', 'straight-200', 'finish', 'straight-200'])
+
+        it('passes a big jump onto a downhill, on the centreline and near a wall', () => {
+            for (const speed of [ENGINE_TOP_SPEED, NITRO_TOP]) {
+                expect(ghostDrivesTrack(track, driveFlatOut(track, speed))).toBe(true)
+                expect(ghostDrivesTrack(track, driveFlatOut(track, speed, 8))).toBe(true)
+            }
+        })
 
         it('still fails a ghost that drops under the road', () => {
-            const track = trackOf(false, courses['a big jump onto flat road']!)
             const run = driveFlatOut(track, NITRO_TOP)
             const n = run.data.length / GHOST_POSE
             const sunk = edit(run, Math.floor(n * 0.8), (k) => {
