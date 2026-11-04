@@ -121,6 +121,20 @@ class ScenePass extends Pass {
     }
 }
 
+/** The renderer the post chain draws to, mounted in `host`. */
+export function createRushRenderer(host: HTMLElement) {
+    // Only the post chain's last fullscreen quad reaches the canvas, so MSAA or depth there buys nothing.
+    const renderer = new THREE.WebGLRenderer({ antialias: false, depth: false, powerPreference: 'high-performance' })
+    renderer.toneMapping = THREE.AgXToneMapping
+    renderer.toneMappingExposure = 1.15
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.domElement.style.display = 'block'
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
+    host.appendChild(renderer.domElement)
+    return renderer
+}
+
 export class RushPost {
     readonly composer: EffectComposer
     readonly bloom: UnrealBloomPass

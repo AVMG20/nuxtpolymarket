@@ -4,6 +4,7 @@ import { modelShared } from './car-kit'
 import { buildPlayerCar, type PlayerCar } from './models'
 import { marksCar } from './stencil'
 import type { CarState } from './physics'
+import type { CarPose } from './types'
 
 /** The player's car model, posed on the road and animated from the physics state. */
 export class CarView {
@@ -12,6 +13,10 @@ export class CarView {
     private readonly frontWheels: THREE.Object3D[]
     private roll = 0
     private pitch = 0
+    private readonly poseMatrix = new THREE.Matrix4()
+    private readonly posePos = new THREE.Vector3()
+    private readonly poseQuat = new THREE.Quaternion()
+    private readonly poseScale = new THREE.Vector3()
 
     constructor(color: number) {
         this.car = buildPlayerCar(color)
@@ -37,6 +42,20 @@ export class CarView {
     place(pos: THREE.Vector3, quat: THREE.Quaternion) {
         this.group.position.copy(pos)
         this.group.quaternion.copy(quat)
+    }
+
+    /** Where the car is drawn, read off the model so it holds every tilt the model takes. */
+    pose(out: CarPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }): CarPose {
+        this.group.updateWorldMatrix(true, false)
+        this.poseMatrix.copy(this.group.matrixWorld).decompose(this.posePos, this.poseQuat, this.poseScale)
+        out.x = this.posePos.x
+        out.y = this.posePos.y
+        out.z = this.posePos.z
+        out.qx = this.poseQuat.x
+        out.qy = this.poseQuat.y
+        out.qz = this.poseQuat.z
+        out.qw = this.poseQuat.w
+        return out
     }
 
     /** Body lean, steering, spinning wheels and exhaust flames for one frame. */
