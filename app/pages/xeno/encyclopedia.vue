@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useElementBounding, useElementSize, useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
 import { PLANT_TYPES, MUTATIONS, MUTATION_OFFSPRING, getPlant, xenoMutationBoost } from '#shared/utils/xeno'
-import { TIER_NAMES, roman, tierClass } from '~/lib/xeno-ui'
+import { TIER_NAMES, roman, tierClass, levelClass } from '~/lib/xeno-ui'
 
 const route = useRoute()
 const { unlockedTypeIds, inventory, upgrades } = useXeno()
@@ -12,6 +12,16 @@ const discovered = computed(() => new Set(unlockedTypeIds.value))
 const ownedByType = computed(() => {
   const m = new Map<string, number>()
   for (const i of inventory.value as any[]) m.set(i.typeId, (m.get(i.typeId) ?? 0) + i.quantity)
+  return m
+})
+/** Highest speed and yield level owned per species, for the tile footers. */
+const bestLevels = computed(() => {
+  const m = new Map<string, { speed: number, yield: number }>()
+  for (const i of inventory.value as any[]) {
+    if (i.isHybrid || !i.quantity) continue
+    const b = m.get(i.typeId)
+    m.set(i.typeId, { speed: Math.max(b?.speed ?? 0, i.speed ?? 0), yield: Math.max(b?.yield ?? 0, i.yield ?? 0) })
+  }
   return m
 })
 
@@ -166,7 +176,7 @@ const statusLabel = computed(() => ({
               v-for="p in t.plants"
               :key="p.id"
               type="button"
-              class="relative flex flex-col items-center gap-1 px-1.5 pt-2.5 pb-2 rounded-[18px_18px_18px_5px] border text-center transition-colors"
+              class="relative flex flex-col items-center gap-1 px-1.5 pt-2.5 pb-2 rounded-[18px_18px_18px_5px] border text-center overflow-hidden transition-colors"
               :class="[
                 showSelected(p.id) ? '!border-solid !border-(--xg-accent) shadow-[inset_0_0_0_1px_var(--xg-accent)]' : '',
                 status(p.id) === 'known' ? 'bg-(--xg-surface2) border-(--xg-edge) hover:border-(--xg-edge2)'
@@ -185,6 +195,20 @@ const statusLabel = computed(() => ({
                 <template v-if="status(p.id) === 'known'">{{ p.voidPlant ? 'Void' : MUTATION_OFFSPRING.has(p.id) ? 'Mutation' : p.isStarter ? 'Starter' : 'Found' }}<template v-if="ownedByType.get(p.id)"> · ×{{ formatNumber(ownedByType.get(p.id)!) }}</template></template>
                 <template v-else-if="status(p.id) === 'reach'">Within reach</template>
                 <template v-else>Out of reach</template>
+              </span>
+              <span class="self-stretch -mx-1.5 -mb-2 mt-1 grid grid-cols-2 divide-x divide-(--xg-edge) border-t border-(--xg-edge) text-[11.5px] xg-num">
+                <template v-if="bestLevels.get(p.id)">
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(bestLevels.get(p.id)!.speed)" title="Best speed you own">
+                    <UIcon name="i-lucide-zap" class="size-3" /><b>{{ bestLevels.get(p.id)!.speed }}</b>
+                  </span>
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(bestLevels.get(p.id)!.yield)" title="Best yield you own">
+                    <UIcon name="i-lucide-droplet" class="size-3" /><b>{{ bestLevels.get(p.id)!.yield }}</b>
+                  </span>
+                </template>
+                <template v-else>
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-faint)" title="None on your shelf"><UIcon name="i-lucide-zap" class="size-3" />–</span>
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-faint)" title="None on your shelf"><UIcon name="i-lucide-droplet" class="size-3" />–</span>
+                </template>
               </span>
             </button>
           </div>
