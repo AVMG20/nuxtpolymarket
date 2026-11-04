@@ -484,6 +484,13 @@
       "when": 1793719645606,
       "tag": "0068_talented_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1793803008879,
+      "tag": "0069_gather_towns",
+      "breakpoints": true
     }
   ]
 }
