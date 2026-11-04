@@ -260,6 +260,9 @@ function applyCamera() {
         sun.target.updateMatrixWorld()
         markShadowsDirty()
     }
+    // The meadow rides along under the view in whole texture repeats, so the
+    // pattern stays put and there is no edge to walk off, however far the realm reaches.
+    if (ground) ground.position.set(Math.round(tx / MEADOW_REPEAT) * MEADOW_REPEAT, -0.02, Math.round(tz / MEADOW_REPEAT) * MEADOW_REPEAT)
 }
 
 function recenter(animate = true) {
@@ -306,9 +309,9 @@ function setupStatic() {
     scene.add(sun, sun.target)
 
     meadowTexture = createMeadowTexture()
-    meadowTexture.repeat.set(600 / 16, 600 / 16)
-    const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(600, 600),
+    meadowTexture.repeat.set(MEADOW_SIZE / MEADOW_REPEAT, MEADOW_SIZE / MEADOW_REPEAT)
+    ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(MEADOW_SIZE, MEADOW_SIZE),
         new THREE.MeshStandardMaterial({ map: meadowTexture, roughness: 1 })
     )
     ground.rotation.x = -Math.PI / 2
@@ -316,17 +319,17 @@ function setupStatic() {
     ground.receiveShadow = true
     scene.add(ground)
 
-    // Distant hills in the fog give the horizon some shape.
+    // Distant hills in the fog give the horizon some shape. They ring the
+    // whole realm (see placeHills), never stand in it.
     const hillMat = new THREE.MeshStandardMaterial({ color: 0x6fa05c, roughness: 1, flatShading: true })
     const hillGeo = new THREE.SphereGeometry(1, 8, 6)
     for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2
-        const r = 95 + (i % 3) * 18
         const hill = new THREE.Mesh(hillGeo, hillMat)
-        hill.position.set(Math.cos(a) * r, -6, Math.sin(a) * r)
         hill.scale.set(28 + (i % 4) * 9, 14 + (i % 3) * 5, 24 + (i % 5) * 6)
-        scene.add(hill)
+        hillGroup.add(hill)
     }
+    scene.add(hillGroup)
+    placeHills(PLOT / 2, PLOT / 2, 0)
 
     // Clouds: puffy cumulus drifting slowly, high enough to stay out of the way.
     for (let i = 0; i < 7; i++) {
@@ -343,6 +346,20 @@ const clouds: THREE.Mesh[] = []
 // ─── Plots ───────────────────────────────────────────────────────────────────
 
 let meadowTexture: THREE.CanvasTexture | null = null
+/** Tiles per meadow texture repeat, and the size of the meadow that follows the view. */
+const MEADOW_REPEAT = 16
+const MEADOW_SIZE = 600
+let ground: THREE.Mesh | null = null
+const hillGroup = new THREE.Group()
+
+/** Ring the hills around the realm's centre, clear of its farthest land (`reach`, in tiles). */
+function placeHills(cx: number, cz: number, reach: number) {
+    hillGroup.children.forEach((hill, i) => {
+        const a = (i / 14) * Math.PI * 2
+        const r = Math.max(95, reach + 70) + (i % 3) * 18
+        hill.position.set(cx + Math.cos(a) * r, -6, cz + Math.sin(a) * r)
+    })
+}
 let plotTexture: THREE.CanvasTexture | null = null
 function makePlotTexture(): THREE.CanvasTexture {
     if (plotTexture) return plotTexture
@@ -1831,6 +1848,18 @@ function hash(x: number, y: number, salt: number) {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967295
 }
 
+/** Wild land drawn past the outermost plot of anyone's town, in plots. */
+const DECOR_MARGIN = 5
+/** Plots per side of one batch of scenery: a batch off screen is culled whole. */
+const DECOR_CHUNK = 6
+/** Most parcels of scenery drawn, nearest your own town first, should the realm ever sprawl. */
+const DECOR_MAX_PARCELS = 1600
+
+/**
+ * Woods and ponds over every free square of the realm, every town in it
+ * included, plus a margin around the lot, so walking to a far neighbour never
+ * crosses bare grass that reads as the edge of the map.
+ */
 function rebuildDecor() {
     clearLandscape(decorGroup)
     const blocked = new Set<string>()
@@ -1838,18 +1867,47 @@ function rebuildDecor() {
     for (const s of props.expansions) blocked.add(`${s.x},${s.y}`)
     for (const n of props.neighbours) blocked.add(`${n.x},${n.y}`)
     let minPX = Infinity, maxPX = -Infinity, minPY = Infinity, maxPY = -Infinity
-    for (const p of props.plots) {
+    for (const p of [...props.plots, ...props.neighbours]) {
         minPX = Math.min(minPX, p.x); maxPX = Math.max(maxPX, p.x)
         minPY = Math.min(minPY, p.y); maxPY = Math.max(maxPY, p.y)
     }
     if (!Number.isFinite(minPX)) { minPX = maxPX = minPY = maxPY = 0 }
-    const parcels: { x: number, z: number }[] = []
-    for (let py = minPY - 5; py <= maxPY + 5; py++) {
-        for (let px = minPX - 5; px <= maxPX + 5; px++) {
+
+    // Your own town's centre, for which parcels go first if there are too many.
+    let ox = 0, oy = 0
+    for (const p of props.plots) { ox += p.x / props.plots.length; oy += p.y / props.plots.length }
+    let parcels: { x: number, z: number }[] = []
+    for (let py = minPY - DECOR_MARGIN; py <= maxPY + DECOR_MARGIN; py++) {
+        for (let px = minPX - DECOR_MARGIN; px <= maxPX + DECOR_MARGIN; px++) {
             if (!blocked.has(`${px},${py}`)) parcels.push({ x: px, z: py })
         }
     }
-    addLandscape(decorGroup, parcels, PLOT)
+    if (parcels.length > DECOR_MAX_PARCELS) {
+        parcels = parcels
+            .map(p => ({ p, d: Math.max(Math.abs(p.x - ox), Math.abs(p.z - oy)) }))
+            .sort((a, b) => a.d - b.d)
+            .slice(0, DECOR_MAX_PARCELS)
+            .map(e => e.p)
+    }
+
+    const chunks = new Map<string, { x: number, z: number }[]>()
+    for (const p of parcels) {
+        const key = `${Math.floor(p.x / DECOR_CHUNK)},${Math.floor(p.z / DECOR_CHUNK)}`
+        const list = chunks.get(key)
+        if (list) list.push(p)
+        else chunks.set(key, [p])
+    }
+    for (const list of chunks.values()) {
+        const chunk = new THREE.Group()
+        addLandscape(chunk, list, PLOT)
+        decorGroup.add(chunk)
+    }
+
+    placeHills(
+        (minPX + maxPX + 1) / 2 * PLOT,
+        (minPY + maxPY + 1) / 2 * PLOT,
+        (Math.max(maxPX - minPX, maxPY - minPY) + 1) / 2 * PLOT * Math.SQRT2 + DECOR_MARGIN * PLOT
+    )
 }
 
 // ─── Traffic ─────────────────────────────────────────────────────────────────
