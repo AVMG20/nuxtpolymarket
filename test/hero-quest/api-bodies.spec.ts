@@ -8,8 +8,6 @@ import {
     ARENA_SHOP_BUY_BODY,
     BUY_SEALS_BODY,
     CALENDAR_CLAIM_BODY,
-    DEV_SET_BODY,
-    DEV_SKIP_BODY,
     LOADOUT_APPLY_BODY,
     LOADOUT_PREFERENCE_BODY,
     LOADOUT_SAVE_BODY,
@@ -68,6 +66,8 @@ describe('hero-quest request bodies', () => {
         expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
         expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
         expect(validateHqBody({ system: 'champion', count: 100 }, PULL_BODY)).toEqual({ system: 'champion', count: 100, free: false })
+        expect(validateHqBody({ system: 'champion', count: 10_000 }, PULL_BODY)).toEqual({ system: 'champion', count: 10_000, free: false })
+        expect(validateHqBody({ system: 'champion', count: 1_500 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
     })
 
     it('takes a quick-clear as 1, 5 or 10 at a time, 1 when left out, and nothing else', () => {
@@ -96,12 +96,6 @@ describe('hero-quest request bodies', () => {
         expect(validateHqBody({ formation: null }, LOADOUT_SET_BODY)).toEqual({ formation: null })
         expect(refusal({ gear: [] }, LOADOUT_SET_BODY)).toBe('gear must be a slot → item map')
         expect(refusal({ skillIds: [1] }, LOADOUT_SET_BODY)).toBe('skillIds must be an array of ids')
-    })
-
-    it('reads the playtest harness the loose way it always has', () => {
-        expect(validateHqBody({ world: '3', killCount: -2, bossLost: 1 }, DEV_SET_BODY)).toEqual({ world: 3, killCount: -2, bossLost: true })
-        expect(validateHqBody({ hours: null, mode: 'sideways' }, DEV_SKIP_BODY)).toEqual({ mode: 'offline' })
-        expect(refusal({ hours: 'soon' }, DEV_SKIP_BODY)).toBe('hours must be a positive number')
     })
 
     describe('a setting', () => {

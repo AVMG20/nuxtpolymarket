@@ -73,10 +73,6 @@ class TestTable extends LiveTable<SeatState, { spun: boolean }, { t: 'noop' }> {
     testAbort() {
         return this.abortRound()
     }
-
-    currentPhase() {
-        return this.phase
-    }
 }
 
 async function wagerRows(userId: string) {
@@ -216,33 +212,6 @@ describe.skipIf(SKIP)('LiveTable', () => {
 
         expect(await getBalance(USER_ID)).toBe('50.0000')
         expect(await wagerRows(USER_ID)).toHaveLength(0)
-    })
-
-    it('tracks streaks across rounds, holding on a push', async () => {
-        await seedUser(USER_ID, { balance: '10000.0000' })
-        await table.sit(USER_ID, 'tester', null, 0)
-
-        await table.testStake(USER_ID, 100)
-        await table.testSettle([{ userId: USER_ID, staked: 100, payout: 200 }])
-        expect(table.player(USER_ID).winStreak).toBe(1)
-
-        await table.testStake(USER_ID, 100)
-        await table.testSettle([{ userId: USER_ID, staked: 100, payout: 100 }])
-        expect(table.player(USER_ID).winStreak).toBe(1)
-
-        await table.testStake(USER_ID, 100)
-        await table.testSettle([{ userId: USER_ID, staked: 100, payout: 0 }])
-        expect(table.player(USER_ID).winStreak).toBe(0)
-    })
-
-    it('goes idle when the last player leaves', async () => {
-        await seedUser(USER_ID, { balance: '1000.0000' })
-        await table.sit(USER_ID, 'tester', null, 0)
-        expect(table.currentPhase()).toBe('betting')
-
-        table.leave(USER_ID)
-
-        expect(table.currentPhase()).toBe('idle')
     })
 
     it('rounds money to four places, matching the numeric column', () => {

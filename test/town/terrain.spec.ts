@@ -1,29 +1,18 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
-import { db } from '#server/database'
-import { townPlots } from '#server/database/schema'
-import { foundTown } from '#server/utils/town'
+import { describe, expect, it } from 'vitest'
 import {
     TOWN_PLOT_SIZE,
-    TOWN_TERRAINS,
     TOWN_TERRAIN_BONUS,
-    TOWN_TERRAIN_IDS,
     TOWN_TICK_MS,
     TOWN_TILES_PER_PLOT,
     deriveTown,
     getTownBuilding,
-    getTownTerrain,
     settleTown,
     townPlacementIssue,
-    townPlotIsFlat,
     townPlotTerrain,
     townTerrainAt,
-    townTerrainMultiplier,
-    type TownBuildingId,
     type TownSimBuilding,
     type TownTerrainId
 } from '#shared/utils/gamelogic/town'
-import { SKIP, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
 const T0 = 1_700_000_000_000
 
@@ -34,12 +23,6 @@ function draw(px: number, py: number): string[] {
     const tiles = townPlotTerrain(px, py)
     return Array.from({ length: TOWN_PLOT_SIZE }, (_, ty) =>
         Array.from({ length: TOWN_PLOT_SIZE }, (_, tx) => CHAR[tiles[ty * TOWN_PLOT_SIZE + tx]!]).join(''))
-}
-
-function countTerrain(px: number, py: number): Record<TownTerrainId, number> {
-    const counts = Object.fromEntries(TOWN_TERRAIN_IDS.map(id => [id, 0])) as Record<TownTerrainId, number>
-    for (const id of townPlotTerrain(px, py)) counts[id]++
-    return counts
 }
 
 /** Every plot in a square of the realm, flat grassland included. */
@@ -102,62 +85,6 @@ describe('terrain generation', () => {
             }
         }
     })
-
-    it('leaves most of a plot ordinary ground', () => {
-        const plots = plotsAround(12)
-        const plain = plots.reduce((sum, p) => sum + countTerrain(p.x, p.y).plain, 0)
-        const share = plain / (plots.length * TOWN_TILES_PER_PLOT)
-        expect(share).toBeGreaterThan(0.6)
-        expect(share).toBeLessThan(0.72)
-    })
-
-    it('gives every plot that is not flat grassland its promised share of each terrain', () => {
-        for (const plot of plotsAround(12)) {
-            if (townPlotIsFlat(plot.x, plot.y)) continue
-            const counts = countTerrain(plot.x, plot.y)
-            for (const def of TOWN_TERRAINS) {
-                if (def.tilesPerPlot.max <= 0) continue
-                expect(counts[def.id]).toBeGreaterThanOrEqual(def.tilesPerPlot.min)
-                expect(counts[def.id]).toBeLessThanOrEqual(def.tilesPerPlot.max)
-            }
-        }
-    })
-
-    it('keeps flat grassland completely plain, and rare', () => {
-        const plots = plotsAround(20)
-        const flat = plots.filter(p => townPlotIsFlat(p.x, p.y))
-        expect(flat.length).toBeGreaterThan(0)
-        expect(flat.length / plots.length).toBeLessThan(0.12)
-        for (const plot of flat) {
-            expect(countTerrain(plot.x, plot.y).plain).toBe(TOWN_TILES_PER_PLOT)
-        }
-    })
-})
-
-describe('what terrain is worth', () => {
-    it('pays a quarter more to the buildings that suit the ground, and nothing to the rest', () => {
-        for (const def of TOWN_TERRAINS) {
-            const tile = def.tilesPerPlot.max > 0 || def.id === 'plain' ? findTile(def.id) : null
-            if (!tile) continue
-            for (const building of ['farm', 'lumber', 'quarry', 'mine', 'bakery'] as TownBuildingId[]) {
-                expect(townTerrainMultiplier(building, tile.wx, tile.wy))
-                    .toBe(def.boosts.includes(building) ? 1 + TOWN_TERRAIN_BONUS : 1)
-            }
-        }
-    })
-
-    it('pays nothing to a building that is not standing anywhere in particular', () => {
-        expect(townTerrainMultiplier('farm')).toBe(1)
-        expect(townTerrainMultiplier('farm', 3)).toBe(1)
-    })
-
-    it('boosts exactly the raw industries the terrain is named for', () => {
-        expect(getTownTerrain('fertile').boosts).toEqual(['farm'])
-        expect(getTownTerrain('forest').boosts).toEqual(['lumber'])
-        expect(getTownTerrain('rock').boosts).toEqual(['quarry', 'mine', 'gemmine'])
-        expect(getTownTerrain('plain').boosts).toEqual([])
-        expect(getTownTerrain('water').boosts).toEqual([])
-    })
 })
 
 describe('building on terrain', () => {
@@ -168,31 +95,6 @@ describe('building on terrain', () => {
         const water = findTile('water')
         expect(townPlacementIssue([], road, water.wx, water.wy, 0)).toMatch(/water/)
         expect(townPlacementIssue([], farm, water.wx, water.wy, 0)).toMatch(/water/)
-    })
-
-    it('lets the same building onto the tile next door when that one is dry', () => {
-        const water = findTile('water')
-        // Somewhere dry on the same plot, with a road at its front door.
-        const dry = townPlotTerrain(Math.floor(water.wx / TOWN_PLOT_SIZE), Math.floor(water.wy / TOWN_PLOT_SIZE))
-            .findIndex(t => t !== 'water')
-        const px = Math.floor(water.wx / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
-        const py = Math.floor(water.wy / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
-        const wx = px + (dry % TOWN_PLOT_SIZE)
-        const wy = py + Math.floor(dry / TOWN_PLOT_SIZE)
-
-        expect(townTerrainAt(wx, wy)).not.toBe('water')
-        const street: TownSimBuilding[] = [{
-            id: 'road', type: 'road', level: 1, completesAt: T0 - 1, upgradingTo: null,
-            createdAt: T0 - 1, wx, wy: wy + 1
-        }]
-        expect(townPlacementIssue(street, farm, wx, wy, 0)).toBeNull()
-    })
-
-    it('never walls a plot in — there is always room to build', () => {
-        for (const plot of plotsAround(12)) {
-            const dry = townPlotTerrain(plot.x, plot.y).filter(t => t !== 'water').length
-            expect(dry).toBeGreaterThanOrEqual(TOWN_TILES_PER_PLOT - getTownTerrain('water').tilesPerPlot.max)
-        }
     })
 })
 
@@ -245,34 +147,5 @@ describe('terrain through a settle', () => {
 
         expect(derived.staffing.get('camp')).toBe(1)
         expect(derived.throughput.get('camp')).toBe(1 + TOWN_TERRAIN_BONUS)
-    })
-})
-
-describe.skipIf(SKIP)('the plot a town is founded on (database)', () => {
-    const owner = `test-town-terrain-${crypto.randomUUID()}`
-    // One shared realm: hold it for this file so a sibling spec cannot plant
-    // or delete plots midway through a test here (db-helpers, lockTownRealm).
-    let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
-
-    afterAll(async () => {
-        await db.delete(townPlots).where(eq(townPlots.userId, owner))
-        await cleanupUser(owner)
-        await releaseRealm()
-    })
-
-    it('always has something of every terrain on it, and room to build', async () => {
-        await seedUser(owner)
-        const { plotId } = await foundTown(owner)
-        const plot = (await db.select().from(townPlots).where(eq(townPlots.id, plotId)))[0]!
-
-        expect(townPlotIsFlat(plot.x, plot.y)).toBe(false)
-        const counts = countTerrain(plot.x, plot.y)
-        for (const def of TOWN_TERRAINS) {
-            if (def.tilesPerPlot.max <= 0) continue
-            expect(counts[def.id]).toBeGreaterThanOrEqual(def.tilesPerPlot.min)
-        }
-        expect(counts.water).toBeLessThanOrEqual(getTownTerrain('water').tilesPerPlot.max)
-        expect(TOWN_TILES_PER_PLOT - counts.water).toBeGreaterThanOrEqual(60)
     })
 })

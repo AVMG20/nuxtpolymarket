@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useMediaQuery } from '@vueuse/core'
 import { ARTIFACT_TYPES, gemCraftCost, getArtifact, getPlant, type ArtifactType } from '#shared/utils/xeno'
-import { ARTIFACT_FAMILIES, artifactEffectLines, artifactEffectSummary, roman, type ArtifactFamily } from '~/lib/xeno-ui'
+import { ARTIFACT_FAMILIES, artifactEffectLines, roman, type ArtifactFamily } from '~/lib/xeno-ui'
 
 const { inventory, buyArtifact, deleteArtifacts, freeArtifacts, gridSlots, breederSlots, unlockedTypeIds } = useXeno()
 const { user } = useAuth()
@@ -38,7 +38,7 @@ function missingText(art: ArtifactType, count = 1): string {
   const short: string[] = []
   for (const c of art.cost) {
     const need = c.quantity * count - owned(c.plantTypeId)
-    if (need > 0) short.push(`${formatNumber(need, false)} more ${known.value.has(c.plantTypeId) ? (getPlant(c.plantTypeId)?.name ?? c.plantTypeId) : 'undiscovered plant'}`)
+    if (need > 0) short.push(`${formatNumber(need, false)} more ${getPlant(c.plantTypeId)?.name ?? c.plantTypeId}`)
   }
   if (gemCraft.value) {
     const need = gemCraftCost(art) * count - gems.value
@@ -180,7 +180,6 @@ async function onDelete(row: { key: string, freeIds: string[] }) {
 }
 onUnmounted(() => { if (deleteTimer) clearTimeout(deleteTimer) })
 
-const maxCharges = (typeId: string) => getArtifact(typeId)?.maxCharges ?? 1
 const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
 </script>
 
@@ -363,17 +362,14 @@ const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
             <div v-for="o in ownedList" :key="o.key" class="xg-item hoverable !px-1.5 !py-1.5 !gap-2.5">
               <XenoArtifactGlyph :type-id="o.typeId" :gem-crafted="o.gemCrafted" :size="34" />
               <span class="flex-1 min-w-0">
-                <b class="text-[13px] block truncate">
-                  {{ getArtifact(o.typeId)?.name }}<span class="xg-num text-(--xg-muted)"> ×{{ o.count }}</span>
-                </b>
-                <span class="block text-[11.5px] text-(--xg-faint) truncate">
-                  <template v-if="o.fitted"><b class="text-(--xg-accent-text)">{{ formatNumber(o.fitted, false) }} fitted</b><template v-if="o.freeIds.length"> · {{ formatNumber(o.freeIds.length, false) }} free</template></template>
-                  <template v-else>{{ artifactEffectSummary(o.typeId, o.gemCrafted) }}</template>
+                <b class="text-[13px] block truncate">{{ getArtifact(o.typeId)?.name }}</b>
+                <span class="block text-[11.5px] text-(--xg-muted) truncate">
+                  <b class="xg-num text-(--xg-ink)">{{ formatNumber(o.count, false) }}</b> owned<template v-if="o.fitted"> · <span class="text-(--xg-accent-text)">{{ formatNumber(o.fitted, false) }} fitted</span></template>
                 </span>
               </span>
-              <span class="w-12 shrink-0" :title="`${o.charges} of ${o.count * maxCharges(o.typeId)} charges left`">
-                <span class="xg-num text-[11px] block text-right">{{ formatNumber(o.charges) }}/{{ formatNumber(o.count * maxCharges(o.typeId)) }}</span>
-                <span class="xg-meter !h-1 mt-1"><span :style="{ width: `${(o.charges / (o.count * maxCharges(o.typeId))) * 100}%`, background: 'var(--xg-ink)' }" /></span>
+              <span class="shrink-0 text-right leading-tight" :title="`${formatNumber(o.charges, false)} charges left across all ${formatNumber(o.count, false)}`">
+                <b class="xg-num text-[13px] block">{{ formatNumber(o.charges) }}</b>
+                <span class="text-[10.5px] text-(--xg-faint) whitespace-nowrap">charges left</span>
               </span>
               <button
                 v-if="o.freeIds.length"

@@ -15,7 +15,7 @@
 // cycle goes back into the ground and never reaches the market.
 //
 // Re-run after touching plant values, grow times, or XENO_UPGRADE_TRACKS.
-// Cross-check against COLONY with `bun run balance:compare`.
+// Cross-check against COLONY with `bun scripts/economy-compare.ts`.
 
 import {
     XENO_TIERS,

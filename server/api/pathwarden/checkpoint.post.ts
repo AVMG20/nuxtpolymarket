@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
         }
 
         const reward = pathwardenCheckpointReward(wave, state.runRealmSnapshot)
-        await credit(userId, reward.toFixed(4), 'pathwarden:checkpoint', tx)
+        await credit(userId, reward.toFixed(4), 'pathwarden', tx)
         await tx.update(pathwardenState)
             .set({ claimedCheckpointWaves: [...claimed, wave] })
             .where(eq(pathwardenState.userId, userId))

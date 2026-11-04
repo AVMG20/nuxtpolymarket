@@ -41,6 +41,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     baccarat: 'Baccarat',
     town: 'Polytown',
     meadowbrawl: 'Meadowbrawl',
+    riftborn: 'Riftborn',
     pathwarden: 'Pathwarden',
     firewall: 'Firewall',
     hackerz: 'Hackerz',
@@ -51,6 +52,9 @@ const CATEGORY_LABELS: Record<string, string> = {
     'hero-quest': 'Hero Quest',
     battler: 'Battler',
     tcg: 'TCG',
+    // The vendor buyback keeps its own category so the admin page can watch
+    // the module's only coin faucet.
+    'tcg vendor': 'TCG',
     prestige: 'Prestige',
     draft: 'Draft',
     assets: 'Assets',

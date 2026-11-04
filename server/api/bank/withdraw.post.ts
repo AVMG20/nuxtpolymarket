@@ -1,7 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { bankState, transactions, user } from '#server/database/schema'
+import { bankState, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { credit } from '#server/utils/balance'
 import { bailoutStateOf, getLockedBankState, parseBankAmount, settleBankState, writeBankHistory } from '#server/utils/bank'
 import { isBailoutActive, withdrawalAllowance } from '#shared/utils/gamelogic/bank'
 
@@ -38,8 +39,8 @@ export default defineEventHandler(async (event) => {
       loanPrincipal: newBalance < 0 ? newLoanPrincipal.toFixed(4) : '0',
       lastSettledAt: new Date()
     }).where(eq(bankState.id, settled.id))
-    await tx.insert(transactions).values({ userId, amount: amount.toFixed(4), type: 'credit', category: 'bank' })
-    await tx.update(user).set({ balance: sql`${user.balance} + ${amount.toFixed(4)}::numeric` }).where(eq(user.id, userId))
+    // A withdrawal is the player's own money coming back, so it is never garnished.
+    await credit(userId, amount.toFixed(4), 'bank', tx, { refund: true })
     await writeBankHistory(tx, userId, newBalance, 'withdraw', amount)
   })
   return { ok: true }

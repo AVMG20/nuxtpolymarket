@@ -13,6 +13,12 @@ import { createDfMachines } from './interact/machines'
 import { createDfPerkMachines } from './interact/perks'
 import { createDfRods } from './interact/rods'
 import { createDfTraps } from './interact/traps'
+import { createDfWorkbenches } from './interact/workbench'
+import { createDfKitDrops } from './kits'
+import { createDfCrates } from './crates'
+import { createDfSalvageDrops } from './salvage'
+import { createDfGear } from './sentry'
+import { createDfStrikes } from './strikes'
 import type { DfWorldKit, DfWorldPart } from './kit'
 import { buildDfLevel } from './level'
 import { createDfLights } from './lights'
@@ -87,6 +93,13 @@ export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldV
     tryPart('perks', () => createDfPerkMachines(kit))
     tryPart('rods', () => createDfRods(kit))
     tryPart('traps', () => createDfTraps(kit))
+    // salvage, the workbenches, crafted gear, upgrade kits, supply crates and support
+    tryPart('workbenches', () => createDfWorkbenches(kit))
+    tryPart('salvage', () => createDfSalvageDrops(kit))
+    tryPart('gear', () => createDfGear(kit))
+    tryPart('kits', () => createDfKitDrops(kit))
+    tryPart('crates', () => createDfCrates(kit))
+    tryPart('strikes', () => createDfStrikes(kit))
     ctx.audio.loop(DF_WORLD_SOUNDS.ambience, dfAmbienceLoop)
 
     return {

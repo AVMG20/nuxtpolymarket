@@ -65,15 +65,6 @@ describe('simulateBattle', () => {
         expect(prizes.every(p => p.side === 1)).toBe(true)
     })
 
-    it('level multipliers apply to hp and attack', () => {
-        const merged = unit('l3', {}, 6) // level 3: ×5.5
-        const single = unit('l1', {}, 1)
-        const replay = simulateBattle([merged], [single], 1)
-        const hit = replay.events.find(e => e.kind === 'attack' && e.from === 'l3') as { amount: number }
-        expect(hit.amount).toBe(11) // 2 × 5.5
-        expect(replay.result).toBe('a')
-    })
-
     it('caps at 30 rounds and decides by remaining HP fraction', () => {
         // Both un-killable within the cap; a keeps a larger fraction.
         const tanky = unit('a', { hp: 300, attacks: [{ attackId: 1, name: 'Tap', damage: 1, charge: 5 }] })

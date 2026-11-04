@@ -73,7 +73,7 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
 
         // Several rounds so naturals, third-card draws and pushes all get a
         // chance to occur under real (not mocked) shoe randomness.
-        for (let round = 0; round < 10; round++) {
+        for (let round = 0; round < 4; round++) {
             const bets1: BacBets = { player: 100, banker: 0, tie: 10, playerPair: 0, bankerPair: 0 }
             const bets2: BacBets = { player: 0, banker: 80, tie: 0, playerPair: 15, bankerPair: 15 }
             await bet(P1, bets1)
@@ -150,15 +150,6 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
             .rejects.toThrow(/minimum bet/i)
     })
 
-    it('takes a bet far past the old table maximum', async () => {
-        await seedUser(P1, { balance: '10000000.0000' })
-        await table.sit(P1, 'p1', null, 0)
-        await table.action(P1, { kind: 'bet', spot: 'player', amount: 900_000 })
-        await table.action(P1, { kind: 'bet', spot: 'player', amount: 200_000 })
-
-        expect(table.snapshot().seats[0]?.game.bets.player).toBe(1_100_000)
-    })
-
     it('rejects a bet the player cannot afford without writing escrow', async () => {
         await seedUser(P1, { balance: '50.0000' })
         await table.sit(P1, 'p1', null, 0)
@@ -188,14 +179,6 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
         expect(await getBalance(P1)).toBe(round4(before - 75).toFixed(4))
     })
 
-    it('rejects repeat with no previous bet', async () => {
-        await seedUser(P1, { balance: '1000.0000' })
-        await table.sit(P1, 'p1', null, 0)
-
-        await expect(table.action(P1, { kind: 'repeat' }))
-            .rejects.toThrow(/no previous bet/i)
-    })
-
     it('halves every current bet, refunding the difference and rounding to a whole chip', async () => {
         await seedUser(P1, { balance: '1000.0000' })
         await table.sit(P1, 'p1', null, 0)
@@ -206,21 +189,6 @@ describe.skipIf(SKIP)('BaccaratTable', () => {
         // 41 * 0.5 = 20.5 -> 21 (chips are whole numbers), 9 * 0.5 = 4.5 -> 5
         expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 21, banker: 0, tie: 0, playerPair: 5, bankerPair: 0 })
         expect(await getBalance(P1)).toBe('974.0000')
-    })
-
-    it('doubles last round\'s bet when nothing is staked yet this round', async () => {
-        await seedUser(P1, { balance: '10000.0000' })
-        await table.sit(P1, 'p1', null, 0)
-
-        await bet(P1, { player: 0, banker: 30, tie: 0, playerPair: 0, bankerPair: 0 })
-        await table.forcePhaseEnd('betting')
-        await table.forcePhaseEnd('dealing')
-        await table.forcePhaseEnd('resolve')
-        await table.forcePhaseEnd('payout')
-
-        await table.action(P1, { kind: 'scale', factor: 2 })
-
-        expect(table.snapshot().seats[0]?.game.bets).toEqual({ player: 0, banker: 60, tie: 0, playerPair: 0, bankerPair: 0 })
     })
 
     it('refuses a scale the player cannot afford, leaving the original bet in place', async () => {

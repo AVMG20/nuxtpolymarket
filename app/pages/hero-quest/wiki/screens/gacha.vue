@@ -5,6 +5,7 @@ import {
     HUNDRED_PULL_COST,
     HUNDRED_PULL_SIZE,
     MAX_GACHA_LEVEL,
+    PULL_TALLY_SIZE,
     SEAL_LADDER_BASE_GOLD,
     SINGLE_PULL_COST,
     TEN_PULL_COST,
@@ -66,6 +67,11 @@ const buttons = [
         tone: 'text-success'
     },
     {
+        term: `Pull ${fmt(PULL_TALLY_SIZE)} and up`,
+        text: `The same deal, ten times bigger each step: ${fmt(PULL_TALLY_SIZE)} pulls for ${fmt(PULL_TALLY_SIZE / TEN_PULL_SIZE * TEN_PULL_COST)} Seals, and so on. The button always offers the biggest pull the banner's Seals cover.`,
+        tone: 'text-success'
+    },
+    {
         term: 'Confirm',
         text: 'A pull that needs Gold asks for a second press first: the button turns gold. Settings, Gold pulls, turns this off.',
         tone: 'text-warning'
@@ -75,6 +81,7 @@ const buttons = [
 const reveal = [
     { term: '?', text: 'A card still face down. Press once to turn them all over, and again to close the board.' },
     { term: 'Scrolling box', text: `A ${HUNDRED_PULL_SIZE}-pull deals into a box that scrolls to follow the deal. Scroll it with the wheel or a finger to look back; press to close.` },
+    { term: 'Rarity counts', text: `From ${fmt(PULL_TALLY_SIZE)} pulls up there are no cards: the board counts what you got per rarity, with how many items were new and the Essence gained.` },
     { term: 'NEW', text: 'Your first copy of this item.', tone: 'text-success' },
     { term: 'LV n', text: 'A duplicate: the copy you own has levelled, and this is its level within its current star.' },
     { term: '+n', text: 'A duplicate of a copy that was already maxed, turned into this much Essence.', tone: 'text-primary' },

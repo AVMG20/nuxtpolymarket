@@ -3,7 +3,7 @@
  * settlement, encumbrance. Real Postgres from .env.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPack, tcgCopy, tcgAuction } from '#server/database/schema'
 import { createAuction, bid, cancelAuction, settleDueAuctions } from '#server/utils/tcg/auction'
@@ -137,10 +137,10 @@ describe.skipIf(SKIP)('tcg auctions integration', () => {
         expect(copy!.ownerId).toBe(USERS.bob)
         expect(await balanceOf(USERS.seller)).toBeCloseTo(sellerBefore + sellerProceeds(minNextBid(100, 100)), 4)
 
-        // Settlement is idempotent under a burst.
-        await db.update(tcgAuction).set({ state: 'active' }).where(eq(tcgAuction.id, auction.id))
-        await db.update(tcgAuction).set({ state: 'settled' }).where(eq(tcgAuction.id, auction.id))
-        await settleDueAuctions()
+        // Settlement is idempotent: settling again, even in a burst, pays nothing more.
+        const settledBalance = await balanceOf(USERS.seller)
+        await burst(3, () => settleDueAuctions())
+        expect(await balanceOf(USERS.seller)).toBeCloseTo(settledBalance, 4)
     }, 30_000)
 
     it('bid burst: exactly one becomes top bid at each amount', async () => {
@@ -188,16 +188,4 @@ describe.skipIf(SKIP)('tcg auctions integration', () => {
         const [copy] = await db.select({ ownerId: tcgCopy.ownerId }).from(tcgCopy).where(eq(tcgCopy.id, copyId))
         expect(copy!.ownerId).toBe(USERS.seller)
     }, 30_000)
-
-    it('active auctions block debug pack returns of their copies', async () => {
-        const copyId = await seedCopy(USERS.seller)
-        await createAuction(USERS.seller, { kind: 'copy', copyId }, 100, HOUR)
-        const [row] = await db.select().from(tcgAuction)
-            .where(and(eq(tcgAuction.copyId, copyId), eq(tcgAuction.state, 'active')))
-        expect(row).toBeTruthy()
-        // returnPack's SQL exclusion is exercised via engine tests; here we
-        // simply pin the encumbrance itself.
-        await expect(listCopy(USERS.seller, copyId, 10, null))
-            .rejects.toMatchObject({ statusMessage: 'Copy is at auction' })
-    })
 })

@@ -1,6 +1,6 @@
 {
-  "id": "f58370f4-998f-45ca-84f7-e3e8f5c3f9c0",
-  "prevId": "ada92399-6d18-4824-b87d-c6dc99565f7d",
+  "id": "cace953e-0324-4276-a12f-2150c82d8cba",
+  "prevId": "0fdff366-eb98-4c7b-8a5c-683671e768a3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5425,394 +5425,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.nitro_rush_ghosts": {
-      "name": "nitro_rush_ghosts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lap_ms": {
-          "name": "lap_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "standing": {
-          "name": "standing",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "ghost": {
-          "name": "ghost",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "nitro_rush_ghosts_user_track_idx": {
-          "name": "nitro_rush_ghosts_user_track_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "track_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "nitro_rush_ghosts_user_id_user_id_fk": {
-          "name": "nitro_rush_ghosts_user_id_user_id_fk",
-          "tableFrom": "nitro_rush_ghosts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.nitro_rush_laps": {
-      "name": "nitro_rush_laps",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lap_ms": {
-          "name": "lap_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "set_at": {
-          "name": "set_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "nitro_rush_laps_user_track_idx": {
-          "name": "nitro_rush_laps_user_track_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "track_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "nitro_rush_laps_track_lap_idx": {
-          "name": "nitro_rush_laps_track_lap_idx",
-          "columns": [
-            {
-              "expression": "track_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lap_ms",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "nitro_rush_laps_user_id_user_id_fk": {
-          "name": "nitro_rush_laps_user_id_user_id_fk",
-          "tableFrom": "nitro_rush_laps",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.nitro_rush_track_votes": {
-      "name": "nitro_rush_track_votes",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "track_id": {
-          "name": "track_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "value": {
-          "name": "value",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "nitro_rush_track_votes_track_idx": {
-          "name": "nitro_rush_track_votes_track_idx",
-          "columns": [
-            {
-              "expression": "track_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "nitro_rush_track_votes_user_id_user_id_fk": {
-          "name": "nitro_rush_track_votes_user_id_user_id_fk",
-          "tableFrom": "nitro_rush_track_votes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "nitro_rush_track_votes_track_id_nitro_rush_tracks_id_fk": {
-          "name": "nitro_rush_track_votes_track_id_nitro_rush_tracks_id_fk",
-          "tableFrom": "nitro_rush_track_votes",
-          "tableTo": "nitro_rush_tracks",
-          "columnsFrom": [
-            "track_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "nitro_rush_track_votes_user_id_track_id_pk": {
-          "name": "nitro_rush_track_votes_user_id_track_id_pk",
-          "columns": [
-            "user_id",
-            "track_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "nitro_rush_track_votes_value_check": {
-          "name": "nitro_rush_track_votes_value_check",
-          "value": "\"nitro_rush_track_votes\".\"value\" in (-1, 1)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.nitro_rush_tracks": {
-      "name": "nitro_rush_tracks",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "author_id": {
-          "name": "author_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "closed": {
-          "name": "closed",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sections": {
-          "name": "sections",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "nitro_rush_tracks_author_source_idx": {
-          "name": "nitro_rush_tracks_author_source_idx",
-          "columns": [
-            {
-              "expression": "author_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "nitro_rush_tracks_published_idx": {
-          "name": "nitro_rush_tracks_published_idx",
-          "columns": [
-            {
-              "expression": "published_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "nitro_rush_tracks_author_id_user_id_fk": {
-          "name": "nitro_rush_tracks_author_id_user_id_fk",
-          "tableFrom": "nitro_rush_tracks",
-          "tableTo": "user",
-          "columnsFrom": [
-            "author_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.pathwarden_runs": {
       "name": "pathwarden_runs",
       "schema": "",
@@ -6680,6 +6292,140 @@
           "columns": [
             "user_id",
             "item_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.riftborn_state": {
+      "name": "riftborn_state",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "xp": {
+          "name": "xp",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "achievements": {
+          "name": "achievements",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "skills": {
+          "name": "skills",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "runs_played": {
+          "name": "runs_played",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "victories": {
+          "name": "victories",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "best_time": {
+          "name": "best_time",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "best_kills": {
+          "name": "best_kills",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "best_level": {
+          "name": "best_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total_kills": {
+          "name": "total_kills",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_class": {
+          "name": "run_class",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_started_at": {
+          "name": "run_started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_skills": {
+          "name": "run_skills",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "riftborn_state_user_id_user_id_fk": {
+          "name": "riftborn_state_user_id_user_id_fk",
+          "tableFrom": "riftborn_state",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "riftborn_state_user_id_unique": {
+          "name": "riftborn_state_user_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id"
           ]
         }
       },
@@ -11683,6 +11429,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'coins'"
+        },
+        "refund": {
+          "name": "refund",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -11716,6 +11476,27 @@
         "transactions_createdAt_idx": {
           "name": "transactions_createdAt_idx",
           "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_currency_createdAt_idx": {
+          "name": "transactions_currency_createdAt_idx",
+          "columns": [
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "created_at",
               "isExpression": false,

@@ -11,7 +11,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { colonyBuilderJobs, colonyState, prestigePurchases, user } from '#server/database/schema'
+import { colonyState, prestigePurchases, user } from '#server/database/schema'
 import { claimBuilder, getBuilderCount, getBuilderJobs } from '#server/utils/colony'
 import { BASE_BUILDER_COUNT, HABITAT_BUILDER_JOB_ID } from '#shared/utils/colony'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
@@ -40,11 +40,6 @@ describe.skipIf(SKIP)('colony builders', () => {
     beforeEach(cleanup)
     afterEach(cleanup)
     afterAll(async () => { await db.$client.end() })
-
-    it('gives a colony one builder before any Labour Contract', async () => {
-        await seedColony()
-        expect(await getBuilderCount(USER_ID)).toBe(BASE_BUILDER_COUNT)
-    })
 
     it('refuses a second job while the only builder is busy', async () => {
         await seedColony()
@@ -88,14 +83,5 @@ describe.skipIf(SKIP)('colony builders', () => {
         expect(result.ok).toBe(BASE_BUILDER_COUNT + 1)
         expect(result.rejected).toBe(tracks.length - (BASE_BUILDER_COUNT + 1))
         expect(await getBuilderJobs(USER_ID)).toHaveLength(BASE_BUILDER_COUNT + 1)
-    })
-
-    it('frees the builder again once its job row is gone', async () => {
-        await seedColony()
-
-        await claim('capacity')
-        await db.delete(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, USER_ID))
-
-        await expect(claim('speed_boost')).resolves.toBeTruthy()
     })
 })

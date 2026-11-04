@@ -169,6 +169,9 @@ describe.skipIf(SKIP)('gem exchange (database)', () => {
         })))
         await expect(placeGemOrder(BUYER, 'buy', 0.01, 1)).rejects.toThrow()
         expect(await openOrders(BUYER)).toHaveLength(GEM_EXCHANGE_MAX_OPEN_ORDERS)
+        // Nothing was escrowed for the seeded rows: drop them rather than have
+        // cleanup cancel (and refund) all of them one by one.
+        await db.delete(gemOrders).where(eq(gemOrders.userId, BUYER))
     })
 
     it('lets a player fill their own offer as a clean wash', async () => {

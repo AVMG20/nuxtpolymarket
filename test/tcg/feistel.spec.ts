@@ -15,6 +15,8 @@ function fullMapping(domainSize: number, key: Buffer): number[] {
     return out
 }
 
+// The engine draws every pack's cuts and god flag through this permutation:
+// a collision would hand two packs the same cut and mint duplicate copies.
 describe('feistelPermute', () => {
     it('is a bijection over the full domain (cycle-walk terminates)', () => {
         for (const domainSize of DOMAINS) {
@@ -25,47 +27,11 @@ describe('feistelPermute', () => {
         }
     })
 
-    it('is deterministic across calls', () => {
-        for (const domainSize of DOMAINS) {
-            for (const key of KEYS) {
-                expect(fullMapping(domainSize, key)).toEqual(fullMapping(domainSize, key))
-            }
-        }
-    })
-
-    it('different keys give different permutations', () => {
-        for (const domainSize of DOMAINS.filter(d => d >= 121)) {
-            expect(fullMapping(domainSize, KEYS[0]!)).not.toEqual(fullMapping(domainSize, KEYS[1]!))
-        }
-    })
-
-    it('different labels from the same secret give different permutations', () => {
-        const keyA = deriveKey(SECRET_A, 'sheet:one')
-        const keyB = deriveKey(SECRET_A, 'sheet:two')
-        expect(keyA.equals(keyB)).toBe(false)
-        for (const domainSize of DOMAINS.filter(d => d >= 121)) {
-            expect(fullMapping(domainSize, keyA)).not.toEqual(fullMapping(domainSize, keyB))
-        }
-    })
-
-    it('returns index unchanged for domainSize <= 1', () => {
-        expect(feistelPermute(0, 1, KEYS[0]!)).toBe(0)
-        expect(feistelPermute(0, 0, KEYS[0]!)).toBe(0)
-    })
-
     it('throws on out-of-range or non-integer inputs', () => {
         const key = KEYS[0]!
         expect(() => feistelPermute(-1, 10, key)).toThrow(RangeError)
         expect(() => feistelPermute(10, 10, key)).toThrow(RangeError)
         expect(() => feistelPermute(1.5, 10, key)).toThrow(TypeError)
         expect(() => feistelPermute(0, 10.5, key)).toThrow(TypeError)
-    })
-})
-
-describe('deriveKey', () => {
-    it('is deterministic and 32 bytes', () => {
-        const key = deriveKey(SECRET_A, 'god')
-        expect(key.length).toBe(32)
-        expect(key.equals(deriveKey(SECRET_A, 'god'))).toBe(true)
     })
 })

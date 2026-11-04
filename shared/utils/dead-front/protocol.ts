@@ -1,4 +1,5 @@
 import type { DfPowerupKind } from './constants'
+import type { DfArsenalEvent, DfArsenalMine, DfArsenalOp, DfArsenalSnap } from './salvage'
 import type {
     DfAttachmentChoice, DfEggStep, DfEnemyType, DfHitZone, DfPerkId,
     DfProgressReport, DfWeaponId, Vec3
@@ -56,6 +57,8 @@ export interface DfHeldWeapon {
     attachments: DfAttachmentChoice
     /** Most reserve ammo this player can carry for it (perks included); the wall's "Ammo full" check. */
     maxReserve?: number
+    /** Rarity tier 1..3 (rarity.ts; absent: common). Pass it to `dfWeaponStats`. */
+    rarity?: number
     /**
      * In the Pack-a-Punch: the slot stays reserved (indices never shift) but
      * it can't be held, fired or swapped to until it comes back.
@@ -130,7 +133,51 @@ export interface DfZombieSnap {
     masked?: boolean
 }
 
-export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit'
+/**
+ * A zombie on the wire: `[id, type, x, y, z, yaw, hp, anim, vx, vy, vz, rest]`.
+ * Half the bytes of the object form, and zombies are most of a snapshot.
+ * The velocity is left off (with `rest`) for a zombie standing still, `rest`
+ * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`)
+ * and is left off when there are none. The match loop packs, `DfNet` unpacks.
+ */
+export type DfWireZombie = [number, DfEnemyType, number, number, number, number, number, DfZombieAnim, number?, number?, number?, Partial<DfZombieSnap>?]
+
+export function dfPackZombie(z: DfZombieSnap): DfWireZombie {
+    let rest: Partial<DfZombieSnap> | null = null
+    for (const k in z) {
+        if (k === 'id' || k === 'type' || k === 'pos' || k === 'yaw' || k === 'hp' || k === 'anim' || k === 'vel') continue
+        const v = z[k as keyof DfZombieSnap]
+        if (v !== undefined) (rest ??= {})[k as 'armored'] = v as boolean
+    }
+    const w: DfWireZombie = [z.id, z.type, z.pos.x, z.pos.y, z.pos.z, z.yaw, z.hp, z.anim]
+    if (z.vel || rest) w.push(z.vel?.x ?? 0, z.vel?.y ?? 0, z.vel?.z ?? 0)
+    if (rest) w.push(rest)
+    return w
+}
+
+export function dfUnpackZombie(w: DfWireZombie): DfZombieSnap {
+    const z: DfZombieSnap = { id: w[0], type: w[1], pos: { x: w[2], y: w[3], z: w[4] }, yaw: w[5], hp: w[6], anim: w[7] }
+    const vx = w[8] ?? 0
+    const vy = w[9] ?? 0
+    const vz = w[10] ?? 0
+    if (vx !== 0 || vy !== 0 || vz !== 0) z.vel = { x: vx, y: vy, z: vz }
+    const rest = w[11]
+    if (rest) Object.assign(z, rest)
+    return z
+}
+
+/** Turns a snapshot's packed zombies (`DfWireZombie`) back into objects, in place. Objects pass through. */
+export function dfUnpackSnapshot(s: DfSnapshot): DfSnapshot {
+    const list = s.zombies as unknown[]
+    for (let i = 0; i < list.length; i++) {
+        const z = list[i]
+        if (Array.isArray(z)) list[i] = dfUnpackZombie(z as DfWireZombie)
+    }
+    return s
+}
+
+/** `mortar`: the lent Granatwerfer's heavy shell. */
+export type DfProjectileKind = 'grenade' | 'pap-grenade' | 'xray-bolt' | 'spit' | 'mortar'
 
 export interface DfProjectileSnap {
     id: number
@@ -153,6 +200,10 @@ export interface DfBoxState {
     weapon?: DfWeaponId // cycling / offered weapon
     owner?: number // pid
     timer: number // seconds left in the current state
+    /** The offered weapon's rarity tier (rarity.ts), once it is on offer. */
+    rarity?: number
+    /** On offer instead of a weapon: an upgrade kit of this tier (1..3). */
+    kit?: number
 }
 
 export interface DfPapState {
@@ -189,6 +240,8 @@ export interface DfWorldSnap {
     special?: DfSpecialSnap
     /** Electric traps (map.traps). */
     traps?: DfTrapSnap[]
+    /** Salvage, workbench gear, sentries and support (salvage.ts, support.ts). */
+    arsenal?: DfArsenalSnap
 }
 
 export interface DfSpecialSnap {
@@ -205,12 +258,13 @@ export interface DfTrapSnap {
 
 export type DfEvent =
     | { k: 'hit', z: number, p: number, zone: DfHitZone, pos: Vec3, dmg: number }
-    | { k: 'kill', z: number, p: number, zone: DfHitZone, weapon: DfWeaponId | 'knife' | 'grenade' | 'arc' | 'trap', pos: Vec3, gib?: boolean }
+    | { k: 'kill', z: number, p: number, zone: DfHitZone, weapon: DfWeaponId | 'knife' | 'grenade' | 'arc' | 'trap' | 'sentry', pos: Vec3, gib?: boolean }
     /** `shot` echoes the client's shot / melee id when the points came from that player's own claim. */
     | { k: 'points', p: number, amount: number, shot?: number }
     | { k: 'zhit', z: number, p: number, dmg: number } // zombie hit a player
     | { k: 'shot', p: number, weapon: DfWeaponId, pap: number, from: Vec3, to: Vec3 } // remote players' shots, for tracers and sound
-    | { k: 'explode', pos: Vec3, radius: number, kind: 'grenade' | 'pap-grenade' | 'xray' | 'bloater' | 'nuke' | 'shock' }
+    /** `tier`: the Pack-a-Punch tier of the X-Ray bolt or PaP shell that burst (its colour). */
+    | { k: 'explode', pos: Vec3, radius: number, kind: 'grenade' | 'pap-grenade' | 'xray' | 'bloater' | 'nuke' | 'shock', tier?: number }
     | { k: 'arc', from: Vec3, to: Vec3[] } // wunderweapon chain
     /**
      * A lightning-rod switch thrown (`on`, `n` = rods thrown now) or reset by
@@ -240,6 +294,8 @@ export type DfEvent =
     | { k: 'chat', name: string, text: string }
     /** A multi-kill tier reached or a headshot streak milestone (`n` kills), worth `bonus` points. */
     | { k: 'streak', p: number, kind: 'double' | 'triple' | 'multi' | 'massacre' | 'head', n: number, bonus: number }
+    /** Salvage, crafting, sentries, support, supply crates and round challenges (salvage.ts). */
+    | DfArsenalEvent
 
 export interface DfSnapshot {
     tick: number
@@ -256,8 +312,18 @@ export interface DfSnapshot {
     events: DfEvent[]
     /** Solo only: the player paused (the simulation is frozen). */
     paused?: boolean
+    /**
+     * Stream clock (seconds): `time` plus the wall time the server held the world
+     * (solo stall or pause, nobody connected) or dropped (a long host stall). It
+     * runs with wall time, so clients sync their render clock to it and map it
+     * back onto `time` (a hold renders as the world standing still, not as a
+     * re-sync). Absent outside the match loop: read it as `time`.
+     */
+    clk?: number
     /** Last input seq the server applied for the receiving player. */
     ack: number
+    /** The receiving player's own salvage, drops and pickups (nobody else's); see `dfMergeArsenalMine`. */
+    mine?: DfArsenalMine
 }
 
 export interface DfMatchStart {
@@ -321,9 +387,15 @@ export type DfClientMsg =
         shot?: number
         /** The client's magazine after this shot (ammo is client-driven; the server keeps the total honest). */
         mag?: number
+        /** The weapon the client fired: a shot from a weapon the server no longer has in hand (a lent launcher just swapped in or out) is dropped. */
+        weapon?: DfWeaponId
     }
-    /** Starts a reload (cosmetic flag, reload perks); `mag` reports the magazine a finished reload or shell left. */
-    | { t: 'reload', mag?: number }
+    /**
+     * Starts a reload (cosmetic flag, reload perks); `mag` reports the magazine a
+     * finished reload or shell left, for `weapon` (ignored when that isn't the
+     * weapon in hand on the server any more).
+     */
+    | { t: 'reload', mag?: number, weapon?: DfWeaponId }
     | { t: 'swap', slot: number }
     | { t: 'melee', z?: number, zone?: DfHitZone, shot?: number, kill?: boolean }
     /** Solo only: freeze or resume the match (pause menu, lost pointer lock). Ignored in co-op. */
@@ -336,6 +408,8 @@ export type DfClientMsg =
     | { t: 'ping', at: number }
     /** Development-only test hooks (ignored by production builds). */
     | { t: 'dev', op: DfDevOp }
+    /** Workbench crafts, placing gear, calling in support (salvage.ts). */
+    | { t: 'arsenal', op: DfArsenalOp }
 
 /** Development-only test hooks, see `DfMatchSim.dev`. The server drops them outside `import.meta.dev`. */
 export type DfDevOp
@@ -355,6 +429,8 @@ export type DfDevOp
          * (`type`) a few metres in front of you.
          */
         | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn', type?: DfEnemyType }
+        /** Arsenal: `salvage` fills your salvage, `support` hands you three support items, `crate` drops a supply crate (`item`, else random) at your feet. */
+        | { k: 'arsenal', what: 'salvage' | 'support' | 'crate', item?: string }
 
 export type DfServerMsg =
     | { t: 'hello', userId: string, name: string }

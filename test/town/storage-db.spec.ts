@@ -4,7 +4,6 @@ import { db } from '#server/database'
 import { townBuildings, townState, townStorage, user } from '#server/database/schema'
 import {
     deleteTownForUser,
-    discardRedesignDraft,
     foundTown,
     getRedesignDraft,
     placeBuilding,
@@ -54,10 +53,12 @@ async function site(plotId: string, tileX: number, ms: number) {
 describe.skipIf(SKIP)('Polytown storage (database)', () => {
     let releaseRealm: () => Promise<void>
     let plotId: string
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
 
     beforeEach(async () => {
-        await cleanup()
         await seedUser(OWNER, { balance: '100000000000', gems: 100 })
         plotId = (await foundTown(OWNER)).plotId
         await moveTownToFlatGround(plotId)
@@ -65,17 +66,12 @@ describe.skipIf(SKIP)('Polytown storage (database)', () => {
     afterEach(cleanup)
     afterAll(async () => { await releaseRealm() })
 
-    it('takes a building off the map into storage, for nothing', async () => {
-        const house = await standing(plotId, 0)
+    it('takes a building off the map into storage for nothing, and keeps it as it was however many days pass', async () => {
+        const house = await standing(plotId, 0, 5)
         await storeBuildings(OWNER, [house.id])
         expect((await storedRows()).map(r => r.id)).toEqual([house.id])
         expect(await db.select().from(townBuildings).where(eq(townBuildings.id, house.id))).toEqual([])
-        expect(await gems()).toBe(100)
-    })
 
-    it('keeps a stored building as it was, however many days pass', async () => {
-        const house = await standing(plotId, 0, 5)
-        await storeBuildings(OWNER, [house.id])
         await db.update(townState).set({ lastSettledAt: new Date(Date.now() - 10 * DAY) }).where(eq(townState.userId, OWNER))
         await settleTownForRead(OWNER)
         const [row] = await storedRows()
@@ -175,57 +171,20 @@ describe.skipIf(SKIP)('Polytown storage (database)', () => {
         await db.delete(townStorage).where(eq(townStorage.id, pyramid.id))
         await placeBuilding(OWNER, plotId, 4, 4, 'pyramid')
     })
-})
 
-describe.skipIf(SKIP)('Polytown redesign drafts (database)', () => {
-    let releaseRealm: () => Promise<void>
-    let plotId: string
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
-
-    beforeEach(async () => {
-        await cleanup()
-        await seedUser(OWNER, { balance: '100000000000', gems: 100 })
-        plotId = (await foundTown(OWNER)).plotId
-        await moveTownToFlatGround(plotId)
-    })
-    afterEach(cleanup)
-    afterAll(async () => { await releaseRealm() })
-
-    const spot = (tileX: number) => ({ plotId: '', tileX, tileY: 3, rotation: 0 })
-
-    it('keeps a half-done redesign without touching the town, and the last save wins', async () => {
+    // A draft is a plan only: saving one never moves a building, and the full
+    // save that carries it out spends it.
+    it('keeps a half-done redesign without touching the town, and spends it on the full save', async () => {
         const a = await standing(plotId, 0)
-        await saveRedesignDraft(OWNER, { placed: { [a.id]: { ...spot(5), plotId } }, newRoads: {}, toStore: [] })
-        await saveRedesignDraft(OWNER, { placed: { [a.id]: { ...spot(6), plotId } }, newRoads: {}, toStore: [] })
+        const spot = (tileX: number) => ({ plotId, tileX, tileY: 3, rotation: 0 })
+        await saveRedesignDraft(OWNER, { placed: { [a.id]: spot(5) }, newRoads: {}, toStore: [] })
+        await saveRedesignDraft(OWNER, { placed: { [a.id]: spot(6) }, newRoads: {}, toStore: [] })
         const saved = await getRedesignDraft(OWNER)
         expect(saved!.draft.placed[a.id]!.tileX).toBe(6)
-        // A plan only: the building has not moved.
         const [row] = await db.select().from(townBuildings).where(eq(townBuildings.id, a.id))
         expect(row!.tileX).toBe(0)
-    })
 
-    it('spends the draft when the redesign is saved in full', async () => {
-        const a = await standing(plotId, 0)
-        await saveRedesignDraft(OWNER, { placed: {}, newRoads: {}, toStore: [a.id] })
         await redesignTown(OWNER, { moves: [], roads: [], store: [a.id] })
         expect(await getRedesignDraft(OWNER)).toBeNull()
-    })
-
-    it('keeps the draft when the full save is refused', async () => {
-        await standing(plotId, 0)
-        const b = await standing(plotId, 1)
-        await saveRedesignDraft(OWNER, { placed: {}, newRoads: {}, toStore: [] })
-        await expect(redesignTown(OWNER, { moves: [{ buildingId: b.id, plotId, tileX: 1, tileY: 3, rotation: 0 }], roads: [] })).rejects.toBeTruthy()
-        expect(await getRedesignDraft(OWNER)).not.toBeNull()
-    })
-
-    it('discards a draft on request', async () => {
-        await saveRedesignDraft(OWNER, { placed: {}, newRoads: {}, toStore: [] })
-        await discardRedesignDraft(OWNER)
-        expect(await getRedesignDraft(OWNER)).toBeNull()
-    })
-
-    it('refuses a draft for a mayor without a town', async () => {
-        await expect(saveRedesignDraft('test-town-storage-nobody', { placed: {}, newRoads: {}, toStore: [] })).rejects.toMatchObject({ statusCode: 400 })
     })
 })

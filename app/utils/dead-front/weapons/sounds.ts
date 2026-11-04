@@ -37,7 +37,15 @@ export const DF_WSND = {
     steam: 'w:steam',
     charge: 'w:coil-charge',
     splat: 'w:splat',
-    casing: 'w:casing'
+    casing: 'w:casing',
+    inspect: 'w:inspect',
+    breakOpen: 'w:break-open',
+    breakClose: 'w:break-close',
+    eject: 'w:eject',
+    leverOpen: 'w:lever-open',
+    leverClose: 'w:lever-close',
+    valve: 'w:valve',
+    ads: 'w:ads'
 } as const
 
 export interface DfGunVoice {
@@ -72,7 +80,7 @@ export interface DfGunVoice {
 }
 
 /** Per-weapon voicing. Exported for the spec (every weapon has a distinct report). */
-export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder'>, DfGunVoice> = {
+export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder' | 'flammen' | 'granatwerfer'>, DfGunVoice> = {
     // .45 service pistol: round, mid-weighted bark, slide snaps forward.
     m1911: { body: 210, bodyEnd: 70, bodyDur: 0.11, blast: 2400, blastDur: 0.09, crack: 0, tail: 0.5, echo: 0.35, mech: 2900, mechAt: 0.045, mechGain: 0.12, drive: 1.6, gain: 0.8 },
     // 7.63 Mauser: small, fast, snappy crack and a bright toggle.
@@ -92,7 +100,15 @@ export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder'>, DfGun
     // .30-06 BAR: heavy rifle report with a solid bolt slam.
     bar: { body: 140, bodyEnd: 45, bodyDur: 0.13, blast: 2600, blastDur: 0.11, crack: 2700, tail: 0.9, echo: 0.5, mech: 1900, mechAt: 0.03, mechGain: 0.1, drive: 2, gain: 0.74 },
     // .303 Lewis gun: a drier rifle bark with a ratchety cocking click.
-    lewis: { body: 160, bodyEnd: 50, bodyDur: 0.11, blast: 2300, blastDur: 0.1, crack: 2500, tail: 0.75, echo: 0.45, mech: 2100, mechAt: 0.028, mechGain: 0.1, drive: 1.9, gain: 0.72 }
+    lewis: { body: 160, bodyEnd: 50, bodyDur: 0.11, blast: 2300, blastDur: 0.1, crack: 2500, tail: 0.75, echo: 0.45, mech: 2100, mechAt: 0.028, mechGain: 0.1, drive: 1.9, gain: 0.72 },
+    // .455 Webley: a fat, slow, heavy boom, more cannon than pistol, and the cylinder's click.
+    webley: { body: 165, bodyEnd: 52, bodyDur: 0.15, blast: 1900, blastDur: 0.12, crack: 0, tail: 0.8, echo: 0.5, mech: 2500, mechAt: 0.06, mechGain: 0.1, drive: 2.1, gain: 0.8 },
+    // 10-gauge coach gun: the deepest, widest boom on the field with a long rolling tail.
+    sawnoff: { body: 100, bodyEnd: 32, bodyDur: 0.3, blast: 1300, blastDur: 0.26, crack: 0, tail: 1.5, echo: 0.75, mech: 0, mechAt: 0, mechGain: 0, drive: 2.5, gain: 0.8 },
+    // .30-40 Krag lever gun: a bright rifle crack, a little lighter than the Mauser.
+    win1895: { body: 165, bodyEnd: 50, bodyDur: 0.14, blast: 3000, blastDur: 0.12, crack: 3100, tail: 1.3, echo: 0.65, mech: 0, mechAt: 0, mechGain: 0, drive: 1.9, gain: 0.76 },
+    // 8 mm Lebel Chauchat: a slow hammering rifle report and the long recoil's clank.
+    chauchat: { body: 135, bodyEnd: 42, bodyDur: 0.14, blast: 2400, blastDur: 0.12, crack: 2600, tail: 0.9, echo: 0.5, mech: 1500, mechAt: 0.05, mechGain: 0.16, drive: 2.1, gain: 0.74, ring: 1300, slam: 0.14 }
 }
 
 function rtOf(ctx: AudioContext, out: AudioNode, o: DfSoundOpts, jitter = 0.04): Rt {
@@ -196,6 +212,17 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
     }
 }
 
+/** The lent Granatwerfer: a big, deep tube "THOOMP" with the drum clacking round. */
+const mortar: DfSynth = (ctx, out, o) => {
+    const r = rtOf(ctx, out, o)
+    const sat = shaperNode(ctx, 1.5, gainNode(ctx, 0.9, out))
+    const p = { ...r, out: sat }
+    thump(p, 120, 38, 0.24, 1)
+    noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: 380, freqEnd: 160, q: 2.2, gain: 0.8, dur: 0.18 })
+    noiseBurst({ ...r, out }, { kind: 'brown', type: 'lowpass', freq: 900, freqEnd: 180, q: 0.7, gain: 0.4, dur: 0.35 })
+    if (!o.pos) tick(at({ ...r, out }, 0.12), 1600, 0.16)
+}
+
 /** M1911 at tier 1+: twin grenade launchers, a hollow tube "thoomp". */
 const launcher: DfSynth = (ctx, out, o) => {
     const r = rtOf(ctx, out, o)
@@ -256,6 +283,24 @@ function xray(pap: boolean): DfSynth {
     }
 }
 
+/**
+ * The flamethrower: each shot is a short, overlapping chunk of roaring jet (a dark rumble, a
+ * hissing nozzle and the crackle of burning fuel), so held fire reads as one continuous roar.
+ */
+function flame(pap: boolean): DfSynth {
+    return (ctx, out, o) => {
+        const r = rtOf(ctx, out, o, 0.06)
+        const bus = gainNode(ctx, pap ? 0.62 : 0.55, out)
+        const sat = shaperNode(ctx, 1.3, gainNode(ctx, 0.8, bus))
+        const p = { ...r, out: sat }
+        noiseSwell(p, { kind: 'brown', type: 'lowpass', freq: 520, freqEnd: 380, q: 0.7, gain: 0.85, dur: 0.22, peakAt: 0.35 })
+        noiseSwell({ ...r, out: bus }, { kind: 'pink', type: 'bandpass', freq: 1500, freqEnd: 1100, q: 0.8, gain: 0.22, dur: 0.2, peakAt: 0.4 })
+        noiseSwell({ ...r, out: bus }, { kind: 'white', type: 'highpass', freq: 3600, q: 0.6, gain: 0.05, dur: 0.18, peakAt: 0.5 })
+        if (!o.pos) crackle({ ...r, out: bus }, 0.2, 0.08, 40)
+        if (pap) noiseSwell({ ...r, out: bus }, { kind: 'pink', type: 'bandpass', freq: 700, freqEnd: 520, q: 3, gain: 0.12, dur: 0.2, peakAt: 0.4 })
+    }
+}
+
 /** The arc rifle: a heavy discharge, a buzzing arc and a crackling tail. */
 function wunder(pap: boolean): DfSynth {
     return (ctx, out, o) => {
@@ -291,8 +336,12 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
             audio.register(DF_WSND.fire(id, 0), wunder(false))
             audio.register(DF_WSND.fire(id, 1), wunder(true))
             audio.register(DF_WSND.fire(id, 0, true), wunder(false))
+        } else if (id === 'flammen') {
+            audio.register(DF_WSND.fire(id, 0), flame(false))
+            audio.register(DF_WSND.fire(id, 1), flame(true))
+            audio.register(DF_WSND.fire(id, 0, true), flame(false))
         } else {
-            const v = DF_GUN_VOICES[id]
+            const v = DF_GUN_VOICES[id as keyof typeof DF_GUN_VOICES]
             audio.register(DF_WSND.fire(id, 0), gunshot(v, 'plain'))
             audio.register(DF_WSND.fire(id, 0, true), gunshot(v, 'sup'))
             audio.register(DF_WSND.fire(id, 1), id === 'm1911' ? launcher : gunshot(v, 'pap'))
@@ -300,6 +349,8 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         // Rapid fire: the oldest tails give way so automatics never pile up.
         for (const name of [DF_WSND.fire(id, 0), DF_WSND.fire(id, 1), DF_WSND.fire(id, 0, true)]) limit(name, 4)
     }
+    // the lent launcher isn't in DF_WEAPON_IDS (never in the armory)
+    for (const name of [DF_WSND.fire('granatwerfer', 0), DF_WSND.fire('granatwerfer', 1), DF_WSND.fire('granatwerfer', 0, true)]) audio.register(name, mortar)
 
     const r = (name: string, recipe: (r: Rt, o: DfSoundOpts) => void, gainV = 1) => audio.register(name, (ctx, out, o) => {
         recipe(rtOf(ctx, gainV === 1 ? out : gainNode(ctx, gainV, out), o, 0.03), o)
@@ -448,6 +499,57 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
     r(DF_WSND.splat, (p) => {
         thump(p, 170, 60, 0.14, 0.35)
         noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: 900, freqEnd: 220, q: 1, gain: 0.55, dur: 0.24 })
+    })
+    // Aiming: a quick cloth-and-sling rustle as the gun comes up to the eye.
+    r(DF_WSND.ads, (p) => {
+        noiseSwell(p, { kind: 'pink', type: 'bandpass', freq: 900, freqEnd: 1400, q: 1, gain: 0.07, dur: 0.12, peakAt: 0.4 })
+        tick(at(p, 0.06), 2900, 0.04, 0.03)
+    })
+    // Inspect: a cloth rustle, the sling rattling and a thumb run over the action.
+    r(DF_WSND.inspect, (p) => {
+        noiseSwell(p, { kind: 'pink', type: 'bandpass', freq: 650, freqEnd: 1000, q: 0.9, gain: 0.1, dur: 0.3, peakAt: 0.4 })
+        clickTrain(at(p, 0.18), [0, 0.035, 0.06], { freq: 2500, q: 4, gain: 0.07, len: 0.008, gains: [1, 0.6, 0.4] })
+        scrape(at(p, 0.95), 1500, 1900, 0.12, 0.06)
+        tick(at(p, 1.1), 2600, 0.08)
+        noiseSwell(at(p, 1.2), { kind: 'pink', type: 'bandpass', freq: 800, freqEnd: 600, q: 0.9, gain: 0.08, dur: 0.3, peakAt: 0.5 })
+    })
+    // A break action opening: the latch thrown, the hinge swinging and the extractor's lift.
+    r(DF_WSND.breakOpen, (p) => {
+        tick(p, 2300, 0.26, 0.06)
+        clack(at(p, 0.025), 1300, 0.3)
+        scrape(at(p, 0.04), 900, 600, 0.1, 0.14)
+        tick(at(p, 0.13), 3000, 0.12)
+    })
+    // ...and snapping shut: a hard, satisfying clunk and the latch springing home.
+    r(DF_WSND.breakClose, (p) => {
+        scrape(p, 700, 1100, 0.05, 0.12)
+        clack(at(p, 0.05), 1100, 0.6)
+        thump(at(p, 0.05), 210, 90, 0.08, 0.3)
+        tick(at(p, 0.09), 2800, 0.18, 0.05)
+    })
+    // Empties tumbling out: a ring of brass bouncing off each other.
+    r(DF_WSND.eject, (p) => {
+        clickTrain(p, scatter(6, 0.08, 1.2), { freq: 3400, q: 3, gain: 0.1, len: 0.006, jitter: 0.4 })
+        metal(at(p, 0.02), { base: 3800, ratios: [1, 1.34, 1.87], decay: 0.16, gain: 0.05, strike: 0 })
+        metal(at(p, 0.12), { base: 4300, ratios: [1, 1.34], decay: 0.1, gain: 0.03, strike: 0 })
+    })
+    // Lever thrown down: the hammer cocking and the bolt sliding back.
+    r(DF_WSND.leverOpen, (p) => {
+        tick(p, 1900, 0.24, 0.07)
+        scrape(at(p, 0.02), 1300, 2000, 0.09, 0.17)
+        tick(at(p, 0.08), 2900, 0.16, 0.05)
+    })
+    // Lever home: the round chambered and the lever latching.
+    r(DF_WSND.leverClose, (p) => {
+        scrape(p, 2000, 1300, 0.07, 0.15)
+        clack(at(p, 0.07), 1700, 0.5)
+        tick(at(p, 0.1), 2400, 0.12)
+    })
+    // Flamethrower: the valve opened on a fresh bottle, a rush of pressure and a gurgle of fuel.
+    r(DF_WSND.valve, (p) => {
+        tick(p, 1600, 0.2, 0.06)
+        noiseSwell(at(p, 0.03), { kind: 'pink', type: 'bandpass', freq: 2400, freqEnd: 1200, q: 1.2, gain: 0.18, dur: 0.45, peakAt: 0.12 })
+        noiseSwell(at(p, 0.1), { kind: 'brown', type: 'lowpass', freq: 400, freqEnd: 250, q: 0.8, gain: 0.2, dur: 0.35, peakAt: 0.3 })
     })
     // Brass casing on the ground: a light tinkle and one bounce.
     r(DF_WSND.casing, (p) => {

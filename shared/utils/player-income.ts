@@ -30,16 +30,13 @@ export interface IncomeSummary {
 }
 
 // Moving the player's own money around is not income: bank deposits and
-// withdrawals, gifts between players, and the refunds, escrow returns and
-// crash recoveries `isEarning` in server/utils/balance.ts already skips.
-const TRANSFER_PREFIXES = new Set(['bank', 'gift'])
-const RETURNED_MONEY = /refund|recovery|cancel/
+// withdrawals and gifts between players. Refunds are flagged on the ledger row
+// itself and filtered out by the query.
+const TRANSFER_CATEGORIES = new Set(['bank', 'gift'])
 
 export function isIncomeCategory(rawCategory: string | null): boolean {
     if (rawCategory === null) return true
-    const lower = rawCategory.toLowerCase()
-    if (TRANSFER_PREFIXES.has(lower.split(':')[0]!.trim())) return false
-    return !RETURNED_MONEY.test(lower)
+    return !TRANSFER_CATEGORIES.has(rawCategory.trim().toLowerCase())
 }
 
 /** Folds raw credit rows into display labels, ranked by amount, keeping the top `limit`. */

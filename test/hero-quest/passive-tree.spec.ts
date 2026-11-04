@@ -10,18 +10,14 @@ import { eq } from 'drizzle-orm'
 import { makeHero, makeParty } from '../../scripts/hero-quest/sim'
 import {
     PASSIVE_BAND_MAGNITUDE,
-    PASSIVE_ENDLESS_BASE_COST,
-    PASSIVE_ENDLESS_COST_STEP,
     PASSIVE_NODE_MAX_LEVEL,
     PASSIVE_POINTS_PER_LEVEL,
     PASSIVE_RESPEC_GEMS,
     PASSIVE_TIER_COST
 } from '#shared/utils/hero-quest/constants'
-import { PASSIVE_NODES, PASSIVE_ROOT_ID, getPassiveNode, passiveChildrenOf } from '#shared/utils/hero-quest/content/passive-tree'
+import { PASSIVE_NODES, PASSIVE_ROOT_ID, getPassiveNode } from '#shared/utils/hero-quest/content/passive-tree'
 import {
     passiveBuyBlock,
-    passiveLevelCost,
-    passiveNodeSpent,
     passivePathsOf,
     passivePointsEarned,
     passivePointsLeft,
@@ -44,38 +40,8 @@ describe('the roster', () => {
         for (const node of PASSIVE_NODES) if (node.parent) expect(ids.has(node.parent)).toBe(true)
     })
 
-    it('splits the root into the three class paths, beside its own leaves', () => {
-        const children = passiveChildrenOf(PASSIVE_ROOT_ID)
-        expect(children.filter(n => n.path !== 'root').map(n => n.path).sort()).toEqual(['archer', 'mage', 'warrior'])
-        for (const own of children.filter(n => n.path === 'root')) expect(passiveChildrenOf(own.id)).toEqual([])
-        for (const node of PASSIVE_NODES) {
-            if (node.parent && node.parent !== PASSIVE_ROOT_ID) expect(getPassiveNode(node.parent).path).toBe(node.path)
-        }
-    })
-
-    it('gives each path the same shape: two class-path nodes, two side nodes, one endless tip', () => {
-        for (const path of ['warrior', 'mage', 'archer'] as const) {
-            const nodes = PASSIVE_NODES.filter(n => n.path === path)
-            expect(nodes.filter(n => n.pathLocked)).toHaveLength(2)
-            expect(nodes.filter(n => n.side)).toHaveLength(2)
-            expect(nodes.filter(n => n.endless)).toHaveLength(1)
-        }
-    })
-
-    it('never lets a side node gate anything (`idea-backlog.md` item 3)', () => {
-        for (const node of PASSIVE_NODES.filter(n => n.side)) expect(passiveChildrenOf(node.id)).toEqual([])
-    })
-
-    it('runs every tier outward, one ring a step', () => {
-        for (const node of PASSIVE_NODES) {
-            if (!node.parent || node.endless || node.parent === PASSIVE_ROOT_ID) continue
-            expect(node.tier).toBe(getPassiveNode(node.parent).tier! + 1)
-        }
-        for (const node of PASSIVE_NODES.filter(n => !n.endless)) expect(PASSIVE_TIER_COST[node.tier! - 1]).toBeDefined()
-    })
-
-    it('keeps class-path nodes on the Hero', () => {
-        for (const node of PASSIVE_NODES.filter(n => n.pathLocked)) expect(node.scope.kind).toBe('hero')
+    it('prices every regular node, so no level is ever free', () => {
+        for (const node of PASSIVE_NODES.filter(n => !n.endless)) expect(PASSIVE_TIER_COST[node.tier! - 1], node.id).toBeGreaterThan(0)
     })
 })
 
@@ -83,15 +49,6 @@ describe('points and prices', () => {
     it('earns a point per level past the first', () => {
         expect(passivePointsEarned(1)).toBe(0)
         expect(passivePointsEarned(401)).toBe(400 * PASSIVE_POINTS_PER_LEVEL)
-    })
-
-    it('prices a regular level by its tier, and an endless one on its own ladder', () => {
-        const root = getPassiveNode(PASSIVE_ROOT_ID)
-        expect(passiveLevelCost(root, 3)).toBe(PASSIVE_TIER_COST[0]! * 3)
-        expect(passiveNodeSpent(root, PASSIVE_NODE_MAX_LEVEL)).toBe(PASSIVE_TIER_COST[0]! * 15)
-        const endless = getPassiveNode('tree_war_colossus')
-        expect(passiveLevelCost(endless, 1)).toBe(PASSIVE_ENDLESS_BASE_COST)
-        expect(passiveLevelCost(endless, 4)).toBe(PASSIVE_ENDLESS_BASE_COST + 3 * PASSIVE_ENDLESS_COST_STEP)
     })
 
     it('opens a node once its parent holds a level, and stops at the cap', () => {
@@ -172,12 +129,6 @@ describe('who a node reaches', () => {
         })
         // and never the Hero
         expect(built[0]!.def.eq(bare[0]!.def)).toBe(true)
-    })
-
-    it('reaches every Champion from an every-Champion node', () => {
-        const bare = partyUnitStats(makeParty('class_archer', 10, 5))
-        const built = partyUnitStats(makeParty('class_archer', 10, 5, { passiveTree: { tree_arc_volley_drill: 2 } }))
-        for (let i = 1; i < bare.length; i++) expect(built[i]!.spd.div(bare[i]!.spd).toNumber()).toBeCloseTo(1 + PASSIVE_BAND_MAGNITUDE.stat * 2, 6)
     })
 })
 

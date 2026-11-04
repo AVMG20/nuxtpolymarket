@@ -13,10 +13,11 @@ import type { DfInterpPlayer } from './interp'
 // holding their actual weapon model, with name tags, muzzle flashes and a
 // downed pose with a revive marker.
 
-export const DF_PLAYER_COLORS = ['#e8c872', '#7fb8e8', '#9fe07f', '#e88f7f'] as const
+export const DF_PLAYER_COLORS = ['#e8c872', '#7fb8e8', '#9fe07f', '#e88f7f', '#c39be8'] as const
 
 export function dfPlayerColor(pid: number): string {
-    return DF_PLAYER_COLORS[((pid % 4) + 4) % 4]!
+    const n = DF_PLAYER_COLORS.length
+    return DF_PLAYER_COLORS[((pid % n) + n) % n]!
 }
 
 
@@ -197,7 +198,7 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
         return new THREE.MeshLambertMaterial({ color: col, emissive: col.clone().multiplyScalar(0.35) })
     })
     const ringMats = DF_PLAYER_COLORS.map(c => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1.6), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }))
-    const accentOf = (pid: number) => ((pid % 4) + 4) % 4
+    const accentOf = (pid: number) => ((pid % DF_PLAYER_COLORS.length) + DF_PLAYER_COLORS.length) % DF_PLAYER_COLORS.length
 
     const avatars = new Map<number, Avatar>()
     const tmp = new THREE.Vector3()

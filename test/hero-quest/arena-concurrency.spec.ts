@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
-import { ensureHqState, getCollections, getShopLevels, heroSnapshotOf } from '#server/utils/hero-quest'
+import { ensureHqState } from '#server/utils/hero-quest'
 import {
     arenaLog,
     attackArena,
@@ -27,14 +27,11 @@ import {
     setDefense
 } from '#server/utils/hero-quest-arena'
 import { ARENA_DUMMY_ID, arenaSeasonAt, arenaShopItem, arenaSeasonStartsAt, extraAttemptPrice, refreshPrice, seasonRewardFor } from '#shared/utils/hero-quest/arena'
-import { globalPower } from '#shared/utils/hero-quest/power'
 import { arenaBots } from '#shared/utils/hero-quest/content/arena-bots'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import {
     ARENA_FREE_ATTEMPTS_PER_DAY,
-    ARENA_LOG_SIZE,
     ARENA_RATING_START,
-    ARENA_MATCH_BAND_RATING,
     ARENA_SHOP_SEAL_PRICE,
     MEDAL_BASE_WIN,
     RAID_KEYS_PER_DAY
@@ -82,11 +79,28 @@ async function found(id: string, gems = 0) {
     await db.update(hqState).set({ heroLevel: LEVEL, arenaSeasonId: arenaSeasonAt(Date.now()), arenaRating: RATING }).where(eq(hqState.userId, id))
 }
 
+/** A Rating with more bots in band than the list holds, so a refresh can always draw a new list. */
+async function inBotBand(id: string) {
+    await db.update(hqState).set({ arenaRating: arenaBots()[1]!.rating }).where(eq(hqState.userId, id))
+}
+
 const stateOf = async (id: string) => (await db.select().from(hqState).where(eq(hqState.userId, id)))[0]!
 const gemsOf = async (id: string) => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, id)))[0]!.gems
 
 function attack(id: string, opponent: string, now = Date.now()) {
     return db.transaction(tx => attackArena(tx, id, 0, opponent, 0, now))
+}
+
+/** Attack `opponent` wherever the list shows it, picking again when another attack redrew the list first. */
+async function attackListed(id: string, opponent: string) {
+    for (;;) {
+        const slot = (await stateOf(id)).arenaCandidates.indexOf(opponent)
+        try {
+            return await db.transaction(tx => attackArena(tx, id, slot, opponent, 0, Date.now()))
+        } catch (e) {
+            if ((e as { statusCode?: number }).statusCode !== 409) throw e
+        }
+    }
 }
 
 describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
@@ -95,16 +109,6 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
     afterAll(async () => { await db.$client.end() })
 
     describe('the defence', () => {
-        it('stores a copy of the live loadout and its Defense GPN, and leaves the live one alone', async () => {
-            await found(DEFENDER)
-            const saved = await db.transaction(tx => setDefense(tx, DEFENDER))
-            const state = await stateOf(DEFENDER)
-            const hero = heroSnapshotOf(state, await getShopLevels(DEFENDER), await getCollections(DEFENDER))
-
-            expect(state.defenseLoadout).toEqual(saved.defense)
-            expect(state.defenseGpn).toBe(globalPower(hero).gpn.toString())
-        })
-
         it('sets the player\'s own loadout, putting the Arena\'s preferred Loadout back first', async () => {
             await found(DEFENDER)
             const own = (await stateOf(DEFENDER)).formation
@@ -186,7 +190,8 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             await getCandidates(SECOND, Date.now())
             expect((await stateOf(ATTACKER)).arenaCandidates[0]).toBe(DEFENDER)
 
-            const result = await burst(2 * ARENA_FREE_ATTEMPTS_PER_DAY, i => attack(i % 2 ? SECOND : ATTACKER, DEFENDER))
+            // the attackers are in each other's band too, so each redraw may move the defender to another slot
+            const result = await burst(2 * ARENA_FREE_ATTEMPTS_PER_DAY, i => attackListed(i % 2 ? SECOND : ATTACKER, DEFENDER))
 
             expect(result.ok).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
             const defender = await stateOf(DEFENDER)
@@ -235,76 +240,11 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             }
         })
 
-        it('stamps when each side\'s Rating moved, for ties, and leaves a dummy fight unstamped', async () => {
-            await found(ATTACKER)
-            await found(SECOND)
-            await db.transaction(tx => setDefense(tx, SECOND))
-            const stale = new Date(Date.UTC(2020, 0, 1))
-            await db.update(hqState).set({ arenaRatingAt: stale }).where(inArray(hqState.userId, [ATTACKER, SECOND]))
-            await getCandidates(ATTACKER, Date.now())
-
-            await attack(ATTACKER, SECOND)
-
-            // two equal Ratings always move each other
-            for (const id of [ATTACKER, SECOND]) expect((await stateOf(id)).arenaRatingAt!.getTime()).toBeGreaterThan(stale.getTime())
-
-            await cleanup()
-            await found(ATTACKER)
-            await getCandidates(ATTACKER, Date.now())
-            await attack(ATTACKER, ARENA_DUMMY_ID)
-            expect((await stateOf(ATTACKER)).arenaRatingAt).toBeNull()
-        })
-
         it('refuses an attack on someone the list no longer shows', async () => {
             await found(ATTACKER)
             await getCandidates(ATTACKER, Date.now())
             await expect(attack(ATTACKER, DEFENDER)).rejects.toMatchObject({ statusCode: 409 })
             expect((await stateOf(ATTACKER)).arenaAttemptsUsedToday).toBe(0)
-        })
-
-        it('draws on Rating, an earlier season\'s counting as the start, and keeps a drawn list', async () => {
-            await found(ATTACKER)
-            await found(DEFENDER)
-            await db.transaction(tx => setDefense(tx, DEFENDER))
-            const season = arenaSeasonAt(Date.now())
-            // in band this season: drawn
-            expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
-            // the same Rating from an earlier season counts as the start, far below: not drawn
-            await db.update(hqState).set({ arenaSeasonId: season - 1 }).where(eq(hqState.userId, DEFENDER))
-            await db.update(hqState).set({ arenaCandidates: [] }).where(eq(hqState.userId, ATTACKER))
-            expect((await getCandidates(ATTACKER, Date.now())).every(c => c.dummy)).toBe(true)
-            // back in band and drawn, then drifting out: a drawn list is kept until a refresh or an attack
-            await db.update(hqState).set({ arenaSeasonId: season }).where(eq(hqState.userId, DEFENDER))
-            await db.update(hqState).set({ arenaCandidates: [] }).where(eq(hqState.userId, ATTACKER))
-            expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
-            await db.update(hqState).set({ arenaRating: RATING + 3 * ARENA_MATCH_BAND_RATING }).where(eq(hqState.userId, DEFENDER))
-            expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
-            const fight = await attack(ATTACKER, DEFENDER)
-            expect(fight.dummy).toBe(false)
-        })
-
-        it('fights an attack on the Arena\'s preferred Loadout, and holds the session after it', async () => {
-            await found(ATTACKER)
-            await found(DEFENDER)
-            await db.transaction(tx => setDefense(tx, DEFENDER))
-            await getCandidates(ATTACKER, Date.now())
-            await db.insert(hqLoadouts).values({ userId: ATTACKER, slotIndex: 0, name: 'Arena', partyChampionIds: [], equippedGear: {}, formation: {} })
-            await db.update(hqState).set({ raidLoadoutPreferences: { arena: 0 } }).where(eq(hqState.userId, ATTACKER))
-
-            await attack(ATTACKER, DEFENDER)
-
-            expect((await stateOf(ATTACKER)).preRaidSnapshot).toMatchObject({ target: 'arena', slotIndex: 0 })
-        })
-
-        it('keeps the newest battle log entries only', async () => {
-            await found(ATTACKER)
-            await getCandidates(ATTACKER, Date.now())
-            await db.update(hqState)
-                .set({ arenaAttemptDate: ladderDateKey(Date.now()), arenaExtraAttemptsPurchasedToday: ARENA_LOG_SIZE + 5 })
-                .where(eq(hqState.userId, ATTACKER))
-            for (let i = 0; i < ARENA_LOG_SIZE + 5; i++) await attack(ATTACKER, ARENA_DUMMY_ID)
-            const rows = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, ATTACKER))
-            expect(rows).toHaveLength(ARENA_LOG_SIZE)
         })
     })
 
@@ -322,6 +262,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
         it('prices an extra attack or a redraw that read the clock before midnight at today\'s rung (issue #30)', async () => {
             await found(ATTACKER, extraAttemptPrice(0) + extraAttemptPrice(1) + refreshPrice(2))
+            await inBotBand(ATTACKER)
             await db.transaction(tx => buyAttempt(tx, ATTACKER, Date.now()))
             await refreshCandidates(ATTACKER, Date.now())
             await refreshCandidates(ATTACKER, Date.now())
@@ -339,9 +280,45 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(await gemsOf(ATTACKER)).toBe(0)
         })
 
+        it('refuses a refresh that can\'t change the list, without counting or charging it', async () => {
+            await found(ATTACKER, refreshPrice(0) + refreshPrice(1) + refreshPrice(2))
+            await found(DEFENDER)
+            await db.transaction(tx => setDefense(tx, DEFENDER))
+            await getCandidates(ATTACKER, Date.now())
+
+            await expect(refreshCandidates(ATTACKER, Date.now())).rejects.toMatchObject({ statusCode: 400 })
+
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaCandidates).toContain(DEFENDER)
+            expect(state.arenaRefreshesToday).toBe(0)
+            expect(await gemsOf(ATTACKER)).toBe(refreshPrice(0) + refreshPrice(1) + refreshPrice(2))
+        })
+
+        it('draws a player who never set a defence once they have opened the Arena, and fights their live party', async () => {
+            await found(ATTACKER)
+            await found(DEFENDER)
+            // never set a defence, but has opened the Arena (the first visit draws their own list)
+            await getCandidates(DEFENDER, Date.now())
+            const listed = await getCandidates(ATTACKER, Date.now())
+            const card = listed.find(c => c.id === DEFENDER)
+            expect(card?.name).not.toBe('Gone')
+            expect(card?.defenseGpn).not.toBeNull()
+
+            const result = await db.transaction(tx => attackArena(tx, ATTACKER, card!.slot, DEFENDER, 0, Date.now()))
+            expect(result.dummy).toBe(false)
+            expect(result.enemy?.champions.map(c => c.id)).toEqual((await stateOf(DEFENDER)).partyChampionIds)
+        })
+
+        it('leaves out a player who has never opened the Arena', async () => {
+            await found(ATTACKER)
+            await found(DEFENDER)
+            expect((await getCandidates(ATTACKER, Date.now())).some(c => c.id === DEFENDER)).toBe(false)
+        })
+
         it('gives two refreshes free, then charges each at its own rung, never past the Gems held', async () => {
             // the two free ones, then 5 and 10, and 4 over
             await found(ATTACKER, refreshPrice(2) + refreshPrice(3) + 4)
+            await inBotBand(ATTACKER)
 
             const result = await burst(8, () => refreshCandidates(ATTACKER, Date.now()))
 

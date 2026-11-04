@@ -1,10 +1,11 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision, smallint, primaryKey, check } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision, customType, primaryKey, smallint, check } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { Currency } from '#shared/utils/currency'
 import type { HackerzRunSave } from '#shared/utils/gamelogic/hackerz'
 import type { GmOffer, GmShopItem } from '#shared/utils/gamelogic/gold-miner'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
@@ -95,13 +96,23 @@ export const transactions = pgTable(
     amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
     type: text('type').notNull(),
     category: text('category'),
+    // 'coins' rows move `user.balance` and carry a 4-decimal amount; 'gems' rows
+    // move `user.gems` and carry a whole number. Every sum over `amount` has to
+    // filter on this, or gems get counted as coins.
+    currency: text('currency').$type<Currency>().notNull().default('coins'),
+    // A credit that returns the player's own money (escrow, change, cancelled
+    // orders, crash refunds, bank withdrawals). Never income, never garnished.
+    refund: boolean('refund').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
   table => [
     index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt),
     // The site-wide audit filters on createdAt alone, which the composite index
     // above cannot serve because userId leads it.
-    index('transactions_createdAt_idx').on(table.createdAt)
+    index('transactions_createdAt_idx').on(table.createdAt),
+    // The gem audit, and finding when gem logging started, without scanning
+    // every coin row first.
+    index('transactions_currency_createdAt_idx').on(table.currency, table.createdAt)
   ]
 )
 
@@ -546,6 +557,30 @@ export const firewallRuns = pgTable('firewall_runs', {
   runState: jsonb('run_state').$type<FirewallRunSave>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+// ─── RIFTBORN ────────────────────────────────────────────────────────────
+
+// Rift XP (the account level), achievements, the skill tree and the lock of
+// the run in progress. The run itself is simulated on the client: `runId` is
+// the claim a finish clears, `runStartedAt` caps what it can count, and
+// `runSkills` freezes the tree the run deployed with.
+export const riftbornState = pgTable('riftborn_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  xp: integer('xp').notNull().default(0),
+  achievements: jsonb('achievements').$type<string[]>().notNull().default([]),
+  skills: jsonb('skills').$type<Record<string, number>>().notNull().default({}),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  bestTime: integer('best_time').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestLevel: integer('best_level').notNull().default(0),
+  totalKills: integer('total_kills').notNull().default(0),
+  runId: text('run_id'),
+  runClass: text('run_class'),
+  runStartedAt: timestamp('run_started_at'),
+  runSkills: jsonb('run_skills').$type<Record<string, number>>()
 })
 
 // ─── HACKERZ ─────────────────────────────────────────────────────────────
@@ -2664,6 +2699,69 @@ export const deadFrontProfile = pgTable('dead_front_profile', {
   eggsCompleted: integer('eggs_completed').notNull().default(0),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
+
+// ─── Rail Tycoon ──────────────────────────────────────────────────────────────
+
+/** Rail Tycoon's own bytea column type; no other game uses it, so removing either cannot break the other. */
+const railTycoonBytea = customType<{ data: Buffer, driverData: Buffer }>({
+  dataType() {
+    return 'bytea'
+  }
+})
+
+/**
+ * One shared multiplayer world. `save` is the gzipped binary world; a checkpoint
+ * locks the row, checks `revision` and writes revision + 1 (never CAS on a timestamp).
+ * Timestamps are server clock only.
+ */
+export const railTycoonWorlds = pgTable('rail_tycoon_worlds', {
+  id: text('id').primaryKey(),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  status: text('status').$type<'open' | 'closed'>().notNull().default('open'),
+  inviteCode: text('invite_code').notNull().unique(),
+  side: integer('side'),
+  maxCompanies: integer('max_companies'),
+  /** Listed in the public lobby while open, invite code and all, so anyone can join. */
+  isPublic: boolean('is_public').notNull().default(false),
+  /** The owner's drawing of the world, a serialized emblem (shared/utils/emblem.ts). */
+  avatar: text('avatar'),
+  revision: integer('revision').notNull().default(0),
+  save: railTycoonBytea('save').notNull(),
+  bytes: integer('bytes'),
+  tick: integer('tick'),
+  savedAt: timestamp('saved_at').notNull(),
+  lastActiveAt: timestamp('last_active_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow()
+}, t => [
+  index('rail_tycoon_worlds_ownerId_idx').on(t.ownerId),
+  index('rail_tycoon_worlds_public_idx').on(t.lastActiveAt).where(sql`${t.isPublic} and ${t.status} = 'open'`)
+])
+
+/**
+ * A world's map in 16x16-tile chunks, each gzipped (save.ts encodeWorldParts). The world row's save
+ * then holds the entity part, every entity and tile entity included; a row without chunks holds a
+ * whole-world save.
+ * A checkpoint rewrites only the chunks whose hash changed.
+ */
+export const railTycoonChunks = pgTable('rail_tycoon_chunks', {
+  worldId: text('world_id').notNull().references(() => railTycoonWorlds.id, { onDelete: 'cascade' }),
+  chunkId: integer('chunk_id').notNull(),
+  /** rtPartHash of the uncompressed chunk part. */
+  hash: text('hash').notNull(),
+  data: railTycoonBytea('data').notNull()
+}, t => [primaryKey({ columns: [t.worldId, t.chunkId] })])
+
+/** Which players belong to which world, and the company each one runs there. */
+export const railTycoonMembers = pgTable('rail_tycoon_members', {
+  worldId: text('world_id').notNull().references(() => railTycoonWorlds.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  companyId: integer('company_id').notNull(),
+  joinedAt: timestamp('joined_at').defaultNow()
+}, t => [
+  primaryKey({ columns: [t.worldId, t.userId] }),
+  uniqueIndex('rail_tycoon_members_world_company_idx').on(t.worldId, t.companyId)
+])
 
 // Nitro Rush: each player's best single lap per course. The unique key is the
 // one-entry-per-player rule, so a lap is an upsert that only ever lowers it.

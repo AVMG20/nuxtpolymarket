@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townContractDays, townContracts, townInventory, user } from '#server/database/schema'
@@ -34,9 +34,10 @@ async function wallet() {
 
 describe.skipIf(SKIP)('Polytown contracts (database)', () => {
     let releaseRealm: () => Promise<void>
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
-
-    beforeEach(cleanup)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
     afterEach(cleanup)
     afterAll(async () => {
         await releaseRealm()
@@ -72,23 +73,25 @@ describe.skipIf(SKIP)('Polytown contracts (database)', () => {
 
         const [inv] = await db.select().from(townInventory)
             .where(and(eq(townInventory.userId, OWNER), eq(townInventory.resource, c.resource)))
-        expect(inv!.amount).toBeLessThanOrEqual(c.quantity * 4)
-        expect((await wallet()).balance).toBeGreaterThan(0)
+        expect(inv!.amount).toBe(c.quantity * 4)
+        expect((await wallet()).balance).toBeCloseTo(c.reward, 2)
     })
 
-    it('refuses a short delivery and leaves the contract open', async () => {
+    it('refuses a short delivery, or an id that is not a contract of this town', async () => {
         await town()
         const { contracts } = await getTownContracts(OWNER)
         const c = contracts[0]!
         await stock(c.resource, c.quantity - 1)
 
         await expect(deliverTownContract(OWNER, c.id)).rejects.toThrow(/Not enough/)
+        await expect(deliverTownContract(OWNER, 'nope')).rejects.toThrow(/Unknown contract/)
+        await expect(deliverTownContract(OWNER, crypto.randomUUID())).rejects.toThrow(/Unknown contract/)
         const [row] = await db.select().from(townContracts).where(eq(townContracts.id, c.id))
         expect(row!.delivered).toBe(false)
         expect((await wallet()).balance).toBe(0)
     })
 
-    it('leaves the gem bonus for a manual claim after the third delivery', async () => {
+    it('holds the gem bonus until all three are delivered, then pays a burst of claims once', async () => {
         await town()
         const { contracts, bonus } = await getTownContracts(OWNER)
         expect(bonus.claimable).toBe(false)
@@ -96,41 +99,14 @@ describe.skipIf(SKIP)('Polytown contracts (database)', () => {
 
         const first = await deliverTownContract(OWNER, contracts[0]!.id)
         expect(first.bonusReady).toBe(false)
+        await expect(claimTownContractBonus(OWNER)).rejects.toThrow(/Deliver all three/)
         // The last two at once: whichever lands second completes the set.
         const rest = await Promise.all(contracts.slice(1).map(c => deliverTownContract(OWNER, c.id)))
         expect(rest.filter(r => r.bonusReady)).toHaveLength(1)
+        // Delivering never pays the gems by itself: the bonus waits for a claim.
         expect(rest.every(r => r.gems === 0)).toBe(true)
-
         expect((await wallet()).gems).toBe(0)
-        const view = await getTownContracts(OWNER)
-        expect(view.allDelivered).toBe(true)
-        expect(view.bonus.claimed).toBe(false)
-        expect(view.bonus.claimable).toBe(true)
-    })
-
-    it('refuses the bonus before all three are delivered', async () => {
-        await town()
-        const { contracts } = await getTownContracts(OWNER)
-        await expect(claimTownContractBonus(OWNER)).rejects.toThrow(/Deliver all three/)
-
-        for (const c of contracts.slice(0, 2)) {
-            await stock(c.resource, c.quantity)
-            await deliverTownContract(OWNER, c.id)
-        }
-        await expect(claimTownContractBonus(OWNER)).rejects.toThrow(/Deliver all three/)
-        expect((await wallet()).gems).toBe(0)
-        const view = await getTownContracts(OWNER)
-        expect(view.bonus.claimed).toBe(false)
-        expect(view.bonus.claimable).toBe(false)
-    })
-
-    it('pays a burst of bonus claims exactly once', async () => {
-        await town()
-        const { contracts, bonus } = await getTownContracts(OWNER)
-        for (const c of contracts) {
-            await stock(c.resource, c.quantity)
-            await deliverTownContract(OWNER, c.id)
-        }
+        expect((await getTownContracts(OWNER)).bonus.claimable).toBe(true)
 
         const result = await burst(10, () => claimTownContractBonus(OWNER))
         expect(result.ok).toBe(1)
@@ -141,11 +117,5 @@ describe.skipIf(SKIP)('Polytown contracts (database)', () => {
         const view = await getTownContracts(OWNER)
         expect(view.bonus.claimed).toBe(true)
         expect(view.bonus.claimable).toBe(false)
-    })
-
-    it('rejects ids that are not a contract of this town', async () => {
-        await town()
-        await expect(deliverTownContract(OWNER, 'nope')).rejects.toThrow(/Unknown contract/)
-        await expect(deliverTownContract(OWNER, crypto.randomUUID())).rejects.toThrow(/Unknown contract/)
     })
 })

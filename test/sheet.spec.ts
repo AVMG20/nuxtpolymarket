@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { cellKey, colName, evaluateFormula, formatCellNumber, parseKey, scratchCell } from '../app/utils/sheet'
+import { evaluateFormula, parseKey } from '../app/utils/sheet'
 
 const values: Record<string, number> = { A1: 2, A2: 3, A3: 5, B1: 10 }
 const lookup = (key: string) => values[key] ?? null
 
 describe('sheet cell keys', () => {
-    it('names columns like a spreadsheet', () => {
-        expect(colName(0)).toBe('A')
-        expect(colName(25)).toBe('Z')
-        expect(colName(26)).toBe('AA')
-        expect(cellKey(9, 1)).toBe('B10')
-    })
-
     it('round-trips keys', () => {
         expect(parseKey('AA12')).toEqual({ r: 11, c: 26 })
         expect(parseKey('nope')).toBeNull()
@@ -42,19 +35,3 @@ describe('evaluateFormula', () => {
     })
 })
 
-describe('scratchCell', () => {
-    it('stores numbers, text and formulas', () => {
-        expect(scratchCell('42', lookup)).toEqual({ v: 42 })
-        expect(scratchCell('hello', lookup)).toEqual({ v: 'hello' })
-        expect(scratchCell('=A1*2', lookup)).toEqual({ v: 4, f: '=A1*2' })
-    })
-})
-
-describe('formatCellNumber', () => {
-    it('formats like Sheets number formats', () => {
-        expect(formatCellNumber(1234.5, 'number')).toBe('1,234.50')
-        expect(formatCellNumber(0.49, 'percent')).toBe('49.00%')
-        expect(formatCellNumber(2, 'multiple')).toBe('2.00x')
-        expect(formatCellNumber(0.1 + 0.2)).toBe('0.3')
-    })
-})

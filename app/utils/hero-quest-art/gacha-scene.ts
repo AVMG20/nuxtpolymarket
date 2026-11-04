@@ -1,10 +1,11 @@
 // The Gacha scene: the four gachas as banners side by side, each a pennant in its own colour with
 // its emblem, then its level, its Seals, and its three buttons: the day's free ten, a single pull and
-// a ten-pull. Once a banner holds a 100-pull's Seals, that takes the single pull's place. A pull
-// short of Seals buys the rest with Gold, its price on the button; with the setting on, that takes a
-// second press to confirm. Pointing at an emblem swaps the buttons for the gacha's drop rates and
-// what is collected. A pull deals its results out as cards over the whole scene, each turning over
-// to the item in its rarity's frame; a 100-pull deals into a box that scrolls with the deal.
+// a ten-pull. Once a banner holds a 100-pull's Seals, the biggest tenfold pull it can pay for takes
+// the single pull's place. A pull short of Seals buys the rest with Gold, its price on the button;
+// with the setting on, that takes a second press to confirm. Pointing at an emblem swaps the buttons
+// for the gacha's drop rates and what is collected. A pull deals its results out as cards over the
+// whole scene, each turning over to the item in its rarity's frame; a 100-pull deals into a box that
+// scrolls with the deal, and a 1,000-pull or bigger shows a count per rarity instead.
 
 import { C, RARITY_COLORS } from './palette'
 import { Surface, rect, px, line, tri, disc, ring, ellipse, poly, dither, ditherDisc, blit } from './surface'
@@ -20,9 +21,10 @@ import { collectionTile, plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
 import type { HqCollectionTab } from '../hero-quest-scenes'
 import { formatHq, type HqNotation } from '#shared/utils/hero-quest/numbers'
+import { PULL_TALLY_SIZE } from '#shared/utils/hero-quest/constants'
 
 export type GachaSystemId = 'gear' | 'champion' | 'skill' | 'artifact'
-export type GachaButton = 'free' | 'one' | 'ten' | 'hundred'
+export type GachaButton = 'free' | 'one' | 'ten' | 'bulk'
 
 export interface GachaBannerView {
     system: GachaSystemId
@@ -42,13 +44,13 @@ export interface GachaBannerView {
     freePerDay: number
     one: PullPrice
     ten: PullPrice
-    /** The 100-pull, in the single pull's place, or null while the banner holds fewer Seals than it costs. */
-    hundred: PullPrice | null
+    /** The biggest pull from a hundred up that the Seals cover, in the single pull's place, or null with none. */
+    bulk: PullPrice | null
 }
 
 /** What a pull costs: the Seals it takes from the balance, and the Gold for any it is short. */
 export interface PullPrice {
-    /** Seals the pull costs in all: 1, 9 for ten, or 90 for a hundred. */
+    /** Seals the pull costs in all: 1, 9 for ten, 90 for a hundred, and so on. */
     cost: number
     /** Pulls it gives, for the struck-through "10" a ten-pull's price shows. */
     pulls: number
@@ -69,13 +71,21 @@ export interface GachaCard {
     essence: number
 }
 
+/** A pull too big to deal: what it came to, per rarity. */
+export interface GachaTally {
+    pulls: number
+    rarities: Readonly<Record<string, number>>
+    newItems: number
+    essence: number
+}
+
 export interface GachaView {
     /** The player's big-number notation, for the Seals and the Essence a card gave. */
     notation: HqNotation
     banners: readonly GachaBannerView[]
     gold: string
-    /** The pull being revealed, or null. `key` changes with every pull, so a repeat deals again. */
-    reveal: { key: number, system: GachaSystemId, cards: readonly GachaCard[] } | null
+    /** The pull being revealed, or null. `key` changes with every pull, so a repeat deals again. With a `tally` there are no cards. */
+    reveal: { key: number, system: GachaSystemId, cards: readonly GachaCard[], tally?: GachaTally | null } | null
     /** A pull that spends Gold, pressed once and waiting for the second press that confirms it. */
     armed: { system: GachaSystemId, button: Exclude<GachaButton, 'free'> } | null
 }
@@ -210,11 +220,10 @@ const FREE_H = 13
 /** A pull button is two lines: what it does, and what it costs. */
 const PULL_H = 20
 const BTN_GAP = 2
-/** A banner's buttons, top to bottom: the 100-pull stands in for the single pull once it is affordable. */
+/** A banner's buttons, top to bottom: a bulk pull stands in for the single pull once one is affordable. */
 function buttonsOf(b: GachaBannerView): readonly GachaButton[] {
-    return ['free', b.hundred ? 'hundred' : 'one', 'ten']
+    return ['free', b.bulk ? 'bulk' : 'one', 'ten']
 }
-const PULL_LABELS: Readonly<Record<Exclude<GachaButton, 'free'>, string>> = { one: 'PULL 1', ten: 'PULL 10', hundred: 'PULL 100' }
 
 /** The reveal: two rows of five cards, each with its tag under it. */
 const CARD = 24
@@ -250,6 +259,10 @@ const MYTHIC_ECHO = 0.25
 /** How long a legendary's or a mythic's banner stays up. */
 const BANNER_FOR = 1.8
 const FLASH = new Surface(REVEAL_SIZE, REVEAL_SIZE, 0, 0)
+/** A tally's board, and how fast its rows come in, one rarity at a time. */
+const TALLY_W = 150
+const TALLY_ROW = 12
+const TALLY_EVERY = 0.12
 
 const BUY_PLATE = [C.green0, C.green1, C.green2] as const
 /** One coin, for a button too narrow for the Gold pile. */
@@ -288,7 +301,7 @@ export function gachaButtonEnabled(b: GachaBannerView, button: GachaButton): boo
         case 'free': return b.free.state === 'ready'
         case 'one': return b.one.affordable
         case 'ten': return b.ten.affordable
-        case 'hundred': return b.hundred?.affordable ?? false
+        case 'bulk': return b.bulk?.affordable ?? false
     }
 }
 
@@ -323,6 +336,7 @@ export class GachaScene {
     revealDone(view: GachaView, t: number): boolean {
         const r = view.reveal
         if (!r || this.dealtKey !== r.key || this.dealtAt === null) return false
+        if (r.tally) return t - this.dealtAt >= RARITY_KEYS.length * TALLY_EVERY
         const beats = dealSchedule(r.cards)
         return t - this.dealtAt >= beats[beats.length - 1]!.flip
     }
@@ -354,7 +368,8 @@ export class GachaScene {
             const h = hover !== null && hover !== 'reveal' && hover.system === b.system ? hover.part : null
             this.drawBanner(s, columnBox(s.w, i), b, h, pressed, busy, view.armed?.system === b.system ? view.armed.button : null, view.notation)
         })
-        if (view.reveal) this.drawReveal(s, t, view.reveal, fast, calm, view.notation)
+        if (view.reveal?.tally) this.drawTally(s, t, view.reveal, view.reveal.tally, fast, view.notation)
+        else if (view.reveal) this.drawReveal(s, t, view.reveal, fast, calm, view.notation)
         return s
     }
 
@@ -411,7 +426,7 @@ export class GachaScene {
                 return
             }
             const armed = armedHere === id
-            this.drawPull(s, box, b.system, (id === 'hundred' ? b.hundred : b[id])!, PULL_LABELS[id], armed, enabled, lit, pressed)
+            this.drawPull(s, box, b.system, b[id]!, armed, enabled, lit, pressed, notation)
         })
     }
 
@@ -431,15 +446,17 @@ export class GachaScene {
     }
 
     /** A pull button: what it does over what it costs, or once pressed to spend Gold, the confirm. */
-    private drawPull(s: Surface, box: Box, system: GachaSystemId, price: PullPrice, label: string, armed: boolean, enabled: boolean, lit: boolean, pressed: boolean): void {
+    private drawPull(s: Surface, box: Box, system: GachaSystemId, price: PullPrice, armed: boolean, enabled: boolean, lit: boolean, pressed: boolean, notation: HqNotation): void {
         plateButton(s, box, '', armed ? CONFIRM_PLATE : BUY_PLATE, enabled, lit || armed, pressed)
         const sink = enabled && lit && pressed ? 1 : 0
         const cx = box.x + (box.w >> 1)
         const ink = enabled ? C.white : C.stone2
-        // a ten-pull says what it is: nine paid for and one on the house, the free one in the free pull's gold; a hundred, ninety and ten
+        // a ten-pull says what it is: nine paid for and one on the house, the free one in the free pull's gold; a hundred, ninety and ten.
+        // From a thousand up that no longer fits the button, so it just says its size.
         const bonus = price.pulls - price.cost
-        if (armed || bonus <= 0) drawText(s, armed ? 'CONFIRM' : label, cx, box.y + 3 + sink, ink, { align: 1, shadow: 1 })
-        else {
+        if (armed || bonus <= 0 || price.pulls >= PULL_TALLY_SIZE) {
+            drawText(s, armed ? 'CONFIRM' : `PULL ${formatHq(price.pulls, notation, 0)}`, cx, box.y + 3 + sink, ink, { align: 1, shadow: 1 })
+        } else {
             const paid = `PULL ${price.cost}`
             const free = `+${bonus}`
             const x0 = cx - ((textWidth(paid) + 1 + textWidth(free)) >> 1)
@@ -451,7 +468,7 @@ export class GachaScene {
         const y = box.y + 11 + sink
         const pieces: { w: number, draw: (x: number) => void }[] = []
         if (price.fromBalance > 0) {
-            const n = String(price.fromBalance)
+            const n = formatHq(price.fromBalance, notation, 0)
             pieces.push({ w: textWidth(n) + 9, draw: (x) => {
                 drawText(s, n, x, y, ink, { shadow: 1 })
                 glyph(s, SEAL_DOT[system], x + textWidth(n) + 5, y + 2, true)
@@ -490,6 +507,47 @@ export class GachaScene {
             drawText(s, `${pct < 1 ? pct.toFixed(1) : Math.round(pct)}%`, x1, y, C.bone1, { align: 2, shadow: 1 })
             y += 7
         })
+    }
+
+    /** A pull too big to deal: the board shows a row per rarity, common first, coming in one at a time. */
+    private drawTally(s: Surface, t: number, r: NonNullable<GachaView['reveal']>, tally: GachaTally, fast: boolean, notation: HqNotation): void {
+        if (this.dealtKey !== r.key) {
+            this.dealtKey = r.key
+            this.dealtAt = fast ? -1e9 : t
+        }
+        const since = t - (this.dealtAt ?? t)
+        const rowsH = RARITY_KEYS.length * TALLY_ROW
+        const extras = [
+            ...(tally.newItems > 0 ? [{ text: `${formatHq(tally.newItems, notation)} NEW`, color: C.green3 }] : []),
+            ...(tally.essence > 0 ? [{ text: `+${formatHq(tally.essence, notation)} ESSENCE`, color: C.purple2 }] : [])
+        ]
+        const boardH = 22 + rowsH + extras.length * 9 + 16
+        const boardX = (s.w - TALLY_W) >> 1
+        const boardY = (s.h - boardH) >> 1
+        dither(s, 0, 0, s.w, s.h, C.ink, 12)
+        panel(s, boardX, boardY, TALLY_W, boardH)
+        drawText(s, `${NAMES[r.system]}: PULL ${formatHq(tally.pulls, notation, 0)}`, s.w >> 1, boardY + 7, C.gold2, { align: 1, shadow: 1 })
+
+        let y = boardY + 22
+        RARITY_KEYS.forEach((key, k) => {
+            const landed = since - k * TALLY_EVERY
+            if (landed >= 0) {
+                const count = tally.rarities[key] ?? 0
+                const c = RARITY_COLORS[key]![2]
+                // a row slides in from a few pixels above, and a rarity that never came sits dim
+                const lift = Math.round(Math.max(0, 1 - landed / TALLY_EVERY) * 3)
+                drawText(s, RARITY_NAMES[k]!, boardX + 12, y - lift, count > 0 ? c : C.stone2, { shadow: 1 })
+                drawText(s, formatHq(count, notation), boardX + TALLY_W - 12, y - lift, count > 0 ? C.white : C.stone2, { align: 2, shadow: 1 })
+            }
+            y += TALLY_ROW
+        })
+        const done = since >= RARITY_KEYS.length * TALLY_EVERY
+        if (!done) return
+        for (const extra of extras) {
+            drawText(s, extra.text, s.w >> 1, y, extra.color, { align: 1, shadow: 1 })
+            y += 9
+        }
+        drawText(s, 'PRESS TO CLOSE', s.w >> 1, y + 3, C.stone3, { align: 1, shadow: 1 })
     }
 
     private drawReveal(s: Surface, t: number, r: NonNullable<GachaView['reveal']>, fast: boolean, calm: boolean, notation: HqNotation): void {

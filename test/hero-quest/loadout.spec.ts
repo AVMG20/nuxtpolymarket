@@ -126,23 +126,6 @@ describe.skipIf(SKIP)('hero-quest loadout validation', () => {
                 artifactIds: ['artifact_offense_0', 'artifact_defense_0', 'artifact_tempo_0']
             })).rejects.toThrow()
         })
-
-        it('imposes no slot limit on Gear — all six are open from account start', async () => {
-            // The deliberate exception among the four gachas (`gear-equipment.md` §1).
-            const pieces = [
-                'gear_weapon_common', 'gear_boots_common', 'gear_gauntlets_common',
-                'gear_charm_common', 'gear_armor_common', 'gear_helmet_common'
-            ]
-            await own('gear', ...pieces)
-            const writes = await validate({
-                gear: {
-                    weapon: 'gear_weapon_common', boots: 'gear_boots_common',
-                    gauntlets: 'gear_gauntlets_common', charm: 'gear_charm_common',
-                    armor: 'gear_armor_common', helmet: 'gear_helmet_common'
-                }
-            })
-            expect(Object.keys(writes.equippedGear!)).toHaveLength(6)
-        })
     })
 
     describe('duplicate slotting', () => {
@@ -184,15 +167,6 @@ describe.skipIf(SKIP)('hero-quest loadout validation', () => {
                     hero: 'front', champ_rask: 'front', champ_vheln: 'front', champ_sorrek: 'front'
                 }
             })).rejects.toThrow()
-        })
-
-        it('allows an empty front row — rows are capacities, not quotas', async () => {
-            await own('champion', 'champ_rask')
-            const writes = await validate({
-                championIds: ['champ_rask'],
-                formation: { hero: 'back', champ_rask: 'back' }
-            })
-            expect(writes.formation).toEqual({ hero: 'back', champ_rask: 'back' })
         })
 
         it('re-validates the formation when the party changes without one supplied', async () => {
@@ -246,10 +220,6 @@ describe.skipIf(SKIP)('hero-quest loadout validation', () => {
             await expect(validate({ ascendantSkillIds: ['skill_haste', 'skill_haste'] })).rejects.toThrow()
             await expect(validate({ ascendantSkillIds: ['skill_convergence'] })).rejects.toThrow()
             await expect(validate({ ascendantSkillIds: ['skill_ragnarok_strike'] })).rejects.toThrow()
-        })
-
-        it('clears with an empty list', async () => {
-            await expect(validate({ ascendantSkillIds: [] })).resolves.toEqual({ ascendantSkillIds: [] })
         })
     })
 

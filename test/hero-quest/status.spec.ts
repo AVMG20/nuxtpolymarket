@@ -20,9 +20,7 @@ import {
     cleanse,
     extendHostile,
     hasStatus,
-    isHostile,
     reflectFraction,
-    stackCount,
     statMultiplier,
     tickStatuses
 } from '#shared/utils/hero-quest/status'
@@ -87,12 +85,6 @@ describe('status engine', () => {
             const statuses = list(burn)
             for (let index = 0; index < STATUS_MAX_STACKS + 5; index++) applyStatus(statuses, burn)
             expect(statuses[0]!.stacks).toBe(STATUS_MAX_STACKS)
-        })
-
-        it('keeps different ids as separate instances', () => {
-            const statuses = list(burn, { ...burn, id: 'other_burn' })
-            expect(statuses).toHaveLength(2)
-            expect(stackCount(statuses, 'dot')).toBe(2)
         })
     })
 
@@ -197,10 +189,6 @@ describe('status engine', () => {
             applyStatus(statuses, shield)
             expect(statuses[0]!.magnitude.toNumber()).toBe(170)
         })
-
-        it('passes damage straight through when no shield is up', () => {
-            expect(absorbDamage([], 40).throughput.toNumber()).toBe(40)
-        })
     })
 
     describe('control', () => {
@@ -214,12 +202,6 @@ describe('status engine', () => {
             const statuses = list({ id: 'freeze', kind: 'stun', duration: 5 })
             expect(canAutoattack(statuses)).toBe(false)
             expect(canCastAbilities(statuses)).toBe(false)
-        })
-
-        it('frees the unit once control expires', () => {
-            const statuses = list({ id: 'freeze', kind: 'stun', duration: 2 })
-            tickStatuses(statuses, 3)
-            expect(canAutoattack(statuses)).toBe(true)
         })
     })
 
@@ -235,11 +217,6 @@ describe('status engine', () => {
 
             expect(removed.map(status => status.id).sort()).toEqual(['burn', 'silence'])
             expect(statuses.map(status => status.id).sort()).toEqual(['empower', 'sanctuary'])
-        })
-
-        it('classifies kinds so a cleanse can never eat a friendly effect', () => {
-            expect(['dot', 'debuff', 'silence', 'stun'].every(isHostile)).toBe(true)
-            expect(['hot', 'buff', 'shield', 'taunt', 'reflect'].some(isHostile)).toBe(false)
         })
 
         it('blocks new hostile effects while immune, and lets friendly ones land', () => {

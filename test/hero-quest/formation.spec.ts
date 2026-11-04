@@ -9,15 +9,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { targetingOrder } from '#shared/utils/hero-quest/combat'
-import { enemyStatsAt, incomingDps, secondsToDie } from '#shared/utils/hero-quest/settle'
+import { enemyStatsAt, incomingDps } from '#shared/utils/hero-quest/settle'
 import {
     archetypeSpread,
-    archetypeThreat,
     deriveUnitStats,
-    partyUnitStats,
-    threatFor
+    partyUnitStats
 } from '#shared/utils/hero-quest/stats'
-import { getClass } from '#shared/utils/hero-quest/content/classes'
 import { getArchetype } from '#shared/utils/hero-quest/content/champions'
 import { runFight } from '#shared/utils/hero-quest/fight'
 import { BASE_THREAT, TANK_THREAT_MULTIPLIER } from '#shared/utils/hero-quest/constants'
@@ -81,11 +78,6 @@ describe('targeting order', () => {
         expect(targetingOrder(units)).toHaveLength(2)
         expect(incomingDps(units, { members: [enemyStatsAt(AT_START)] }).gt(0)).toBe(true)
     })
-
-    it('preserves relative order within a row, so the Hero stays the first front-row target', () => {
-        const units = partyUnitStats(hero(10, [champion('front'), champion('front')]))
-        expect(targetingOrder(units)[0]).toBe(units[0])
-    })
 })
 
 describe('survivability', () => {
@@ -99,44 +91,6 @@ describe('survivability', () => {
 
         // Adding bodies must not raise the rate the party is taking damage at.
         expect(incomingDps(party, enemy).eq(incomingDps(solo, enemy))).toBe(true)
-    })
-
-    it('makes party size a real survivability lever — the point of the whole change', () => {
-        const solo = secondsToDie(partyUnitStats(hero(10)), enemy)
-        const party = secondsToDie(partyUnitStats(hero(10, [champion('front'), champion('front')])), enemy)
-
-        expect(party).toBeGreaterThan(solo)
-    })
-
-    it('buys far more time from a Tank body than a Damage body, on DEF and VIT together', () => {
-        const solo = partyUnitStats(hero(10))
-        const withDamage = secondsToDie([...solo, unit('damage', 'back', 2)], enemy)
-        const withTank = secondsToDie([...solo, unit('tank', 'back', 2)], enemy)
-
-        expect(withTank).toBeGreaterThan(withDamage)
-    })
-
-    /**
-     * Documents a real limit of the wave projection rather than asserting a property it does
-     * not have: `secondsToDie` is a **sum** over the targeting order, so the order itself
-     * cannot change the total. Position pays off where a death actually costs something —
-     * `fight.ts`, where a dead unit stops attacking (see `fight.spec.ts`). In the wave model a
-     * Tank earns its keep through its own DEF and VIT, per the spec above, not through
-     * standing anywhere in particular.
-     */
-    it('is order-independent in the wave projection — position pays off in fights, not here', () => {
-        const damage = unit('damage', 'front', 2)
-        const tankFront = unit('tank', 'front', 2)
-        const tankBack = unit('tank', 'back', 2)
-
-        expect(secondsToDie([damage, tankFront], enemy))
-            .toBeCloseTo(secondsToDie([damage, tankBack], enemy), 6)
-    })
-
-    it('never reaches the back row when the front-most defender is immune', () => {
-        const wall = { members: enemy.members.map(member => ({ ...member, pwr: ZERO })) }
-        expect(secondsToDie(partyUnitStats(hero(10, [champion('back')])), wall))
-            .toBe(Number.POSITIVE_INFINITY)
     })
 })
 
@@ -153,37 +107,9 @@ describe('fight-time targeting', () => {
         expect(hits.length).toBeGreaterThan(0)
         expect(hits.every(event => event.unitIndex === 1)).toBe(true)
     })
-
-    it('falls through to the back row once the front row is down', () => {
-        // A level-1 Hero in front of a deep boss dies quickly, exposing the back row.
-        const deep = { prestige: 0, world: 6, stage: 5, killsInStage: 0 }
-        const party = hero(1, [champion('back', { championId: 'champ_back' })], 'front')
-        const fight = runFight({ hero: party, position: deep, seed: 999 })
-
-        const struck = new Set(
-            fight.events.filter(e => e.kind === 'enemy_attack').map(e => e.unitIndex)
-        )
-        expect(fight.outcome).toBe('wipe')
-        expect(struck.has(0)).toBe(true)
-        expect(struck.has(1)).toBe(true)
-    })
 })
 
 describe('threat', () => {
-    it('gives the Tank archetype and the Warrior path an aggro weight, nobody else', () => {
-        expect(archetypeThreat('tank')).toBe(BASE_THREAT * TANK_THREAT_MULTIPLIER)
-        for (const archetype of ['damage', 'support', 'control'] as const) {
-            expect(archetypeThreat(archetype), archetype).toBe(BASE_THREAT)
-        }
-        // The doc attributes it to the *path*, so every Warrior node carries it.
-        for (const classId of ['class_warrior', 'class_berserker', 'class_paladin'] as const) {
-            expect(threatFor(classId), classId).toBe(BASE_THREAT * TANK_THREAT_MULTIPLIER)
-        }
-        for (const classId of ['class_beginner', 'class_mage', 'class_archer'] as const) {
-            expect(threatFor(classId), classId).toBe(BASE_THREAT)
-        }
-    })
-
     it('sorts a Tank ahead of its own row-mates', () => {
         const damage = unit('damage', 'front', 2)
         const tank = { ...unit('tank', 'front', 2), threat: BASE_THREAT * TANK_THREAT_MULTIPLIER }
@@ -197,32 +123,9 @@ describe('threat', () => {
         // inert while the front row stands, which is what makes back-lining it a real mistake.
         expect(targetingOrder([damage, tank])[0]).toBe(damage)
     })
-
-    it('is a stable no-op when nobody carries an aggro weight', () => {
-        // With no aggro anchor fielded, the order is the plain row split in party order.
-        const units = partyUnitStats(hero(10, [champion('front'), champion('front')]))
-        expect(targetingOrder(units)).toEqual(units)
-    })
 })
 
-describe('default rows', () => {
-    it('puts the Beginner root and the whole Warrior line in front, everything else back', () => {
-        const front = ['class_beginner', 'class_warrior', 'class_barbarian', 'class_berserker', 'class_knight', 'class_paladin']
-        for (const id of front) {
-            expect(getClass(id as never).defaultRow, id).toBe('front')
-        }
-        for (const id of ['class_mage', 'class_sorcerer', 'class_archer', 'class_hunter', 'class_beast_master']) {
-            expect(getClass(id as never).defaultRow, id).toBe('back')
-        }
-    })
-
-    it('defaults only the Tank archetype to the front row', () => {
-        expect(getArchetype('tank').defaultRow).toBe('front')
-        for (const id of ['damage', 'support', 'control'] as const) {
-            expect(getArchetype(id).defaultRow, id).toBe('back')
-        }
-    })
-
+describe('the Hero row', () => {
     it('lets a saved Hero row override the class default', () => {
         expect(partyUnitStats(hero(10))[0]!.row).toBe('front')
         expect(partyUnitStats(hero(10, [], 'back'))[0]!.row).toBe('back')

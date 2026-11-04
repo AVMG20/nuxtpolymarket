@@ -16,8 +16,7 @@ const props = defineProps<{
 }>()
 defineEmits<{ pick: [id: string] }>()
 
-const shown = computed(() => props.status !== 'unknown')
-const name = (id: string) => props.discovered.has(id) ? (getPlant(id)?.name ?? id) : '???'
+const name = (id: string) => getPlant(id)?.name ?? id
 const facts = computed(() => [
   { l: 'Value', v: formatNumber(props.plant.value) },
   { l: 'Speed', v: String(props.plant.speed) },
@@ -29,22 +28,21 @@ const yourChance = (m: Mutation) => Math.max(0, Math.min(1, m.chance + props.mut
 
 <template>
   <div class="xg-thumb w-full h-52 !rounded-[22px_22px_22px_6px] shrink-0">
-    <span v-if="!shown" class="size-24 rounded-[20px_20px_20px_6px] border-[1.5px] border-dashed border-(--xg-edge2) flex items-center justify-center font-bold text-4xl text-(--xg-faint)">?</span>
-    <XenoPlantIcon v-else :id="plant.id" :size="184" stage="ready" :silhouette="status === 'reach'" :animated="status === 'known'" />
+    <XenoPlantIcon :id="plant.id" :size="184" stage="ready" :silhouette="status !== 'known'" :animated="status === 'known'" />
   </div>
 
   <div>
     <p class="xg-label" :style="{ color: statusLabel.color }">{{ statusLabel.text }}</p>
     <h2 class="xg-h text-2xl mt-0.5 flex flex-wrap items-center gap-x-2">
-      {{ shown ? plant.name : 'Unknown species' }}
+      {{ plant.name }}
       <span class="xg-tier !text-[15px]" :class="tierClass(plant.tier, !!plant.voidPlant)">{{ roman(plant.tier) }}</span>
     </h2>
-    <p v-if="shown" class="text-[13px] text-(--xg-muted) mt-1">{{ plant.description }}</p>
+    <p class="text-[13px] text-(--xg-muted) mt-1">{{ plant.description }}</p>
     <p v-if="owned" class="text-[13px] mt-1"><b class="xg-num">{{ formatNumber(owned, false) }}</b> <span class="text-(--xg-muted)">on your shelf</span></p>
-    <p v-if="plant.voidPlant && shown" class="text-[12.5px] font-bold text-(--xg-uv) mt-1.5">Void plant: only grows in a planter with a tier II+ artifact.</p>
+    <p v-if="plant.voidPlant" class="text-[12.5px] font-bold text-(--xg-uv) mt-1.5">Void plant: only grows in a planter with a tier II+ artifact.</p>
   </div>
 
-  <div v-if="shown" class="grid grid-cols-4 gap-1.5">
+  <div class="grid grid-cols-4 gap-1.5">
     <div v-for="f in facts" :key="f.l" class="xg-well px-2 py-1.5 min-w-0">
       <span class="block text-[10px] font-extrabold tracking-[.08em] uppercase text-(--xg-faint)">{{ f.l }}</span>
       <b class="xg-num block text-[14px] truncate">{{ f.v }}</b>
@@ -54,7 +52,7 @@ const yourChance = (m: Mutation) => Math.max(0, Math.min(1, m.chance + props.mut
   <div>
     <p class="xg-label">Bred from</p>
     <p v-if="plant.isStarter" class="text-[12.5px] text-(--xg-muted) mt-1.5">A starter plant. Buy its seeds in the Market.</p>
-    <p v-else-if="!bredFrom.length" class="text-[12.5px] text-(--xg-muted) mt-1.5">No known recipe.</p>
+    <p v-else-if="!bredFrom.length" class="text-[12.5px] text-(--xg-muted) mt-1.5">No recipe.</p>
     <div v-for="m in bredFrom" :key="`${m.parent1}-${m.parent2}`" class="xg-well p-2.5 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
       <button type="button" class="inline-flex items-center gap-1.5" @click="$emit('pick', m.parent1)">
         <XenoPlantIcon :id="m.parent1" :size="28" stage="ready" :silhouette="!discovered.has(m.parent1)" /><b class="text-[13px]">{{ name(m.parent1) }}</b>

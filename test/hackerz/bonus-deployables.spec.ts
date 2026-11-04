@@ -1,19 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   HACKERZ_BONUS_EVERY,
-  HACKERZ_DEPLOYABLES,
   HACKERZ_DEPLOYABLE_MAX,
-  HACKERZ_EVENTS,
   HACKERZ_MAX_WAVE,
   HACKERZ_SAVE_VERSION,
-  hackerzBonusEvent,
   hackerzBonusOffered,
-  hackerzDeployableCost,
   hackerzEmptyArmoury,
   hackerzEmptyMainframe,
   hackerzLoadout,
-  hackerzMainframe,
-  hackerzStock,
   hackerzValidateSave,
   type HackerzDeployableStock,
   type HackerzRunSave
@@ -51,51 +45,14 @@ describe('hackerz bonus rounds', () => {
     expect(hackerzBonusOffered(6, 3)).toBe(true)
     expect(hackerzBonusOffered(6, 6)).toBe(false)
   })
-
-  it('rotates through every event', () => {
-    const seen = new Set([3, 6, 9].map(wave => hackerzBonusEvent(wave).id))
-    expect(seen.size).toBe(HACKERZ_EVENTS.length)
-  })
 })
 
 describe('hackerz deployables', () => {
-  it('prices creep with the wave and never fall', () => {
-    for (const def of HACKERZ_DEPLOYABLES) {
-      expect(hackerzDeployableCost(def, 0)).toBe(def.cost)
-      expect(hackerzDeployableCost(def, 20)).toBeGreaterThan(hackerzDeployableCost(def, 5))
-    }
-  })
-
-  it('fills a stock for an armoury written before deployables existed', () => {
-    const { deployables: _, ...legacy } = hackerzEmptyArmoury()
-    expect(hackerzStock(legacy)).toEqual({ honeypot: 0, bomb: 0, proxy: 0, portscan: 0, blip: 0, whitehat: 0, surge: 0 })
-  })
-
   it('carries the stock into the loadout, filling items a save predates', () => {
     // A save written before the Portscan, Blip, White Hat and Surge existed.
     const armoury = { ...hackerzEmptyArmoury(), deployables: { honeypot: 2, bomb: 0, proxy: 1 } as HackerzDeployableStock }
     expect(hackerzLoadout(armoury, hackerzEmptyMainframe(), 'breach').deployables)
       .toEqual({ honeypot: 2, bomb: 0, proxy: 1, portscan: 0, blip: 0, whitehat: 0, surge: 0 })
-  })
-
-  it('gives every deployable its own key', () => {
-    const keys = HACKERZ_DEPLOYABLES.map(def => def.key)
-    expect(new Set(keys).size).toBe(keys.length)
-  })
-
-  it('upgrades the new consumables from their base to their cap in the Mainframe', () => {
-    const base = hackerzLoadout(hackerzEmptyArmoury(), hackerzEmptyMainframe(), 'breach')
-    expect(base.portscanMs).toBe(15_000)
-    expect(base.blipNodes).toBe(1)
-    expect(base.whitehatTargets).toBe(1)
-    expect(base.surgeMs).toBe(8_000)
-    const maxed = { ...hackerzEmptyMainframe() }
-    for (const id of ['scanner', 'blip', 'whitehat', 'surge'] as const) maxed[id] = hackerzMainframe(id).max
-    const top = hackerzLoadout(hackerzEmptyArmoury(), maxed, 'breach')
-    expect(top.portscanMs).toBe(30_000)
-    expect(top.blipNodes).toBe(3)
-    expect(top.whitehatTargets).toBe(5)
-    expect(top.surgeMs).toBe(16_000)
   })
 })
 

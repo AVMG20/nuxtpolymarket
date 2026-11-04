@@ -13,8 +13,12 @@ import type {
 export interface DfPlayerSetup {
     userId: string
     name: string
-    /** Validated start weapon (unlocked and startable). */
-    startWeapon: DfWeaponId
+    /**
+     * Tests only: the weapon in hand when the match starts. Matches never set
+     * it (start weapons can't be chosen): everyone starts, respawns and goes
+     * into last stand with the M1911.
+     */
+    startWeapon?: DfWeaponId
     /** Sanitised attachments per weapon. */
     attachments: Partial<Record<DfWeaponId, DfAttachmentChoice>>
     /** Selected research modifiers per perk. */
@@ -30,6 +34,8 @@ export interface SimWeapon {
     stats: DfWeaponStats
     /** In the Pack-a-Punch: the slot stays reserved (indices never shift) until the upgrade comes back. */
     away?: boolean
+    /** Rarity tier 0..3 (rarity.ts), already in `stats`; Pack-a-Punch keeps it. */
+    rarity?: number
 }
 
 export interface SimReload {
@@ -144,6 +150,8 @@ export interface SimZombie {
     attackTarget: number
     /** The swing's windup is over and it waits out the target's lag before it lands. */
     swingPending?: boolean
+    /** Seconds a landing swing has waited for its target's stalled movement reports. */
+    swingHeld?: number
     spitReadyAt: number
     stuckCheckAt: number
     stuckRef: Vec3

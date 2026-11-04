@@ -75,6 +75,15 @@ export function autoEngageDelaySeconds(secondsPerKill: number | null): number {
     )
 }
 
+/**
+ * Whether a cleared run leaves the stage for the prestige bridge. `engaging` holds it too: the read
+ * that first says the run is cleared lands just before the fight it was cleared by, and closing the
+ * stage's iris in that gap left the whole replay playing behind a shut iris.
+ */
+export function prestigeGateWanted(input: { runCleared: boolean, engaging: boolean, fightOpen: boolean, holdGate: boolean }): boolean {
+    return (input.runCleared && !input.engaging && !input.fightOpen) || input.holdGate
+}
+
 export function shouldAutoEngage(input: AutoEngageInput): boolean {
     if (!input.atBossGate) return false
     if (!input.documentVisible) return false

@@ -1,12 +1,20 @@
-import { and, eq, isNotNull } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { db } from '#server/database'
 import { callOfXenoState, user } from '#server/database/schema'
-import { getLockedCallOfXenoState } from '#server/utils/call-of-xeno'
 import { seedUser, SKIP } from '../setup/db-helpers'
-import { CALL_OF_XENO_SAVE_VERSION, type CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
+import { CALL_OF_XENO_SAVE_EARLY_POINTS_FLOOR, CALL_OF_XENO_SAVE_VERSION, type CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
+
+// The save endpoint driven as Nitro would drive it: the user comes from the
+// session, the body from the request. Both are stood in for here.
+vi.mock('#server/utils/auth', () => ({
+    requireUserId: async (event: { userId: string }) => event.userId
+}))
 
 const userId = 'test-xeno-save-cas'
+
+type Handler = (event: { userId: string, body?: unknown }) => Promise<{ revision: number }>
+let saveRun: Handler
 
 function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
     return {
@@ -39,25 +47,9 @@ function save(overrides: Partial<CallOfXenoRunSave> = {}): CallOfXenoRunSave {
     }
 }
 
-/**
- * The endpoint's exact claim, against the real database: lock the row, take
- * the stored depth from inside that lock, refuse anything shallower, write.
- * The revision the client sends is deliberately not part of the guard.
- */
-async function storeSave(next: CallOfXenoRunSave) {
-    return db.transaction(async (tx) => {
-        const state = await getLockedCallOfXenoState(tx, userId)
-        if (!state.runStartedAt) return null
-        if (next.round < (state.runSave?.round ?? 0)) return null
-        const [row] = await tx.update(callOfXenoState).set({
-            runSave: next,
-            runSaveRevision: state.runSaveRevision + 1
-        }).where(and(
-            eq(callOfXenoState.userId, userId),
-            isNotNull(callOfXenoState.runStartedAt)
-        )).returning({ revision: callOfXenoState.runSaveRevision })
-        return row ?? null
-    })
+/** The client's revision is sent but deliberately not part of the guard. */
+async function storeSave(next: CallOfXenoRunSave, revision = 0) {
+    return saveRun({ userId, body: { revision, save: next } })
 }
 
 async function stored() {
@@ -77,31 +69,27 @@ async function arm() {
 
 describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
     beforeAll(async () => {
+        Object.assign(globalThis, {
+            defineEventHandler: (handler: unknown) => handler,
+            readBody: async (event: { body?: unknown }) => event.body
+        })
+        saveRun = (await import('#server/api/call-of-xeno/save-run.post')).default as unknown as Handler
         await seedUser(userId)
         await db.insert(callOfXenoState).values({ userId })
-        // Simulate a deploy: armed run, fresh checkpoint slot.
-        await arm()
     })
 
     afterAll(async () => {
         await db.delete(user).where(eq(user.id, userId))
     })
 
-    it('round-trips a full checkpoint through the jsonb column unchanged', async () => {
-        const full = save({
-            perks: ['juggernog', 'speedcola', 'doubletap', 'quickrevive'],
-            weapons: [
-                { base: 'ak74', tier: 3, mag: 30, reserve: 270 },
-                { base: 'm1911', tier: 0, mag: 0, reserve: 0 }
-            ],
-            activeSlot: 1,
-            x: -12.34,
-            yaw: 3.1415
-        })
-        expect(await storeSave(full)).toEqual({ revision: 1 })
+    it('stores the checkpoint with forged points clamped to the clock', async () => {
+        await arm()
+        // Within the shape check, far beyond what a just-started run could earn.
+        const forged = save({ grossEarned: 900_000, score: 900_000, perks: ['juggernog', 'speedcola'], x: -12.34 })
+        expect(await storeSave(forged)).toEqual({ revision: 1 })
         const row = await stored()
-        expect(row.runSave).toEqual(full)
-        expect(row.runSaveRevision).toBe(1)
+        expect(row.runSave).toEqual({ ...forged, grossEarned: CALL_OF_XENO_SAVE_EARLY_POINTS_FLOOR, score: row.runSave!.score })
+        expect(row.runSave!.score).toBeLessThan(100_000)
     })
 
     /**
@@ -117,7 +105,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
         expect(await storeSave(save({ round: 12 }))).toEqual({ revision: 1 })
         // The client never saw that response — it still believes revision 0.
         for (const round of [13, 14, 15]) {
-            expect(await storeSave(save({ round }))).not.toBeNull()
+            await expect(storeSave(save({ round }), 0)).resolves.toBeDefined()
         }
         const row = await stored()
         expect(row.runSave?.round).toBe(15)
@@ -127,7 +115,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
     it('refuses a checkpoint shallower than the one already stored', async () => {
         await arm()
         await storeSave(save({ round: 20 }))
-        expect(await storeSave(save({ round: 9 }))).toBeNull()
+        await expect(storeSave(save({ round: 9 }))).rejects.toMatchObject({ statusCode: 409 })
         expect((await stored()).runSave?.round).toBe(20)
     })
 
@@ -136,7 +124,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
         await storeSave(save({ round: 30 }))
         const results = await Promise.allSettled(
             Array.from({ length: 10 }, (_, i) => storeSave(save({ round: 24 + i }))))
-        const winners = results.filter(r => r.status === 'fulfilled' && r.value !== null)
+        const winners = results.filter(r => r.status === 'fulfilled')
         const row = await stored()
         // Serialised by the row lock: the shallow ones lose, and whatever
         // landed is at least as deep as what was already there.
@@ -153,7 +141,7 @@ describe.skipIf(SKIP)('call of xeno checkpoint storage', () => {
             runSaveRevision: 0,
             lastRunFinishedAt: new Date()
         }).where(eq(callOfXenoState.userId, userId))
-        expect(await storeSave(save())).toBeNull()
+        await expect(storeSave(save())).rejects.toMatchObject({ statusCode: 409 })
         expect((await stored()).runSave).toBeNull()
     })
 })

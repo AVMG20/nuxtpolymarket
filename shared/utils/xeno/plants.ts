@@ -38,7 +38,7 @@ export interface PlantType {
 // same number of days played (see scripts/economy-compare.ts). Before this was
 // enforced, T7→T8 was a 40x cliff and T2→T3 was an outright regression, which
 // made everything below T8 pointless to farm. `test/xeno/balance.spec.ts`
-// guards the ratio band — re-run `bun run balance:compare` after touching any
+// guards the ratio band — re-run `bun scripts/economy-compare.ts` after touching any
 // value here.
 //
 // Every value below was then cut by a per-tier factor — T1-T4 ×0.55, T5/T6

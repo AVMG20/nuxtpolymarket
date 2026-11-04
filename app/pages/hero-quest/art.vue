@@ -5,7 +5,7 @@ import { allArt, ART_GROUPS, ART_ROUNDS, type ArtGroup } from '~/utils/hero-ques
  * The art gallery. **Development only**, like the Dev tab.
  *
  * Every asset in `asset-list.md`, rendered live from the procedural source in
- * `app/utils/hero-quest-art/` — the same code the exporter (`bun run art:hero-quest`) turns
+ * `app/utils/hero-quest-art/` — the same code the exporter (`bun scripts/hero-quest-art.ts`) turns
  * into PNG strips. Nothing here is an image file.
  */
 if (!import.meta.dev) throw createError({ statusCode: 404, statusMessage: 'Not found' })
@@ -55,7 +55,7 @@ const sections = computed(() => {
       color="neutral"
       variant="soft"
       title="Art gallery — dev builds only"
-      :description="`${assets.length} assets, all procedural pixel art on one palette. Export PNG strips with bun run art:hero-quest.`"
+      :description="`${assets.length} assets, all procedural pixel art on one palette. Export PNG strips with bun scripts/hero-quest-art.ts.`"
     />
 
     <ClientOnly>

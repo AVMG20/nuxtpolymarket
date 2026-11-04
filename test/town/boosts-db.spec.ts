@@ -52,10 +52,12 @@ async function job(plotId: string, tileX: number, ms: number, type = 'house') {
 describe.skipIf(SKIP)('Polytown boosts (database)', () => {
     let releaseRealm: () => Promise<void>
     let plotId: string
-    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+    beforeAll(async () => {
+        releaseRealm = await lockTownRealm()
+        await cleanup()
+    }, 120_000)
 
     beforeEach(async () => {
-        await cleanup()
         await seedUser(OWNER, { balance: '100000000000', gems: 0 })
         plotId = (await foundTown(OWNER)).plotId
     })
@@ -93,7 +95,6 @@ describe.skipIf(SKIP)('Polytown boosts (database)', () => {
 
     it('shortens jobs started while the rush runs, and lengthens the rush on a second one', async () => {
         await moveTownToFlatGround(plotId)
-        for (let x = 0; x < 8; x++) await placeBuilding(OWNER, plotId, x, 0, 'road')
         const now = Date.now()
         await db.transaction(tx => activateTownBoosts(tx, OWNER, { build: TOWN_BOOST_MS }, now))
         const placed = await placeBuilding(OWNER, plotId, 0, 1, 'house', 2)
@@ -123,22 +124,21 @@ describe.skipIf(SKIP)('Polytown boosts (database)', () => {
         expect(rest.map(r => r.buildingId)).toEqual([short.id])
     })
 
-    it('lends one crew for a day, and stops new jobs past the owned crews once it leaves', async () => {
+    it('lends one crew for a day, starts one job per crew under a burst, and stops new jobs past the owned crews once it leaves', async () => {
         await moveTownToFlatGround(plotId)
-        for (let x = 0; x < 8; x++) await placeBuilding(OWNER, plotId, x, 0, 'road')
         const now = Date.now()
         await db.transaction(tx => activateTownBoosts(tx, OWNER, { builder: TOWN_TEMP_BUILDER_MS }, now))
         await db.transaction(tx => activateTownBoosts(tx, OWNER, { builder: TOWN_TEMP_BUILDER_MS }, now))
         expect((await stateRow()).tempBuilderUntil!.getTime()).toBe(now + 2 * TOWN_TEMP_BUILDER_MS)
 
-        for (let x = 0; x < TOWN_FREE_BUILDERS + 1; x++) await placeBuilding(OWNER, plotId, x, 1, 'house', 2)
-        await expect(placeBuilding(OWNER, plotId, 6, 1, 'house', 2)).rejects.toThrow(/builder/i)
+        const { ok } = await burst(8, i => placeBuilding(OWNER, plotId, i, 1, 'house', 2))
+        expect(ok).toBe(TOWN_FREE_BUILDERS + 1)
 
-        // The crew leaves: the four jobs keep running, but nothing new starts.
+        // The crew leaves: the jobs keep running, but nothing new starts.
         await db.update(townState).set({ tempBuilderUntil: new Date(now - 1) }).where(eq(townState.userId, OWNER))
         const running = await db.select().from(townBuildings).where(and(eq(townBuildings.userId, OWNER), eq(townBuildings.type, 'house')))
         expect(running.filter(b => b.level === 0)).toHaveLength(TOWN_FREE_BUILDERS + 1)
-        await expect(placeBuilding(OWNER, plotId, 6, 1, 'house', 2)).rejects.toThrow(/builder/i)
+        await expect(placeBuilding(OWNER, plotId, 0, 5, 'house', 2)).rejects.toThrow(/builder/i)
     })
 
     it('pays market-day coins out of the budget only, however many sells race for it', async () => {
@@ -205,14 +205,6 @@ describe.skipIf(SKIP)('Polytown boosts (database)', () => {
         expect(remaining).toBeGreaterThan(14 * MIN)
         expect(remaining).toBeLessThanOrEqual(15 * MIN + 1_000)
         expect((await stateRow()).buildBoostUntil!.getTime()).toBe(now + 5 * TOWN_BOOST_MS)
-    })
-
-    it('starts one job per crew, the borrowed one included, under a burst of builds', async () => {
-        await moveTownToFlatGround(plotId)
-        for (let x = 0; x < 8; x++) await placeBuilding(OWNER, plotId, x, 0, 'road')
-        await db.transaction(tx => activateTownBoosts(tx, OWNER, { builder: TOWN_TEMP_BUILDER_MS }, Date.now()))
-        const { ok } = await burst(8, i => placeBuilding(OWNER, plotId, i, 1, 'house', 2))
-        expect(ok).toBe(TOWN_FREE_BUILDERS + 1)
     })
 
     it('sizes a market day\'s budget from the scale the chest was locked at', async () => {

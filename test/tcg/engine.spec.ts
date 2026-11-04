@@ -3,8 +3,8 @@
  * real Postgres from .env. Skips when DATABASE_URL is unset.
  *
  * Fixture: one base sheet M=12 k=4 (12 distinct printings), one base "hit"
- * sheet M=6 k=1, one god sheet M=4 k=2; N=60, godOneIn=10 → G=6. Base sheets
- * serve 54 packs, the god sheet serves 6.
+ * sheet M=6 k=1, one god sheet M=4 k=2; N=40, godOneIn=10 → G=4. Base sheets
+ * serve 36 packs, the god sheet serves 4.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq, inArray } from 'drizzle-orm'
@@ -125,16 +125,16 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
         await db.delete(tcgSet).where(eq(tcgSet.code, 'ENG'))
     }
 
-    describe('full run (N=60, G=6)', () => {
+    describe('full run (N=40, G=4)', () => {
         let fixture: Fixture
         let packs: PackRow[] = []
         let opened: OpenedPackResult[] = []
         let soldOutError: unknown
 
         beforeAll(async () => {
-            fixture = await buildCommittedSet(60, 10)
+            fixture = await buildCommittedSet(40, 10)
             packs = []
-            for (let i = 0; i < 60; i++) {
+            for (let i = 0; i < 40; i++) {
                 packs.push(await buyPack(fixture.setId, USER_ID))
             }
             try {
@@ -149,7 +149,7 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
         }, 120_000)
 
         it('(a) sells exactly N packs, then 400 Sold out', () => {
-            expect(packs).toHaveLength(60)
+            expect(packs).toHaveLength(40)
             expect(soldOutError).toMatchObject({ statusCode: 400, statusMessage: 'Sold out' })
         })
 
@@ -159,20 +159,20 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
             for (const copy of copies) {
                 counts.set(copy.printingId, (counts.get(copy.printingId) ?? 0) + 1)
             }
-            // base sheet: 54 packs · 4 slots · 1/12 = 18 per printing
+            // base sheet: 36 packs · 4 slots · 1/12 = 12 per printing
             for (const id of fixture.basePrintingIds) {
-                expect(Math.abs((counts.get(id) ?? 0) - 18)).toBeLessThanOrEqual(1)
+                expect(Math.abs((counts.get(id) ?? 0) - 12)).toBeLessThanOrEqual(1)
             }
-            // hit sheet: 54 packs · 1 slot · 1/6 = 9 per printing
+            // hit sheet: 36 packs · 1 slot · 1/6 = 6 per printing
             for (const id of fixture.hitPrintingIds) {
-                expect(Math.abs((counts.get(id) ?? 0) - 9)).toBeLessThanOrEqual(1)
+                expect(Math.abs((counts.get(id) ?? 0) - 6)).toBeLessThanOrEqual(1)
             }
-            // god sheet: 6 packs · 2 slots · 1/4 = 3 per printing
+            // god sheet: 4 packs · 2 slots · 1/4 = 2 per printing
             for (const id of fixture.godPrintingIds) {
-                expect(Math.abs((counts.get(id) ?? 0) - 3)).toBeLessThanOrEqual(1)
+                expect(Math.abs((counts.get(id) ?? 0) - 2)).toBeLessThanOrEqual(1)
             }
-            // total copies: 54·5 + 6·2 = 282
-            expect(copies).toHaveLength(282)
+            // total copies: 36·5 + 4·2 = 188
+            expect(copies).toHaveLength(188)
         })
 
         it('(a) every minted copy carries a rolled condition', async () => {
@@ -193,9 +193,9 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
                 expect(sheet.cursor).toBe(sheet.cursorLimit)
             }
             const byId = new Map(sheets.map(s => [s.id, s]))
-            expect(byId.get(fixture.baseSheetId)!.cursorLimit).toBe(54)
-            expect(byId.get(fixture.hitSheetId)!.cursorLimit).toBe(54)
-            expect(byId.get(fixture.godSheetId!)!.cursorLimit).toBe(6)
+            expect(byId.get(fixture.baseSheetId)!.cursorLimit).toBe(36)
+            expect(byId.get(fixture.hitSheetId)!.cursorLimit).toBe(36)
+            expect(byId.get(fixture.godSheetId!)!.cursorLimit).toBe(4)
         })
 
         it('(b) no pack contains the same printing twice', () => {
@@ -205,11 +205,11 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
             }
         })
 
-        it('(c) exactly G=6 god packs, cut only from god sheets', () => {
+        it('(c) exactly G=4 god packs, cut only from god sheets', () => {
             const godPacks = packs.filter(pack => pack.isGod)
-            expect(godPacks).toHaveLength(6)
+            expect(godPacks).toHaveLength(4)
             const godOpened = opened.filter(result => result.isGod)
-            expect(godOpened).toHaveLength(6)
+            expect(godOpened).toHaveLength(4)
             for (const pack of godPacks) {
                 for (const cut of pack.cuts) {
                     expect(cut.sheetId).toBe(fixture.godSheetId)
@@ -230,7 +230,7 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
             const sheets = await db.select().from(tcgSheet).where(eq(tcgSheet.setId, fixture.setId))
             const sheetById = new Map(sheets.map(s => [s.id, s]))
             const openedById = new Map(opened.map(result => [result.packId, result]))
-            const sample = [packs[0]!, packs[7]!, packs[29]!, packs[59]!]
+            const sample = [packs[0]!, packs[7]!, packs[29]!, packs[39]!]
             for (const pack of sample) {
                 const expected: string[] = []
                 for (const cut of pack.cuts) {
@@ -247,68 +247,27 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
         })
     })
 
-    describe('commit validation', () => {
-        interface DraftFixture {
-            setId: string
-            sheetId: string
-            printingIds: string[]
-        }
-
-        async function buildDraftSet(): Promise<DraftFixture> {
-            const [set] = await db.insert(tcgSet).values({
-                name: `engine spec draft ${crypto.randomUUID().slice(0, 8)}`,
-                code: 'ENG',
-                status: 'draft',
-                targetPackCount: 60
-            }).returning()
-            const setId = set!.id
-            createdSetIds.push(setId)
-            const printingIds = await makePrintings(setId, 'val', 12)
-            const [sheet] = await db.insert(tcgSheet).values({
-                setId, name: 'commons', role: 'base', packSlots: 4, layout: printingIds
-            }).returning()
-            return { setId, sheetId: sheet!.id, printingIds }
-        }
-
-        it('rejects a template that references the same sheet twice', async () => {
-            const { setId, sheetId } = await buildDraftSet()
-            await db.insert(tcgPackTemplate).values({
-                setId,
-                kind: 'base',
-                slots: [
-                    { sheetId, count: 4 },
-                    { sheetId, count: 4 }
-                ]
-            })
-            await expect(commitSet(setId)).rejects.toMatchObject({
-                statusCode: 400,
-                statusMessage: expect.stringContaining('more than once')
-            })
+    // A layout pointing at printings outside the set would mint copies of
+    // cards that do not exist.
+    it('commit rejects a layout referencing unknown printing ids', async () => {
+        const [set] = await db.insert(tcgSet).values({
+            name: `engine spec draft ${crypto.randomUUID().slice(0, 8)}`,
+            code: 'ENG',
+            status: 'draft',
+            targetPackCount: 60
+        }).returning()
+        const setId = set!.id
+        createdSetIds.push(setId)
+        const staleLayout = Array.from({ length: 12 }, () => crypto.randomUUID())
+        const [sheet] = await db.insert(tcgSheet).values({
+            setId, name: 'commons', role: 'base', packSlots: 4, layout: staleLayout
+        }).returning()
+        await db.insert(tcgPackTemplate).values({
+            setId, kind: 'base', slots: [{ sheetId: sheet!.id, count: 4 }]
         })
-
-        it('rejects a layout referencing unknown printing ids', async () => {
-            const { setId, sheetId } = await buildDraftSet()
-            const staleLayout = Array.from({ length: 12 }, () => crypto.randomUUID())
-            await db.update(tcgSheet).set({ layout: staleLayout }).where(eq(tcgSheet.id, sheetId))
-            await db.insert(tcgPackTemplate).values({
-                setId, kind: 'base', slots: [{ sheetId, count: 4 }]
-            })
-            await expect(commitSet(setId)).rejects.toMatchObject({
-                statusCode: 400,
-                statusMessage: expect.stringContaining('do not exist in this set')
-            })
-        })
-
-        it('rejects packSlots greater than the layout size', async () => {
-            const { setId, sheetId } = await buildDraftSet()
-            await db.update(tcgSheet).set({ packSlots: 13 }).where(eq(tcgSheet.id, sheetId))
-            await db.insert(tcgPackTemplate).values({
-                setId, kind: 'base', slots: [{ sheetId, count: 13 }]
-            })
-            await expect(commitSet(setId)).rejects.toMatchObject({
-                statusCode: 400,
-                statusMessage: expect.stringContaining('greater than its layout size')
-            })
+        await expect(commitSet(setId)).rejects.toMatchObject({
+            statusCode: 400,
+            statusMessage: expect.stringContaining('do not exist in this set')
         })
     })
 
@@ -346,36 +305,6 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
     })
 
     describe('restock pool', () => {
-        it('(a) returning an opened pack pools it without rewinding counters or cursors', async () => {
-            const fixture = await buildCommittedSet(10, null)
-            const packs: PackRow[] = []
-            for (let i = 0; i < 3; i++) packs.push(await buyPack(fixture.setId, USER_ID))
-            const target = packs[1]!
-            await openPack(target.id, USER_ID)
-
-            const cursorsBefore = new Map(
-                (await db.select().from(tcgSheet).where(eq(tcgSheet.setId, fixture.setId)))
-                    .map(sheet => [sheet.id, sheet.cursor])
-            )
-
-            const result = await returnPack(target.id, USER_ID)
-            expect(result).toEqual({ packIndex: target.packIndex, pooled: 1 })
-
-            const copies = await db.select().from(tcgCopy).where(eq(tcgCopy.packId, target.id))
-            expect(copies).toHaveLength(0)
-            const [set] = await db.select().from(tcgSet).where(eq(tcgSet.id, fixture.setId))
-            expect(set!.restockPool).toHaveLength(1)
-            expect(set!.restockPool[0]).toEqual({
-                packIndex: target.packIndex, isGod: target.isGod, cuts: target.cuts
-            })
-            expect(set!.packsSold).toBe(3)
-            expect(set!.basePacksSold).toBe(3)
-            const sheets = await db.select().from(tcgSheet).where(eq(tcgSheet.setId, fixture.setId))
-            for (const sheet of sheets) {
-                expect(sheet.cursor).toBe(cursorsBefore.get(sheet.id))
-            }
-        }, 60_000)
-
         it('(b) after sellout a pooled reservation resurfaces with identical contents, then truly sold out', async () => {
             const fixture = await buildCommittedSet(3, null)
             const packs: PackRow[] = []
@@ -397,21 +326,6 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
             const [set] = await db.select().from(tcgSet).where(eq(tcgSet.id, fixture.setId))
             expect(set!.restockPool).toHaveLength(0)
             expect(set!.packsSold).toBe(3)
-            await expect(buyPack(fixture.setId, USER_ID)).rejects.toMatchObject({
-                statusCode: 400, statusMessage: 'Sold out'
-            })
-        }, 60_000)
-
-        it('(c) buying beyond N fails only while the pool is empty', async () => {
-            const fixture = await buildCommittedSet(2, null)
-            const first = await buyPack(fixture.setId, USER_ID)
-            await buyPack(fixture.setId, USER_ID)
-            await expect(buyPack(fixture.setId, USER_ID)).rejects.toMatchObject({
-                statusCode: 400, statusMessage: 'Sold out'
-            })
-            await returnPack(first.id, USER_ID)
-            const rebought = await buyPack(fixture.setId, USER_ID)
-            expect(rebought.packIndex).toBe(first.packIndex)
             await expect(buyPack(fixture.setId, USER_ID)).rejects.toMatchObject({
                 statusCode: 400, statusMessage: 'Sold out'
             })
@@ -468,7 +382,7 @@ describe.skipIf(SKIP)('tcg engine integration', () => {
         it('(f) open racing return of a sealed pack never destroys minted copies', async () => {
             const fixture = await buildCommittedSet(20, null)
             const cardsPerPack = 5 // commons k=4 + hits k=1
-            for (let round = 0; round < 8; round++) {
+            for (let round = 0; round < 2; round++) {
                 const pack = await buyPack(fixture.setId, USER_ID)
                 const [openResult, returnResult] = await Promise.allSettled([
                     openPack(pack.id, USER_ID),

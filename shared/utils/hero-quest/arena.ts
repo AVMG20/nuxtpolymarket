@@ -277,6 +277,13 @@ export function drawCandidates(pool: readonly string[], pick: (n: number) => num
     return drawn
 }
 
+/** Whether two lists hold the same opponents, in any order: a redraw that changes nothing but the order. */
+export function sameOpponents(a: readonly (string | null)[], b: readonly (string | null)[]): boolean {
+    if (a.length !== b.length) return false
+    const key = (list: readonly (string | null)[]) => list.map(id => id ?? '').sort().join('\n')
+    return key(a) === key(b)
+}
+
 // ── The Arena Shop ─────────────────────────────────────────────────────────────────
 
 export type ArenaShopItem =

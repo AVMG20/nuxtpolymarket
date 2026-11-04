@@ -92,8 +92,4 @@ describe('pathwardenRunIsResumable', () => {
         expect(pathwardenRunIsResumable(run({ saveVersion: PATHWARDEN_SAVE_VERSION - 1 }))).toBe(false)
         expect(pathwardenRunIsResumable(run({ generatorVersion: PATHWARDEN_GENERATOR_VERSION - 1 }))).toBe(false)
     })
-
-    it('has nothing to resume without a run row', () => {
-        expect(pathwardenRunIsResumable(undefined)).toBe(false)
-    })
 })

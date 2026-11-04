@@ -6,7 +6,9 @@ import {
     getEffectValueFor,
     getPlantOrThrow,
     gridGrowSecs,
-    xenoSpeedBoost
+    XENO_UPGRADE_TRACKS,
+    xenoSpeedBoost,
+    xenoUpgradeCost
 } from '../../shared/utils/xeno'
 
 describe('XENO durations', () => {
@@ -34,5 +36,15 @@ describe('XENO durations', () => {
     it('returns null for unknown plants', () => {
         expect(gridGrowSecs({ typeId: 'nope', speed: 0 }, null)).toBeNull()
         expect(breedSecs({ typeId: 'nope' }, { typeId: plant.id })).toBeNull()
+    })
+})
+
+describe('XENO global upgrades', () => {
+    it('quotes a price for every level below the cap and none at or past it', () => {
+        for (const track of XENO_UPGRADE_TRACKS) {
+            for (let level = 0; level < track.maxLevel; level++) expect(xenoUpgradeCost(track.id, level)).toBeGreaterThan(0)
+            expect(xenoUpgradeCost(track.id, track.maxLevel)).toBeNull()
+            expect(xenoUpgradeCost(track.id, -1)).toBeNull()
+        }
     })
 })

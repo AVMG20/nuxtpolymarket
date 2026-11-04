@@ -105,6 +105,58 @@ const SHAPES: Record<DfWeaponId, Part[]> = {
         { k: 'brass', d: 'M118 17l16-7v25l-16-7z' },
         { k: 'glow', d: 'M48 9h26a2 2 0 0 1 2 2v4H46v-4a2 2 0 0 1 2-2z' }
     ],
+    webley: [
+        { k: 'steel', d: 'M72 14h48v5H72zM116 11h3v3h-3zM52 12h22v4H52z' },
+        { k: 'steel', d: 'M56 16h18v12H56zM60 18h2v8h-2zM66 18h2v8h-2z' },
+        { k: 'brass', d: 'M54 18h2v8h-2z' },
+        { k: 'steel', d: 'M48 27h28v4H48z' + GUARD(58, 31) },
+        { k: 'steel', d: 'M45 9l6 3v5h-4z' },
+        { k: 'wood', d: 'M45 27h12l-3 17c-.4 2-2 3-4 3h-6c-2 0-3-1.5-2.4-3.2z' },
+        { k: 'steel', d: 'M43 48a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0zM44.3 48a1.2 1.2 0 1 1 2.4 0a1.2 1.2 0 1 1-2.4 0z' }
+    ],
+    sawnoff: [
+        { k: 'wood', d: 'M4 25c0-2 1-3 3-3.5L44 16v12L9 37c-3 .8-5-.8-5-3z' },
+        { k: 'steel', d: 'M44 14h22v14H44z' + GUARD(48, 28) },
+        { k: 'steel', d: 'M56 8l4 6h-3l-3-5zM61 8l4 6h-3l-3-5z' },
+        { k: 'steel', d: 'M66 13h68v5H66zM66 19h68v4H66z' },
+        { k: 'wood', d: 'M70 23h30v5H70z' },
+        { k: 'brass', d: 'M130 10.5h2.5v2.5H130z' }
+    ],
+    win1895: [
+        { k: 'wood', d: 'M3 27c0-2.5 1.5-4 4-4.5L36 18h10v9H44c-4 0-6 1-9 3L10 37c-3.5 1.2-7-.5-7-3.5z' },
+        { k: 'steel', d: 'M46 14h22v14H46zM44 10h3v5h-3z' },
+        { k: 'steel', d: 'M60 28h8v6h-8z' },
+        { k: 'steel', d: 'M46 28h2v9h-2zM46 36h13v2H46zM57 31h2v7h-2z' },
+        { k: 'wood', d: 'M68 19h44v6H68z' },
+        { k: 'steel', d: 'M68 16h88v3H68zM100 13h3v3h-3zM152 13h2v3h-2zM88 19h3v6h-3z' }
+    ],
+    chauchat: [
+        { k: 'wood', d: 'M3 24c0-1.8 1.2-3 3-3.3L36 16v13L9 36c-3.2.9-6-.6-6-3.5z' },
+        { k: 'steel', d: 'M36 13h30v15H36zM56 9h3v4h-3z' + GUARD(40, 28) },
+        { k: 'wood', d: 'M37 28h8l-2 13h-7z' },
+        { k: 'steel', d: 'M54 28h9c0 9-3 16-10 21l-6-3c5-4 8-10 7-18z' },
+        { k: 'steel', d: 'M66 16h60v7H66zM100 14h1.5v11H100zM104 14h1.5v11H104zM108 14h1.5v11H108zM112 14h1.5v11H112zM116 14h1.5v11H116z' },
+        { k: 'wood', d: 'M80 23h5v12h-5z' },
+        { k: 'steel', d: 'M126 15l12-2.5v14l-12-2.5zM128 8h2v7h-2z' }
+    ],
+    flammen: [
+        { k: 'steel', d: 'M4 21c-3 6-3 14-1 22h4c-2-8-2-15 1-21z' },
+        { k: 'wood', d: 'M13 27h8l-3 14h-7z' },
+        { k: 'brass', d: 'M20 13h16v16H20zM24 6h8v3h-8z' },
+        { k: 'steel', d: 'M36 19h98v4H36zM78 23h6v13h-6z' },
+        { k: 'wood', d: 'M78 24h6v12h-6z' },
+        { k: 'steel', d: 'M88 24h28v8H88z' },
+        { k: 'brass', d: 'M134 17h10v8h-10zM84 25h4v6h-4z' },
+        { k: 'brass', d: 'M140 27h6v2.5h-6z' }
+    ],
+    granatwerfer: [
+        { k: 'wood', d: 'M3 24c0-1.8 1.2-3 3-3.3L32 16v14L9 36c-3.2.9-6-.6-6-3.5z' },
+        { k: 'steel', d: 'M32 14h28v16H32z' + GUARD(38, 30) },
+        { k: 'steel', d: 'M44 30m-10 0a10 10 0 1 0 20 0a10 10 0 1 0-20 0z' },
+        { k: 'steel', d: 'M60 15h70v12H60z' },
+        { k: 'brass', d: 'M128 13h8v16h-8zM70 13h3v16h-3z' },
+        { k: 'wood', d: 'M86 27h8v10h-8z' }
+    ],
     wunder: [
         { k: 'wood', d: 'M3 25c0-1.8 1.2-3 3-3.3L34 17v13L9 37c-3.2.9-6-.6-6-3.5z' },
         { k: 'steel', d: 'M34 14h40v16H34z' + GUARD(40, 30) },

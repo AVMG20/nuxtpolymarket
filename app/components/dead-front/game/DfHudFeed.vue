@@ -3,7 +3,7 @@
         <li v-for="f in feed" :key="f.id" class="line" :class="f.tone" :style="{ '--life': `${DF_HUD_FEED_MS}ms` }">
             <span class="mark" aria-hidden="true" />
             <b v-if="f.who" class="who" :style="{ color: tint(f.whoColor) }">{{ f.who }}</b>
-            <span class="text">{{ f.text }}</span>
+            <span class="text" :style="f.textColor ? { color: f.textColor } : undefined">{{ f.text }}</span>
             <b v-if="f.target" class="who" :style="{ color: tint(f.targetColor) }">{{ f.target }}</b>
         </li>
     </TransitionGroup>

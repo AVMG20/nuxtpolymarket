@@ -103,10 +103,16 @@ const UI: Record<string, RuleRow> = {
     'df:revive-tick': [0.08, 0.1, 1],
     'df:jump': [0.1, 0.15, 1],
     'df:land': [0.1, 0.2, 1],
+    'df:slide': [0.3, 0.7, 1],
     'df:throw': [0.12, 0.25, 1.5],
     'df:lunge': [0.12, 0.2, 1.5],
     'df:pu-spawn': [0.3, 0.6, 1.5],
-    'df:pu-end': [0.3, 0.6, 1.5]
+    'df:pu-end': [0.3, 0.6, 1.5],
+    // salvage, the workbench and support (arsenal-sounds.ts)
+    'df:ars-crate': [0.3, 1.2, 2.6],
+    'df:ars-callin': [0.3, 1.2, 2.2],
+    'df:ars-challenge': [0.5, 0.8, 1.8],
+    'df:ars-challenge-done': [0.5, 1.4, 2.4]
 }
 
 const MUSIC: Record<string, readonly [dur: number, duck: DfDuck]> = {
@@ -128,7 +134,20 @@ const WORLD: Record<string, RuleRow> = {
     'df:board-slam': [0.06, 0.4, 1.4],
     'df:rod-lever': [0.1, 0.8, 1.6],
     'df:rod-crackle': [0.25, 1.4, 1.3],
-    'df:rod-sputter': [0.2, 0.6, 1.2]
+    'df:rod-sputter': [0.2, 0.6, 1.2],
+    // salvage, the workbench, crafted gear and support (arsenal-sounds.ts)
+    'df:ars-scrap': [0.05, 0.3, 1.2],
+    'df:ars-part': [0.1, 0.9, 1.6],
+    'df:ars-craft': [0.3, 1.3, 1.6],
+    'df:ars-deploy': [0.2, 0.6, 1.5],
+    'df:ars-sentry-shot': [0.05, 0.22, 1.4],
+    'df:ars-sentry-spent': [0.3, 1.2, 1.3],
+    'df:ars-sentry-broken': [0.3, 1, 1.6],
+    'df:ars-decoy-wind': [0.3, 1, 1.3],
+    'df:ars-whistle': [0.04, 1.35, 2.2],
+    'df:ars-zeppelin': [1, 9, 2],
+    'df:ars-bomber': [1, 8, 2.2],
+    'df:ars-carpet': [0.5, 3.2, 3]
 }
 
 /** Category, priority, retrigger interval and length of a sound, from its name. */
@@ -162,6 +181,7 @@ export function dfSoundRule(name: string, spatial: boolean): DfSoundRule {
     if (name === 'df:ambience') return { cat: 'ambience', priority: 0.5, interval: 2, dur: 5 }
     const w = WORLD[name]
     if (w) return { cat: 'world', interval: w[0], dur: w[1], priority: w[2] }
+    if (name.startsWith('df:ars-waltz')) return { cat: 'world', priority: 1.5, interval: 0.3, dur: 1.3 }
     return { cat: 'world', priority: 1.5, interval: 0.05, dur: 1.5 }
 }
 

@@ -1,8 +1,20 @@
 <template>
     <div class="df-hud pointer-events-none absolute inset-0" :class="{ off: !hud.started }">
+        <!-- a telescopic sight: black around the eyepiece, a Zeiss post reticle over the world (the engine sets the vars) -->
+        <div class="df-scope absolute inset-0" aria-hidden="true">
+            <div class="lens">
+                <svg class="reticle" viewBox="-100 -100 200 200" preserveAspectRatio="xMidYMid meet">
+                    <rect x="-100" y="-2.2" width="86" height="4.4" />
+                    <rect x="14" y="-2.2" width="86" height="4.4" />
+                    <path d="M-2.6 100V9l2.6-7 2.6 7v91z" />
+                    <rect x="-0.4" y="-100" width="0.8" height="86" />
+                </svg>
+            </div>
+        </div>
         <!-- top-left: the objective + waypoint -->
         <div class="df-corner-tl absolute">
             <DfHudObjective :objective="hud.objective" />
+            <DfHudChallenge v-if="hud.arsenal.challenge" :c="hud.arsenal.challenge" />
         </div>
 
         <!-- top-centre: the line -->
@@ -21,7 +33,7 @@
 
         <!-- round and event banners -->
         <div class="df-announce-wrap absolute inset-x-0 flex justify-center px-4">
-            <div v-if="hud.announce" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
+            <div v-if="hud.announce && !shopOpen" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
                 <div class="title">{{ hud.announce.title }}</div>
                 <div class="rule" aria-hidden="true"><i v-for="n in 9" :key="n" :style="{ animationDelay: `${120 + Math.abs(n - 5) * 40}ms` }" /></div>
                 <div v-if="hud.announce.sub" class="sub">{{ hud.announce.sub }}</div>
@@ -30,17 +42,17 @@
 
         <!-- crosshair, hitmarker, kill pip, damage direction -->
         <div class="df-center">
-            <div v-if="hud.life !== 'dead'" class="df-xhair" :class="{ ads: hud.ads }">
+            <div v-if="hud.life !== 'dead' && !shopOpen" class="df-xhair" :class="{ ads: hud.ads }">
                 <i class="t" /><i class="b" /><i class="l" /><i class="r" />
                 <b class="dot" />
             </div>
-            <div v-if="hud.hitmarker.key > 0" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
+            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
                 <i /><i /><i /><i />
             </div>
             <Transition name="df-fade">
-                <div v-if="hud.ammoHint && hud.life !== 'dead'" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
+                <div v-if="hud.ammoHint && hud.life !== 'dead' && !shopOpen" :key="hud.ammoHint" class="df-ammo-hint" :class="{ out: /no ammo/i.test(hud.ammoHint) }">{{ hud.ammoHint }}</div>
             </Transition>
-            <div v-if="hud.killKey > 0" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.hitmarker.kind === 'head' }">
+            <div v-if="hud.killKey > 0 && !shopOpen" :key="`k${hud.killKey}`" class="df-kill" :class="{ head: hud.killHead }">
                 <svg viewBox="0 0 7 7" width="21" height="21" shape-rendering="crispEdges" aria-hidden="true">
                     <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
                 </svg>
@@ -66,7 +78,7 @@
                         <span v-if="promptParts.key" class="keycap" :class="{ holding: hud.prompt.hold > 0 }" :style="{ '--h': hud.prompt.hold }">
                             <b>{{ promptParts.key }}</b>
                         </span>
-                        <span class="text">{{ promptParts.text }}</span>
+                        <span class="text" :style="hud.prompt.tint ? { color: hud.prompt.tint } : undefined">{{ promptParts.text }}</span>
                         <span v-if="hud.prompt.cost !== null" class="cost" :class="{ no: !hud.prompt.ok }">
                             {{ hud.prompt.cost.toLocaleString('en-US') }}
                         </span>
@@ -76,6 +88,16 @@
                 </div>
             </Transition>
         </div>
+        <!-- the workbench shop, centred while it is open -->
+        <Transition name="df-fade">
+            <div v-if="shopOpen && hud.arsenal.bench" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" />
+            </div>
+        </Transition>
+        <!-- placing gear / calling in support, and short arsenal notices -->
+        <Transition name="df-fade">
+            <div v-if="hud.arsenal.targeting && hud.life === 'alive' && !shopOpen" :key="hud.arsenal.targeting" class="df-targeting absolute inset-x-0 text-center">{{ hud.arsenal.targeting }}</div>
+        </Transition>
         <!-- points floating off the zombies we hit -->
         <DfHudHitPops v-if="hud.hitPops.length" :pops="hud.hitPops" />
 
@@ -95,7 +117,7 @@
         <!-- first-match coaching -->
         <div class="df-hint-wrap absolute inset-x-0 flex justify-center px-4">
             <Transition name="df-hint">
-                <div v-if="hud.hint && hud.life === 'alive'" :key="hud.hint.key" class="df-hint">
+                <div v-if="hud.hint && hud.life === 'alive' && !shopOpen" :key="hud.hint.key" class="df-hint">
                     <div class="line">
                         <span v-if="hintParts.verb" class="verb">{{ hintParts.verb }}</span>
                         <span v-if="hintParts.key" class="keycap"><b>{{ hintParts.key }}</b></span>
@@ -169,6 +191,7 @@
 
         <!-- bottom-left: perks over the round -->
         <div class="df-corner-bl absolute flex flex-col items-start gap-3">
+            <DfHudArsenal v-if="hud.life !== 'dead'" :a="hud.arsenal" />
             <DfHudPerks :perks="hud.perks" :pulse="hud.perkPulse" />
             <DfHudRound :round="hud.round" :round-key="hud.roundKey" :phase="hud.phase" :phase-timer="hud.phaseTimer" />
         </div>
@@ -187,7 +210,7 @@
         </div>
 
         <!-- stamina -->
-        <div v-if="hud.stamina < 0.98 && hud.life === 'alive'" class="df-stamina df-seg" :class="{ low: hud.stamina < 0.25 }" :style="{ '--p': Math.max(0, hud.stamina), '--c': hud.stamina < 0.25 ? '#e2412f' : '#f1e8cf', '--seg': '6px' }" />
+        <div v-if="hud.stamina < 0.98 && hud.life === 'alive' && !shopOpen" class="df-stamina df-seg" :class="{ low: hud.stamina < 0.25 }" :style="{ '--p': Math.max(0, hud.stamina), '--c': hud.stamina < 0.25 ? '#e2412f' : '#f1e8cf', '--seg': '6px' }" />
 
         <!-- ledger -->
         <Transition name="df-ledger">
@@ -208,6 +231,9 @@ import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
 import type { DfHudState } from '~/utils/dead-front/engine/hud'
 import { dfDrawPowerupIcon } from '~/utils/dead-front/engine/powerups'
 import DfHudAmmo from './DfHudAmmo.vue'
+import DfHudArsenal from './DfHudArsenal.vue'
+import DfHudBench from './DfHudBench.vue'
+import DfHudChallenge from './DfHudChallenge.vue'
 import DfHudFeed from './DfHudFeed.vue'
 import DfHudHitPops from './DfHudHitPops.vue'
 import DfHudMarkers from './DfHudMarkers.vue'
@@ -237,6 +263,8 @@ function keyParts(text: string): { verb: string, key: string, text: string } {
     return { verb: m[1]!, key: m[2]!, text: m[3]! }
 }
 const promptParts = computed(() => keyParts(props.hud.prompt?.text ?? ''))
+// the workbench shop is its own panel: the crosshair, hit pips, banners and hints step aside while it is open
+const shopOpen = computed(() => !!props.hud.arsenal.bench && props.hud.life === 'alive')
 const hintParts = computed(() => keyParts(props.hud.hint?.text ?? ''))
 
 const icons = new Map<DfPowerupKind, string>()
@@ -277,6 +305,21 @@ function iconFor(kind: DfPowerupKind): string {
     right: var(--edge);
 }
 
+.df-bench-wrap {
+    z-index: 5;
+    padding: var(--edge);
+    pointer-events: none;
+}
+
+.df-targeting {
+    top: calc(50% + 72px);
+    font-family: var(--df-font-type);
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    color: var(--df-chalk);
+    text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+}
+
 .df-corner-bl {
     bottom: var(--edge);
     left: var(--edge);
@@ -311,6 +354,33 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 /* centre stack */
+.df-scope {
+    --dark: var(--df-scope-dark, 0);
+    --view: var(--df-scope-view, 0);
+    opacity: var(--dark);
+    background: radial-gradient(circle at 50% 50%, transparent 0 38.5vmin, #000 39vmin);
+}
+
+.df-scope .lens {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 78vmin;
+    height: 78vmin;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    /* black until the picture opens, then only the lens edge stays dark */
+    background: rgba(0, 0, 0, calc(1 - var(--view)));
+    box-shadow: inset 0 0 5vmin 1.5vmin rgba(0, 0, 0, calc(0.85 * var(--view)));
+}
+
+.df-scope .reticle {
+    width: 100%;
+    height: 100%;
+    opacity: var(--view);
+    fill: #0b0b0b;
+}
+
 .df-center {
     position: absolute;
     left: 50%;

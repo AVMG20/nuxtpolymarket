@@ -11,6 +11,7 @@ import { dfXrayScheme } from './xray'
 export function dfMuzzleFlashColor(id: DfViewmodelWeapon['id'], pap: number): number {
     if (id === 'xray') return dfXrayScheme(pap).core
     if (id === 'wunder') return 0x8ab8ff
+    if (id === 'flammen' && pap <= 0) return 0xff7a24
     if (pap > 0) return Number.parseInt((DF_PAP_COLORS[Math.min(3, pap) - 1] ?? '#ffd0a0').slice(1), 16)
     return 0xffd0a0
 }
@@ -22,7 +23,12 @@ export function dfMuzzleFlashColor(id: DfViewmodelWeapon['id'], pap: number): nu
 // sprint pose, a crisp recoil kick that settles in ~0.12 s, ADS in ~0.2 s with
 // the sight line (rear notch and front post, measured from the model's own
 // voxels) exactly on the camera axis, lower/raise on swap and a
-// drop-and-raise reload.
+// drop-and-raise reload. On top of that, the CoD layer: the gun leans into
+// strafes, trails jumps and dips on landing, swings a figure-eight while
+// sprinting, cants hard in a slide, and can be inspected. Lever actions work
+// their lever, break actions tip open and spill their brass, revolvers turn
+// their cylinder a chamber per shot, and the flamethrower keeps a pilot flame
+// lit and throws a jet of fire.
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x))
 const smooth = (x: number) => {
@@ -31,6 +37,16 @@ const smooth = (x: number) => {
 }
 /** 0 -> 1 -> 0 bump between a and b with eased flanks. */
 const bump = (u: number, a: number, b: number, ramp = 0.15) => smooth((u - a) / ramp) * (1 - smooth((u - (b - ramp)) / ramp))
+/**
+ * A scope comes up in three beats: the screen darkens around the eyepiece
+ * (SCOPE_DARK), the gun is put away behind the black (SCOPE_SWAP), then the
+ * scope picture opens (SCOPE_VIEW). The HUD draws the picture full screen.
+ */
+const SCOPE_DARK = [0.5, 0.8] as const
+const SCOPE_SWAP = 0.82
+const SCOPE_VIEW = [0.82, 0.97] as const
+/** Red dots fade in as the sight lines up, not at a threshold. */
+const DOT_FADE = [0.55, 0.85] as const
 
 /** Critically damped spring toward a target (exact for any dt). */
 class Crit {
@@ -89,10 +105,21 @@ const FEEL: Record<string, ShotFeel> = {
     special: { star: 1.1, cone: 0.7, prongs: 0, flash: 0.05, back: 1.1, flip: 1, roll: 0.3, yaw: 0.5 }
 }
 
-/** Guns that kick unlike their class: the PPSh's light bolt buzzes (small, quick kicks, more shake). */
+/**
+ * Guns that kick unlike their class: the PPSh's light bolt buzzes (small, quick kicks, more
+ * shake); the Webley bucks up hard; the coach gun shoves back like a mule; the Chauchat
+ * hammers with a slow, heavy roll; the flamethrower barely moves but shudders.
+ */
 const FEEL_ID: Partial<Record<DfViewmodelWeapon['id'], ShotFeel>> = {
-    ppsh: { star: 0.8, cone: 1, prongs: 0.85, flash: 0.022, back: 0.5, flip: 0.42, roll: 0.3, yaw: 1.7 }
+    ppsh: { star: 0.8, cone: 1, prongs: 0.85, flash: 0.022, back: 0.5, flip: 0.42, roll: 0.3, yaw: 1.7 },
+    webley: { star: 1.15, cone: 1, prongs: 0.9, flash: 0.045, back: 1.25, flip: 2.3, roll: 0.8, yaw: 0.9 },
+    sawnoff: { star: 2.2, cone: 1.1, prongs: 1.5, flash: 0.07, back: 2.6, flip: 1.9, roll: 1.3, yaw: 1 },
+    chauchat: { star: 1.5, cone: 1.6, prongs: 1.1, flash: 0.045, back: 1.3, flip: 1, roll: 0.75, yaw: 1.1 },
+    flammen: { star: 0, cone: 0, prongs: 0, flash: 0, back: 0.12, flip: 0.08, roll: 0.25, yaw: 0.6 }
 }
+
+/** Seconds an inspect takes. */
+const INSPECT_TIME = 2.4
 
 interface Clip {
     kind: 'mag' | 'shell-in' | 'shell' | 'shell-out'
@@ -100,6 +127,8 @@ interface Clip {
     dur: number
     empty: boolean
     fired: Set<number>
+    /** Rounds fired since the last reload (the brass a break action spills). */
+    spent: number
 }
 
 interface Casing {
@@ -225,21 +254,31 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     flash.visible = false
     root.add(flash)
     let flashT = 0
+    // The flamethrower's pilot burner: a small flickering tongue under the nozzle, always lit.
+    const pilotMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xff9a4a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
+    const pilot = new THREE.Mesh(fm.cone, pilotMat)
+    pilot.visible = false
+    root.add(pilot)
+    const pilotAt = new THREE.Object3D()
 
     // Pooled casings: small voxel brass and red shotgun hulls.
     // Brass with a bright shoulder; rifle cases are long and necked, pistol cases short.
     const cm = new DfVoxModel(2, 5, 2)
     cm.box(0, 0, 0, 2, 5, 2, cm.c(0xd6ad52, 0.12)).box(0, 0, 0, 2, 1, 2, cm.c(0x8a6a2a)).box(0, 4, 0, 2, 5, 2, cm.c(0xf0cf78, 0.2))
     const caseG = cm.mesh(0.0058, [1, 2.5, 1])!
+    // .455 revolver brass: short, fat and rimmed.
+    const wm = new DfVoxModel(3, 4, 3)
+    wm.box(0, 0, 0, 3, 4, 3, wm.c(0xd6ad52, 0.12)).box(0, 0, 0, 3, 1, 3, wm.c(0xb08a3a)).box(1, 3, 1, 2, 4, 2, wm.c(0x8a8e94))
+    const revCaseG = wm.mesh(0.0062, [1.5, 2, 1.5])!
     const rm = new DfVoxModel(3, 11, 3)
     rm.box(0, 0, 0, 3, 8, 3, rm.c(0xd6ad52, 0.12)).box(0, 0, 0, 3, 1, 3, rm.c(0x8a6a2a)).box(1, 8, 1, 2, 11, 2, rm.c(0xf0cf78, 0.2)).box(0, 7, 0, 3, 8, 3, rm.c(0xf0cf78, 0.2))
     const rifleCaseG = rm.mesh(0.0042, [1.5, 5.5, 1.5])!
     const hm = new DfVoxModel(3, 8, 3)
     hm.box(0, 0, 0, 3, 8, 3, hm.c(0xa8302a)).box(0, 0, 0, 3, 2, 3, hm.c(0xc9a046))
     const hullG = hm.mesh(0.0065, [1.5, 4, 1.5])!
-    geos.push(caseG, hullG, rifleCaseG)
+    geos.push(caseG, hullG, rifleCaseG, revCaseG)
     const casings: Casing[] = []
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 20; i++) {
         const m = new THREE.Mesh(caseG, mat)
         m.visible = false
         root.add(m)
@@ -265,7 +304,11 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     let shotDur = 0.1
     let shotsSinceReload = 0
     let panAngle = 0
+    let panShown = 0
     let glowPulse = 0
+    /** Inspect progress 0..1, or -1 when not inspecting. */
+    let inspectT = -1
+    let adsWas = false
     let time = 0
     let bobPhase = 0
     let grounded = true
@@ -287,6 +330,10 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     let feel: ShotFeel = FEEL.pistol!
     const land = new Crit(14)
     const lower = new Crit(16)
+    const slideBlend = new Crit(9)
+    /** Strafe lean and the jump trail: the gun lags the body's motion a little. */
+    const strafeLean = new Crit(8)
+    const vyTrail = new Crit(10)
     const aimPos = new THREE.Vector3()
 
     function makeRig(w: DfViewmodelWeapon): void {
@@ -324,6 +371,12 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         shotsSinceReload = 0
         clip = null
         shellGrace = -1
+        inspectT = -1
+        panAngle = panShown = 0
+        // the pilot burner sits just under and behind the nozzle
+        pilotAt.position.copy(rig.muzzle.position).add(tmpV.set(0, -3 * V, 1.2 * V))
+        rig.root.add(pilotAt)
+        pilot.visible = rig.flame
     }
 
     function play(name: string): void {
@@ -339,17 +392,34 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         return !!m && m.includes('maxim')
     }
 
-    function ejectCasing(r: DfGunRig): void {
-        if (!current || current.id === 'xray' || current.id === 'wunder' || (current.id === 'm1911' && current.pap > 0)) return
+    /**
+     * Throws a spent case from the ejection port: up and out to the right. A break action
+     * (`spill`) drops its brass out of the back of the cylinder or barrels instead.
+     */
+    function ejectCasing(r: DfGunRig, spill = false): void {
+        if (!current || r.flame || current.id === 'xray' || current.id === 'wunder' || (current.id === 'm1911' && current.pap > 0)) return
         const c = casings[caseNext]!
         caseNext = (caseNext + 1) % casings.length
         const cls = DF_WEAPONS[current.id]?.class
-        c.mesh.geometry = current.id === 'm1897' ? hullG : cls === 'rifle' || cls === 'lmg' ? rifleCaseG : caseG
-        r.root.updateWorldMatrix(true, false)
-        c.mesh.position.copy(r.eject).applyMatrix4(r.root.matrixWorld)
+        c.mesh.geometry = cls === 'shotgun' ? hullG : r.chambers ? revCaseG : cls === 'rifle' || cls === 'lmg' ? rifleCaseG : caseG
+        r.root.updateWorldMatrix(true, true)
+        c.mesh.position.copy(r.eject)
+        if (spill && r.barrel) {
+            // from the breech of the tipped-open barrels: gun space relative to the hinge, turned with it
+            c.mesh.position.x += (Math.random() - 0.5) * 0.015
+            c.mesh.position.sub(r.barrel.position).applyMatrix4(r.barrel.matrixWorld)
+        } else {
+            c.mesh.position.applyMatrix4(r.root.matrixWorld)
+        }
         root.worldToLocal(c.mesh.position)
-        // Up and out to the right (in camera space), a little back, tumbling end over end.
-        c.vel.set(1 + Math.random() * 0.6, 1.3 + Math.random() * 0.6, 0.3 + Math.random() * 0.3)
+        if (spill) {
+            // Out of the back and down; the coach gun's hulls flick up over the shoulder.
+            if (cls === 'shotgun') c.vel.set((Math.random() - 0.5) * 0.4, 1.2 + Math.random() * 0.5, 0.9 + Math.random() * 0.3)
+            else c.vel.set((Math.random() - 0.5) * 0.5, -0.4 - Math.random() * 0.4, 0.25 + Math.random() * 0.2)
+        } else {
+            // Up and out to the right (in camera space), a little back, tumbling end over end.
+            c.vel.set(1 + Math.random() * 0.6, 1.3 + Math.random() * 0.6, 0.3 + Math.random() * 0.3)
+        }
         if (r.root.scale.x < 0) c.vel.x *= -1
         c.spin.set(14 + Math.random() * 14, Math.random() * 6, 10 + Math.random() * 14)
         c.mesh.rotation.set(0, 0, Math.PI / 2)
@@ -362,14 +432,20 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         return rig?.muzzle ?? null
     }
 
+    const scopeOut = { dark: 0, view: 0 }
+
     const api: DfViewmodel = {
         root,
         get adsBlend() {
             return clamp01(ads.x)
         },
+        get scope() {
+            return scopeOut
+        },
         equip(w, swapMult) {
+            // CoD-quick swaps: pistols flick up, heavy guns take a beat longer.
             const cls = DF_WEAPONS[w.id]?.class
-            const base = cls === 'pistol' ? 0.45 : cls === 'smg' ? 0.6 : 0.7
+            const base = cls === 'pistol' ? 0.4 : cls === 'smg' ? 0.52 : cls === 'shotgun' ? 0.55 : cls === 'lmg' ? 0.72 : 0.6
             const T = base / Math.max(0.1, swapMult)
             equipDur = T
             if (!rig) {
@@ -385,6 +461,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             swapAt = 0.4
             clip = null
             melee = -1
+            inspectT = -1
             return T
         },
         fire() {
@@ -394,6 +471,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             shotsSinceReload++
             clip = null
             shellGrace = -1
+            inspectT = -1
             if (dual) side = 1 - side
             // A sharp kick back and up that settles with a little overshoot, per weapon class.
             const k = Math.min(0.08, stats.recoil) * (1 - clamp01(ads.x) * 0.45)
@@ -404,9 +482,18 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             kickYaw.v += (Math.random() - 0.5) * (1.5 + k * 40) * fk.yaw * 20
             play(DF_WSND.fire(current.id, current.pap, suppressed()))
             const r = dual && side === 1 && rigL ? rigL : rig
-            if (current.id !== 'kar98k' && current.id !== 'm1897') ejectCasing(r)
-            if (rig.pan && stats.magSize > 0) panAngle += (Math.PI * 2) / stats.magSize
+            // bolts and levers throw their case as they cycle, pumps on the pump, break actions on the reload
+            if (!r.cycle && !r.pump && !r.barrel) ejectCasing(r)
+            if (rig.pan && stats.magSize > 0) panAngle += (Math.PI * 2) / (rig.chambers || stats.magSize)
             glowPulse = 1
+            if (rig.flame) {
+                // No flash: a jet of fire from the nozzle (world fx, so it meets the walls) and a
+                // pilot that flares.
+                api.muzzleWorld(ctx.camera, tmpV)
+                ctx.camera.getWorldDirection(tmpV2)
+                ctx.fx.burst('flame', tmpV, { normal: tmpV2, scale: 1 + Math.min(3, current.pap) * 0.12, color: current.pap > 0 ? dfMuzzleFlashColor(current.id, current.pap) : undefined })
+                return
+            }
             if (!suppressed()) {
                 // Per class: a small crisp star for pistols, a long tongue for rifles, a wide
                 // bloom for the shotgun, side prongs on the automatics; random turn each shot.
@@ -434,13 +521,14 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         reload(empty, seconds, shell) {
             if (!rig || !stats) return
             const dur = Math.max(0.05, seconds)
+            inspectT = -1
             if (shell || stats.perRoundReload > 0) {
                 const first = !clip || (clip.kind !== 'shell' && clip.kind !== 'shell-in')
-                clip = { kind: first && shellGrace < 0 ? 'shell-in' : 'shell', t: 0, dur, empty, fired: new Set() }
+                clip = { kind: first && shellGrace < 0 ? 'shell-in' : 'shell', t: 0, dur, empty, fired: new Set(), spent: shotsSinceReload }
                 shellGrace = -1
                 return
             }
-            clip = { kind: 'mag', t: 0, dur, empty, fired: new Set() }
+            clip = { kind: 'mag', t: 0, dur, empty, fired: new Set(), spent: shotsSinceReload }
         },
         cancelReload() {
             clip = null
@@ -449,7 +537,13 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         melee() {
             melee = 0
             clip = null
+            inspectT = -1
             play(DF_WSND.knife)
+        },
+        inspect() {
+            if (!rig || clip || melee >= 0 || equipT < 1 || inspectT >= 0 || ads.x > 0.05) return
+            inspectT = 0
+            play(DF_WSND.inspect)
         },
         setDowned(down) {
             downWant = down
@@ -489,6 +583,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             rig = rigL = null
             for (const g of geos) g.dispose()
             flashMat.dispose()
+            pilotMat.dispose()
             ctx.vmScene.remove(root)
         }
     }
@@ -502,7 +597,49 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 fn()
             }
         }
-        if (c.kind === 'mag' && r.drum && r.reload === 'mag') {
+        if (c.kind === 'mag' && r.reload === 'break' && !r.long) {
+            // Revolver: the barrel tips down on its hinge, the muzzle swings up and the empties
+            // tumble out of the cylinder; then muzzle down, the speedloader pushes six fresh rounds
+            // in, twists free and the action snaps shut with a flick of the wrist.
+            const dip = bump(u, 0, 1, 0.12)
+            out.x -= 0.035 * dip
+            out.y += 0.025 * dip
+            out.roll -= 0.35 * dip
+            out.brk = bump(u, 0.08, 0.88, 0.1)
+            out.pitch += 0.6 * bump(u, 0.12, 0.42, 0.1) - 0.22 * bump(u, 0.46, 0.84, 0.1)
+            const into = smooth((u - 0.42) / 0.18)
+            const away = smooth((u - 0.66) / 0.08)
+            out.mag.set(0, -0.02 * (1 - into), 0.08 * (1 - into) + 0.07 * away)
+            out.magShow = u > 0.42 && u < 0.74
+            out.pitch += 0.12 * bump(u, 0.86, 0.98, 0.04)
+            ev(0.08, () => play(DF_WSND.breakOpen))
+            ev(0.24, () => {
+                play(DF_WSND.eject)
+                for (let n = 0; n < Math.max(1, r.chambers); n++) ejectCasing(r, true)
+            })
+            ev(0.6, () => play(DF_WSND.magIn))
+            ev(0.86, () => play(DF_WSND.breakClose))
+        } else if (c.kind === 'mag' && r.reload === 'break') {
+            // Coach gun: the top lever over, the barrels drop, the spent hulls flick up past the
+            // shoulder, two fresh shells are thumbed in and the gun is snapped shut.
+            const dip = bump(u, 0, 1, 0.14)
+            out.x -= 0.03 * dip
+            out.y += 0.012 * dip
+            out.pitch -= 0.2 * dip
+            out.roll += 0.28 * dip
+            out.brk = bump(u, 0.06, 0.86, 0.1)
+            const into = smooth((u - 0.36) / 0.26)
+            out.mag.set(0, 0.035 * (1 - into), 0.12 * (1 - into))
+            out.magShow = u > 0.36 && u < 0.86
+            out.pitch += 0.14 * bump(u, 0.84, 0.97, 0.04)
+            ev(0.06, () => play(DF_WSND.breakOpen))
+            ev(0.2, () => {
+                play(DF_WSND.eject)
+                for (let n = 0; n < Math.max(1, Math.min(2, c.spent)); n++) ejectCasing(r, true)
+            })
+            ev(0.58, () => play(DF_WSND.shell))
+            ev(0.84, () => play(DF_WSND.breakClose))
+        } else if (c.kind === 'mag' && r.drum && r.reload === 'mag') {
             // A drum change: the gun cants its belly toward the eye, the drum slides off the
             // well and drops away, a fresh one swings up and is slapped home; empty, the bolt
             // handle is yanked back after.
@@ -537,11 +674,16 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                 ev(0.82, () => play(DF_WSND.boltClose))
             } else {
                 const away = smooth((u - 0.15) / 0.2) * (1 - smooth((u - 0.55) / 0.2))
-                const dir = r.reload === 'top' ? tmpV.set(0, 0.25, 0.04) : r.reload === 'side' || r.reload === 'capsule' || r.reload === 'coil' ? tmpV.set(-0.22, -0.03, 0) : tmpV.set(0, -0.26, 0.04)
+                const dir = r.reload === 'top'
+                    ? tmpV.set(0, 0.25, 0.04)
+                    : r.reload === 'side' || r.reload === 'capsule' || r.reload === 'coil'
+                        ? tmpV.set(-0.22, -0.03, 0)
+                        : r.reload === 'fuel' ? tmpV.set(-0.12, -0.24, 0.06) : tmpV.set(0, -0.26, 0.04)
                 out.mag.copy(dir).multiplyScalar(away)
+                if (r.reload === 'fuel') ev(0.8, () => play(DF_WSND.valve))
                 ev(0.16, () => {
                     play(r.reload === 'top' ? DF_WSND.drum : DF_WSND.magOut)
-                    if (r.reload === 'capsule' || r.reload === 'coil') {
+                    if (r.reload === 'capsule' || r.reload === 'coil' || r.reload === 'fuel') {
                         play(DF_WSND.steam)
                         api.muzzleWorld(ctx.camera, tmpV2)
                         ctx.fx.burst('smoke', tmpV2, { scale: 0.15, color: 0xdfe8e0 })
@@ -571,7 +713,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         }
     }
 
-    const res = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, mag: new THREE.Vector3(), bolt: 0, pump: 0 }
+    const res = { x: 0, y: 0, z: 0, roll: 0, pitch: 0, mag: new THREE.Vector3(), bolt: 0, pump: 0, brk: 0, magShow: false }
     const hip = new THREE.Vector3()
     const pos = new THREE.Vector3()
     const rot = new THREE.Euler(0, 0, 0, 'YXZ')
@@ -601,15 +743,23 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         // ~0.2 s to the sights (scaled by the weapon's adsTime and the perk).
         ads.omega = 22 * Math.max(0.4, input.adsMult) * Math.min(1.6, 0.25 / Math.max(0.12, s.adsTime))
         ads.step(dt, adsWant ? 1 : 0)
+        if (adsWant && !adsWas) play(DF_WSND.ads)
+        adsWas = adsWant
         const a = clamp01(ads.x)
         const ia = 1 - a
-        sprint.step(dt, input.sprinting && !clip && melee < 0 ? 1 : 0)
+        const sliding = !!input.sliding
+        sprint.step(dt, input.sprinting && !sliding && !clip && melee < 0 ? 1 : 0)
         crouch.step(dt, input.crouching ? 1 : 0)
         downed.step(dt, downWant ? 1 : 0)
-        bobAmt.step(dt, input.grounded ? clamp01(input.speed * 1.4) : 0)
+        slideBlend.step(dt, sliding ? 1 : 0)
+        bobAmt.step(dt, input.grounded && !sliding ? clamp01(input.speed * 1.4) : 0)
         bobPhase += dt * (4.2 + input.speed * 6.5)
-        if (!grounded && input.grounded) land.v -= 1.2
+        // the harder the fall, the deeper the dip (vy is the speed it fell at)
+        if (!grounded && input.grounded) land.v -= 1.2 + Math.min(1.6, Math.max(0, -(input.vy ?? 0) - 3) * 0.2)
         grounded = input.grounded
+        strafeLean.step(dt, Math.max(-1, Math.min(1, input.strafe ?? 0)))
+        vyTrail.step(dt, input.grounded ? 0 : Math.max(-1, Math.min(1, (input.vy ?? 0) / 6)))
+        if (inspectT >= 0 && (input.ads || input.sprinting || sliding)) inspectT = -1
         // Sway lags the mouse: the look target is the clamped mouse delta, the sway chases it.
         lookX.step(dt, Math.max(-1, Math.min(1, -input.look.x * 0.04)))
         lookY.step(dt, Math.max(-1, Math.min(1, -input.look.y * 0.04)))
@@ -637,6 +787,12 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         pos.x += sb * 0.008 * bob + Math.sin(time * 0.9) * 0.0012 * ia
         pos.y += -Math.abs(sb) * 0.008 * bob + cb * 0.0015 * bob + Math.sin(time * 1.6) * 0.0016 * ia + land.x * 0.02
         rot.z += sb * 0.012 * bob
+        // Movement momentum: lean into strafes, trail a jump (low on the way up, high falling).
+        const sl = strafeLean.x * ia
+        rot.z -= sl * 0.07
+        pos.x -= sl * 0.006
+        pos.y -= vyTrail.x * 0.012 * (1 - a * 0.6)
+        rot.x -= vyTrail.x * 0.04 * ia
         const sw = 1 - a * 0.75
         rot.y += swayX.x * 0.06 * sw
         rot.x += swayY.x * 0.05 * sw
@@ -653,6 +809,18 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         pos.x += sp * -0.01
         pos.y += sp * -0.012
         pos.z += sp * 0.02
+        // The sprint swing: a big figure-eight in step with the stride.
+        const sbAmt = sp * clamp01(bobAmt.x)
+        pos.x += Math.sin(bobPhase) * 0.014 * sbAmt
+        pos.y += -Math.abs(Math.cos(bobPhase)) * 0.012 * sbAmt
+        rot.y += Math.sin(bobPhase) * 0.05 * sbAmt
+        rot.z += Math.cos(bobPhase * 2) * 0.04 * sbAmt
+        // Slide: the gun cants over and drops toward the hip, steady through the slide.
+        const sd = clamp01(slideBlend.x) * ia
+        rot.z += sd * 0.42
+        rot.y += sd * 0.08
+        pos.x -= sd * 0.02
+        pos.y -= sd * 0.018
         pos.y += -crouch.x * 0.006 * ia - downed.x * 0.02
         rot.z += downed.x * 0.15
         const lw = clamp01(lower.x)
@@ -673,6 +841,24 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             }
         }
 
+        // inspect: turn the gun to show its flank, tip it up to look down the action, then back
+        if (inspectT >= 0) {
+            inspectT += dt / INSPECT_TIME
+            if (inspectT >= 1) inspectT = -1
+            else {
+                const turn = bump(inspectT, 0, 0.5, 0.14)
+                const tip = bump(inspectT, 0.42, 1, 0.16)
+                rot.y += turn * -0.85
+                rot.z += turn * 0.55 - tip * 0.3
+                rot.x += tip * 0.55
+                pos.x += turn * -0.07 + tip * -0.03
+                pos.y += turn * 0.035 + tip * 0.02
+                pos.z += turn * 0.03
+                // a little flick at the turn-over
+                rot.z += bump(inspectT, 0.4, 0.56, 0.06) * 0.12
+            }
+        }
+
         // reload / shells
         res.x = 0
         res.y = 0
@@ -682,6 +868,8 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         res.mag.set(0, 0, 0)
         res.bolt = 0
         res.pump = 0
+        res.brk = 0
+        res.magShow = false
         if (clip) {
             clip.t += dt
             clipAnim(clip, r, res)
@@ -695,7 +883,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             shellGrace += dt
             if (shellGrace > 0.12) {
                 shellGrace = -1
-                clip = { kind: 'shell-out', t: 0, dur: 0.55, empty: false, fired: new Set() }
+                clip = { kind: 'shell-out', t: 0, dur: 0.55, empty: false, fired: new Set(), spent: 0 }
             }
         }
         pos.x += res.x
@@ -711,7 +899,17 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         let bolt = res.bolt
         let pump = res.pump
         if (u < 1) {
-            if (current?.id === 'kar98k') {
+            if (r.cycle === 'lever') {
+                // Lever action: down and forward, the bolt rides back and the case flies, then home.
+                bolt = Math.max(bolt, bump(u, 0.12, 0.82, 0.24))
+                if (u > 0.2 && u - dt / shotDur <= 0.2) play(DF_WSND.leverOpen)
+                if (u > 0.36 && u - dt / shotDur <= 0.36) ejectCasing(r)
+                if (u > 0.62 && u - dt / shotDur <= 0.62) play(DF_WSND.leverClose)
+                const work = bump(u, 0.1, 0.86, 0.22) * ia
+                rot.x -= work * 0.05
+                rot.z -= work * 0.07
+                pos.y -= work * 0.008
+            } else if (r.cycle === 'bolt') {
                 bolt = Math.max(bolt, bump(u, 0.2, 0.9, 0.2))
                 if (u > 0.4 && u - dt / shotDur <= 0.4) {
                     play(DF_WSND.boltOpen)
@@ -728,6 +926,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             }
         }
         if (r.slide && shotsSinceReload >= s.magSize && !clip) slide = 1
+        panShown += (panAngle - panShown) * (1 - Math.exp(-dt * 28))
         if (clip?.kind === 'mag' && clip.empty) slide = Math.max(slide, 1 - smooth((clip.t / clip.dur - 0.84) / 0.06))
 
         holder.position.copy(pos)
@@ -748,14 +947,23 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             if (g.slide) g.slide.position.copy(g.slide.userData.rest as THREE.Vector3).setZ(0.022 * slide)
             if (g.bolt) {
                 const rest = g.bolt.userData.rest as THREE.Vector3
-                g.bolt.position.set(rest.x, rest.y, rest.z + 0.05 * bolt + (shotT < Math.min(0.05, shotDur * 0.45) && g.id !== 'kar98k' ? 0.015 : 0))
-                if (g.id === 'kar98k') g.bolt.rotation.z = bolt * 1.2
+                g.bolt.position.set(rest.x, rest.y, rest.z + 0.05 * bolt + (shotT < Math.min(0.05, shotDur * 0.45) && !g.cycle ? 0.015 : 0))
+                if (g.cycle === 'bolt') g.bolt.rotation.z = bolt * 1.2
             }
+            if (g.lever) g.lever.rotation.x = 0.85 * bolt
+            if (g.barrel) g.barrel.rotation.x = -res.brk * (g.long ? 0.55 : 0.8)
             if (g.pump) g.pump.position.copy(g.pump.userData.rest as THREE.Vector3).setZ(0.07 * pump)
-            if (g.mag && g.mag !== g.pan) g.mag.position.copy(g.mag.userData.rest as THREE.Vector3).add(res.mag)
+            if (g.mag && g.mag !== g.pan) {
+                g.mag.position.copy(g.mag.userData.rest as THREE.Vector3).add(res.mag)
+                if (g.magHidden) g.mag.visible = res.magShow
+            }
             if (g.pan) {
-                g.pan.position.copy(g.pan.userData.rest as THREE.Vector3).add(res.mag)
-                g.pan.rotation.y = -panAngle
+                if (g.panSpin === 'z') {
+                    g.pan.rotation.z = panShown
+                } else {
+                    g.pan.position.copy(g.pan.userData.rest as THREE.Vector3).add(res.mag)
+                    g.pan.rotation.y = -panAngle
+                }
             }
             if (g.glow) {
                 const drain = clip && clip.kind === 'mag' ? bump(clip.t / clip.dur, 0.1, 0.7, 0.1) * 1.1 : 0
@@ -765,12 +973,19 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
                     : 1.3 + Math.sin(time * 2.6) * 0.18 + Math.sin(time * 17) * 0.04 + glowPulse * 2.4
                 g.glow.userData.uGlow.value = Math.max(0.2, live - drain)
             }
-            if (g.lens) g.lens.visible = a > 0.6
+            if (g.lens) {
+                // a scope's picture is the HUD's; a red dot fades in as it lines up
+                const k = g.scoped ? 0 : smooth((a - DOT_FADE[0]) / (DOT_FADE[1] - DOT_FADE[0]))
+                g.lens.visible = k > 0
+                ;(g.lens.material as THREE.MeshBasicMaterial).opacity = k
+            }
         }
         apply(r)
         if (rigL) apply(rigL)
-        // The glove hides once a scope is up (the scope fills the view).
-        glove.visible = !(r.scoped && a > 0.6)
+        // A scope: the gun goes away behind the black, then the picture opens.
+        scopeOut.dark = r.scoped ? smooth((a - SCOPE_DARK[0]) / (SCOPE_DARK[1] - SCOPE_DARK[0])) : 0
+        scopeOut.view = r.scoped ? smooth((a - SCOPE_VIEW[0]) / (SCOPE_VIEW[1] - SCOPE_VIEW[0])) : 0
+        r.root.visible = !(r.scoped && a >= SCOPE_SWAP)
 
         root.updateMatrixWorld(true)
         knife.visible = knifeK > 0
@@ -781,6 +996,14 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             knife.rotation.set(-1.25, 0.2 - sw2 * 0.9, 0.9 - sw2 * 0.4)
         }
 
+        if (pilot.visible) {
+            // cosmetic flicker; the pilot flares for a moment after each burst of fire
+            pilotAt.getWorldPosition(pilot.position)
+            root.worldToLocal(pilot.position)
+            const f = 0.012 * (1 + glowPulse * 0.8) * (0.8 + Math.random() * 0.4)
+            pilot.scale.set(f * 0.7, f * 0.7, f * (1.4 + Math.random() * 0.6))
+            pilot.rotation.set(0, 0, Math.random() * Math.PI)
+        }
         if (flash.visible) {
             flashT -= dt
             if (flashT <= 0) flash.visible = false

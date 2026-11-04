@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
         const cost = callOfXenoUpgradeCost(def, level)
         if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Upgrade is already maxed' })
 
-        await debit(userId, cost.toFixed(4), 'call-of-xeno:upgrade', tx)
+        await debit(userId, cost.toFixed(4), 'call-of-xeno', tx)
         const [updated] = await tx.update(callOfXenoState)
             .set({ [column]: level + 1 })
             .where(eq(callOfXenoState.userId, userId))

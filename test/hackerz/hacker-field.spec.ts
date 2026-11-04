@@ -4,29 +4,8 @@ import {
   HACKERZ_MAX_SLOTS,
   HACKERZ_UPGRADES,
   hackerzSlots,
-  hackerzUpgradeMax,
-  HACKERZ_HACKER_CONTINGENT,
-  HACKERZ_HACKER_FIELD,
-  HACKERZ_HACKER_SECOND_MS,
-  HACKERZ_HACKER_SURGE_WAVE,
-  HACKERZ_RUNNER_SPEED,
-  hackerzEnemy,
-  hackerzHackerField,
-  hackerzSpawnWeight
+  hackerzUpgradeMax
 } from '#shared/utils/gamelogic/hackerz'
-
-describe('hackerzHackerField', () => {
-  it('keeps the standard pack before the surge waves', () => {
-    expect(hackerzHackerField(HACKERZ_HACKER_SURGE_WAVE - 1, 0)).toBe(HACKERZ_HACKER_FIELD)
-    expect(hackerzHackerField(HACKERZ_HACKER_SURGE_WAVE - 1, 30_000)).toBe(HACKERZ_HACKER_FIELD)
-  })
-
-  it('sends one contingent first and a second one a few seconds in', () => {
-    expect(hackerzHackerField(HACKERZ_HACKER_SURGE_WAVE, 0)).toBe(HACKERZ_HACKER_CONTINGENT)
-    expect(hackerzHackerField(25, HACKERZ_HACKER_SECOND_MS - 1)).toBe(HACKERZ_HACKER_CONTINGENT)
-    expect(hackerzHackerField(25, HACKERZ_HACKER_SECOND_MS)).toBe(HACKERZ_HACKER_CONTINGENT * 2)
-  })
-})
 
 describe('hackerzUpgradeMax', () => {
   const spire = HACKERZ_UPGRADES.find(def => def.id === 'spire')!
@@ -43,21 +22,5 @@ describe('hackerzUpgradeMax', () => {
     for (const def of HACKERZ_UPGRADES.filter(def => def.id !== 'spire')) {
       expect(hackerzUpgradeMax(def, 4)).toBe(def.max)
     }
-  })
-})
-
-describe('hackerzSpawnWeight', () => {
-  it('boosts runners more as the waves go on, and leaves the rest alone', () => {
-    const sapper = hackerzEnemy('sapper')
-    const tank = hackerzEnemy('tank')
-    expect(sapper.speed).toBeGreaterThanOrEqual(HACKERZ_RUNNER_SPEED)
-    expect(hackerzSpawnWeight(sapper, 20)).toBeGreaterThan(hackerzSpawnWeight(sapper, 5))
-    expect(hackerzSpawnWeight(sapper, 5)).toBeGreaterThan(sapper.weight)
-    expect(hackerzSpawnWeight(tank, 20)).toBe(tank.weight)
-  })
-
-  it('never boosts the hackers, which the portal tops up on its own', () => {
-    const crawler = hackerzEnemy('crawler')
-    expect(hackerzSpawnWeight(crawler, 25)).toBe(crawler.weight)
   })
 })

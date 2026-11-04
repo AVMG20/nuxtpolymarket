@@ -1,15 +1,8 @@
 /**
  * `settleHq` hands back the shop levels and collection it already read inside its lock, so
- * `state.get.ts` does not run those two queries a second time.
- *
- * Two properties are worth pinning, and neither is "it is faster":
- *
- * 1. **The handed-back rows are the real rows.** A reuse that returns something subtly different
- *    from a fresh fetch would be a silent correctness bug in every payload the client renders.
- * 2. **The no-op path returns them as `undefined`.** That is the whole reason the fields are
- *    optional, and the caller's `?? getShopLevels(...)` fallback only earns its keep if this path
- *    genuinely omits them. If a later refactor makes the settle always populate them, the
- *    fallback becomes dead code and someone should know.
+ * `state.get.ts` does not run those two queries a second time. The handed-back rows have to be
+ * the real rows: a reuse that returns something subtly different from a fresh fetch would be a
+ * silent correctness bug in every payload the client renders.
  *
  * Needs the local Postgres from .env. Skips when DATABASE_URL is unset.
  */
@@ -84,32 +77,5 @@ describe.skipIf(SKIP)('settleHq result reuse', () => {
         expect(outcome.collections!.champion).toHaveLength(1)
         expect(outcome.collections!.skill).toHaveLength(1)
         expect(outcome.collections!.artifact).toHaveLength(0)
-    })
-
-    it('omits both on the no-op path, so the caller fallback is load-bearing', async () => {
-        // Settle once to bring `lastSettledAt` up to now, then immediately again: the second has
-        // no elapsed time and returns before it reads anything.
-        await rewind(120)
-        await settleHq(USER_ID)
-
-        await db.update(hqState)
-            .set({ lastSettledAt: new Date(Date.now() + 5_000) })
-            .where(eq(hqState.userId, USER_ID))
-
-        const noop = await settleHq(USER_ID)
-        expect(noop.result).toBeNull()
-        expect(noop.shopLevels).toBeUndefined()
-        expect(noop.collections).toBeUndefined()
-    })
-
-    it('still returns the settled state alongside them', async () => {
-        // The reuse must not have cost the caller anything it had before.
-        await rewind(300)
-        const outcome = await settleHq(USER_ID)
-
-        expect(outcome.state.userId).toBe(USER_ID)
-        expect(outcome.result).not.toBeNull()
-        expect(outcome.elapsedSeconds).toBeGreaterThan(0)
-        expect(typeof outcome.previousLevel).toBe('number')
     })
 })

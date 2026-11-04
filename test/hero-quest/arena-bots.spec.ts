@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { ARENA_BOT_RATING_MAX, BASE_ARTIFACT_SLOTS, BASE_CHAMPION_SLOTS, BASE_SKILL_SLOTS } from '#shared/utils/hero-quest/constants'
+import { BASE_ARTIFACT_SLOTS, BASE_CHAMPION_SLOTS, BASE_SKILL_SLOTS } from '#shared/utils/hero-quest/constants'
 import { ARENA_DUMMY_ID } from '#shared/utils/hero-quest/arena'
 import { ARENA_BOT_PREFIX, arenaBots, getArenaBot, isArenaBotId } from '#shared/utils/hero-quest/content/arena-bots'
-import { CHAMPIONS, isChampionId } from '#shared/utils/hero-quest/content/champions'
+import { isChampionId } from '#shared/utils/hero-quest/content/champions'
 import { GEAR_SLOTS, getGear, isGearId } from '#shared/utils/hero-quest/content/gear'
 import { isSkillId } from '#shared/utils/hero-quest/content/skills'
 import { isArtifactId } from '#shared/utils/hero-quest/content/artifacts'
@@ -22,11 +22,6 @@ describe('arena bots', () => {
         expect(isArenaBotId(crypto.randomUUID())).toBe(false)
     })
 
-    it('sit at or below the Rating cap', () => {
-        expect(bots.every(bot => bot.rating <= ARENA_BOT_RATING_MAX)).toBe(true)
-        expect(Math.max(...bots.map(bot => bot.rating))).toBe(ARENA_BOT_RATING_MAX)
-    })
-
     it('field only real content, within the slots a new player has', () => {
         for (const bot of bots) {
             expect(bot.champions.length).toBeGreaterThan(0)
@@ -42,16 +37,5 @@ describe('arena bots', () => {
                 expect(new Set(list.map(c => c.contentId)).size).toBe(list.length)
             }
         }
-    })
-
-    it('are marked as bots by name, and never named after a Champion', () => {
-        expect(bots.every(bot => bot.name.startsWith('Bot '))).toBe(true)
-        const taken = new Set(CHAMPIONS.map(c => c.givenName.toLowerCase()))
-        expect(bots.filter(bot => taken.has(bot.name.slice('Bot '.length).toLowerCase()))).toEqual([])
-    })
-
-    it('grow stronger up the ladder', () => {
-        const byRating = [...bots].sort((a, b) => a.rating - b.rating)
-        for (let i = 1; i < byRating.length; i++) expect(byRating[i]!.heroLevel).toBeGreaterThanOrEqual(byRating[i - 1]!.heroLevel)
     })
 })

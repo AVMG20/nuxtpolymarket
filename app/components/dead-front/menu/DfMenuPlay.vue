@@ -73,7 +73,7 @@
                 <div>
                     <p class="df-eyebrow">Roll of the squad · Sainte-Croix</p>
                     <h2 class="df-h mt-1 text-3xl">Your squad</h2>
-                    <p class="df-type mt-1 text-xs text-[var(--df-ink-2)]">{{ lobby.members.length }}/4 soldiers · the C.O. gives the order</p>
+                    <p class="df-type mt-1 text-xs text-[var(--df-ink-2)]">{{ lobby.members.length }}/{{ DF_MAX_PLAYERS }} soldiers · the C.O. gives the order</p>
                 </div>
                 <DfButton tone="ghost" icon="leave" @click="emit('send', { t: 'leave' })">Leave</DfButton>
             </header>
@@ -101,7 +101,7 @@
                     </span>
                     <span v-else-if="!m.away" class="df-awaiting">awaiting</span>
                 </li>
-                <li v-for="n in 4 - lobby.members.length" :key="`empty-${n}`" class="df-line vacant">
+                <li v-for="n in Math.max(0, DF_MAX_PLAYERS - lobby.members.length)" :key="`empty-${n}`" class="df-line vacant">
                     <span class="df-line-no">{{ lobby.members.length + n }}.</span>
                     <span class="flex-1">— vacant —</span>
                 </li>
@@ -163,6 +163,7 @@
 </template>
 
 <script setup lang="ts">
+import { DF_MAX_PLAYERS } from '#shared/utils/dead-front/constants'
 import type { DfClientMsg, DfLobbyState, DfLobbySummary } from '#shared/utils/dead-front/protocol'
 import DfButton from '~/components/dead-front/ui/DfButton.vue'
 import DfIcon from '~/components/dead-front/ui/DfIcon.vue'

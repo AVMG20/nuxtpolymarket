@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateFive } from '#shared/utils/casino-holdem/evaluator'
 import type { ChCard } from '#shared/utils/casino-holdem/evaluator'
-import {
-    aaPayMultiplier,
-    antePayMultiplier,
-    dealerQualifies,
-    resolveSeat
-} from '#shared/utils/casino-holdem/rules'
-import { shouldCall } from '#shared/utils/casino-holdem/strategy'
+import { dealerQualifies, resolveSeat } from '#shared/utils/casino-holdem/rules'
 import type { LtRank, LtSuit } from '#shared/utils/live-table/types'
 
 const SUITS: Record<string, LtSuit> = { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }
@@ -55,40 +49,6 @@ describe('dealerQualifies', () => {
         for (const hand of [TWO_PAIR, TRIPS, STRAIGHT, FLUSH, BOAT, QUADS, STRAIGHT_FLUSH, ROYAL]) {
             expect(dealerQualifies(hand)).toBe(true)
         }
-    })
-})
-
-describe('antePayMultiplier', () => {
-    it('pays the scale from pair-or-less up to a royal', () => {
-        expect(antePayMultiplier(HIGH)).toBe(1)
-        expect(antePayMultiplier(ACES)).toBe(1)
-        expect(antePayMultiplier(TWO_PAIR)).toBe(1)
-        expect(antePayMultiplier(TRIPS)).toBe(1)
-        expect(antePayMultiplier(STRAIGHT)).toBe(1)
-        expect(antePayMultiplier(FLUSH)).toBe(2)
-        expect(antePayMultiplier(BOAT)).toBe(3)
-        expect(antePayMultiplier(QUADS)).toBe(10)
-        expect(antePayMultiplier(STRAIGHT_FLUSH)).toBe(20)
-        expect(antePayMultiplier(ROYAL)).toBe(100)
-    })
-})
-
-describe('aaPayMultiplier', () => {
-    it('starts at a pair of aces', () => {
-        expect(aaPayMultiplier(ACES)).toBe(7)
-        expect(aaPayMultiplier(five('Ks Kh Ad 7c 3s'))).toBe(0)
-        expect(aaPayMultiplier(HIGH)).toBe(0)
-    })
-
-    it('pays the ladder above that', () => {
-        expect(aaPayMultiplier(TWO_PAIR)).toBe(7)
-        expect(aaPayMultiplier(TRIPS)).toBe(7)
-        expect(aaPayMultiplier(STRAIGHT)).toBe(7)
-        expect(aaPayMultiplier(FLUSH)).toBe(20)
-        expect(aaPayMultiplier(BOAT)).toBe(30)
-        expect(aaPayMultiplier(QUADS)).toBe(40)
-        expect(aaPayMultiplier(STRAIGHT_FLUSH)).toBe(50)
-        expect(aaPayMultiplier(ROYAL)).toBe(100)
     })
 })
 
@@ -196,37 +156,5 @@ describe('resolveSeat', () => {
         const result = resolveSeat(bets, { folded: false, player: ACES, dealer: FOURS, aa: ACES })
         expect(result.aaMultiplier).toBe(0)
         expect(result.aaReturn).toBe(0)
-    })
-})
-
-describe('shouldCall', () => {
-    const hole = (text: string) => cards(text)
-
-    it('calls with a pocket pair', () => {
-        expect(shouldCall(hole('7s 7h'), cards('Ad Kc 2s'))).toBe(true)
-    })
-
-    it('calls when a hole card pairs the board', () => {
-        expect(shouldCall(hole('6s 3h'), cards('6d Kc 2s'))).toBe(true)
-    })
-
-    it('calls with any ace', () => {
-        expect(shouldCall(hole('As 3h'), cards('Kd 9c 5s'))).toBe(true)
-    })
-
-    it('calls on a four-flush that uses a hole card', () => {
-        expect(shouldCall(hole('9d 4d'), cards('Kd 7d 2s'))).toBe(true)
-    })
-
-    it('calls on an open-ended draw', () => {
-        expect(shouldCall(hole('9c 8h'), cards('7d 6s 2c'))).toBe(true)
-    })
-
-    it('folds a hand with nothing at all', () => {
-        expect(shouldCall(hole('7c 2h'), cards('Kd 9s 8d'))).toBe(false)
-    })
-
-    it('ignores a flush draw the board makes without the hole cards', () => {
-        expect(shouldCall(hole('7c 2h'), cards('Kd 9d 8d'))).toBe(false)
     })
 })

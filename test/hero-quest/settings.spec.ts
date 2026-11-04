@@ -2,29 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { HQ_SETTING_DEFAULTS, hqSettingsOf, isHqSettingKey, isHqSettingValue, isHqToggleKey } from '#shared/utils/hero-quest/settings'
 
 describe('hero-quest settings', () => {
-    it('confirms every spend, and shows tutorials, the full show and every dot, until the player says otherwise', () => {
-        expect(hqSettingsOf({})).toEqual({
-            tutorials: true,
+    it('confirms every spend until the player says otherwise, and keeps what was stored', () => {
+        expect(hqSettingsOf({})).toMatchObject({
             confirmGoldSeals: true,
             confirmVoidShards: true,
             confirmGemSpends: true,
             confirmTreeRespec: true,
-            confirmTraitSpends: true,
-            reduceMotion: false,
-            fastReveals: false,
-            skillCinematics: true,
-            combatNumbers: true,
-            detailedDescriptions: false,
-            numberNotation: 'scientific',
-            dotFreePulls: true,
-            dotUpgrades: true,
-            dotTreeNodes: true,
-            dotRewards: true
+            confirmTraitSpends: true
         })
         expect(hqSettingsOf(null)).toEqual(HQ_SETTING_DEFAULTS)
-    })
-
-    it('keeps what was stored over the defaults', () => {
         expect(hqSettingsOf({ confirmGoldSeals: false }).confirmGoldSeals).toBe(false)
     })
 

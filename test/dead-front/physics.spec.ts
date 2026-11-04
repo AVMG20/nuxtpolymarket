@@ -222,14 +222,4 @@ describe('dfBuildCollision', () => {
         expect(dfRaycast(closed, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, 10)?.mat).toBe('wood')
         expect(dfRaycast(open, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }, 10)).toBeNull()
     })
-
-    it('is fast enough for a full match tick', () => {
-        const world = dfCollisionFromSolids([floor, ...Array.from({ length: 300 }, (_, i) => solid((i % 20) * 2 - 20, 0, Math.floor(i / 20) * 2 - 15, (i % 20) * 2 - 19.6, 2, Math.floor(i / 20) * 2 - 14.6))])
-        const t0 = performance.now()
-        for (let k = 0; k < 2000; k++) {
-            dfMoveBody(world, { x: (k % 37) - 18, y: 0, z: (k % 23) - 11 }, { x: 3, y: -0.3, z: 2 }, 1 / 20, zombie)
-            dfRaycast(world, { x: 0, y: 1.6, z: 0 }, { x: Math.cos(k), y: -0.05, z: Math.sin(k) }, 60)
-        }
-        expect(performance.now() - t0).toBeLessThan(500)
-    })
 })

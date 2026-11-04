@@ -769,9 +769,10 @@ function nextFrontiers(
 ) {
     const exits = room.ports.filter(port => port.kind === 'exit')
     if (room.depth >= maxDepth || !exits.length) return []
-    const ranked = exits.sort((left, right) =>
-        exitScore(right.cell, right.direction, center, random)
-        - exitScore(left.cell, left.direction, center, random))
+    // score each exit once: a comparator that draws from the seeded random makes the
+    // draws depend on the engine's sort, so the same seed gave a different map on Bun
+    const scores = new Map(exits.map(port => [port, exitScore(port.cell, port.direction, center, random)]))
+    const ranked = exits.sort((left, right) => scores.get(right)! - scores.get(left)!)
     const special = !COMMON_ARCHETYPES.has(room.archetype)
     return ranked.map((port, index): OpenFrontier => {
         const main = previous.main && index === 0

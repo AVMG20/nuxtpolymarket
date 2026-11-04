@@ -16,7 +16,7 @@ A play-money gaming site. Players earn and spend **coins** (`user.balance`) and 
 - `server/api/`: Nitro file routes (`*.get.ts`, `*.post.ts`); shared logic lives in `server/utils/`
 - `shared/`: code used by both client and server (game rules, payouts, random)
 - `content/changelog/`: the player-facing changelog
-- `scripts/`: economy balance simulations (`bun run balance:*`)
+- `scripts/`: balance simulations and one-off tools, run directly with `bun scripts/<name>.ts` (no `package.json` entries)
 
 ## Client
 
@@ -37,7 +37,9 @@ if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Una
 
 Import with `#server/…` and `#shared/…` aliases.
 
-**Balance**: `server/utils/balance.ts` has `credit`, `debit`, `creditGems`, `debitGems`, `getBalance` and `getHistory`. Amounts are numeric strings (`'25.50'`), with an optional category (`'game:dice'`). `debit`/`debitGems` throw 400 when the user can't afford it, so don't pre-check. Each write logs a `transactions` row. **Inside a `db.transaction()` that holds a lock, pass `tx` as the last argument**, otherwise the write uses a second connection and deadlocks.
+**Balance**: `server/utils/balance.ts` has `credit`, `debit`, `creditGems`, `debitGems`, `getBalance` and `getHistory`. Coin amounts are numeric strings (`'25.50'`), gem amounts are integers. A coin credit that returns the player's own money (escrow, change, a cancelled order, a crash refund) passes `{ refund: true }` after `tx`: the row is flagged `refund`, it never counts as income and the bank garnish skips it. `debit`/`debitGems` throw 400 when the user can't afford it, so don't pre-check. Each write logs a `transactions` row, and gem rows carry `currency: 'gems'`. **Never update `user.balance` or `user.gems` directly**, and filter every query that sums `transactions.amount` on `currency`, since coin and gem amounts never add up. **Inside a `db.transaction()` that holds a lock, pass `tx` as the last argument**, otherwise the write uses a second connection and deadlocks.
+
+**Categories**: every ledger row's category is the game's one plain, lowercase name, the same for coins and gems: `'dice'`, `'pathwarden'`, `'polytown'`, `'gem exchange'`. Never add a `:detail` suffix (`'pathwarden:boost'`, `'polytown:refund'`) or encode meaning in the name; use `{ refund: true }` for returned money. The only extra category is `'tcg vendor'`, which the TCG admin page watches as the module's coin faucet.
 
 ### Concurrency: never read-then-write value
 
@@ -60,6 +62,8 @@ Self-check: if the same request runs twice at once, the second one must throw.
 ### Randomness
 
 Never use `Math.random()` for outcomes, payouts, drops or rolls. Use `#shared/utils/random` instead: `randomFloat()` [0,1), `randomInt(min, max)` inclusive, `randomPick(arr)`, `randomChance(p)`. `Math.random()` is only acceptable for cosmetic effects. Don't roll your own from `crypto.getRandomValues`.
+
+A simulation that must replay identically on every machine (a lockstep game, a save that resumes its sequence) uses `createSeededRandom(seed)` from the same module: the same calls, plus `state` to save and restore it. Anyone who knows the seed can predict it, so it never decides a payout, drop or coin or gem amount.
 
 ## three.js games
 
@@ -91,6 +95,7 @@ Edit `schema.ts`, then run `bun run db:generate` (commit the generated `drizzle/
   - Good: `- **Ember Portals**: portals from the triggering spin stay open for the free spins, and portals max out at a white ×256.`
   - You may rewrite the whole day's file at any time to make it shorter: merge, trim or drop entries when it grows long.
 - **Before any commit**: `bun run typecheck` and `bun run test` must both pass. `nuxt build` does not typecheck. A red `main` blocks every branch and deploy, so fix failures and call out any that are genuinely pre-existing. DB tests need the compose Postgres running.
+- **Balance checks and simulations go in `scripts/`, never in tests.** To verify or tune a game (RTP, income curves, difficulty, bot playthroughs), add or extend a `scripts/<game>-*.ts`. Tests run on every deploy, so they cover rules and correctness, not tuning numbers that move whenever a feature changes.
 - **Commits**: only when asked. Short imperative subject, no body or footer, no `Co-Authored-By`. Split commits by concern.
 - **Branches**: `feature/…` or `bugfix/…` in kebab-case, from an up-to-date `main`.
 - **PRs**: title is the branch name, empty body, base `main`.

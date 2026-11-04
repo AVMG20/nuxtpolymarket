@@ -159,7 +159,8 @@ function openLightbox(set: GallerySet, printing: GalleryPrinting, event: MouseEv
       releaseDate: set.releaseDate
     },
     printingId: printing.id,
-    owned: printing.owned
+    owned: printing.owned,
+    setId: set.id
   }
 }
 </script>

@@ -30,7 +30,7 @@ async function sweep() {
         })
 
     for (const wager of claimed) {
-        await credit(wager.userId, wager.amount, 'live-blackjack:recovery')
+        await credit(wager.userId, wager.amount, 'live-blackjack', undefined, { refund: true })
     }
     if (claimed.length) {
         console.log(`[live-blackjack] refunded ${claimed.length} orphaned wager(s)`)

@@ -1,10 +1,10 @@
 /**
  * SHAPEZZ playtest: the real engine, headless, at 60 fps, driven by a heuristic bot.
  *
- *   bun run balance:shapezz-playtest                        full matrix (tiers x weapons x difficulties)
- *   bun run balance:shapezz-playtest --tiers fresh --difficulties spark,surge --seeds 8
- *   bun run balance:shapezz-playtest --upgrades             per-upgrade value study (forced first two picks)
- *   bun run balance:shapezz-playtest --upgrades --config mid:blaster:overdrive --seeds 16
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts                        full matrix (tiers x weapons x difficulties)
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts --tiers fresh --difficulties spark,surge --seeds 8
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts --upgrades             per-upgrade value study (forced first two picks)
+ *   bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts --upgrades --config mid:blaster:overdrive --seeds 16
  *
  * Flags
  *   --tiers fresh,mid,max        investment tiers

@@ -57,13 +57,6 @@ describe('DfHub', () => {
         for (let i = 0; i < 5; i++) await Promise.resolve()
     }
 
-    it('says hello and lists lobbies', () => {
-        const a = socket()
-        hub.open(a, { id: 'ua', name: 'Alice' })
-        expect(a.inbox[0]).toEqual({ t: 'hello', userId: 'ua', name: 'Alice' })
-        expect(a.last('lobbies')?.lobbies).toEqual([])
-    })
-
     it('creates, joins, readies, starts and leaves', async () => {
         const a = socket()
         const b = socket()

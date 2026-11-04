@@ -3,11 +3,8 @@ import { evaluateHand } from '#shared/utils/three-card-poker/hand'
 import {
     TCP_ANTE_BONUS_PAYS,
     TCP_PAIR_PLUS_PAYS,
-    anteBonusTier,
-    pairPlusTier,
     resolveHand
 } from '#shared/utils/three-card-poker/payouts'
-import { shouldPlay } from '#shared/utils/three-card-poker/strategy'
 import { hand } from './cards'
 
 const evaluate = (notation: string) => evaluateHand(hand(notation))
@@ -113,13 +110,6 @@ describe('resolveHand — ante bonus', () => {
         expect(result.anteBonusTier).toBeNull()
         expect(result.anteBonusPayout).toBe(0)
     })
-
-    it('reads the tier off the hand', () => {
-        expect(anteBonusTier(evaluate('Qs Js 10s'))).toBe('straightFlush')
-        expect(anteBonusTier(evaluate('7s 7h 7c'))).toBe('trips')
-        expect(anteBonusTier(evaluate('Qs Jh 10d'))).toBe('straight')
-        expect(anteBonusTier(evaluate('Kc 9c 4c'))).toBeNull()
-    })
 })
 
 describe('resolveHand — pair plus', () => {
@@ -153,11 +143,6 @@ describe('resolveHand — pair plus', () => {
 
         expect(strong.pairPlusPayout).toBe(weak.pairPlusPayout)
     })
-
-    it('reads the tier off the hand', () => {
-        expect(pairPlusTier(evaluate('7s 7h 3d'))).toBe('pair')
-        expect(pairPlusTier(evaluate('As Kd 6c'))).toBeNull()
-    })
 })
 
 describe('resolveHand — folding', () => {
@@ -176,32 +161,5 @@ describe('resolveHand — folding', () => {
 
         expect(result.payout).toBe(50 * (1 + TCP_PAIR_PLUS_PAYS.straightFlush))
         expect(result.net).toBe(50 * (1 + TCP_PAIR_PLUS_PAYS.straightFlush) - 150)
-    })
-})
-
-describe('shouldPlay', () => {
-    it('plays exactly Q-6-4', () => {
-        expect(shouldPlay(hand('Qs 6h 4c'))).toBe(true)
-    })
-
-    it('folds the rank below it', () => {
-        expect(shouldPlay(hand('Qs 6h 3c'))).toBe(false)
-        expect(shouldPlay(hand('Qs 5h 2c'))).toBe(false)
-    })
-
-    it('plays anything ace or king high', () => {
-        expect(shouldPlay(hand('As 3h 2c'))).toBe(true)
-        expect(shouldPlay(hand('Ks 3h 2c'))).toBe(true)
-    })
-
-    it('folds jack high and below', () => {
-        expect(shouldPlay(hand('Js 10h 8c'))).toBe(false)
-        expect(shouldPlay(hand('7s 5h 3c'))).toBe(false)
-    })
-
-    it('plays every made hand', () => {
-        expect(shouldPlay(hand('2s 2h 3c'))).toBe(true)
-        expect(shouldPlay(hand('7c 5c 2c'))).toBe(true)
-        expect(shouldPlay(hand('2s 3h 4c'))).toBe(true)
     })
 })

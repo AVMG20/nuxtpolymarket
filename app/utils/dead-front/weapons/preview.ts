@@ -216,7 +216,7 @@ export async function dfBoltBench(width = 1280, height = 720): Promise<DfBoltBen
             const vel = new THREE.Vector3(0, 0, -50)
             step([{ id: n, kind: 'xray-bolt', pos: end.clone().addScaledVector(vel, -1 / 60), vel, tier }])
             step([])
-            pv.onEvent({ k: 'explode', pos: end, radius: 2.2 + tier * 0.5, kind: 'xray' })
+            pv.onEvent({ k: 'explode', pos: end, radius: 2.2 + tier * 0.5, kind: 'xray', tier })
             for (let f = 0; f < Math.round(after * 60); f++) step([])
             renderer.render(scene, camera)
             const url = canvas.toDataURL('image/png')

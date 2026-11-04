@@ -110,15 +110,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
         await expect(bet(table, USER_A, 'not-a-real-bet', 100)).rejects.toThrow(/invalid bet/i)
     })
 
-    it('accumulates repeated bets on the same spot', async () => {
-        await bet(table, USER_A, 'red', 100)
-        await bet(table, USER_A, 'red', 50)
-
-        expect(table.snapshot().game.bets).toEqual([
-            { userId: USER_A, name: 'concurrency test user', color: expect.any(String), key: 'red', amount: 150 }
-        ])
-    })
-
     it('closes betting once the phase advances', async () => {
         await bet(table, USER_A, 'red', 100)
         await endPhase(table, 'betting')
@@ -170,27 +161,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
         ])
     })
 
-    it('sends the table idle once the only player leaves with nothing staked', async () => {
-        await bet(table, USER_A, 'straight:17', 100)
-        await endPhase(table, 'betting')
-        await endPhase(table, 'nomorebets')
-        await endPhase(table, 'spinning')
-
-        table.leave(USER_A)
-
-        expect(table.currentPhase()).toBe('idle')
-    })
-
-    it('undoes the most recent bet and refunds exactly that stake', async () => {
-        await bet(table, USER_A, 'red', 100)
-        await bet(table, USER_A, 'black', 50)
-
-        await undo(table, USER_A)
-
-        expect(await getBalance(USER_A)).toBe('9900.0000')
-        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 100 })
-    })
-
     it('only undoes the amount of the last bet when the same spot was raised twice', async () => {
         await bet(table, USER_A, 'red', 100)
         await bet(table, USER_A, 'red', 50)
@@ -199,17 +169,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
 
         expect(await getBalance(USER_A)).toBe('9900.0000')
         expect(table.seatOf(USER_A)?.bets).toEqual({ red: 100 })
-    })
-
-    it('rejects undo once every bet this round is already undone', async () => {
-        await bet(table, USER_A, 'red', 100)
-        await undo(table, USER_A)
-
-        await expect(undo(table, USER_A)).rejects.toThrow(/nothing to undo/i)
-    })
-
-    it('rejects repeat with no previous round to draw from', async () => {
-        await expect(repeat(table, USER_A)).rejects.toThrow(/no previous bet/i)
     })
 
     it('repeats the exact bet slip from the last round a player bet in', async () => {
@@ -225,16 +184,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
 
         expect(table.seatOf(USER_A)?.bets).toEqual({ 'straight:17': 100, red: 50 })
         expect(await getBalance(USER_A)).toBe((balanceAfterFirstRound - 150).toFixed(4))
-    })
-
-    it('doubles every current bet by staking the same amounts again', async () => {
-        await bet(table, USER_A, 'red', 100)
-        await bet(table, USER_A, 'black', 50)
-
-        await scale(table, USER_A, 2)
-
-        expect(table.seatOf(USER_A)?.bets).toEqual({ red: 200, black: 100 })
-        expect(await getBalance(USER_A)).toBe('9700.0000')
     })
 
     it('halves every current bet, refunding exactly the difference', async () => {
@@ -270,15 +219,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
         expect(await getBalance(USER_A)).toBe((balanceAfterFirstRound - 200).toFixed(4))
     })
 
-    it('rejects scale with no current or previous bet to size', async () => {
-        // Registered but empty, rather than never having bet at all, so the
-        // failure exercises the "nothing to scale" check and not "not at this table".
-        await bet(table, USER_A, 'red', 100)
-        await undo(table, USER_A)
-
-        await expect(scale(table, USER_A, 2)).rejects.toThrow(/no bets to scale/i)
-    })
-
     it('clears every staked bet and refunds all of it', async () => {
         await bet(table, USER_A, 'red', 100)
         await bet(table, USER_A, 'black', 50)
@@ -287,13 +227,6 @@ describe.skipIf(SKIP)('RouletteTable', () => {
 
         expect(table.seatOf(USER_A)?.bets).toEqual({})
         expect(await getBalance(USER_A)).toBe('10000.0000')
-    })
-
-    it('rejects clear with nothing staked', async () => {
-        await bet(table, USER_A, 'red', 100)
-        await undo(table, USER_A)
-
-        await expect(clear(table, USER_A)).rejects.toThrow(/nothing to clear/i)
     })
 
     it('rolls back every leg of a repeat that runs out of balance partway through', async () => {

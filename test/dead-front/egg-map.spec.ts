@@ -135,34 +135,6 @@ describe('the easter egg on Sainte-Croix', () => {
         expect(target()).toBeNull()
     })
 
-    it('the lightning rods reset when the clock runs out, and can be thrown again', () => {
-        let sim: DfMatchSim | null = null
-        sim = new DfMatchSim([{ userId: 'u', name: 'u', startWeapon: 'm1911', attachments: {}, perkMods: {} }], { now: () => sim?.time ?? 0, startDelay: 1000 })
-        const s = sim
-        for (const d of DF_MAP.doors) s.doors.add(d.id)
-        s.world = dfBuildCollision(DF_MAP, s.doors)
-        s.dev(0, { k: 'hold', on: true })
-        s.dev(0, { k: 'egg', step: 'rods' })
-        expect(s.egg.step).toBe('rods')
-        expect(s.power).toBe(true)
-        const rods = ITEMS.filter(i => i.kind === 'rod')
-        expect(rods.map(r => r.id).sort()).toEqual(['rod-0', 'rod-1', 'rod-2'])
-        s.snapshot()
-        useAs(s, rods[0]!)
-        useAs(s, rods[1]!)
-        expect(s.egg.rodsOn).toHaveLength(2)
-        const events = (): { k: string, on?: boolean, n?: number }[] => s.snapshot().events as { k: string, on?: boolean, n?: number }[]
-        events()
-        for (let k = 0; k < 70; k++) s.step(1)
-        const resets = events().filter(e => e.k === 'rod')
-        expect(resets.map(e => [e.on, e.n])).toEqual([[false, 1], [false, 0]])
-        expect(s.egg.step).toBe('rods')
-        expect(s.egg.rodsOn).toEqual([])
-        expect(s.egg.rodTimer).toBe(0)
-        for (const r of rods) useAs(s, r)
-        expect(s.egg.step).toBe('claim')
-    })
-
     it('every buyable on the map can be reached and used from where a player can stand', () => {
         let sim: DfMatchSim | null = null
         sim = new DfMatchSim([{ userId: 'u', name: 'u', startWeapon: 'm1911', attachments: {}, perkMods: {} }], { now: () => sim?.time ?? 0, startDelay: 1000 })

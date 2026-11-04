@@ -16,14 +16,23 @@ import type { DfPerkId } from '#shared/utils/dead-front/types'
 import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import { dfCreateHudState, dfHudFeedLine, dfHudPushFeed } from '~/utils/dead-front/engine/hud'
 import type { DfHudFeedContext } from '~/utils/dead-front/engine/hud'
+import { dfBenchList } from '~/utils/dead-front/engine/arsenal-prompt'
+import type { DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import DfHud from './DfHud.vue'
 
-const MODES = ['play', 'down', 'dead', 'board', 'round'] as const
+const MODES = ['play', 'shop', 'down', 'dead', 'board', 'round'] as const
 type Mode = typeof MODES[number]
 const route = useRoute()
 const mode = ref<Mode>((MODES as readonly string[]).includes(String(route.query.hud)) ? route.query.hud as Mode : 'play')
 
 const hud = reactive(dfCreateHudState())
+
+/** The bench shop as a player with some salvage, a sentry in hand and a Rare Thompson would see it. */
+function previewBench() {
+    const me = { pid: 0, life: 'alive', slot: 0, weapons: [{ id: 'thompson', pap: 0, mag: 22, reserve: 210, attachments: {}, rarity: 1 }] } as unknown as DfPlayerSnap
+    const world = { arsenal: { scrap: 140, players: [{ pid: 0, equip: 'sentry', kit: false, support: [] }], sentries: [], decoys: [] } } as unknown as DfWorldSnap
+    return dfBenchList({ world, me }, 'launcher')
+}
 const COLORS = ['#e2b24f', '#6fa8dc', '#8ab052', '#d0605e']
 const NAMES = ['AVMG', 'Pvt. Hale', 'Cpl. Moreau', 'Sgt. Brandt']
 
@@ -49,6 +58,17 @@ function setup() {
     hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, rods: null, rodTimer: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
     hud.ping = 24
     hud.chat = [{ id: 1, name: 'Pvt. Hale', text: 'door by the chapel, need 750', born: 0 }]
+    hud.ammo.rarity = 2
+    // salvage, gear, the bench list, held support and the round challenge
+    hud.arsenal = {
+        scrap: 140, launcher: 31, equip: 'sentry', kit: true,
+        support: [{ id: 'barrage', name: 'Artillery Barrage' }, { id: 'bomber', name: 'Bomber Run' }],
+        bench: mode.value === 'shop' ? { hold: 0.45, items: previewBench() } : null,
+        denyKey: 0,
+        challenge: { text: 'Headshot kills', n: 4, goal: 7, done: false },
+        salvageKey: 0,
+        targeting: 'Release X to call in the Bomber Run'
+    }
 }
 
 const feedCtx: DfHudFeedContext = {
@@ -82,6 +102,7 @@ function tick() {
                 ? { text: 'Hold F to open the Chapel Nave', sub: 'Not enough points', cost: 1250, ok: false, denyKey: 0, hold: 0 }
                 : { text: 'Hold F to revive Cpl. Moreau', sub: '', cost: null, ok: true, denyKey: 0, hold: (t % 3) / 3 }
         : null
+    if (hud.arsenal.bench) hud.arsenal.bench.hold = (t % 3) / 3
     hud.stamina = 0.5 + Math.sin(t) * 0.5
     hud.objective.charge = null
     for (const p of hud.powerups) {
@@ -95,7 +116,10 @@ function tick() {
     if (Math.round(t * 10) % 7 === 0) {
         const kill = Math.round(t * 10) % 21 === 0
         hud.hitmarker = { key: hud.hitmarker.key + 1, kind: kill ? (Math.round(t) % 2 ? 'head' : 'kill') : 'hit' }
-        if (kill) hud.killKey++
+        if (kill) {
+            hud.killHead = hud.hitmarker.kind === 'head'
+            hud.killKey++
+        }
         hud.popups.push({ id: ++popId, pid: 0, amount: kill ? 100 : 10, gold: false, dx: Math.random() * 2 - 1, born: t })
         hud.players[0]!.points += kill ? 100 : 10
     }
@@ -115,6 +139,7 @@ function tick() {
 }
 
 watch(mode, (m) => {
+    hud.arsenal.bench = m === 'shop' ? { hold: 0, items: previewBench() } : null
     if (m === 'round') {
         hud.round++
         hud.roundKey++

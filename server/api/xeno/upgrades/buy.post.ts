@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
             .returning()
         if (!updated) throw createError({ statusCode: 409, statusMessage: 'Upgrade already purchased, refresh and try again' })
 
-        await debit(userId, cost.toFixed(4), 'xeno:upgrade', tx)
+        await debit(userId, cost.toFixed(4), 'xeno', tx)
         return { upgradeId, level: nextLevel, cost }
     })
 })

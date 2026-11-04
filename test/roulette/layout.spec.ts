@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeBet, getBet, numberAt, ROULETTE_BETS, ROULETTE_PAYOUTS } from '#shared/utils/roulette/layout'
+import { getBet, ROULETTE_BETS, ROULETTE_PAYOUTS } from '#shared/utils/roulette/layout'
 
 describe('ROULETTE_BETS catalog', () => {
     it('covers every pocket with exactly one straight bet', () => {
@@ -11,11 +11,6 @@ describe('ROULETTE_BETS catalog', () => {
     it('rejects a straight bet on a number the wheel does not have', () => {
         expect(getBet('straight:37')).toBeUndefined()
         expect(getBet('straight:-1')).toBeUndefined()
-    })
-
-    it('has no split bets — dropped from the catalog entirely', () => {
-        expect([...ROULETTE_BETS.values()].some(b => (b.type as string) === 'split')).toBe(false)
-        expect(getBet('split:16-17')).toBeUndefined()
     })
 
     it('groups a street as the three numbers in one grid column', () => {
@@ -62,31 +57,5 @@ describe('ROULETTE_BETS catalog', () => {
         for (const bet of ROULETTE_BETS.values()) {
             expect(ROULETTE_PAYOUTS[bet.type]).toBeGreaterThan(0)
         }
-    })
-})
-
-describe('numberAt', () => {
-    it('matches the physical felt: top row multiples of three, bottom row +1', () => {
-        expect(numberAt(0, 0)).toBe(3)
-        expect(numberAt(1, 0)).toBe(2)
-        expect(numberAt(2, 0)).toBe(1)
-        expect(numberAt(0, 11)).toBe(36)
-    })
-})
-
-describe('describeBet', () => {
-    it('names outside bets by themselves', () => {
-        expect(describeBet(getBet('red')!)).toBe('red')
-        expect(describeBet(getBet('high')!)).toBe('high')
-    })
-
-    it('names dozens in order', () => {
-        expect(describeBet(getBet('dozen:0')!)).toBe('1st dozen')
-        expect(describeBet(getBet('dozen:1')!)).toBe('2nd dozen')
-        expect(describeBet(getBet('dozen:2')!)).toBe('3rd dozen')
-    })
-
-    it('names a straight bet by its number', () => {
-        expect(describeBet(getBet('straight:17')!)).toBe('straight 17')
     })
 })

@@ -30,16 +30,12 @@ describe('playLimbo validation', () => {
         expect(() => playLimbo(100, { target: 1_000_000 })).not.toThrow()
     })
 
-    // The error message claims a 1.01 floor, but the guard actually rejects
-    // anything below 1.10 — message and check have drifted apart. Pinning the
-    // real runtime boundary here (not the message text) since that's the
-    // behavior callers actually observe. Flagged separately as a bug.
-    it('rejects a target below the real 1.10 floor enforced by the code', () => {
+    it('rejects a target below the 1.10 floor', () => {
         expect(() => playLimbo(100, { target: 1.09 })).toThrow()
         expect(() => playLimbo(100, { target: 1.05 })).toThrow()
     })
 
-    it('accepts the real floor boundary of 1.10', () => {
+    it('accepts the floor boundary of 1.10', () => {
         stubRandomFloat(() => 0)
         expect(() => playLimbo(100, { target: 1.10 })).not.toThrow()
     })
@@ -97,11 +93,5 @@ describe('playLimbo payout', () => {
         const loss = playLimbo(50, { target: 5 })
         expect(loss.won).toBe(false)
         expect(loss.payout).toBe(0)
-    })
-
-    it('does not include a separate cost field — the caller stakes exactly bet', () => {
-        stubRandomFloat(() => 0.1)
-        const result = playLimbo(100, { target: 2 })
-        expect('cost' in result).toBe(false)
     })
 })

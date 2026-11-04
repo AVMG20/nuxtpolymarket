@@ -26,7 +26,6 @@ import {
     BATTLE_SPEED_DURATIONS_MINUTES,
     BATTLE_SPEED_TIERS,
     BOSS_TIMER_SECONDS,
-    HUNDRED_PULL_SIZE,
     MAX_ARTIFACT_SLOTS,
     MAX_CHAMPION_SLOTS,
     MAX_LOADOUT_SLOTS,
@@ -409,7 +408,7 @@ export async function purchaseBattleSpeed(tx: DbExecutor, userId: string, speed:
     }
 
     const cost = battleSpeedPrice(speed, minutes)
-    const gems = await debitGems(userId, cost, tx)
+    const gems = await debitGems(userId, cost, 'hero-quest', tx)
     const [updated] = await tx.update(hqState)
         .set({ speedBoostMultiplier: next.multiplier, speedBoostExpiresAt: next.expiresAt })
         .where(eq(hqState.userId, userId))
@@ -1317,7 +1316,6 @@ export interface GachaCommonPayload {
     dropRates: readonly number[]
     singleCost: number
     tenPullCost: number
-    hundredPullCost: number
     sealsBoughtToday: number
     nextSealPrice: number
     /** Today's free 10-pull entitlement: whether one is ready, and when the next unlocks. */
@@ -1410,7 +1408,7 @@ export async function buyLadderSeals(
     if (total > maxGold) {
         throw createError({ statusCode: 409, statusMessage: 'The Seal price has gone up, check it and try again' })
     }
-    await debit(userId, total.toFixed(4), `hero-quest:${system}-seals`, tx)
+    await debit(userId, total.toFixed(4), 'hero-quest', tx)
     await tx.update(hqState)
         .set({
             ...sealGrant(system, count),
@@ -1468,7 +1466,6 @@ export function serializeGachaCommon(state: HqStateRow, system: GachaSystem): Ga
         dropRates: dropRatesFor(gachaLevel),
         singleCost: pullCost(1).seals,
         tenPullCost: pullCost(TEN_PULL_SIZE).seals,
-        hundredPullCost: pullCost(HUNDRED_PULL_SIZE).seals,
         sealsBoughtToday: bought,
         nextSealPrice: sealLadderPrice(system, bought)
     }
@@ -2056,13 +2053,13 @@ export async function buyShopTrack(tx: DbExecutor, userId: string, upgradeId: Sh
         await tx.update(hqState).set({ voidShards: remaining! }).where(eq(hqState.userId, userId))
     } else if (track.currency === 'gold') {
         // `debit` guards the balance in its own WHERE and throws 400 when short, on this tx for the lock
-        balance = await debit(userId, cost.toFixed(4), 'hero-quest:shop', tx)
+        balance = await debit(userId, cost.toFixed(4), 'hero-quest', tx)
     } else {
         // `debitGems` guards `gems >= cost` in its own WHERE and throws 400 otherwise, so the
         // check and the spend are one statement. The tx is threaded because this transaction
         // already holds the `hqState` lock — without it the write goes out on a second pool
         // connection and deadlocks against a lock this request is holding.
-        await debitGems(userId, Math.round(cost), tx)
+        await debitGems(userId, Math.round(cost), 'hero-quest', tx)
     }
 
     return {

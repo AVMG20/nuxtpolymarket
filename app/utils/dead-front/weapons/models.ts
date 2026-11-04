@@ -14,7 +14,10 @@ import type { DfVoxMaterial } from '../voxel/material'
 // toward -z. Pack-a-Punch recolours the steel with the tier colour and a
 // glowing stripe pattern; attachments add voxel parts.
 
-export type DfReloadStyle = 'mag' | 'side' | 'top' | 'stripper' | 'shell' | 'capsule' | 'coil'
+export type DfReloadStyle = 'mag' | 'side' | 'top' | 'stripper' | 'shell' | 'capsule' | 'coil' | 'break' | 'fuel'
+
+/** What moves between shots: a turned bolt, a lever (with the bolt riding it), or nothing. */
+export type DfCycleAction = 'bolt' | 'lever' | null
 
 export interface DfGunRig {
     id: DfWeaponId
@@ -35,6 +38,20 @@ export interface DfGunRig {
     pump: THREE.Object3D | null
     mag: THREE.Object3D | null
     pan: THREE.Object3D | null
+    /** Break actions: the barrel group (barrels, top strap, cylinder) that tips open on `hinge`. */
+    barrel: THREE.Object3D | null
+    /** Lever actions: the finger lever, turning about its pivot. */
+    lever: THREE.Object3D | null
+    /** The per-shot cycle the viewmodel plays. */
+    cycle: DfCycleAction
+    /** Axis the pan turns about per shot: 'y' a Lewis pan on top, 'z' a revolver cylinder. */
+    panSpin: 'y' | 'z'
+    /** Chambers in a revolver cylinder (its turn per shot); 0 for a pan (turns by the magazine size). */
+    chambers: number
+    /** The magazine part only shows while reloading (speedloader, loose shells). */
+    magHidden: boolean
+    /** A flamethrower lance: no flash star or casings, a jet of fire and a pilot flame. */
+    flame: boolean
     /** Glow material pulsed by the viewmodel (X-Ray, wonder weapon). */
     glow: DfVoxMaterial | null
     reload: DfReloadStyle
@@ -63,6 +80,12 @@ const COPPER = 0xa65f2c
 const IVORY = 0xe6dec6
 const LEATHER = 0x4e3220
 const BAKELITE = 0x6a2c1c
+/** Vulcanite (hard rubber) revolver grips. */
+const VULCAN = 0x2a2420
+const HULL = 0xa8302a
+const GAUGE = 0xd8d0b4
+/** The flamethrower's pilot flame, glowing at the nozzle. */
+const PILOT = 0xff8a2a
 
 // Every colour a gun paints with has a finish. The finish drives the per-voxel
 // shading (wood grain, blued steel, polished brass), the bevel pass (lit top
@@ -72,7 +95,7 @@ const FINISH = new Map<number, Finish>()
 /** Bevelled colours: +1 a lit top edge, -1 a shadowed underside. */
 const EDGE = new Map<number, number>()
 for (const h of [STEEL, STEEL_HI, PARK, BLACK]) FINISH.set(h, 'metal')
-for (const h of [WOOD, WOOD_D, WOOD_L, BAKELITE]) FINISH.set(h, 'wood')
+for (const h of [WOOD, WOOD_D, WOOD_L, BAKELITE, VULCAN]) FINISH.set(h, 'wood')
 for (const h of [BRASS, COPPER]) FINISH.set(h, 'brass')
 /** The base palette colour a shade was derived from. */
 const ROOT = new Map<number, number>()
@@ -85,11 +108,11 @@ function derive(hex: number, from: number, edge = 0): number {
     return hex
 }
 
-type PartName = 'main' | 'slide' | 'bolt' | 'pump' | 'mag' | 'pan'
+type PartName = 'main' | 'slide' | 'bolt' | 'pump' | 'mag' | 'pan' | 'barrel' | 'lever'
 
 /** Authoring helper: boxes on the gun grid, centred across i unless told otherwise. */
 class Gun {
-    readonly models: Record<PartName, DfVoxModel | null> = { main: null, slide: null, bolt: null, pump: null, mag: null, pan: null }
+    readonly models: Record<PartName, DfVoxModel | null> = { main: null, slide: null, bolt: null, pump: null, mag: null, pan: null, barrel: null, lever: null }
     cur: DfVoxModel
     readonly ci: number
     /** Free cells ahead of the muzzle (k < 0) for cans, launchers and compensators. */
@@ -266,6 +289,15 @@ interface Spec {
     /** Rotation axes for the bolt / pan groups (voxel coords j, k) when they turn. */
     boltAxis?: [number, number]
     panAxis?: [number, number]
+    /** Break actions: the barrel group's hinge pin (j, k); the pan and magazine ride in the barrel group. */
+    hinge?: [number, number]
+    /** Lever actions: the lever's pivot (j, k). */
+    leverAxis?: [number, number]
+    cycle?: DfCycleAction
+    /** A revolver: the pan is its cylinder, turning about the bore axis by one of this many chambers a shot. */
+    chambers?: number
+    magHidden?: boolean
+    flame?: boolean
     glow?: boolean
 }
 
@@ -467,7 +499,7 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 10)
             return {
                 gun: g, grip: [62, 7], bore: 10, front: 2, sight: sc ? [56, 16.5] : [41, 14], eyeRelief: sc ? 0.07 : 0.3, left: [-0.02, -0.005, -0.36], eject: [52, 12],
-                reload: has(att, 'magazine', 'trench') ? 'mag' : 'stripper', long: true, scoped: sc ? { j: 16, k0: 42, k1: 64 } : undefined, boltAxis: [12, 54]
+                reload: has(att, 'magazine', 'trench') ? 'mag' : 'stripper', long: true, scoped: sc ? { j: 16, k0: 42, k1: 64 } : undefined, boltAxis: [12, 54], cycle: 'bolt'
             }
         }
         case 'thompson': {
@@ -758,6 +790,314 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             if (has(att, 'optic', 'ring')) g.ring(5, 6, 22, 2, 3, STEEL_HI)
             return { gun: g, grip: [73, 8], bore: 13, front: 4, sight: [68, 21], eyeRelief: 0.28, left: [-0.03, -0.035, -0.3], eject: [62, 12], reload: 'top', long: true, panAxis: [17, 58] }
         }
+        case 'webley': {
+            // Webley Mk VI: a slab-sided top-break revolver. The barrel, its rib and the top
+            // strap tip down on a hinge at the front of the frame, carrying the fluted six-shot
+            // cylinder (which turns a chamber per shot); a stirrup latch on the recoil shield, a
+            // spur hammer, a bird's-head vulcanite grip and a lanyard ring.
+            const g = new Gun(VOX, 28, 20, 7, 2)
+            const ci = g.ci
+            const B = 13
+            const long = has(att, 'muzzle', 'long')
+            const kb = long ? -6 : 0
+            const dotSight = has(att, 'optic', 'reddot')
+            const stock = has(att, 'stock', 'stock')
+            g.part('barrel')
+            g.rod(kb, 13, B, 1.2, STEEL)
+            g.box(kb, 13, B + 1, B + 2, 1, STEEL)
+            // The front blade on its ramp, and the barrel lug that hooks the hinge.
+            g.box(kb + 1, kb + 3, B + 2, B + 3, 1, STEEL).box(kb + 1, kb + 2, B + 3, B + 4, 1, STEEL_HI)
+            g.box(9, 14, B - 3, B - 1, 3, STEEL).box(12, 14, B - 5, B - 3, 3, STEEL)
+            // The top strap over the cylinder to the rear sight notch.
+            g.box(13, 21, B + 2, B + 3, 3, STEEL)
+            if (!dotSight) g.boxI(19, 20, B + 3, B + 4, ci - 1, ci, STEEL_HI).boxI(19, 20, B + 3, B + 4, ci + 1, ci + 2, STEEL_HI)
+            g.box(0, 1, B, B + 1, 1, BLACK).box(kb, kb + 1, B, B + 1, 1, BLACK)
+            // The cylinder: six flutes and the brass rims showing at the back.
+            g.part('pan')
+            g.rod(14, 20, 11, 3, STEEL)
+            for (let n = 0; n < 6; n++) {
+                const a = n * Math.PI / 3 + Math.PI / 6
+                const i = ci + Math.round(Math.cos(a) * 2.6)
+                const j = 11 + Math.round(Math.sin(a) * 2.6)
+                g.boxI(15, 19, j, j + 1, i, i + 1, BLACK)
+                const ri = ci + Math.round(Math.cos(a - Math.PI / 6) * 1.7)
+                const rj = 11 + Math.round(Math.sin(a - Math.PI / 6) * 1.7)
+                g.boxI(19, 20, rj, rj + 1, ri, ri + 1, BRASS)
+            }
+            g.rod(13, 14, 11, 0.7, STEEL_HI)
+            // The speedloader: six rounds in a brass ring, shown only while reloading.
+            // (the Prideaux loader is a steel drum with a knurled release knob).
+            g.part('mag')
+            if (has(att, 'magazine', 'speed')) {
+                g.rod(20, 22, 11, 2.6, STEEL)
+                g.rod(20, 21, 11, 2.2, BRASS)
+                g.rod(22, 25, 11, 0.9, STEEL_HI)
+            } else {
+                g.rod(20, 22, 11, 2.4, BRASS)
+                g.rod(22, 23, 11, 1.4, BLACK)
+            }
+            g.part('main')
+            // Frame: under the cylinder, the recoil shield, the stirrup latch and the hammer.
+            g.box(13, 21, 6, 8, 5, STEEL)
+            g.box(20, 22, 7, 15, 5, STEEL)
+            g.box(20, 22, 15, 16, 3, STEEL_HI)
+            g.box(22, 23, 13, 16, 1, STEEL_HI).box(23, 25, 15, 16, 1, STEEL_HI)
+            g.rivets([17], 7, 5, STEEL_HI)
+            // Trigger guard and trigger.
+            g.box(14, 20, 3, 4, 1, STEEL).box(14, 15, 3, 6, 1, STEEL)
+            g.box(17, 18, 4, 6, 1, BLACK)
+            // Bird's-head grip, raked back, chequered vulcanite with a lanyard ring.
+            for (let j = -2; j < 7; j++) {
+                const k0 = 20 + Math.round((6 - j) * 0.42)
+                g.box(k0, k0 + 5, j, j + 1, 3, STEEL)
+                const check = derive(scaleHex(VULCAN, 1.25), VULCAN)
+                for (let k = k0 + 1; k < k0 + 4; k++) g.box(k, k + 1, j, j + 1, 1, ((j + k) & 1) ? VULCAN : check, -1).box(k, k + 1, j, j + 1, 1, ((j + k) & 1) ? VULCAN : check, 1)
+            }
+            g.box(24, 25, -2, -1, 1, STEEL_HI).box(24, 26, -2, -1, 1, STEEL_HI)
+            if (stock) g.slope(25, 28, k => -2 + (k - 25) * 0.6, k => 6 - (k - 25) * 0.2, 3, WOOD_L)
+            const dot = dotSight ? redDot(g, 12, 21, B + 3) : undefined
+            return {
+                gun: g, grip: [22, 4], bore: B, front: kb + 1, sight: [19, B + 4], eyeRelief: 0.32, left: [-0.025, -0.02, -0.03], eject: [20, 11],
+                reload: 'break', long: false, dot, hinge: [B - 4, 13], panAxis: [11.5, 17], chambers: 6, magHidden: true, muzzle: kb
+            }
+        }
+        case 'sawnoff': {
+            // A coach gun cut down: two barrels side by side with a matted rib and a brass bead,
+            // a splinter fore-end, a boxlock action with two exposed hammers and a top lever, and
+            // a short walnut stock. The barrels break open on the hinge pin.
+            const grip = has(att, 'stock', 'grip')
+            const choke = has(att, 'muzzle', 'choke')
+            const slugs = has(att, 'magazine', 'slugs')
+            const g = new Gun(VOX, 68, 20, 7)
+            const ci = g.ci
+            const B = 12
+            g.part('barrel')
+            g.rod(0, 31, B, 1.6, STEEL, -2).rod(0, 31, B, 1.6, STEEL, 2)
+            g.box(0, 31, B - 1, B + 2, 1, STEEL)
+            g.box(0, 31, B + 2, B + 3, 1, STEEL_HI)
+            for (let k = 2; k < 30; k += 3) g.box(k, k + 1, B + 2, B + 3, 1, STEEL)
+            g.boxI(0, 1, B, B + 1, ci - 2, ci - 1, BLACK).boxI(0, 1, B, B + 1, ci + 2, ci + 3, BLACK)
+            g.box(1, 2, B + 3, B + 4, 1, has(att, 'optic', 'bead') ? BRASS : IVORY)
+            if (choke) for (const di of [-2, 2]) g.ring(0, 2, B, 1.2, 2, STEEL_HI, di)
+            // The splinter fore-end and the lump under the breech.
+            g.box(16, 30, B - 4, B - 1, 5, WOOD)
+            g.box(16, 17, B - 4, B - 1, 5, STEEL)
+            g.box(28, 31, B - 5, B - 1, 3, STEEL)
+            // Two shells for the reload: red paper hulls on brass heads (shown only while loading).
+            g.part('mag')
+            for (const di of [-2, 2]) {
+                g.rod(23, 29, B, 1.2, slugs ? 0x8a8c90 : HULL, di)
+                g.rod(29, 31, B, 1.4, BRASS, di)
+            }
+            g.part('main')
+            // Boxlock action: the breech face, side plates, the top lever and two hammers.
+            g.box(31, 40, B - 4, B + 2, 5, STEEL)
+            g.box(31, 32, B - 3, B + 2, 7, STEEL_HI)
+            g.rivets([34, 37], B - 2, 5, STEEL_HI)
+            g.box(36, 41, B + 2, B + 3, 1, STEEL_HI).box(40, 42, B + 2, B + 3, 3, STEEL_HI)
+            for (const i of [ci - 2, ci + 2]) g.boxI(38, 40, B + 2, B + 4, i, i + 1, STEEL).boxI(39, 41, B + 4, B + 5, i, i + 1, STEEL_HI)
+            // A rear notch filed into the top of the action, level with the bead.
+            g.box(33, 35, B + 2, B + 4, 3, STEEL).cut(33, 35, B + 3, B + 4, ci, ci + 1)
+            // Trigger guard, two triggers.
+            g.box(33, 42, 4, 5, 1, STEEL).box(33, 34, 4, 8, 1, STEEL)
+            g.box(36, 37, 5, 8, 1, BLACK).box(38, 39, 5, 8, 1, BLACK)
+            if (grip) {
+                g.slope(40, 48, k => 1 + (48 - k) * 0.6, () => 11, 3, WOOD)
+                g.box(47, 48, 1, 6, 3, STEEL)
+            } else {
+                g.slope(40, 68, k => 8 - (k - 40) * 0.24, k => 13 - (k - 40) * 0.05, 3, WOOD)
+                g.box(67, 68, 2, 12, 3, BLACK)
+                g.rivets([60], 6, 3, STEEL_HI)
+            }
+            return {
+                gun: g, grip: [43, 7], bore: B, front: 1, sight: [34, B + 4], eyeRelief: 0.3, left: [-0.012, -0.015, -0.24], eject: [32, B],
+                reload: 'break', long: true, hinge: [B - 4, 30], magHidden: true
+            }
+        }
+        case 'win1895': {
+            // Winchester 1895: a long round barrel, a slim fore-end under a band, a tall
+            // slab-sided receiver with the integral box magazine in front of the finger lever, a
+            // spur hammer, a buckhorn rear sight and a straight-grip stock with a crescent butt.
+            const sc = has(att, 'optic', 'scope')
+            const carbine = has(att, 'stock', 'carbine')
+            const big = has(att, 'magazine', 'box')
+            const g = new Gun(VOX, 96, 24, 5, 6)
+            const ci = g.ci
+            const B = 12
+            g.rod(0, 54, B, 0.8, STEEL)
+            // The front blade with a brass bead, on a ramp.
+            g.box(1, 4, B + 1, B + 2, 1, STEEL).box(2, 3, B + 2, B + 3, 1, STEEL_HI).box(2, 3, B + 3, B + 4, 1, BRASS)
+            g.box(16, 18, B - 3, B + 1, 3, STEEL)
+            g.box(18, 52, B - 3, B, 3, WOOD)
+            g.box(18, 52, B, B + 1, 1, WOOD_D)
+            g.box(34, 36, B - 3, B + 1, 3, STEEL)
+            // Buckhorn rear sight.
+            if (!sc) {
+                g.box(40, 43, B + 1, B + 2, 3, STEEL)
+                g.boxI(41, 42, B + 2, B + 4, ci - 1, ci, STEEL_HI).boxI(41, 42, B + 2, B + 4, ci + 1, ci + 2, STEEL_HI)
+            }
+            // Receiver and its integral box magazine.
+            g.box(52, 68, 7, 14, 3, STEEL)
+            g.box(53, 67, 9, 10, 3, STEEL_HI).box(54, 66, 9, 10, 1, STEEL)
+            g.rivets([56, 64], 11, 3, STEEL_HI)
+            g.box(52, 61, 2, 7, 3, STEEL)
+            g.box(52, 53, 2, 7, 3, STEEL_HI)
+            // the hammer stays under the sight line: the eye sits just behind it when aiming
+            g.box(66, 68, 13, 15, 1, STEEL_HI).box(67, 69, 14, 15, 1, STEEL_HI)
+            g.box(63, 64, 5, 7, 1, BLACK)
+            // Straight wrist and stock with a crescent butt plate.
+            const end = carbine ? 88 : 96
+            g.slope(68, 76, k => 5 + (k - 68) * 0.1, () => 12, 3, WOOD)
+            g.slope(76, end, k => 5.8 - (k - 76) * 0.2, k => 12 - (k - 76) * 0.02, 3, WOOD)
+            g.box(end - 1, end, Math.round(5.8 - (end - 77) * 0.2), 12, 3, STEEL)
+            g.box(end - 2, end - 1, Math.round(5.8 - (end - 77) * 0.2), Math.round(5.8 - (end - 77) * 0.2) + 1, 3, STEEL)
+            if (carbine) g.ring(70, 71, 9, 0, 1.2, STEEL_HI, 2)
+            else g.swivel(84, 2)
+            // The bolt riding on top of the receiver.
+            g.part('bolt')
+            g.box(54, 67, 13, 15, 1, STEEL_HI)
+            g.box(65, 67, 13, 15, 3, STEEL_HI)
+            // The finger lever: a loop under the wrist, pivoting at the front of the receiver.
+            g.part('lever')
+            g.box(61, 64, 6, 7, 1, STEEL)
+            g.box(61, 62, 1, 7, 1, STEEL)
+            g.box(61, 71, 0, 1, 1, STEEL)
+            g.box(70, 71, 1, 4, 1, STEEL)
+            g.box(68, 71, 4, 5, 1, STEEL)
+            g.box(65, 66, 1, 2, 1, STEEL_HI)
+            // The magazine floor (and the deep ten-round box).
+            g.part('mag')
+            if (big) g.box(52, 61, -5, 2, 3, BLACK).box(52, 61, -5, -4, 3, STEEL_HI)
+            else g.box(53, 60, 1, 2, 3, STEEL_HI)
+            g.part('main')
+            if (sc) scope(g, 46, 70, 18)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, B)
+            return {
+                gun: g, grip: [71, 7], bore: B, front: 2, sight: sc ? [60, 18.5] : [41, B + 4], eyeRelief: sc ? 0.07 : 0.34, left: [-0.02, -0.005, -0.36], eject: [60, 14],
+                reload: big ? 'mag' : 'stripper', long: true, scoped: sc ? { j: 18, k0: 46, k1: 70 } : undefined, cycle: 'lever', leverAxis: [6, 62]
+            }
+        }
+        case 'chauchat': {
+            // Chauchat CSRG: a conical flash hider, a round barrel sleeve with cooling rings, a
+            // tall blade front sight, folded bipod legs, a wooden front handle, a slab receiver
+            // with the charging handle on the right, the open-sided half-moon magazine curving
+            // forward underneath, a pistol grip and a long wooden butt.
+            const deep = has(att, 'magazine', '30')
+            const bipod = has(att, 'stock', 'bipod')
+            const dotSight = has(att, 'optic', 'reddot')
+            const g = new Gun(VOX, 100, 30, 7, 9)
+            const ci = g.ci
+            const B = 15
+            for (let k = 0; k < 6; k++) g.ring(k, k + 1, B, 0.8, 2.4 - k * 0.22, BLACK)
+            g.rod(6, 52, B, 1.8, STEEL)
+            for (let k = 10; k < 24; k += 2) g.ring(k, k + 1, B, 0, 2.5, STEEL_HI)
+            g.box(6, 52, B - 2, B - 1, 1, BLACK)
+            g.box(6, 8, B + 2, B + 6, 1, STEEL).box(6, 7, B + 6, B + 7, 1, STEEL_HI)
+            // The bipod, folded back under the sleeve (or swung down).
+            if (bipod) {
+                for (let j = -6; j < B - 2; j++) {
+                    const k = 14 + Math.round((B - 2 - j) * 0.35)
+                    g.boxI(k, k + 1, j, j + 1, ci - 2, ci - 1, STEEL_HI).boxI(k, k + 1, j, j + 1, ci + 2, ci + 3, STEEL_HI)
+                }
+            } else {
+                g.boxI(12, 36, B - 3, B - 2, ci - 2, ci - 1, STEEL_HI).boxI(12, 36, B - 3, B - 2, ci + 2, ci + 3, STEEL_HI)
+            }
+            g.box(12, 14, B - 3, B - 1, 5, STEEL)
+            // The front handle.
+            for (let j = 5; j < B - 1; j++) g.box(38, 42, j, j + 1, 3, (j & 1) ? WOOD : WOOD_D)
+            g.box(37, 43, B - 2, B - 1, 3, STEEL)
+            // Receiver.
+            g.box(52, 74, 10, 19, 5, STEEL)
+            g.box(52, 74, 14, 15, 5, derive(scaleHex(STEEL, 0.78), STEEL))
+            g.rivets([55, 70], 12, 5, STEEL_HI)
+            g.box(52, 54, 9, 20, 5, STEEL_HI)
+            if (!dotSight) g.box(66, 68, 19, 22, 3, STEEL_HI).cut(66, 68, 21, 22, ci, ci + 1)
+            // Pistol grip, trigger guard.
+            g.slope(71, 78, k => 2 + (78 - k) * 0.5, () => 10, 3, WOOD)
+            g.box(65, 72, 6, 7, 1, STEEL).box(65, 66, 6, 10, 1, STEEL).box(68, 69, 7, 10, 1, BLACK)
+            // The long butt.
+            g.slope(74, 100, k => 8 - (k - 74) * 0.2, k => 18 - (k - 74) * 0.08, 3, WOOD)
+            g.box(99, 100, 3, 16, 3, STEEL)
+            g.swivel(88, 5)
+            // Charging handle on the right flank.
+            g.part('bolt')
+            g.box(58, 64, 15, 17, 1, STEEL_HI, 3).box(62, 64, 15, 17, 1, STEEL_HI, 4)
+            // The half-moon magazine, sweeping forward as it drops, open on the left to show the rounds.
+            g.part('mag')
+            const R0 = 46
+            const R1 = 52 + (deep ? 4 : 0)
+            const ck = 14
+            const cj = 30
+            const bottom = deep ? -9 : -5
+            const RIB = derive(scaleHex(BLACK, 1.35), BLACK)
+            for (let j = bottom; j < 10; j++) {
+                for (let k = 30; k < 74; k++) {
+                    const d = Math.hypot(k + 0.5 - ck, j + 0.5 - cj)
+                    if (d < R0 || d > R1) continue
+                    const rim = d < R0 + 1 || d > R1 - 1 || j === bottom
+                    g.boxI(k, k + 1, j, j + 1, ci - 1, ci + 2, rim ? STEEL : BLACK)
+                    // The open left side: brass rounds stacked along the arc.
+                    g.boxI(k, k + 1, j, j + 1, ci - 2, ci - 1, rim ? STEEL : (j & 1) ? BRASS : RIB)
+                }
+            }
+            g.part('main')
+            if (has(att, 'muzzle', 'cutts')) cutts(g, 0, B)
+            const dot = dotSight ? redDot(g, 56, 65, 19) : undefined
+            return {
+                gun: g, grip: [74, 8], bore: B, front: 6, sight: [66, 22], eyeRelief: 0.28, left: [-0.02, -0.04, -0.36], eject: [60, 16],
+                reload: 'mag', long: true, dot
+            }
+        }
+        case 'flammen': {
+            // Wex flamethrower lance: a brass nozzle with the pilot burner glowing under it, a
+            // long steel lance with heat rings, the fuel line beneath, a wooden front handle, a
+            // brass valve block with a pressure gauge and a valve wheel, a rear grip with the
+            // trigger lever, and the armoured hose curling back to the tank. The reload swaps
+            // the pressure bottle clamped under the lance.
+            const g = new Gun(VOX, 84, 26, 9)
+            const ci = g.ci
+            const B = 14
+            g.rod(0, 5, B, 1.4, BRASS)
+            g.ring(0, 1, B, 0, 0.8, BLACK)
+            g.ring(4, 5, B, 0, 1.9, BRASS)
+            // The pilot burner and its glowing tip.
+            g.rod(2, 12, B - 3, 0.9, COPPER)
+            g.box(1, 2, B - 3, B - 2, 1, PILOT, 0, 1)
+            g.box(2, 3, B - 4, B - 2, 1, COPPER)
+            g.rod(5, 60, B, 1.1, STEEL)
+            for (let k = 10; k < 56; k += 8) g.ring(k, k + 1, B, 0, 1.9, STEEL_HI)
+            g.rod(12, 60, B - 3, 0.6, BLACK)
+            // Front blade sight.
+            g.box(5, 6, B + 1, B + 5, 1, STEEL_HI)
+            // Front handle.
+            for (let j = 4; j < B - 1; j++) g.box(28, 32, j, j + 1, 3, (j & 1) ? WOOD : WOOD_D)
+            g.box(27, 33, B - 2, B - 1, 3, STEEL)
+            // Valve block, gauge and wheel.
+            g.box(58, 68, B - 4, B + 4, 5, BRASS)
+            g.box(58, 59, B - 4, B + 4, 5, COPPER).box(67, 68, B - 4, B + 4, 5, COPPER)
+            g.boxI(59, 60, B + 4, B + 5, ci - 1, ci, STEEL_HI).boxI(59, 60, B + 4, B + 5, ci + 1, ci + 2, STEEL_HI)
+            g.box(61, 66, B + 4, B + 5, 1, STEEL).box(62, 65, B + 5, B + 6, 7, STEEL_HI).box(63, 64, B + 5, B + 6, 9, STEEL)
+            g.boxI(60, 65, B - 2, B + 3, ci - 4, ci - 2, STEEL)
+            g.boxI(61, 64, B - 1, B + 2, ci - 4, ci - 3, GAUGE).boxI(62, 63, B, B + 2, ci - 4, ci - 3, BLACK)
+            // Rear grip and the trigger lever.
+            g.slope(68, 75, k => 1 + (75 - k) * 0.5, () => B - 4, 3, WOOD)
+            g.box(63, 68, 6, 7, 1, STEEL).box(63, 64, 6, B - 4, 1, STEEL).box(65, 66, 7, B - 4, 1, BLACK)
+            // The armoured hose curling down and back to the tank.
+            for (let k = 66; k < 84; k++) {
+                const j = Math.round(B - 1 - (k - 66) * 0.65)
+                g.box(k, k + 1, j - 1, j + 2, 3, (k & 1) ? BLACK : LEATHER)
+            }
+            // The pressure bottle under the lance (the reload swaps it).
+            g.part('mag')
+            g.rod(38, 56, B - 6, 2.2, PARK)
+            g.rod(36, 38, B - 6, 1.2, BRASS)
+            for (const k of [42, 52]) g.ring(k, k + 1, B - 6, 1.8, 2.6, STEEL_HI)
+            g.part('main')
+            return {
+                gun: g, grip: [71, 7], bore: B, front: 5, sight: [59, B + 5], eyeRelief: 0.34, left: [-0.015, -0.03, -0.44], eject: [60, B],
+                reload: 'fuel', long: true, flame: true
+            }
+        }
         case 'xray': {
             // A 1906 laboratory ray pistol: a flared brass emitter dish with a white-hot needle,
             // a copper barrel under polished cooling fins, a rounded art-deco brass body with a
@@ -831,6 +1171,58 @@ function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
             for (const k of [14, 18, 22]) g.boxI(k, k + 1, 5, 10, g.ci - 5, g.ci - 2, BRASS)
             g.part('main')
             return { gun: g, grip: [25, 5], bore: B, front: 0, sight: [26, 17], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [18, 12], reload: 'capsule', long: false, glow: true }
+        }
+        case 'granatwerfer': {
+            // The lent Granatwerfer 16: a fat rifled tube on a steel cradle with a flared
+            // muzzle ring and a folding ladder sight, a four-shot drum of brass-capped shells
+            // under the breech, a pistol grip and a padded shoulder stock. Chunky on purpose:
+            // it fills the lower right of the screen like the heavy thing it is.
+            const g = new Gun(VOX, 92, 30, 13)
+            const ci = g.ci
+            const B = 18
+            // The tube: muzzle ring, bands, the breech block.
+            g.rod(0, 52, B, 4.2, BLACK)
+            g.ring(0, 3, B, 3, 5.2, STEEL_HI)
+            g.ring(0, 1, B, 0, 3, PARK)
+            for (const k of [12, 26, 40]) g.ring(k, k + 2, B, 3.8, 4.8, STEEL)
+            g.box(50, 60, B - 5, B + 5, 9, STEEL)
+            g.box(50, 51, B - 5, B + 5, 9, STEEL_HI)
+            // Front sight post and the folding ladder sight over the breech.
+            g.box(4, 5, B + 4, B + 7, 1, STEEL_HI)
+            g.boxI(52, 54, B + 5, B + 10, ci - 2, ci - 1, STEEL_HI).boxI(52, 54, B + 5, B + 10, ci + 1, ci + 2, STEEL_HI)
+            g.box(52, 54, B + 9, B + 10, 5, STEEL_HI)
+            // The cradle under the tube and a front grip.
+            g.box(18, 50, B - 6, B - 4, 5, STEEL)
+            for (let j = 2; j < B - 6; j++) g.box(26, 31, j, j + 1, 4, (j & 1) ? WOOD : WOOD_D)
+            // Pistol grip and trigger guard behind the drum.
+            g.box(56, 66, 6, 8, 1, STEEL)
+            for (let j = 0; j < 10; j++) {
+                const k0 = 62 + Math.round((9 - j) * 0.4)
+                g.box(k0, k0 + 6, j, j + 1, 4, WOOD_D)
+            }
+            // The shoulder stock and its leather pad.
+            g.slope(60, 90, k => B - 8 - (k - 60) * 0.08, () => B + 2, 5, WOOD)
+            g.box(88, 92, B - 11, B + 3, 6, LEATHER)
+            g.box(70, 72, B - 9, B + 2, 5, BRASS)
+            // The drum: four fat shells round a steel hub, swapped on the reload.
+            g.part('mag')
+            // a round drum turning about the bore's axis (a disc in j / i, deep along k)
+            for (let k = 38; k < 50; k++) {
+                for (let j = B - 15; j <= B - 5; j++) {
+                    for (let i = 0; i < g.W; i++) {
+                        const d = Math.hypot(j - (B - 10), i - ci)
+                        if (d > 5.2) continue
+                        const rim = d > 4.2 || k === 38 || k === 49
+                        g.boxI(k, k + 1, j, j + 1, i, i + 1, rim ? STEEL_HI : (j + i) & 1 ? STEEL : BLACK)
+                    }
+                }
+            }
+            for (const [dj, di] of [[-3, -3], [-3, 3], [3, -3], [3, 3]] as const) g.boxI(37, 38, B - 10 + dj - 1, B - 10 + dj + 1, ci + di - 1, ci + di + 1, BRASS)
+            g.part('main')
+            return {
+                gun: g, grip: [64, 7], bore: B, front: 4, sight: [53, B + 10], eyeRelief: 0.34, left: [-0.02, -0.06, -0.3], eject: [52, B],
+                reload: 'mag', long: true
+            }
         }
         case 'wunder': {
             // The Voltigeur: a brass-and-blued-steel rifle with copper Tesla coils that flare
@@ -1012,7 +1404,18 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
     const bolt = sub('bolt', spec.boltAxis)
     const pump = sub('pump')
     const pan = sub('pan', spec.panAxis)
-    const mag = pan ?? sub('mag')
+    const barrel = sub('barrel', spec.hinge)
+    const lever = sub('lever', spec.leverAxis)
+    const mag = sub('mag') ?? pan
+    // A break action carries its cylinder and its loader (or shells) as it tips open.
+    if (barrel) {
+        for (const o of [pan, mag]) {
+            if (!o || o.parent === barrel) continue
+            o.position.sub(barrel.position)
+            barrel.add(o)
+        }
+    }
+    if (mag && spec.magHidden) mag.visible = false
     const muzzle = new THREE.Object3D()
     const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : spec.muzzle ?? ((id === 'm1911' && tier > 0) || id === 'xray' ? -2 : 0)
     toGun(gi, spec.bore + 0.5, muzzleK, muzzle.position)
@@ -1071,6 +1474,13 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
         pump,
         mag,
         pan,
+        barrel,
+        lever,
+        cycle: spec.cycle ?? null,
+        panSpin: spec.chambers ? 'z' : 'y',
+        chambers: spec.chambers ?? 0,
+        magHidden: !!spec.magHidden,
+        flame: !!spec.flame,
         glow: glowMat,
         reload: spec.reload,
         drum: !!spec.drum,
@@ -1078,7 +1488,7 @@ function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice):
         lens,
         long: spec.long
     }
-    for (const o of [r.slide, r.bolt, r.pump, r.mag, r.pan]) {
+    for (const o of [r.slide, r.bolt, r.pump, r.mag, r.pan, r.barrel, r.lever]) {
         if (o) o.userData.rest = o.position.clone()
     }
     root.userData.dfSight = sightRear.clone()

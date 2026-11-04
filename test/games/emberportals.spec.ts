@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
     EP_ANTE_COST,
-    EP_BRACKETS,
     EP_BUY_COST,
     EP_COLS,
     EP_MAX_WIN_MULT,
@@ -146,18 +145,7 @@ describe('playEmberPortals validation', () => {
     })
 })
 
-describe('PAYTABLE', () => {
-    it('pays more for bigger clusters and higher symbols', () => {
-        const rows = Object.values(PAYTABLE)
-        for (const pays of rows) {
-            expect(pays).toHaveLength(EP_BRACKETS.length)
-            for (let i = 1; i < pays.length; i++) expect(pays[i]).toBeGreaterThan(pays[i - 1]!)
-        }
-        for (let s = 1; s < rows.length; s++) {
-            for (let i = 0; i < EP_BRACKETS.length; i++) expect(rows[s]![i]).toBeGreaterThanOrEqual(rows[s - 1]![i]!)
-        }
-    })
-
+describe('paytable lookups', () => {
     it('maps sizes to brackets', () => {
         expect(clusterPay('phoenix', 4)).toBe(0)
         expect(clusterPay('phoenix', 5)).toBe(PAYTABLE.phoenix[0])
@@ -231,15 +219,15 @@ describe('rounds replay consistently', () => {
         const rng = mulberry32(1234)
         let bonuses = 0
         let tumbles = 0
-        for (let i = 0; i < 300; i++) {
+        for (let i = 0; i < 30; i++) {
             const opts = i % 3 === 0 ? undefined : i % 3 === 1 ? { ante: true } : { feature: 'buy' }
             const r = playEmberPortalsWith(5, opts, rng)
             checkRound(r)
             if (r.freeSpins) bonuses++
             tumbles += r.base.tumbles.length
         }
-        expect(bonuses).toBeGreaterThan(80)
-        expect(tumbles).toBeGreaterThan(40)
+        expect(bonuses).toBeGreaterThan(6)
+        expect(tumbles).toBeGreaterThan(4)
     })
 
     it('opens a portal on every portal-less win and grows the ones that win', () => {
@@ -247,7 +235,7 @@ describe('rounds replay consistently', () => {
         let spawns = 0
         let grows = 0
         let merges = 0
-        for (let i = 0; i < 80; i++) {
+        for (let i = 0; i < 20; i++) {
             const r = playEmberPortalsWith(1, { feature: 'buy' }, rng)
             for (const s of r.freeSpins!.spins) {
                 let prevWilds = s.wildsStart

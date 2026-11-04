@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useElementBounding, useElementSize, useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
 import { PLANT_TYPES, MUTATIONS, MUTATION_OFFSPRING, getPlant, xenoMutationBoost } from '#shared/utils/xeno'
-import { TIER_NAMES, roman, tierClass } from '~/lib/xeno-ui'
+import { TIER_NAMES, roman, tierClass, levelClass } from '~/lib/xeno-ui'
 
 const route = useRoute()
 const { unlockedTypeIds, inventory, upgrades } = useXeno()
@@ -12,6 +12,16 @@ const discovered = computed(() => new Set(unlockedTypeIds.value))
 const ownedByType = computed(() => {
   const m = new Map<string, number>()
   for (const i of inventory.value as any[]) m.set(i.typeId, (m.get(i.typeId) ?? 0) + i.quantity)
+  return m
+})
+/** Highest speed and yield level owned per species, for the tile footers. */
+const bestLevels = computed(() => {
+  const m = new Map<string, { speed: number, yield: number }>()
+  for (const i of inventory.value as any[]) {
+    if (i.isHybrid || !i.quantity) continue
+    const b = m.get(i.typeId)
+    m.set(i.typeId, { speed: Math.max(b?.speed ?? 0, i.speed ?? 0), yield: Math.max(b?.yield ?? 0, i.yield ?? 0) })
+  }
   return m
 })
 
@@ -36,7 +46,7 @@ const filters = computed(() => [
   { id: 'all' as const, label: 'All', n: PLANT_TYPES.length },
   { id: 'known' as const, label: 'Discovered', n: discoveredCount.value },
   { id: 'reach' as const, label: 'Within reach', n: withinReach.value.size },
-  { id: 'unknown' as const, label: 'Unknown', n: PLANT_TYPES.length - discoveredCount.value - withinReach.value.size }
+  { id: 'unknown' as const, label: 'Out of reach', n: PLANT_TYPES.length - discoveredCount.value - withinReach.value.size }
 ])
 function setFilter(f: Filter) {
   if (filter.value === f) return
@@ -110,7 +120,7 @@ const entryOffset = computed(() => Math.round(Math.min(Math.max(0, 16 - row.top.
 const statusLabel = computed(() => ({
   known: { text: 'Discovered', color: 'var(--xg-accent-text)' },
   reach: { text: 'Within reach', color: 'var(--xg-uv)' },
-  unknown: { text: 'Unknown', color: 'var(--xg-faint)' }
+  unknown: { text: 'Out of reach', color: 'var(--xg-faint)' }
 })[entryStatus.value])
 </script>
 
@@ -166,7 +176,7 @@ const statusLabel = computed(() => ({
               v-for="p in t.plants"
               :key="p.id"
               type="button"
-              class="relative flex flex-col items-center gap-1 px-1.5 pt-2.5 pb-2 rounded-[18px_18px_18px_5px] border text-center transition-colors"
+              class="relative flex flex-col items-center gap-1 px-1.5 pt-2.5 pb-2 rounded-[18px_18px_18px_5px] border text-center overflow-hidden transition-colors"
               :class="[
                 showSelected(p.id) ? '!border-solid !border-(--xg-accent) shadow-[inset_0_0_0_1px_var(--xg-accent)]' : '',
                 status(p.id) === 'known' ? 'bg-(--xg-surface2) border-(--xg-edge) hover:border-(--xg-edge2)'
@@ -174,18 +184,31 @@ const statusLabel = computed(() => ({
                   : 'bg-transparent border-dashed border-(--xg-edge2) text-(--xg-faint)'
               ]"
               :aria-pressed="showSelected(p.id)"
-              :aria-label="status(p.id) === 'unknown' ? `Unknown tier ${p.tier} species` : `${p.name}, ${status(p.id) === 'known' ? 'discovered' : 'within reach'}`"
+              :aria-label="`${p.name}, ${status(p.id) === 'known' ? 'discovered' : status(p.id) === 'reach' ? 'within reach' : 'out of reach'}`"
               @click="pick(p.id)"
             >
               <span class="size-16 flex items-center justify-center">
-                <span v-if="status(p.id) === 'unknown'" class="size-11 rounded-[14px_14px_14px_4px] border-[1.5px] border-dashed border-(--xg-edge2) flex items-center justify-center font-bold text-lg text-(--xg-faint)">?</span>
-                <XenoPlantIcon v-else :id="p.id" :size="64" stage="ready" :silhouette="status(p.id) === 'reach'" />
+                <XenoPlantIcon :id="p.id" :size="64" stage="ready" :silhouette="status(p.id) !== 'known'" />
               </span>
-              <b class="text-xs leading-tight line-clamp-2">{{ status(p.id) === 'unknown' ? '???' : p.name }}</b>
+              <b class="text-xs leading-tight line-clamp-2">{{ p.name }}</b>
               <span class="text-[11.5px] font-bold" :class="status(p.id) === 'known' ? 'text-(--xg-muted)' : status(p.id) === 'reach' ? 'text-(--xg-uv)' : 'text-(--xg-faint)'">
                 <template v-if="status(p.id) === 'known'">{{ p.voidPlant ? 'Void' : MUTATION_OFFSPRING.has(p.id) ? 'Mutation' : p.isStarter ? 'Starter' : 'Found' }}<template v-if="ownedByType.get(p.id)"> · ×{{ formatNumber(ownedByType.get(p.id)!) }}</template></template>
                 <template v-else-if="status(p.id) === 'reach'">Within reach</template>
-                <template v-else>Unknown</template>
+                <template v-else>Out of reach</template>
+              </span>
+              <span class="self-stretch -mx-1.5 -mb-2 mt-1 grid grid-cols-2 divide-x divide-(--xg-edge) border-t border-(--xg-edge) text-[11.5px] xg-num">
+                <template v-if="bestLevels.get(p.id)">
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(bestLevels.get(p.id)!.speed)" title="Best speed you own">
+                    <UIcon name="i-lucide-zap" class="size-3" /><b>{{ bestLevels.get(p.id)!.speed }}</b>
+                  </span>
+                  <span class="flex items-center justify-center gap-1 py-1" :class="levelClass(bestLevels.get(p.id)!.yield)" title="Best yield you own">
+                    <UIcon name="i-lucide-droplet" class="size-3" /><b>{{ bestLevels.get(p.id)!.yield }}</b>
+                  </span>
+                </template>
+                <template v-else>
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-faint)" title="None on your shelf"><UIcon name="i-lucide-zap" class="size-3" />–</span>
+                  <span class="flex items-center justify-center gap-1 py-1 text-(--xg-faint)" title="None on your shelf"><UIcon name="i-lucide-droplet" class="size-3" />–</span>
+                </template>
               </span>
             </button>
           </div>

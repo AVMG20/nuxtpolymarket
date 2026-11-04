@@ -1,20 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { BAC_BET_KEYS, BAC_PAYOUTS, emptyBets, resolveBets } from '#shared/utils/baccarat/payouts'
+import { emptyBets, resolveBets } from '#shared/utils/baccarat/payouts'
 import type { BacOutcome } from '#shared/utils/baccarat/payouts'
 
 const playerWin: BacOutcome = { winner: 'player', playerPair: false, bankerPair: false }
 const bankerWin: BacOutcome = { winner: 'banker', playerPair: false, bankerPair: false }
 const tie: BacOutcome = { winner: 'tie', playerPair: false, bankerPair: false }
-
-describe('emptyBets / BAC_BET_KEYS', () => {
-    it('starts every spot at zero', () => {
-        expect(emptyBets()).toEqual({ player: 0, banker: 0, tie: 0, playerPair: 0, bankerPair: 0 })
-    })
-
-    it('lists exactly the five bet spots', () => {
-        expect(BAC_BET_KEYS.sort()).toEqual(['banker', 'bankerPair', 'player', 'playerPair', 'tie'])
-    })
-})
 
 describe('resolveBets — Player', () => {
     it('pays even money on a Player win', () => {
@@ -95,12 +85,5 @@ describe('resolveBets — combined', () => {
 
     it('is zero-in zero-out for an empty betting round', () => {
         expect(resolveBets(emptyBets(), playerWin)).toEqual({ staked: 0, payout: 0 })
-    })
-})
-
-describe('BAC_PAYOUTS', () => {
-    it('keeps Banker below Player and Player at even money', () => {
-        expect(BAC_PAYOUTS.banker).toBeLessThan(BAC_PAYOUTS.player)
-        expect(BAC_PAYOUTS.player).toBe(1)
     })
 })

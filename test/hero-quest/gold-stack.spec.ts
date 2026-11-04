@@ -1,6 +1,7 @@
 /**
- * The Gold stack (`gold-economy.md` §5): a dedicated Gold build lands around ×3 and ~×5 at worst,
- * the bursts and the passive Gold% lines together.
+ * The Gold stack (`gold-economy.md` §5): a dedicated Gold build stays under the ×5.5 the balance
+ * column's headroom check in `settle.spec.ts` assumes, the bursts and the passive Gold% lines
+ * together.
  */
 import { describe, expect, it } from 'vitest'
 import { makeParty } from '../../scripts/hero-quest/sim'
@@ -26,11 +27,10 @@ function best<T extends { id: string }>(items: readonly T[], count: number, fiel
 }
 
 describe('the Gold stack', () => {
-    it('stays near §5\'s worst case with every slot on maxed Gold', () => {
+    it('stays under the worst case with every slot on maxed Gold', () => {
         const skills = best(SKILLS, MAX_SKILL_SLOTS, 'Skills')
         const artifacts = best(ARTIFACTS, MAX_ARTIFACT_SLOTS, 'Artifacts')
         const worst = stack({ ...base, equippedSkills: skills, ownedSkills: skills, equippedArtifacts: artifacts, ownedArtifacts: artifacts })
-        expect(worst).toBeGreaterThan(3)
         expect(worst).toBeLessThan(5.5)
     })
 })

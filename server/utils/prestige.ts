@@ -1,6 +1,7 @@
 import { and, eq, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { bankState, liveBlackjackWagers, tcgAuction, tcgBuyOrder, tcgListing, tcgLot, transactions, user } from '#server/database/schema'
+import { bankState, liveBlackjackWagers, tcgAuction, tcgBuyOrder, tcgListing, tcgLot, user } from '#server/database/schema'
+import { debit, debitGems } from '#server/utils/balance'
 import { nextPrestigeTier, type PrestigeTier } from '#shared/utils/prestige'
 
 /**
@@ -22,7 +23,7 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
     // their OAuth link and locks them out of their own account permanently.
     'session',
     'account',
-    // The coin ledger is an audit trail, not progress — it has to keep showing
+    // The coin and gem ledger is an audit trail, not progress — it has to keep showing
     // what happened before the reset (including the prestige debit itself).
     'transactions',
     // Emblems are cosmetic and predate the run being reset. Losing your drawing
@@ -245,7 +246,8 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
 
         // Fixed resets for the columns that live on the user row itself, which
         // the table scan can never reach. Balance, rake and gems all go to
-        // zero — the tier price is a floor, not a fee.
+        // zero — the tier price is a floor, not a fee. The wallet is burned
+        // through debit/debitGems below so the ledger logs every coin and gem.
         //
         // Tokens are SET to the tier's allowance, not added to it: 5/10/15/20
         // is what you hold at each tier, so the ceiling is 20. Because the wipe
@@ -253,9 +255,7 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
         // for, setting the balance here is also the refund for them.
         const [updated] = await tx.update(user)
             .set({
-                balance: '0',
                 rake: '0',
-                gems: 0,
                 prestige: locked.prestige + 1,
                 prestigeTokens: tier.tokens
             })
@@ -263,16 +263,11 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
             .returning({ prestige: user.prestige, prestigeTokens: user.prestigeTokens })
         if (!updated) throw createError({ statusCode: 409, statusMessage: 'Prestige already in progress' })
 
-        // The ledger has to account for the whole balance, not just the tier
-        // price, or the transaction history stops reconciling with the wallet.
-        if (parseFloat(locked.balance) > 0) {
-            await tx.insert(transactions).values({
-                userId,
-                amount: locked.balance,
-                type: 'debit',
-                category: `prestige:${tier.level}`
-            })
-        }
+        // The row is locked, so these are exactly what the wallet holds and
+        // both land on zero.
+        const category = 'prestige'
+        if (parseFloat(locked.balance) > 0) await debit(userId, locked.balance, category, tx)
+        if (locked.gems > 0) await debitGems(userId, locked.gems, category, tx)
 
         return {
             level: updated.prestige,

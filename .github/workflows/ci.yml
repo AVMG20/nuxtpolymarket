@@ -118,7 +118,7 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -141,6 +141,16 @@ jobs:
       - name: Apply database migrations
         run: bunx drizzle-kit migrate
 
+      # vue-tsc keeps its incremental state here (see the typecheck script). It
+      # compares file contents, not mtimes, so the last run's state is safe to
+      # reuse on a fresh checkout and only the files that changed get rechecked.
+      - name: Restore typecheck state
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/vue-tsc
+          key: vue-tsc-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: vue-tsc-
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -151,8 +161,12 @@ jobs:
   # ship. Publishing is still conditional so a run that somehow reaches here
   # without a pull request fails on a broken bundle without putting anything in
   # the registry.
+  #
+  # It runs alongside checks rather than after them, so it only pushes the sha
+  # tag. Nothing deploys that tag until checks pass too: deploy and preview wait
+  # on both jobs, and deploy is what moves `latest`.
   image:
-    needs: [context, checks]
+    needs: context
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -194,8 +208,16 @@ jobs:
           # and one the preview then cannot pull. Tag the commit that was
           # actually checked out and built.
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=sha-${{ github.event.pull_request.head.sha || github.sha }}
+
+      # The layer cache lives in the registry, not the Actions cache. Every main
+      # build exported ~600 MB of layers to the 10 GB Actions cache, which kept
+      # it full and evicted the dependency layer, so most runs reinstalled
+      # everything. Only main writes the cache, so a branch can't overwrite it
+      # with its own layers; every build reads it.
+      - name: Name the build cache
+        id: cache
+        run: echo "ref=${REGISTRY}/${IMAGE_NAME,,}:buildcache" >> "$GITHUB_OUTPUT"
 
       - name: Build and publish
         uses: docker/build-push-action@v6
@@ -204,17 +226,33 @@ jobs:
           push: ${{ env.PUBLISH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=${{ steps.cache.outputs.ref }}
+          cache-to: ${{ github.ref == 'refs/heads/main' && format('type=registry,ref={0},mode=max', steps.cache.outputs.ref) || '' }}
 
   # Coolify pulls the image it was told about rather than building anything, so
-  # the deploy is a pull and a container swap.
+  # the deploy is a pull and a container swap. `latest` moves here, once checks
+  # have passed too, so it never points at a build that failed them.
   deploy:
-    needs: image
+    needs: [checks, image]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the image as latest
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          docker buildx imagetools create -t "$image:latest" "$image:sha-$GITHUB_SHA"
+
       - name: Trigger Coolify
         env:
           WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
@@ -235,7 +273,7 @@ jobs:
   # the deploy host — the step that needs ~6 GB and gets OOM-killed when other
   # previews are already resident.
   preview:
-    needs: [context, image]
+    needs: [context, checks, image]
     # A fork's pull request published no image and holds no Coolify secret, so
     # there is nothing to deploy and nothing to deploy it with. Skipping says so
     # outright rather than passing on an empty webhook, which is what it did

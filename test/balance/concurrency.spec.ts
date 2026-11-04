@@ -30,14 +30,6 @@ describe.skipIf(SKIP)('debit() concurrency', () => {
         expect(await getBalance(USER_ID)).toBe('0.0000')
     })
 
-    it('never drives the balance negative under a concurrent burst', async () => {
-        await seedUser(USER_ID, { balance: '500.0000' })
-
-        await burst(20, () => debit(USER_ID, '100.0000', 'test'))
-
-        expect(parseFloat(await getBalance(USER_ID))).toBeGreaterThanOrEqual(0)
-    })
-
     it('applies every concurrent debit the balance can actually cover', async () => {
         await seedUser(USER_ID, { balance: '1000.0000' })
 

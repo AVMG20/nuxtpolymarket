@@ -1,5 +1,5 @@
 import type { DfZombieAnim } from './protocol'
-import { DF_MAX_ALIVE_ZOMBIES } from './constants'
+import { DF_MAX_ALIVE_ZOMBIES, DF_MAX_PLAYERS } from './constants'
 import type { DfEnemyType, DfHitZone, Vec3 } from './types'
 
 // Enemy definitions, round scaling and the hit test shared by the client
@@ -113,7 +113,7 @@ const EARLY_COUNTS = [6, 8, 13, 18, 24]
  */
 export function dfRoundZombieCount(round: number, players: number): number {
     const r = Math.max(1, Math.floor(round))
-    const extra = Math.max(0, Math.min(3, players - 1))
+    const extra = Math.max(0, Math.min(DF_MAX_PLAYERS - 1, players - 1))
     if (r <= EARLY_COUNTS.length) return Math.round(EARLY_COUNTS[r - 1]! * (1 + 0.7 * extra))
     let mult = r / 5
     if (r >= 10) mult *= 1 + (r - 9) * 0.06
@@ -122,7 +122,7 @@ export function dfRoundZombieCount(round: number, players: number): number {
 
 /** Most zombies alive at once: the solo cap plus a couple per extra player. */
 export function dfMaxAlive(players: number): number {
-    return DF_MAX_ALIVE_ZOMBIES + 2 * Math.max(0, Math.min(3, players - 1))
+    return DF_MAX_ALIVE_ZOMBIES + 2 * Math.max(0, Math.min(DF_MAX_PLAYERS - 1, players - 1))
 }
 
 /** Seconds between spawns: unhurried early, a flood later. */

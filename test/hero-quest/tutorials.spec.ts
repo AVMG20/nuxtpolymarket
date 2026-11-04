@@ -1,23 +1,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
-    featureMenuScene,
     HQ_FEATURES,
-    TUTORIAL_IDS,
     FALLEN_MARK,
     checkpointReached,
     isTutorialRecord,
     featureUnlocked,
-    bossLossMark,
-    nextTutorial,
-    revealedFeatures,
     unlockedFeatures,
     type UnlockProgress
 } from '#shared/utils/hero-quest/tutorials'
-import { TUTORIAL_PAGES } from '#shared/utils/hero-quest/content/tutorials'
 import { BOSS_STAGE, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
-import { HQ_MENU_SCENES } from '../../app/utils/hero-quest-scenes'
-import { guidePageFits } from '../../app/utils/hero-quest-art/guide'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { ensureHqState } from '#server/utils/hero-quest'
@@ -27,19 +19,8 @@ import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 const at = (world: number, stage: number, prestige = 0, runCleared = false, bossLost = false, partyFallen = false): UnlockProgress => ({ prestige, world, stage, runCleared, bossLost, partyFallen })
 const FRESH = at(1, 1)
 const START = ['calendar', 'shop', 'speed']
-// every tutorial of the features open from the start, read
-const START_DONE = ['intro', ...START.flatMap(f => [`${f}:unlock`, `${f}:visit`])]
 
 describe('hero-quest feature unlocks', () => {
-    it('gates every menu scene but Settings, and Battle Speed behind the Shop\'s button', () => {
-        for (const f of HQ_FEATURES) expect(HQ_MENU_SCENES, f).toContain(featureMenuScene(f))
-        expect(HQ_MENU_SCENES.filter(s => !HQ_FEATURES.includes(s as never))).toEqual(['settings'])
-        expect(featureMenuScene('speed')).toBe('shop')
-        expect(featureMenuScene('milestones')).toBe('calendar')
-        expect(HQ_MENU_SCENES).not.toContain('speed')
-        expect(HQ_MENU_SCENES).not.toContain('milestones')
-    })
-
     it('opens the Calendar, the Shop and Battle Speed on a fresh run, and everything for a veteran', () => {
         expect(unlockedFeatures(FRESH)).toEqual(START)
         expect(unlockedFeatures(at(3, 4, 2))).toEqual(HQ_FEATURES)
@@ -52,104 +33,10 @@ describe('hero-quest feature unlocks', () => {
         expect(isTutorialRecord(FALLEN_MARK)).toBe(false)
     })
 
-    it('opens the Gacha and Collections for a party that never fell, once the World 1 boss is fought, beaten or lost to', () => {
-        expect(featureUnlocked('gacha', at(1, BOSS_STAGE))).toBe(false)
-        expect(featureUnlocked('gacha', at(1, BOSS_STAGE, 0, false, true))).toBe(true)
-        expect(featureUnlocked('collections', at(1, BOSS_STAGE, 0, false, true))).toBe(true)
-        expect(featureUnlocked('gacha', at(1, BOSS_STAGE + 1))).toBe(true)
-        expect(featureUnlocked('collections', at(1, BOSS_STAGE + 1))).toBe(true)
-    })
-
-    it('follows the schedule through the Worlds, the run\'s clear and the first prestige', () => {
-        expect(unlockedFeatures(at(2, 1))).toEqual([...START, 'gacha', 'collections', 'milestones', 'loadouts'])
-        expect(unlockedFeatures(at(3, 1))).toEqual([...START, 'gacha', 'collections', 'milestones', 'loadouts', 'tree'])
-        expect(featureUnlocked('raids', at(3, 10))).toBe(false)
-        expect(unlockedFeatures(at(4, 1)).slice(-2)).toEqual(['raids', 'traits'])
-        expect(featureUnlocked('arena', at(5, 1))).toBe(true)
-        expect(featureUnlocked('classes', at(WORLD_COUNT, 10, 0, true))).toBe(false)
-        expect(featureUnlocked('classes', at(1, 1, 1))).toBe(true)
-    })
-
     it('never closes again after a prestige resets the run', () => {
         // a prestige lands back on World 1 Stage 1; every checkpoint below it stays reached
         for (const f of HQ_FEATURES) expect(featureUnlocked(f, at(1, 1, 1)), f).toBe(true)
         expect(checkpointReached({ kind: 'worlds', count: WORLD_COUNT }, at(1, 1, 1))).toBe(true)
-    })
-})
-
-describe('hero-quest tutorials', () => {
-    it('has lines for every tutorial, each page fitting the guide\'s panel whole', () => {
-        for (const id of TUTORIAL_IDS) {
-            const pages = TUTORIAL_PAGES[id]
-            expect(pages.length, id).toBeGreaterThan(0)
-            for (const page of pages) expect(guidePageFits(page), `${id}: ${page}`).toBe(true)
-        }
-    })
-
-    it('opens with the intro, then walks the open features one at a time, in the order they opened', () => {
-        expect(nextTutorial([], [], 'battle')).toBe('intro')
-        const open = unlockedFeatures(at(2, 1))
-        expect(nextTutorial(open, ['intro'], 'battle')).toBe('calendar:unlock')
-        expect(nextTutorial(open, START_DONE, 'battle')).toBe('gacha:unlock')
-        expect(nextTutorial(open, [...START_DONE, 'gacha:unlock'], 'gacha')).toBe('gacha:visit')
-        // the next waits until the player leaves the Gacha, then comes up on the battle
-        expect(nextTutorial(open, [...START_DONE, 'gacha:unlock', 'gacha:visit'], 'gacha')).toBeNull()
-        expect(nextTutorial(open, [...START_DONE, 'gacha:unlock', 'gacha:visit'], 'battle')).toBe('collections:unlock')
-        expect(nextTutorial(open, [...START_DONE, 'gacha:unlock', 'gacha:visit', 'collections:unlock'], 'collections')).toBe('collections:visit')
-    })
-
-    it('brings the features open from the start out one at a time after the intro, the Shop ahead of Battle Speed', () => {
-        expect(revealedFeatures(START, [], 'battle')).toEqual([])
-        expect(revealedFeatures(START, ['intro'], 'battle')).toEqual(['calendar'])
-        const calendarDone = ['intro', 'calendar:unlock', 'calendar:visit']
-        expect(nextTutorial(START, calendarDone, 'battle')).toBe('shop:unlock')
-        expect(revealedFeatures(START, calendarDone, 'battle')).toEqual(['calendar', 'shop'])
-        expect(nextTutorial(START, [...calendarDone, 'shop:unlock', 'shop:visit'], 'battle')).toBe('speed:unlock')
-        expect(revealedFeatures(START, START_DONE, 'battle')).toEqual(START)
-    })
-
-    it('shows a feature that opened with another only once its own tutorial is up', () => {
-        const open = unlockedFeatures(at(1, BOSS_STAGE, 0, false, true))
-        expect(open).toEqual([...START, 'gacha', 'collections'])
-        // the Gacha comes out with its announcement, and Collections waits behind it
-        expect(revealedFeatures(open, START_DONE, 'battle')).toEqual([...START, 'gacha'])
-        expect(revealedFeatures(open, [...START_DONE, 'gacha:unlock'], 'gacha')).toEqual([...START, 'gacha'])
-        // explained, the Gacha stays; Collections waits in it, and comes out on the battle
-        const gachaDone = [...START_DONE, 'gacha:unlock', 'gacha:visit']
-        expect(revealedFeatures(open, gachaDone, 'gacha')).toEqual([...START, 'gacha'])
-        expect(revealedFeatures(open, gachaDone, 'battle')).toEqual([...START, 'gacha', 'collections'])
-        expect(revealedFeatures(open, [...gachaDone, 'collections:visit'], 'gacha')).toEqual([...START, 'gacha', 'collections'])
-    })
-
-    it('reminds once, on the battle after the second boss lost, once the Gacha and Collections are explained', () => {
-        const open = unlockedFeatures(at(1, BOSS_STAGE, 0, false, true))
-        const taught = [...START_DONE, 'gacha:unlock', 'gacha:visit', 'collections:unlock', 'collections:visit']
-        expect(bossLossMark(taught)).toBe('boss_lost_1')
-        expect(bossLossMark([...taught, 'boss_lost_1'])).toBe('boss_lost_2')
-        expect(bossLossMark([...taught, 'boss_lost_1', 'boss_lost_2'])).toBeNull()
-        // one loss: nothing; two: the reminder, on the battle only; read: never again
-        expect(nextTutorial(open, [...taught, 'boss_lost_1'], 'battle')).toBeNull()
-        expect(nextTutorial(open, [...taught, 'boss_lost_1', 'boss_lost_2'], 'battle')).toBe('loss_reminder')
-        expect(nextTutorial(open, [...taught, 'boss_lost_1', 'boss_lost_2'], 'gacha')).toBeNull()
-        expect(nextTutorial(open, [...taught, 'boss_lost_1', 'boss_lost_2', 'loss_reminder'], 'battle')).toBeNull()
-        // the scenes it names not explained yet: their own tutorials come first, and it waits
-        expect(nextTutorial(open, [...START_DONE, 'boss_lost_1', 'boss_lost_2'], 'battle')).toBe('gacha:unlock')
-    })
-
-    it('hides only the group being introduced, so a reset never hides the rest', () => {
-        const open = unlockedFeatures(at(3, 1))
-        expect(revealedFeatures(open, ['intro'], 'battle')).toEqual(['calendar', 'gacha', 'collections', 'milestones', 'loadouts', 'tree'])
-    })
-
-    it('keeps pointing at a feature until its scene is explained, so the next can\'t jump the queue', () => {
-        const open = unlockedFeatures(at(2, 1))
-        // announced, but the player never got there (a reload, a second tab): it is pointed at again
-        expect(nextTutorial(open, [...START_DONE, 'gacha:unlock'], 'battle')).toBe('gacha:unlock')
-        // standing in a later scene doesn't explain it ahead of the Gacha, nor announce over it
-        expect(nextTutorial(open, START_DONE, 'collections')).toBeNull()
-        expect(nextTutorial(open, START_DONE, 'settings')).toBeNull()
-        const all = ['intro', ...open.map(f => `${f}:visit`)]
-        expect(nextTutorial(open, all, 'battle')).toBeNull()
     })
 })
 

@@ -303,15 +303,59 @@ export function impulse(ctx: BaseAudioContext, seconds: number, decay: number, d
     return buf
 }
 
+interface ConvSlot {
+    conv: ConvolverNode
+    input: AudioNode | null
+    /** Context time after which the last sound through it (and its tail) is over. */
+    freeAt: number
+}
+
+/** Seconds a send stays busy past its impulse length: the longest phrase sent through one (stingers, jingles). */
+const SEND_BUSY_S = 12
+const convPool = new WeakMap<BaseAudioContext, Map<string, ConvSlot[]>>()
+
+/**
+ * A convolver for this impulse, reused once its last sound has rung out. Handing a
+ * ConvolverNode its buffer partitions and FFTs the whole impulse on the main thread
+ * (5-8 ms on a fast desktop, more on a laptop), so every stinger built a new one was
+ * a frame hitch.
+ */
+function pooledConvolver(ctx: BaseAudioContext, input: AudioNode, seconds: number, decay: number, dark: number): ConvolverNode {
+    let map = convPool.get(ctx)
+    if (!map) {
+        map = new Map()
+        convPool.set(ctx, map)
+    }
+    const key = `${seconds}:${decay}:${dark}`
+    let slots = map.get(key)
+    if (!slots) map.set(key, slots = [])
+    const now = ctx.currentTime
+    let slot = slots.find(s => s.freeAt <= now)
+    if (slot) {
+        try {
+            slot.input?.disconnect(slot.conv)
+        } catch {
+            // already gone
+        }
+        slot.conv.disconnect()
+    } else {
+        const conv = ctx.createConvolver()
+        conv.buffer = impulse(ctx, seconds, decay, dark)
+        slots.push(slot = { conv, input: null, freeAt: 0 })
+    }
+    slot.input = input
+    slot.freeAt = now + seconds + SEND_BUSY_S
+    input.connect(slot.conv)
+    return slot.conv
+}
+
 /**
  * Dry + convolution send into `dest`. Returns the input node. Use on rare,
  * long sounds only (jingles, stingers, the ambience bus), never per zombie hit.
  */
 export function reverbSend(ctx: BaseAudioContext, dest: AudioNode, wet: number, seconds = 2, decay = 3, dark = 0.5): GainNode {
     const input = gainNode(ctx, 1, dest)
-    const conv = ctx.createConvolver()
-    conv.buffer = impulse(ctx, seconds, decay, dark)
-    input.connect(conv)
+    const conv = pooledConvolver(ctx, input, seconds, decay, dark)
     conv.connect(gainNode(ctx, wet, dest))
     return input
 }

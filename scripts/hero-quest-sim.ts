@@ -1,23 +1,23 @@
 /**
  * Hero Quest combat sim — the tuning workhorse.
  *
- *   bun run sim:hero-quest                                  # World 1 walk, level 1
- *   bun run sim:hero-quest --report=stage --world=1 --stage=10 --level=14
- *   bun run sim:hero-quest --report=gates                   # min level for every boss gate
- *   bun run sim:hero-quest --report=gold --party=3          # Gold against the platform (#23)
- *   bun run sim:hero-quest --report=stats --level=40        # where every stat comes from
- *   bun run sim:hero-quest --report=stats --sweep-levels=1,20,50,200
- *   bun run sim:hero-quest --report=classes --level=20
- *   bun run sim:hero-quest --set=K=3 --set=BASE_HP=200      # override constants for one run
- *   bun run sim:hero-quest --sweep=K=1..4:0.5               # sweep a dial, tabulate results
+ *   bun scripts/hero-quest-sim.ts                                  # World 1 walk, level 1
+ *   bun scripts/hero-quest-sim.ts --report=stage --world=1 --stage=10 --level=14
+ *   bun scripts/hero-quest-sim.ts --report=gates                   # min level for every boss gate
+ *   bun scripts/hero-quest-sim.ts --report=gold --party=3          # Gold against the platform (#23)
+ *   bun scripts/hero-quest-sim.ts --report=stats --level=40        # where every stat comes from
+ *   bun scripts/hero-quest-sim.ts --report=stats --sweep-levels=1,20,50,200
+ *   bun scripts/hero-quest-sim.ts --report=classes --level=20
+ *   bun scripts/hero-quest-sim.ts --set=K=3 --set=BASE_HP=200      # override constants for one run
+ *   bun scripts/hero-quest-sim.ts --sweep=K=1..4:0.5               # sweep a dial, tabulate results
  *
- *   bun run sim:hero-quest --report=gates --party=3         # what a starting party buys
+ *   bun scripts/hero-quest-sim.ts --report=gates --party=3         # what a starting party buys
  *
- *   bun run sim:hero-quest --report=campaign --party=3 --traits=E   # field a Trait board
- *   bun run sim:hero-quest --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
- *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
- *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:0:1 --kit-ramp=epic:0:1@7 --classes --shop
- *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:0:2 --kit-ladder --classes --shop
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --traits=E   # field a Trait board
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:0:1 --kit-ramp=epic:0:1@7 --classes --shop
+ *   bun scripts/hero-quest-sim.ts --report=campaign --party=3 --kit=rare:0:2 --kit-ladder --classes --shop
  *
  * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --kit-ramp --kit-ladder --classes --shop --boss-fights --unlocks --no-levelup --json
  *

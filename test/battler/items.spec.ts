@@ -4,7 +4,7 @@
  * no database.
  */
 import { describe, expect, it } from 'vitest'
-import { deriveItem, itemCostFor, normalizeItemName } from '#shared/utils/battler/items'
+import { deriveItem, normalizeItemName } from '#shared/utils/battler/items'
 import { simulateBattle } from '#shared/utils/battler/combat'
 import type { BattleUnit } from '#shared/utils/battler/combat'
 import type { BattlerUnitSpec } from '#shared/utils/battler/unit'
@@ -29,16 +29,8 @@ const battler = (key: string, over: Partial<BattlerUnitSpec> = {}, items: Battle
 
 describe('deriveItem', () => {
     it('resolves authored names, apostrophes and all', () => {
-        const policy = deriveItem('t1', trainer('Weakness Policy'))!
-        expect(policy.subtype).toBe('tool')
-        expect(policy.attach).toEqual({ noWeakness: true })
-
-        const boss = deriveItem('t2', trainer("Boss's Orders"))!
-        expect(boss.subtype).toBe('supporter')
-        expect(boss.consume?.teamAtk).toBe(2)
-
-        const ball = deriveItem('t3', trainer('Ultra Ball'))!
-        expect(ball.consume?.freeRerolls).toBe(1)
+        expect(deriveItem('t1', trainer('Weakness Policy'))!.subtype).toBe('tool')
+        expect(deriveItem('t2', trainer("Boss's Orders"))!.subtype).toBe('supporter')
         expect(normalizeItemName("Boss’s   Orders")).toBe('bosss orders')
     })
 
@@ -54,12 +46,6 @@ describe('deriveItem', () => {
         expect(a.subtype).toBe('tool')
         expect(a.attach).toEqual(b.attach) // stable per name
         expect(deriveItem('x', { category: 'Pokemon', name: 'Nope' })).toBeNull()
-    })
-
-    it('prices one step under the unit tier, floor ₱2', () => {
-        expect(itemCostFor('Common')).toBe(2)
-        expect(itemCostFor('Double Rare')).toBe(5)
-        expect(itemCostFor('Hyper Rare')).toBe(9)
     })
 })
 

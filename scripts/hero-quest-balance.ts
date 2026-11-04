@@ -5,7 +5,7 @@
  * Nitro, no game around it — so untuned constants get their values from projections rather
  * than from guesses that go load-bearing later.
  *
- *   bun run balance:hero-quest --table=time-to-boss --prestige=0 --world=1
+ *   bun scripts/hero-quest-balance.ts --table=time-to-boss --prestige=0 --world=1
  *
  * Tuning order matters — earlier links feed later ones:
  *   stat tiers → enemy base stats → K → BASE_GOLD → GOLD_STEP_BASE

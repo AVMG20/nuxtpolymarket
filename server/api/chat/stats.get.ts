@@ -19,6 +19,7 @@ export default defineEventHandler(async (event) => {
     .from(transactions)
     .where(and(
       eq(transactions.userId, userId),
+      eq(transactions.currency, 'coins'),
       gte(transactions.createdAt, startOfToday)
     ))
     .groupBy(transactions.category)
@@ -26,8 +27,8 @@ export default defineEventHandler(async (event) => {
   let best: { category: string, amount: number } | null = null
   let worst: { category: string, amount: number } | null = null
   for (const row of rows) {
-    // deposits aren't winnings
-    if (row.category === 'deposit') continue
+    // moving your own money around isn't a win or a loss
+    if (row.category === 'bank' || row.category === 'gift') continue
     const amount = parseFloat(row.net)
     const category = row.category ?? 'other'
     if (!best || amount > best.amount) best = { category, amount }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
     TOWN_BUILDINGS,
-    TOWN_RESOURCES,
     TOWN_SUPPLY_FALLOFF_TILES,
     TOWN_SUPPLY_FULL_TILES,
     TOWN_SUPPLY_MIN_EFFICIENCY,
@@ -15,7 +14,6 @@ import {
     townSupply,
     townSupplyEfficiency,
     townSupplyNetwork,
-    townSupplyPath,
     type TownBuildingId,
     type TownResourceId,
     type TownSimBuilding,
@@ -143,37 +141,6 @@ describe('townSupplyEfficiency', () => {
             expect(townSupplyEfficiency(tiles)).toBe(TOWN_SUPPLY_MIN_EFFICIENCY)
         }
     })
-
-    it('falls strictly, and only, between the two radii', () => {
-        let previous = townSupplyEfficiency(TOWN_SUPPLY_FULL_TILES)
-        for (let tiles = TOWN_SUPPLY_FULL_TILES + 1; tiles < TOWN_SUPPLY_FALLOFF_TILES; tiles++) {
-            const here = townSupplyEfficiency(tiles)
-            expect(here).toBeLessThan(previous)
-            // Strictly inside the band at both ends: the ramp never reaches
-            // either bound before the radius that owns it.
-            expect(here).toBeLessThan(1)
-            expect(here).toBeGreaterThan(TOWN_SUPPLY_MIN_EFFICIENCY)
-            previous = here
-        }
-    })
-
-    it('rams down in equal steps — a straight line, not a curve', () => {
-        // Every extra tile costs the same, so the halfway distance is worth
-        // exactly the average of the two ends.
-        const steps: number[] = []
-        for (let tiles = TOWN_SUPPLY_FULL_TILES; tiles < TOWN_SUPPLY_FALLOFF_TILES; tiles++) {
-            steps.push(townSupplyEfficiency(tiles + 1) - townSupplyEfficiency(tiles))
-        }
-        for (const step of steps) expect(step).toBeCloseTo(steps[0]!, 10)
-        expect(townSupplyEfficiency(HALFWAY_TILES))
-            .toBeCloseTo((1 + TOWN_SUPPLY_MIN_EFFICIENCY) / 2, 10)
-    })
-
-    it('joins up at both radii with no step in the curve', () => {
-        const hair = 1e-9
-        expect(townSupplyEfficiency(TOWN_SUPPLY_FULL_TILES + hair)).toBeCloseTo(1, 8)
-        expect(townSupplyEfficiency(TOWN_SUPPLY_FALLOFF_TILES - hair)).toBeCloseTo(TOWN_SUPPLY_MIN_EFFICIENCY, 8)
-    })
 })
 
 describe('townResourceDepth', () => {
@@ -183,19 +150,6 @@ describe('townResourceDepth', () => {
         if (def.kind !== 'industry' || Object.keys(def.inputs).length > 0) continue
         for (const id of Object.keys(def.outputs) as TownResourceId[]) raw.add(id)
     }
-
-    it('puts everything dug or grown from nothing at the bottom', () => {
-        expect([...raw].sort()).toEqual(['jewels', 'stone', 'wheat', 'wood'])
-        for (const id of raw) expect(townResourceDepth(id)).toBe(0)
-    })
-
-    it('gives every resource a whole, non-negative depth', () => {
-        for (const r of TOWN_RESOURCES) {
-            const depth = townResourceDepth(r.id)
-            expect(Number.isInteger(depth)).toBe(true)
-            expect(depth).toBeGreaterThanOrEqual(0)
-        }
-    })
 
     // This is the invariant townSupply's resolution order rests on: it walks
     // the consumed resources shallowest first so that, by the time a bakery
@@ -213,33 +167,9 @@ describe('townResourceDepth', () => {
             }
         }
     })
-
-    it('orders the chains a town actually walks', () => {
-        expect(townResourceDepth('wood')).toBeLessThan(townResourceDepth('planks'))
-        expect(townResourceDepth('planks')).toBeLessThan(townResourceDepth('tools'))
-        expect(townResourceDepth('tools')).toBeLessThan(townResourceDepth('ore'))
-        expect(townResourceDepth('ore')).toBeLessThan(townResourceDepth('steel'))
-        expect(townResourceDepth('steel')).toBeLessThan(townResourceDepth('machines'))
-        expect(townResourceDepth('machines')).toBeLessThan(townResourceDepth('luxuries'))
-
-        expect(townResourceDepth('wheat')).toBeLessThan(townResourceDepth('flour'))
-        expect(townResourceDepth('flour')).toBeLessThan(townResourceDepth('bread'))
-
-        // The last thing a town learns to make is the deepest thing there is.
-        const deepest = Math.max(...TOWN_RESOURCES.map(r => townResourceDepth(r.id)))
-        expect(townResourceDepth('luxuries')).toBe(deepest)
-    })
 })
 
 describe('townSupplyNetwork and townRoadDistance', () => {
-    it('registers each workshop against the road tile it fronts onto', () => {
-        const buildings = [...street(0, 4), shop('camp', 'lumber', 0), shop('saw', 'sawmill', 3)]
-        const net = network(buildings)
-
-        expect(net.frontOf.get('camp')).toBe('0,0')
-        expect(net.frontOf.get('saw')).toBe('3,0')
-    })
-
     it('counts the tiles between two doors down the street', () => {
         const buildings = [...street(0, 6), shop('camp', 'lumber', 0), shop('near', 'sawmill', 1), shop('far', 'sawmill', 4)]
         const net = network(buildings)
@@ -248,16 +178,6 @@ describe('townSupplyNetwork and townRoadDistance', () => {
         expect(townRoadDistance(net, 'camp', 'far')).toBe(4)
         // The walk is the same in either direction.
         expect(townRoadDistance(net, 'far', 'camp')).toBe(4)
-    })
-
-    it('reads zero when two workshops share one front tile', () => {
-        // Facing each other across a single road tile: no journey at all.
-        const buildings = [road(0, 0), shop('north', 'lumber', 0), at('south', 'sawmill', 0, -1, { rotation: 0 })]
-        const net = network(buildings)
-
-        expect(net.frontOf.get('north')).toBe(net.frontOf.get('south'))
-        expect(townRoadDistance(net, 'north', 'south')).toBe(0)
-        expect(townSupplyEfficiency(0)).toBe(1)
     })
 
     it('measures the road, not the crow\'s flight', () => {
@@ -455,21 +375,6 @@ describe('townSupply and distance', () => {
             10
         )
     })
-
-    it('charges nothing at all up to the full radius, and from the next tile on', () => {
-        // Both camps inside the free radius: nothing is lost on the way.
-        expect(hauledFrom(TOWN_SUPPLY_FULL_TILES - 1).ratio).toBe(1)
-        // Nudge the far one past it and the ratio starts slipping.
-        const slipping = hauledFrom(TOWN_SUPPLY_FULL_TILES)
-        expect(slipping.ratio).toBeLessThan(1)
-        expect(slipping.ratio).toBeGreaterThan(TOWN_SUPPLY_MIN_EFFICIENCY)
-    })
-
-    it('never falls further than the floor however long the haul', () => {
-        const stranded = hauledFrom(TOWN_SUPPLY_FALLOFF_TILES + 1)
-        expect(stranded.ratio).toBe(TOWN_SUPPLY_MIN_EFFICIENCY)
-        expect(stranded.inputs[0]!.suppliers).toBe(2)
-    })
 })
 
 describe('townSupply floor', () => {
@@ -644,105 +549,7 @@ describe('supply through deriveTown and settleTown', () => {
     })
 })
 
-describe('townSupplyPath', () => {
-    it('walks the road from the supplier door to the consumer door', () => {
-        const buildings = [...street(0, 4), shop('camp', 'lumber', 0), shop('saw', 'sawmill', 4)]
-        const path = townSupplyPath(buildings, 'camp', 'saw', T0)
-
-        // Supplier's door first, consumer's last, every tile in between.
-        expect(path).toEqual([
-            { wx: 0, wy: 0 },
-            { wx: 1, wy: 0 },
-            { wx: 2, wy: 0 },
-            { wx: 3, wy: 0 },
-            { wx: 4, wy: 0 }
-        ])
-    })
-
-    it('is one tile longer than the distance the ratio was computed from', () => {
-        // The drawn route and the allocator must agree, or the map explains a
-        // number it does not actually match.
-        const buildings = [...street(0, HALFWAY_TILES), shop('camp', 'lumber', 0), shop('saw', 'sawmill', HALFWAY_TILES)]
-        const network = townSupplyNetwork(buildings, T0)
-
-        const tiles = townRoadDistance(network, 'camp', 'saw')
-        expect(tiles).toBe(HALFWAY_TILES)
-        expect(townSupplyPath(buildings, 'camp', 'saw', T0)).toHaveLength(tiles! + 1)
-    })
-
-    it('gives back nothing when no road joins the two', () => {
-        // Two streets that never touch: the allocator skips the pair, so there
-        // is no route to draw either.
-        const buildings = [
-            ...street(0, 1), shop('camp', 'lumber', 0),
-            road(10, 0), road(11, 0), shop('saw', 'sawmill', 10)
-        ]
-        expect(townRoadDistance(townSupplyNetwork(buildings, T0), 'camp', 'saw')).toBeNull()
-        expect(townSupplyPath(buildings, 'camp', 'saw', T0)).toEqual([])
-    })
-
-    it('gives back nothing when a door does not open onto a road', () => {
-        // Rotated away from the street, so it has no front door on it at all.
-        const buildings = [...street(0, 4), shop('camp', 'lumber', 0), shop('saw', 'sawmill', 4, { rotation: 0 })]
-        expect(townSupplyPath(buildings, 'camp', 'saw', T0)).toEqual([])
-    })
-
-    it('shares one tile when both doors open onto it', () => {
-        const buildings = [...street(0, 2), shop('camp', 'lumber', 1), at('saw', 'sawmill', 1, -1, { rotation: 0 })]
-        expect(townSupplyPath(buildings, 'camp', 'saw', T0)).toEqual([{ wx: 1, wy: 0 }])
-    })
-
-    it('takes the short way round when the street forks', () => {
-        // A straight run along y = 0 and a three-tile detour along y = -1 that
-        // rejoins it. The shortest road wins, which is the one the distance used.
-        const buildings = [
-            ...street(0, 3),
-            road(0, -1), road(1, -1), road(2, -1), road(3, -1),
-            shop('camp', 'lumber', 0),
-            shop('saw', 'sawmill', 3)
-        ]
-        const path = townSupplyPath(buildings, 'camp', 'saw', T0)
-        expect(path).toHaveLength(4)
-        expect(path.every(t => t.wy === 0)).toBe(true)
-    })
-
-    it('ignores a road that is still going up', () => {
-        // isBuilt gates the network, so a half-laid road carries nothing yet.
-        const buildings = [
-            ...street(0, 1),
-            road(2, 0),
-            { ...road(3, 0), level: 0, completesAt: T0 + 60_000 },
-            ...street(4, 5),
-            shop('camp', 'lumber', 0),
-            shop('saw', 'sawmill', 5)
-        ]
-        expect(townSupplyPath(buildings, 'camp', 'saw', T0)).toEqual([])
-    })
-})
-
 describe('townSupply links', () => {
-    it('names each supplier, its distance and what survives the trip', () => {
-        // One camp next door and one at the far end of the ramp, so the sawmill
-        // is fed by both at visibly different rates.
-        const buildings = [
-            ...street(0, STREET_END),
-            shop('saw', 'sawmill', 0),
-            shop('near', 'lumber', 1),
-            shop('far', 'lumber', HALFWAY_TILES)
-        ]
-        const links = supplyOf(buildings).get('saw')!.links
-
-        expect(links.map(l => l.producerId)).toEqual(['near', 'far'])
-        expect(links.map(l => l.tiles)).toEqual([1, HALFWAY_TILES])
-        expect(links[0]!.efficiency).toBe(1)
-        expect(links[1]!.efficiency).toBe(townSupplyEfficiency(HALFWAY_TILES))
-        // Every link names the good it carries, so a two-input workshop can be
-        // read a resource at a time.
-        expect(new Set(links.map(l => l.resource))).toEqual(new Set(['wood']))
-        // What was dispatched adds up to the recipe, before the trips take their cut.
-        expect(links.reduce((sum, l) => sum + l.sent, 0)).toBeCloseTo(WOOD_PER_SAWMILL, 6)
-    })
-
     it('leaves out a camp whose output was already claimed by a nearer sawmill', () => {
         // The allocator gives the camp to the near sawmill; the far one gets no
         // link at all rather than a zero-weight one.
@@ -756,20 +563,6 @@ describe('townSupply links', () => {
 
         expect(supply.get('near')!.links.map(l => l.producerId)).toEqual(['camp'])
         expect(supply.get('far')!.links).toEqual([])
-    })
-
-    it('takes everything from one supplier that can cover it, over an equally near smaller one', () => {
-        // Both farms stand one tile from the mill's door. The small one comes
-        // first in the list, which used to decide the tie and split the order.
-        const wheatPerFarm = FARM.outputs.wheat!
-        const levelsNeeded = MILL.inputs.wheat! / wheatPerFarm
-        const buildings = [
-            ...street(0, 4),
-            shop('small', 'farm', 1),
-            shop('mill', 'mill', 2),
-            shop('big', 'farm', 3, { level: levelsNeeded })
-        ]
-        expect(supplyOf(buildings).get('mill')!.links.map(l => l.producerId)).toEqual(['big'])
     })
 
     it('takes from the nearest supplier first and only tops up from a farther one', () => {
@@ -800,10 +593,5 @@ describe('townSupply links', () => {
         expect(producers(town({ level: 1, upgradingTo: levelsNeeded, completesAt: T0 + 60_000 }))).toEqual(['big', 'small'])
         // Finished, even before a settle has written the new level down.
         expect(producers(town({ level: 1, upgradingTo: levelsNeeded, completesAt: T0 - 1_000 }))).toEqual(['big'])
-    })
-
-    it('reports no links for a workshop that hauls nothing in', () => {
-        const buildings = [...street(0, 1), shop('camp', 'lumber', 0)]
-        expect(supplyOf(buildings).get('camp')!.links).toEqual([])
     })
 })

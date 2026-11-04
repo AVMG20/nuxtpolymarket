@@ -751,7 +751,7 @@ const tooltipUi = { content: 'h-auto p-0 bg-transparent ring-0 shadow-none' }
               <div class="xg-meter mt-2"><span :style="{ width: `${(nextProgress.unlocked / nextProgress.total) * 100}%`, background: 'var(--xg-sky)' }" /></div>
               <div v-if="nextProgress.missing.length" class="mt-3">
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-xs font-bold text-(--xg-muted)">Still hidden</span>
+                  <span class="text-xs font-bold text-(--xg-muted)">Still to discover</span>
                   <NuxtLink to="/xeno/encyclopedia" class="xg-link text-[12.5px] whitespace-nowrap">Find recipes</NuxtLink>
                 </div>
                 <div class="grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-x-3 gap-y-1.5 mt-1.5">

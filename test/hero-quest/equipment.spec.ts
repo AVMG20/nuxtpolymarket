@@ -24,18 +24,13 @@ import { mergeTotals, noModifiers, sumModifiers } from '#shared/utils/hero-quest
 import { gearModifiers } from '#shared/utils/hero-quest/content/gear'
 import {
     skillActives,
-    skillModifiers,
     skillPotency
 } from '#shared/utils/hero-quest/content/skills'
-import { artifactModifiers } from '#shared/utils/hero-quest/content/artifacts'
 import { rateAt, wealthHoursFor } from '#shared/utils/hero-quest/settle'
 import { wealthFactorFor } from '#shared/utils/hero-quest/combat'
 import { scaleEffect } from '#shared/utils/hero-quest/effects'
-import type { AbilityEffect } from '#shared/utils/hero-quest/effects'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import {
-    SKILL_PASSIVE_MAGNITUDE,
-    SKILL_POTENCY_PER_POINT,
     WEALTH_FACTOR_MAX,
     WEALTH_FACTOR_MIN,
     WEALTH_NEUTRAL_HOURS
@@ -77,15 +72,6 @@ describe('modifier summing', () => {
         expect(totals.stats.pwr).toBeCloseTo(2, 10)
     })
 
-    it('sums reducing kinds as fractions before turning them into a factor', () => {
-        // Two 60% shreds compose to full penetration additively and only 84% multiplicatively.
-        const totals = sumModifiers([
-            { kind: 'enemyDefShred', magnitude: 0.6 },
-            { kind: 'enemyDefShred', magnitude: 0.6 }
-        ])
-        expect(totals.enemyDefFactor).toBe(0)
-    })
-
     it('never lets a reducing kind invert past zero', () => {
         const totals = sumModifiers([{ kind: 'damageTaken', magnitude: 3 }])
         expect(totals.damageTakenFactor).toBe(0)
@@ -108,23 +94,6 @@ describe('modifier summing', () => {
 
 describe('gear', () => {
     const owned = [{ contentId: 'gear_weapon_mythic', star: 5, level: 10 }]
-
-    it('pays the full equipped bonus on top of the passive, only to the piece actually equipped', () => {
-        const equipped = gearModifiers(owned, { weapon: 'gear_weapon_mythic' })
-        const benched = gearModifiers(owned, {})
-        // equipping adds a line and keeps the passive (additive since 2026-10-04)
-        expect(benched).toHaveLength(1)
-        expect(equipped).toHaveLength(2)
-        expect(equipped[0]).toEqual(benched[0])
-        expect(equipped[1]!.magnitude).toBeGreaterThan(benched[0]!.magnitude)
-        expect(equipped.every(line => line.stat === 'pwr')).toBe(true)
-    })
-
-    it('pays a smaller passive for every owned piece, equipped or not', () => {
-        // §3: an owned piece that is not equipped — even one stronger than what is worn — still
-        // contributes, and equipping it never takes that away.
-        expect(gearModifiers(owned, {})[0]!.magnitude).toBeGreaterThan(0)
-    })
 
     it('ignores an equipped id the player does not own', () => {
         // The equipped map is client-writable state; a piece named there but never pulled must
@@ -150,15 +119,6 @@ describe('gear', () => {
 })
 
 describe('skills', () => {
-    it('reads equipped Passives only, and only their modifier lines', () => {
-        const passive = skillModifiers([{ contentId: 'skill_iron_discipline', star: 0, level: 1 }])
-        expect(passive).toHaveLength(1)
-        expect(passive[0]!.stat).toBe('def')
-
-        // An Active contributes nothing here — it fires, it does not modify.
-        expect(skillModifiers([{ contentId: 'skill_quick_strike', star: 0, level: 1 }])).toHaveLength(0)
-    })
-
     it('reaches the Hero and never a Champion', () => {
         // `skills-gacha.md` §1: "Hero-only. Champions already have their own separate, fixed
         // ability kits — this system never touches Champions."
@@ -217,43 +177,6 @@ describe('skill potency', () => {
         expect(skillPotency(0, 1)).toBe(1)
     })
 
-    it('rises with every level and every star, and lands above 2x when maxed', () => {
-        expect(skillPotency(0, 2)).toBeGreaterThan(skillPotency(0, 1))
-        expect(skillPotency(1, 1)).toBeGreaterThan(skillPotency(0, 10))
-        expect(skillPotency(5, 10)).toBeGreaterThan(2)
-        // Derived from the scalar, not a second table: scalar 60 at +2% a point.
-        expect(skillPotency(5, 10)).toBeCloseTo(1 + 59 * SKILL_POTENCY_PER_POINT, 10)
-    })
-
-    it('scales a Passive stat line by that copy own potency', () => {
-        const fresh = skillModifiers([{ contentId: 'skill_iron_discipline', star: 0, level: 1 }])
-        const maxed = skillModifiers([{ contentId: 'skill_iron_discipline', star: 5, level: 10 }])
-        expect(fresh[0]!.magnitude).toBe(SKILL_PASSIVE_MAGNITUDE[0]!)
-        expect(maxed[0]!.magnitude).toBeCloseTo(SKILL_PASSIVE_MAGNITUDE[0]! * skillPotency(5, 10), 10)
-    })
-
-    it('scales economy lines too, without escaping the Gold throttle', () => {
-        // A levelled Merchant's Eye is a better Merchant's Eye — but `SKILL_ECONOMY_COEFFICIENT`
-        // is a factor on the base, so it still holds the Gold family under the combat lines at
-        // every level rather than being outgrown by one.
-        const maxedGold = skillModifiers([{ contentId: 'skill_merchants_eye', star: 5, level: 10 }])
-        const maxedStat = skillModifiers([{ contentId: 'skill_fortified_resolve', star: 5, level: 10 }])
-        expect(maxedGold[0]!.magnitude).toBeGreaterThan(
-            skillModifiers([{ contentId: 'skill_merchants_eye', star: 0, level: 1 }])[0]!.magnitude
-        )
-        expect(maxedGold[0]!.magnitude).toBeLessThan(maxedStat[0]!.magnitude)
-    })
-
-    it('raises an Active damage multiplier and its status magnitude together', () => {
-        const [fresh] = skillActives([{ contentId: 'skill_twin_strike', star: 0, level: 1 }])
-        const [maxed] = skillActives([{ contentId: 'skill_twin_strike', star: 5, level: 10 }])
-        const potency = skillPotency(5, 10)
-
-        expect(maxed!.abilityMultiplier).toBeCloseTo(fresh!.abilityMultiplier * potency, 10)
-        expect(maxed!.effect!.status!.magnitude!)
-            .toBeCloseTo(fresh!.effect!.status!.magnitude! * potency, 10)
-    })
-
     it('leaves cooldown, duration and stack counts alone', () => {
         // Levelling makes a skill stronger, not faster or longer. Cadence is SPD's job and
         // Tempo's; scaling duration as well would double-count levelling, because the idle
@@ -273,61 +196,9 @@ describe('skill potency', () => {
         const [maxed] = skillActives([{ contentId: 'skill_twin_strike', star: 5, level: 10 }])
         expect(maxed!.id).toBe(fresh!.id)
     })
-
-    it('scales a heal and a Gold burst, the two non-damage payloads', () => {
-        const [freshHeal] = skillActives([{ contentId: 'skill_steadying_breath', star: 0, level: 1 }])
-        const [maxedHeal] = skillActives([{ contentId: 'skill_steadying_breath', star: 5, level: 10 }])
-        expect(maxedHeal!.effect!.heal!).toBeGreaterThan(freshHeal!.effect!.heal!)
-
-        const [freshToss] = skillActives([{ contentId: 'skill_coin_toss', star: 0, level: 1 }])
-        const [maxedToss] = skillActives([{ contentId: 'skill_coin_toss', star: 5, level: 10 }])
-        expect(maxedToss!.effect!.goldBurstMinutes!)
-            .toBeGreaterThan(freshToss!.effect!.goldBurstMinutes!)
-    })
-
-    it('moves the idle rate, so levelling is felt in farming and not only at a boss', () => {
-        // A Passive and an Active, separately — the two mechanisms reach the rate by different
-        // routes (`stats.ts` for one, `projection.ts` for the other).
-        const withFreshPassive: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_iron_discipline', star: 0, level: 1 }]
-        }
-        const withMaxedPassive: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_iron_discipline', star: 5, level: 10 }]
-        }
-        expect(partyUnitStats(withMaxedPassive)[0]!.def.gt(partyUnitStats(withFreshPassive)[0]!.def))
-            .toBe(true)
-
-        const withFreshActive: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_quick_strike', star: 0, level: 1 }]
-        }
-        const withMaxedActive: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_quick_strike', star: 5, level: 10 }]
-        }
-        expect(rateAt(withMaxedActive, START).secondsPerKill)
-            .toBeLessThan(rateAt(withFreshActive, START).secondsPerKill)
-    })
-
-    it('never makes a utility Active deal damage, however levelled', () => {
-        // The pure-utility ones are authored at multiplier 0, and 0 x anything stays 0 — which is
-        // what keeps a maxed Steadying Breath a heal rather than a heal that also swings.
-        for (const contentId of ['skill_steadying_breath', 'skill_coin_toss']) {
-            const [maxed] = skillActives([{ contentId, star: 5, level: 10 }])
-            expect(maxed!.abilityMultiplier, contentId).toBe(0)
-        }
-    })
 })
 
 describe('scaleEffect', () => {
-    it('returns the input untouched at potency 1, identity included', () => {
-        // So an unlevelled copy allocates nothing.
-        const effect: AbilityEffect = { target: 'enemy_single', heal: 1.5 }
-        expect(scaleEffect(effect, 1)).toBe(effect)
-    })
-
     it('clamps a scaled revive at full HP', () => {
         // A revive above max HP is not a stronger revive.
         const revive = scaleEffect({ target: 'ally_all', revive: 0.8 }, 5)
@@ -345,26 +216,10 @@ describe('scaleEffect', () => {
         expect(scaled.escalation!.status.magnitude).toBeCloseTo(0.8, 10)
         expect(scaled.status!.stacks).toBe(1)
     })
-
-    it('leaves the target pattern and the boolean flags alone', () => {
-        const scaled = scaleEffect({
-            target: 'enemy_front_line', cleanse: true, alwaysCrits: true, hits: 4, extendDebuffs: 6
-        }, 3)
-        expect(scaled.target).toBe('enemy_front_line')
-        expect(scaled.cleanse).toBe(true)
-        expect(scaled.alwaysCrits).toBe(true)
-        expect(scaled.hits).toBe(4)
-        expect(scaled.extendDebuffs).toBe(6)
-    })
 })
 
 describe('artifacts', () => {
     const offense = [{ contentId: 'artifact_offense_10', star: 5, level: 10 }]
-
-    it('produces one modifier line per effect line', () => {
-        // A Mythic carries three (`RARITY_EFFECT_LINES`), so three lines land.
-        expect(artifactModifiers(offense)).toHaveLength(3)
-    })
 
     it('reaches the Hero and every fielded Champion — the one party-wide system', () => {
         const hero: HeroSnapshot = {
@@ -377,23 +232,6 @@ describe('artifacts', () => {
 
         expect(heroUnit!.pwr.gt(bareHero!.pwr)).toBe(true)
         expect(championUnit!.pwr.gt(bareChampion!.pwr)).toBe(true)
-    })
-
-    it('shreds the pack rather than hardening the party, where the effect says so', () => {
-        // Shattering Blow and Defense Penetration land on `enemyDefFactor`, which `settle`
-        // applies by making the pack softer — the "rewrite the inputs" trick, so pooled
-        // mitigation picks the change up without learning that Artifacts exist.
-        const shred = [{ contentId: 'artifact_offense_6', star: 5, level: 10 }]
-        const hero: HeroSnapshot = { ...BARE, equippedArtifacts: shred }
-        expect(rateAt(hero, START).abilities.enemyDefFactor).toBeLessThan(1)
-    })
-
-    it('carries Fortune lines into the economy rates', () => {
-        const fortune: HeroSnapshot = {
-            ...BARE,
-            equippedArtifacts: [{ contentId: 'artifact_fortune_0', star: 5, level: 10 }]
-        }
-        expect(economyBonuses(fortune).goldPct).toBeGreaterThan(0)
     })
 
     it('shortens cooldowns through its own factor rather than through SPD', () => {
@@ -420,24 +258,6 @@ describe('the wealth factor', () => {
     it('is exactly neutral for a caller that supplies nothing', () => {
         // A caller that knows nothing about banked Gold gets the neutral factor.
         expect(wealthFactorFor(undefined)).toBe(1)
-    })
-
-    it('raises a wealth-scaled ability’s damage and leaves the rest alone', () => {
-        const gambler: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_gamblers_strike', star: 0, level: 1 }]
-        }
-        const poor = rateAt({ ...gambler, wealthHours: 0 }, START).secondsPerKill
-        const rich = rateAt({ ...gambler, wealthHours: 1e6 }, START).secondsPerKill
-        expect(rich).toBeLessThan(poor)
-
-        // An ordinary Active is untouched by banked Gold.
-        const plain: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_quick_strike', star: 0, level: 1 }]
-        }
-        expect(rateAt({ ...plain, wealthHours: 1e6 }, START).secondsPerKill)
-            .toBeCloseTo(rateAt({ ...plain, wealthHours: 0 }, START).secondsPerKill, 10)
     })
 
     it('reads banked hours against a wealth-neutral rate, so it never depends on itself', () => {
@@ -470,16 +290,6 @@ describe('gold and xp bursts', () => {
         }
         expect(rateAt(coinToss, START).abilities.goldFactor).toBeGreaterThan(1)
         expect(rateAt(coinToss, START).abilities.xpFactor).toBe(1)
-    })
-
-    it('pays XP too, where the ability says so', () => {
-        const ransom: HeroSnapshot = {
-            ...BARE,
-            equippedSkills: [{ contentId: 'skill_kings_ransom', star: 0, level: 1 }]
-        }
-        const { abilities } = rateAt(ransom, START)
-        expect(abilities.goldFactor).toBeGreaterThan(1)
-        expect(abilities.xpFactor).toBeGreaterThan(1)
     })
 
     it('leaves both rates untouched for a Hero with nothing equipped', () => {

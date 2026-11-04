@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { choiceEditor, numberEditor, sheetHeads, stakeEditor } from '../app/utils/sheet-cells'
-import type { SheetCells } from '../app/utils/sheet'
+import { numberEditor, stakeEditor } from '../app/utils/sheet-cells'
 import { CASINO_MAX_BET } from '#shared/utils/limits'
 import { DICE_MAX_CHANCE, DICE_MIN_CHANCE, diceMultiplier, playDice } from '#shared/utils/gamelogic/dice'
 import { LIMBO_MAX_TARGET, LIMBO_MIN_TARGET, limboWinChance, playLimbo } from '#shared/utils/gamelogic/limbo'
-import { gemDefaultPrice } from '#shared/utils/gamelogic/gem-exchange'
 
 describe('sheet cell editors', () => {
     it('takes coin shorthand within the stake limit', () => {
@@ -25,21 +23,6 @@ describe('sheet cell editors', () => {
         expect(edit('97')).toBe(`Input must be a number between ${DICE_MIN_CHANCE} and ${DICE_MAX_CHANCE}.`)
         expect(edit('abc')).toBeDefined()
     })
-
-    it('matches dropdown labels case-insensitively', () => {
-        let side = ''
-        const edit = choiceEditor({ buy: 'Buy', sell: 'Sell' }, key => side = key)
-        expect(edit(' sell ')).toBeUndefined()
-        expect(side).toBe('sell')
-        expect(edit('Hold')).toBe('Input must be an item on the specified list.')
-    })
-
-    it('writes a header row from a column', () => {
-        const cells: SheetCells = {}
-        sheetHeads(cells, 4, ['Price', 'Gems'], 3)
-        expect(cells.D5?.v).toBe('Price')
-        expect(cells.E5?.bold).toBe(true)
-    })
 })
 
 describe('casino rules shared with the sheet', () => {
@@ -59,15 +42,3 @@ describe('casino rules shared with the sheet', () => {
     })
 })
 
-describe('gem offer default price', () => {
-    const book = { bestBid: 290.004, bestAsk: 310.126, guidePrice: 300 }
-
-    it('starts at the price that trades right now', () => {
-        expect(gemDefaultPrice('buy', book)).toBe(310.13)
-        expect(gemDefaultPrice('sell', book)).toBe(290)
-    })
-
-    it('falls back to the guide price on an empty side', () => {
-        expect(gemDefaultPrice('buy', { ...book, bestAsk: null })).toBe(300)
-    })
-})

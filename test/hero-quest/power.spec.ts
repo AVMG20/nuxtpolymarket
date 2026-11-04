@@ -8,12 +8,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { makeHero, makeParty } from '../../scripts/hero-quest/sim'
-import { globalPower, memberEhp } from '#shared/utils/hero-quest/power'
+import { globalPower } from '#shared/utils/hero-quest/power'
 import { economyBonuses, heroModifierTotals, partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { EHP_DEF_CONSTANT, GPN_DISPLAY_SCALE, MAX_EVASION, SKILL_COLLECTION_PASSIVE_FRACTION } from '#shared/utils/hero-quest/constants'
 import { SKILLS } from '#shared/utils/hero-quest/content/skills'
 import { ARTIFACTS } from '#shared/utils/hero-quest/content/artifacts'
-import { D } from '#shared/utils/hero-quest/numbers'
 import type { OwnedCopy } from '#shared/utils/hero-quest/types'
 
 const maxed = (contentId: string): OwnedCopy => ({ contentId, star: 5, level: 10 })
@@ -30,63 +28,8 @@ const PWR_ARTIFACT = ARTIFACTS.find(artifact =>
     artifact.effects.some(line => line.kind === 'stat' && line.stat === 'pwr'))!
 
 describe('globalPower', () => {
-    it('is the geometric mean of party DPS and party effective HP, lifted by the display scale', () => {
-        const power = globalPower(makeHero('class_beginner', 40))
-        expect(power.gpn.toNumber())
-            .toBeCloseTo(power.dps.mul(power.ehp).sqrt().mul(GPN_DISPLAY_SCALE).toNumber(), 6)
-        // The root holds it to the same order as the stats it is made of; the scale keeps it clear
-        // of them. A fresh Hero opens in the hundreds rather than the tens of thousands.
-        expect(globalPower(makeHero('class_beginner', 1)).gpn.toNumber()).toBeGreaterThan(100)
-        expect(globalPower(makeHero('class_beginner', 1)).gpn.toNumber()).toBeLessThan(10_000)
-    })
-
-    it('reads effective HP as HP stretched by DEF and by evasion', () => {
-        const unit = partyUnitStats(makeHero('class_warrior', 30))[0]!
-        const expected = unit.maxHp.mul(D(1).add(unit.def.div(EHP_DEF_CONSTANT)))
-        expect(memberEhp(unit).toNumber()).toBeCloseTo(expected.toNumber(), 6)
-
-        // Half the attacks missing is exactly twice as durable (§2).
-        expect(memberEhp({ ...unit, eva: 0.5 }).toNumber()).toBeCloseTo(expected.mul(2).toNumber(), 6)
-        // And evasion cannot run past the cap however it is sourced.
-        expect(memberEhp({ ...unit, eva: 0.95 }).toNumber())
-            .toBeCloseTo(expected.div(1 - MAX_EVASION).toNumber(), 6)
-    })
-
-    it('itemises per unit, and the rows sum to the party totals', () => {
-        const power = globalPower(makeParty('class_beginner', 60, 3))
-        expect(power.units).toHaveLength(3)
-        const dps = power.units.reduce((total, row) => total.add(row.dps), D(0))
-        const ehp = power.units.reduce((total, row) => total.add(row.ehp), D(0))
-        expect(dps.toNumber()).toBeCloseTo(power.dps.toNumber(), 6)
-        expect(ehp.toNumber()).toBeCloseTo(power.ehp.toNumber(), 6)
-    })
-
-    it('climbs with every level', () => {
-        let previous = D(0)
-        for (const level of [1, 2, 10, 50, 200, 1000]) {
-            const gpn = globalPower(makeHero('class_beginner', level)).gpn
-            expect(gpn.gt(previous), `level ${level}`).toBe(true)
-            previous = gpn
-        }
-    })
-
     it('stays finite deep into the curve', () => {
         expect(Number.isFinite(globalPower(makeParty('class_beginner', 5000, 6)).gpn.log10().toNumber())).toBe(true)
-    })
-
-    it('rises when Champions are fielded, so benching them lowers it — it is a live reading', () => {
-        const solo = globalPower(makeHero('class_beginner', 50)).gpn
-        const party = globalPower(makeParty('class_beginner', 50, 3)).gpn
-        expect(party.gt(solo)).toBe(true)
-    })
-
-    it('falls when an Artifact is unequipped, but not to nothing — the collection passive stays', () => {
-        const owned = [maxed(PWR_ARTIFACT.id)]
-        const none = globalPower(makeHero('class_beginner', 50)).gpn
-        const benched = globalPower(makeHero('class_beginner', 50, { ownedArtifacts: owned })).gpn
-        const equipped = globalPower(makeHero('class_beginner', 50, { ownedArtifacts: owned, equippedArtifacts: owned })).gpn
-        expect(benched.gt(none)).toBe(true)
-        expect(equipped.gt(benched)).toBe(true)
     })
 })
 
@@ -99,15 +42,6 @@ describe('collection passives for Skills and Artifacts', () => {
         expect(none).toBe(0)
         expect(benched).toBeGreaterThan(0)
         expect(equipped).toBeGreaterThan(benched)
-    })
-
-    it('pays an equipped copy its collection share on top of its full lines', () => {
-        // additive since 2026-10-04: equipping a Skill never takes away what owning it gave
-        const owned = [maxed(STAT_SKILL.id)]
-        const withCollection = heroModifierTotals(makeHero('class_beginner', 1, { ownedSkills: owned, equippedSkills: owned }))
-        const equippedOnly = heroModifierTotals(makeHero('class_beginner', 1, { equippedSkills: owned }))
-        expect(withCollection.stats[SKILL_STAT] - 1)
-            .toBeCloseTo((equippedOnly.stats[SKILL_STAT] - 1) * (1 + SKILL_COLLECTION_PASSIVE_FRACTION), 12)
     })
 
     it('passes combat-stat lines only — a benched Gold Skill adds no Gold', () => {

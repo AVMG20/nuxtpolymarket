@@ -30,7 +30,7 @@ const inBailout = (debt: number, repaid = 0) => seedBankState(USER_ID, {
 })
 
 const garnishRows = () => db.select().from(transactions)
-    .where(and(eq(transactions.userId, USER_ID), eq(transactions.category, 'bank:garnish')))
+    .where(and(eq(transactions.userId, USER_ID), eq(transactions.category, 'bank'), eq(transactions.type, 'debit')))
 
 // One pool for the file: closing it inside a suite would strand the next one.
 afterAll(async () => { if (!SKIP) await db.$client.end() })
@@ -46,7 +46,8 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '500.0000', 'miner')
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(450, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-950, 4)
+        // interest ticks on the bank balance between the seed and the read: cents, not fractions of one
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-950, 2)
     })
 
     it('leaves a solvent player untouched', async () => {
@@ -56,7 +57,7 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await credit(USER_ID, '500.0000', 'miner')
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(500, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(2500, 4)
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(2500, 2)
         expect(await garnishRows()).toHaveLength(0)
     })
 
@@ -84,13 +85,17 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await seedUser(USER_ID)
         await inDebt(1_000)
 
-        await credit(USER_ID, '100.0000', 'shapezz:weapon-refund')
-        await credit(USER_ID, '100.0000', 'live-blackjack:recovery')
-        await credit(USER_ID, '100.0000', 'bank')
+        await credit(USER_ID, '100.0000', 'shapezz', undefined, { refund: true })
+        await credit(USER_ID, '100.0000', 'live-blackjack', undefined, { refund: true })
+        await credit(USER_ID, '100.0000', 'gem exchange', undefined, { refund: true })
 
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(300, 4)
-        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 4)
+        expect(parseFloat((await getBankState(USER_ID)).balance)).toBeCloseTo(-1_000, 2)
         expect(await garnishRows()).toHaveLength(0)
+
+        const credits = await db.select().from(transactions)
+            .where(and(eq(transactions.userId, USER_ID), eq(transactions.type, 'credit')))
+        expect(credits.every(row => row.refund)).toBe(true)
     })
 
     it('writes one garnish ledger row per garnished credit', async () => {
@@ -128,8 +133,9 @@ describe.skipIf(SKIP)('debt garnish on credit()', () => {
         await burst(10, () => credit(USER_ID, '100.0000', 'miner'))
 
         const state = await getBankState(USER_ID)
-        // Debt accrues at 7% daily; over a test's lifetime that is far below a cent.
-        expect(parseFloat(state.balance)).toBeCloseTo(-9_900, 2)
+        // Debt accrues at 7% daily, close to a cent a second on 10k, so a slow burst
+        // drifts past a cent. Half a coin is still far below one 10-coin garnish.
+        expect(parseFloat(state.balance)).toBeCloseTo(-9_900, 0)
         expect(parseFloat(await getBalance(USER_ID))).toBeCloseTo(900, 4)
     })
 })

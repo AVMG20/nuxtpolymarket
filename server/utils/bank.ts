@@ -1,6 +1,9 @@
-import { eq, and, gte, inArray, lt, sql, desc } from 'drizzle-orm'
+import { eq, and, gte, inArray, lt, desc } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { bankHistory, bankState, transactions, user } from '#server/database/schema'
+import { bankHistory, bankState, user } from '#server/database/schema'
+// balance.ts imports this module for the garnish. The cycle is safe because
+// neither side calls the other while the modules are still loading.
+import { debit } from './balance'
 import {
     BANK_CAP,
     LOAN_MULTIPLIER,
@@ -203,29 +206,20 @@ export async function performBailout(userId: string) {
 
 /**
  * Pays whatever the levy has not covered yet straight out of the wallet, which
- * ends the penalty early. The wallet guard lives in the WHERE clause rather than
- * going through debit(), which would import this module right back.
+ * ends the penalty early.
  */
 export async function repayBailout(userId: string) {
   return db.transaction(async (tx) => {
     const now = new Date()
     // User row first, then bank_state — the project-wide lock order.
-    const [wallet] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId)).for('update')
-    if (!wallet) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
+    await tx.select({ id: user.id }).from(user).where(eq(user.id, userId)).for('update')
 
     const settled = await settleBankState(tx, await getLockedBankState(tx, userId), now)
     const bailout = bailoutStateOf(settled)
     if (!isBailoutActive(bailout, now)) throw createError({ statusCode: 400, statusMessage: 'No bail-out to repay' })
 
     const owed = round(bailoutRemaining(bailout))
-    if (parseFloat(wallet.balance) < owed) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
-
-    const [debited] = await tx.update(user)
-      .set({ balance: sql`${user.balance} - ${owed.toFixed(4)}::numeric` })
-      .where(and(eq(user.id, userId), sql`${user.balance} >= ${owed.toFixed(4)}::numeric`))
-      .returning({ balance: user.balance })
-    if (!debited) throw createError({ statusCode: 400, statusMessage: 'Insufficient balance' })
-    await tx.insert(transactions).values({ userId, amount: owed.toFixed(4), type: 'debit', category: 'bank:bailout-repayment' })
+    await debit(userId, owed.toFixed(4), 'bank', tx)
 
     const [updated] = await tx.update(bankState)
       .set({ bailoutRepaid: round(bailout.repaid + owed).toFixed(4), bailoutUntil: null })
