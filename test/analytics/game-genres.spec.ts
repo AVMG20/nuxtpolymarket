@@ -19,7 +19,7 @@ describe('genreForCategory', () => {
     it('puts the idle games in the idle bucket', () => {
         // Lootboxes are the one addition: they drop on a timer rather than
         // being bought, so they count as idle emission rather than a wager.
-        for (const category of ['miner', 'xeno', 'hackops', 'colony', 'polytown', 'town', 'lootbox']) {
+        for (const category of ['miner', 'xeno', 'hackops', 'colony', 'polytown', 'town', 'hero-quest', 'hero-quest:shop', 'lootbox']) {
             expect(genreForCategory(category), category).toBe('idle')
         }
     })
@@ -74,7 +74,7 @@ describe('genre tables', () => {
             'dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness',
             'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'emberportals', 'roulette',
             'baccarat', 'casino-holdem', 'three-card-poker', 'blackjack', 'live-blackjack',
-            'lootbox', 'miner', 'colony', 'shapezz', 'xeno', 'hackops', 'polytown', 'town',
+            'lootbox', 'miner', 'colony', 'shapezz', 'xeno', 'hackops', 'polytown', 'town', 'hero-quest',
             'tcg', 'meadowbrawl', 'pathwarden', 'pirates', 'firewall', 'hackerz', 'gold-miner', 'call-of-xeno',
             'battler', 'storm-the-house', 'voxel-arena', 'bank', 'gems', 'gem market',
             'gem exchange', 'rakeback', 'prestige', 'draft', 'assets'

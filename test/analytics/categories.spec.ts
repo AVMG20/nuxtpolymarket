@@ -62,7 +62,7 @@ describe('prefixesForLabel', () => {
             'miner', 'xeno', 'pirates', 'hackops', 'rakeback', 'colony', 'dice', 'limbo',
             'bank', 'shapezz', 'wheel', 'xenoslot', 'aethergates', 'bookofshadows',
             'fireinthehole', 'candymadness', 'magichands', 'spinata', 'trashpanda', 'polymasters', 'aviamasters', 'emberportals', 'roulette',
-            'casino-holdem', 'three-card-poker', 'baccarat'
+            'casino-holdem', 'three-card-poker', 'baccarat', 'hero-quest'
         ]
         for (const prefix of rawPrefixes) {
             const label = normaliseCategory(prefix)
@@ -80,6 +80,13 @@ describe('prefixesForLabel', () => {
 
     it('never throws for an unknown label', () => {
         expect(() => prefixesForLabel('Not A Real Label')).not.toThrow()
-        expect(prefixesForLabel('Not A Real Label')).toEqual(['not a real label'])
+        expect(prefixesForLabel('Not A Real Label')).toEqual(['not a real label', 'not-a-real-label'])
+    })
+
+    it('round-trips an unmapped category through the fallback', () => {
+        for (const prefix of ['some-new-game', 'some new game', 'mystery']) {
+            expect(prefixesForLabel(normaliseCategory(prefix)), prefix).toContain(prefix)
+        }
+        expect(prefixesForLabel('Mystery')).toEqual(['mystery'])
     })
 })

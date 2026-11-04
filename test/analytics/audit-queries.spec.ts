@@ -153,6 +153,13 @@ describe('topPlayersForLabel', () => {
             }
         }
     })
+
+    it('finds the players behind hyphenated categories, mapped or not', async () => {
+        for (const category of ['hero-quest', 'a-game-nobody-mapped-yet']) {
+            const players = await topPlayersForLabel(normaliseCategory(category), '30d', 'net', 1000)
+            expect(players.map(p => p.userId), category).toContain(LEDGER_USER)
+        }
+    })
 })
 
 describe('query parsing', () => {
