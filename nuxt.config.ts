@@ -1,11 +1,4 @@
-// Rail Tycoon's server under test (or its smoke build) runs from this checkout
-// beside the main dev server with RT_BUILD_DIR set, so the two never share
-// .nuxt or the Vite cache. Unset, both stay at their defaults.
-const rtTestServerBuildDir = process.env.RT_BUILD_DIR
-
 export default defineNuxtConfig({
-    ...(rtTestServerBuildDir ? { buildDir: rtTestServerBuildDir } : {}),
-
     modules: [
         '@nuxt/eslint',
         '@nuxt/ui',
@@ -86,8 +79,6 @@ export default defineNuxtConfig({
     },
 
     vite: {
-        // Nuxt appends client/ and server/ to this.
-        ...(rtTestServerBuildDir ? { cacheDir: `${rtTestServerBuildDir}/vite-cache` } : {}),
         build: {
             // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
             chunkSizeWarningLimit: 900,
