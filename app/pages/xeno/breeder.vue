@@ -4,7 +4,7 @@ import {
   xenoMutationBoost, MUTATIONS, PLANT_TYPES, XENO_MAX_BREEDER_SLOTS
 } from '#shared/utils/xeno'
 import { formatCountdown, progressPct, isDone, formatDuration } from '~/lib/xeno-format'
-import { breedOdds, formatPct, roman, tierClass, plantName } from '~/lib/xeno-ui'
+import { breedOdds, formatPct, roman, tierClass, plantName, levelColor } from '~/lib/xeno-ui'
 import { createReusableTemplate } from '@vueuse/core'
 import type { BreedResult } from '~/components/xeno/BreedReveal.vue'
 
@@ -197,7 +197,7 @@ function podPct(slot: any): number {
 }
 function podLabel(slot: any): { text: string, color: string } {
   const st = podState(slot)
-  if (st === 'done') return { text: 'Done', color: 'var(--xg-accent-text)' }
+  if (st === 'done') return slot.wasMutation ? { text: 'Mutation', color: 'var(--xg-uv)' } : { text: 'Done', color: 'var(--xg-accent-text)' }
   if (st === 'breeding') return { text: 'Growing', color: 'var(--xg-muted)' }
   if (bothPicked(slot.id)) return { text: 'Ready to start', color: 'var(--xg-sun)' }
   return { text: 'Idle', color: 'var(--xg-faint)' }
@@ -666,12 +666,12 @@ const maxPods = computed(() => state.value?.breeder?.maxSlots ?? XENO_MAX_BREEDE
               <div class="order-2 flex flex-col items-center">
                 <div
                   class="xg-bed size-[clamp(88px,33cqi,140px)]"
-                  :class="podState(slot) === 'done' ? 'done' : ''"
+                  :class="podState(slot) === 'done' ? (slot.wasMutation ? 'mut' : 'done') : ''"
                   :style="{ '--p': podState(slot) === 'done' ? 100 : podPct(slot), '--rc': 'var(--xg-uv)' }"
                 >
                   <span v-if="podState(slot) === 'breeding'" class="xg-ring" />
                   <template v-if="podState(slot) === 'done'">
-                    <XenoPlantIcon :id="slot.resultTypeId" size="62%" stage="ready" silhouette />
+                    <XenoPlantIcon :id="slot.resultTypeId" size="62%" stage="ready" class="xg-pop" :animated="!!slot.wasMutation" />
                   </template>
                   <template v-else-if="bedPreview(slot)">
                     <XenoPlantIcon
@@ -686,9 +686,20 @@ const maxPods = computed(() => state.value?.breeder?.maxSlots ?? XENO_MAX_BREEDE
                   <span
                     v-if="podState(slot) !== 'idle'"
                     class="absolute bottom-3 inset-x-0 text-center text-[12px] font-extrabold xg-num"
-                    :class="podState(slot) === 'done' ? 'text-(--xg-accent-text)' : 'text-(--xg-muted)'"
-                  >{{ podState(slot) === 'done' ? 'Ready' : slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</span>
+                    :class="podState(slot) === 'done' ? (slot.wasMutation ? 'text-(--xg-uv)' : 'text-(--xg-accent-text)') : 'text-(--xg-muted)'"
+                  >{{ podState(slot) === 'done' ? `×${slot.resultQuantity ?? 1}` : slot.completesAt ? formatCountdown(slot.completesAt, now) : '…' }}</span>
                 </div>
+                <!-- Finished breed: what comes out, before collecting -->
+                <template v-if="podState(slot) === 'done'">
+                  <span class="mt-1.5 text-[12.5px] font-bold text-center leading-tight max-w-[clamp(88px,33cqi,140px)] truncate" :class="slot.wasMutation ? 'text-(--xg-uv)' : ''">
+                    {{ plantName(slot.resultTypeId) }}
+                  </span>
+                  <span class="mt-1.5 flex items-center gap-1">
+                    <XenoTierLabel :tier="getPlant(slot.resultTypeId ?? '')?.tier ?? 1" :is-void="!!getPlant(slot.resultTypeId ?? '')?.voidPlant" />
+                    <span class="xg-stats">S<b :style="{ color: levelColor(slot.resultSpeed ?? 0) }">{{ slot.resultSpeed ?? 0 }}</b> Y<b :style="{ color: levelColor(slot.resultYield ?? 0) }">{{ slot.resultYield ?? 0 }}</b></span>
+                  </span>
+                  <span class="xg-chip mt-1.5" :class="slot.wasMutation ? 'uv' : ''">{{ slot.wasMutation ? (discovered.has(slot.resultTypeId ?? '') ? 'Mutation' : 'New species') : 'No mutation' }}</span>
+                </template>
                 <button
                   v-if="podState(slot) === 'idle' && bothPicked(slot.id)"
                   type="button"
