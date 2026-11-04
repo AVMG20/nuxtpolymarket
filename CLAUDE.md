@@ -63,6 +63,8 @@ Self-check: if the same request runs twice at once, the second one must throw.
 
 Never use `Math.random()` for outcomes, payouts, drops or rolls. Use `#shared/utils/random` instead: `randomFloat()` [0,1), `randomInt(min, max)` inclusive, `randomPick(arr)`, `randomChance(p)`. `Math.random()` is only acceptable for cosmetic effects. Don't roll your own from `crypto.getRandomValues`.
 
+A simulation that must replay identically on every machine (a lockstep game, a save that resumes its sequence) uses `createSeededRandom(seed)` from the same module: the same calls, plus `state` to save and restore it. Anyone who knows the seed can predict it, so it never decides a payout, drop or coin or gem amount.
+
 ## three.js games
 
 Test on a standard-density monitor (Windows or Linux, dpr 1) as well as a Mac. A game that looks right on Retina can break on a 1440p screen:

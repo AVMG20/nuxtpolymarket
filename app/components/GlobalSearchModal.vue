@@ -527,6 +527,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-crosshair',
         to: '/dead-front',
         keywords: ['dead front', 'zombies', 'fps', 'co-op', 'multiplayer', 'rounds', 'pack-a-punch', 'perks', 'wonder weapon', 'ww1']
+      },
+      {
+        id: 'rail-tycoon',
+        label: 'Rail Tycoon',
+        description: 'Multiplayer railway building between towns and industries',
+        icon: 'i-lucide-train-front',
+        to: '/rail-tycoon',
+        keywords: ['rail tycoon', 'trains', 'transport', 'tycoon', 'multiplayer', 'railway']
       }
     ]
   },

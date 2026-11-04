@@ -477,6 +477,13 @@
       "when": 1793636413575,
       "tag": "0067_simple_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793719645606,
+      "tag": "0068_talented_photon",
+      "breakpoints": true
     }
   ]
 }

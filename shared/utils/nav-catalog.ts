@@ -67,6 +67,7 @@ export const NAV_CATALOG: NavSection[] = [
             { label: 'Hackerz', icon: 'i-lucide-skull', to: '/hackerz', description: 'Hold the fence against hackers on a neon 3D grid across 30 waves' },
             { label: 'Riftborn', icon: 'i-lucide-flame-kindling', to: '/riftborn', description: 'Horde-survival roguelike: six classes, wild builds and five bosses' },
             { label: 'Meadowbrawl', icon: 'i-lucide-swords', to: '/meadowbrawl', description: 'Top-down melee roguelite: chain combos and stack absurd boons' },
+            { label: 'Rail Tycoon', icon: 'i-lucide-train-front', to: '/rail-tycoon', description: 'Build railways between towns and industries with friends in shared worlds' },
             { label: 'TCG', icon: 'i-lucide-layers', to: '/tcg', description: 'Open packs, collect cards and build decks for the trading card game' }
         ]
     },
