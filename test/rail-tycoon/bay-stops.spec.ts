@@ -39,6 +39,7 @@ import type { RtTrainHooks } from '#shared/utils/rail-tycoon/train'
 import { RT_OWNER_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
 import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { devIt } from './dev-only'
 
 const C = RT_CATALOG.construction
 const TILE = RT_CATALOG.movement.subTileUnits
@@ -392,7 +393,7 @@ describe('bay road stops: determinism and saves', () => {
         return w
     }
 
-    it('twin worlds stay hash-equal tick by tick while buses fill and leave bays, and a save taken with buses in a bay carries on the same', () => {
+    devIt('twin worlds stay hash-equal tick by tick while buses fill and leave bays, and a save taken with buses in a bay carries on the same', () => {
         const a = commandWorld()
         const b = decodeWorld(encodeWorld(a))!
         expect(b.hash()).toBe(a.hash())

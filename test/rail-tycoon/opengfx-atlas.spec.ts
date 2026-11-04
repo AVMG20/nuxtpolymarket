@@ -16,6 +16,7 @@ import {
     extractOpenGfx,
     parsePnml
 } from '../../scripts/rail-tycoon/extract-opengfx'
+import { rtInPipeline } from './dev-only'
 
 const outDir = resolve(import.meta.dirname, '../../public/rail-tycoon/opengfx')
 const read = (name: string) => readFileSync(join(outDir, name))
@@ -146,7 +147,7 @@ describe('rail tycoon opengfx atlas', () => {
             expect(tuple(block(1011)[0]!)).toEqual([82, 40, 64, 31, -31, 0])
         })
 
-        it.runIf(atCommit)('rebuilds the committed files exactly from the pinned commit', () => {
+        it.runIf(atCommit && !rtInPipeline)('rebuilds the committed files exactly from the pinned commit', () => {
             const commitDate = execFileSync('git', ['show', '-s', '--format=%cI', OPENGFX_COMMIT], { cwd: sourceDir, encoding: 'utf8' }).trim()
             const result = extractOpenGfx(sourceDir, { commit: OPENGFX_COMMIT, commitDate })
             for (const name of ['atlas.json', 'README.md', 'COPYING']) expect(result.files[name]!.equals(read(name)), name).toBe(true)

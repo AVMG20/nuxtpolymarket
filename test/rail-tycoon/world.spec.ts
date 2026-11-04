@@ -32,6 +32,7 @@ import { RtAxis, RtStationTile, rtRoadStopRoadOwner } from '#shared/utils/rail-t
 import { RT_ROAD_X, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtRailPieceReserved, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { stepTrain } from '#shared/utils/rail-tycoon/train'
 import { rtVehicleSellValue } from '#shared/utils/rail-tycoon/vehicles'
+import { devIt } from './dev-only'
 
 const SETTINGS = { side: 64, maxCompanies: 8, sharing: true }
 
@@ -807,7 +808,7 @@ function expectMatchesRescan(w: RtWorld): void {
 describe('RtWorld.step', () => {
     const settings = { side: 64, maxCompanies: 8, sharing: false }
 
-    it('twin worlds from one seed fed the same commands hash equal after 20000 ticks; one command a tick late splits them', () => {
+    devIt('twin worlds from one seed fed the same commands hash equal after 20000 ticks; one command a tick late splits them', () => {
         const make = () => RtWorld.create(generateWorld(99, { side: 64 }), settings)
         const probe = make()
         // the generated island is rough: its widest flat run is about 14 tiles

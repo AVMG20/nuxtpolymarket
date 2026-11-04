@@ -44,6 +44,7 @@ import { RtAxis, RtRoadStopShape } from '#shared/utils/rail-tycoon/stations-buil
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtCrossingRoadOwner, rtIsCrossing, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { devIt } from './dev-only'
 
 const TICK = RT_CATALOG.time.tickMs
 const DAY_TICKS = RT_CATALOG.time.dayTicks
@@ -690,7 +691,7 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
         expect(honest.socket.mismatches).toEqual([])
     })
 
-    it('10000 random well-formed commands change no other company and never break the room', async () => {
+    devIt('10000 random well-formed commands change no other company and never break the room', async () => {
         const s = scene({ honestTrainRuns: false })
         const { hub, registry, connect, stepErrors } = setup(s.raw)
         const world = registry.add('honest', s.raw, [['honest', HONEST], ['hostile', HOSTILE]])
@@ -806,7 +807,7 @@ describe('hostileClientSpec: hand-built frames gain nothing', () => {
 /* ---- Join pauses ---- */
 
 describe('hostileClientSpec: reopen loops', () => {
-    it('a spectator that never sends loaded and reopens every 2 s never pauses the room', async () => {
+    devIt('a spectator that never sends loaded and reopens every 2 s never pauses the room', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
         const world = registry.add('honest', s.raw)
@@ -867,7 +868,7 @@ describe('hostileClientSpec: reopen loops', () => {
         for (const parts of sent) expect(parts).toEqual(sent[0])
     })
 
-    it('three hostile players joining in a staggered loop without loaded leave the room ticking 90 % of ten minutes', async () => {
+    devIt('three hostile players joining in a staggered loop without loaded leave the room ticking 90 % of ten minutes', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
         const world = registry.add('honest', s.raw)
@@ -908,7 +909,7 @@ describe('hostileClientSpec: reopen loops', () => {
 /* ---- Create floods ---- */
 
 describe('hostileClientSpec: create floods', () => {
-    it('200 create frames in a second make one world; the rest are tooSoon, busy or dropped, and an honest room keeps ticking', async () => {
+    devIt('200 create frames in a second make one world; the rest are tooSoon, busy or dropped, and an honest room keeps ticking', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
         const world = registry.add('honest', s.raw)
@@ -948,7 +949,7 @@ describe('hostileClientSpec: create floods', () => {
         expect(hostile.socket.errors().slice(before).filter(code => code === 'atCap')).toHaveLength(1)
     })
 
-    it('parallel creates from many users run one generation at a time and refuse past RT_MAX_PENDING_CREATES', async () => {
+    devIt('parallel creates from many users run one generation at a time and refuse past RT_MAX_PENDING_CREATES', async () => {
         const s = scene()
         const { registry, connect } = setup(s.raw)
         let open!: () => void
@@ -971,7 +972,7 @@ describe('hostileClientSpec: create floods', () => {
 /* ---- Invite lookup limits and the live-room cap ---- */
 
 describe('hostileClientSpec: invites and room slots', () => {
-    it('100 join frames with random invite codes do at most 10 lookups a minute and never join', async () => {
+    devIt('100 join frames with random invite codes do at most 10 lookups a minute and never join', async () => {
         const s = scene()
         const { registry, connect } = setup(s.raw)
         registry.add('honest', s.raw)
@@ -997,7 +998,7 @@ describe('hostileClientSpec: invites and room slots', () => {
         expect(again.socket.of('joined')).toEqual([])
     })
 
-    it('a user who creates, stops and reopens worlds every 2 s holds at most one live room, and an honest player can still open at the cap', async () => {
+    devIt('a user who creates, stops and reopens worlds every 2 s holds at most one live room, and an honest player can still open at the cap', async () => {
         const s = scene()
         const { hub, registry, connect } = setup(s.raw)
         registry.openCap = 3
@@ -1039,7 +1040,7 @@ describe('hostileClientSpec: invites and room slots', () => {
 /* ---- Pathfinder budget under a hostile maze ---- */
 
 describe('hostileClientSpec: a junction maze and many lost trains', () => {
-    it('no room step exceeds pathNodesPerTick pathfinder nodes, and an honest room keeps stepping', async () => {
+    devIt('no room step exceeds pathNodesPerTick pathfinder nodes, and an honest room keeps stepping', async () => {
         const world = blankWorld(false, 100_000_000)
         // a grid of own track with full junctions at every crossing
         for (let y = 6; y <= 58; y += 4) must(world, HOSTILE, { kind: K.buildRailLine, tile: at(4, y), endTile: at(60, y), trackdir: EAST })

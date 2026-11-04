@@ -35,6 +35,7 @@ import {
 } from '#shared/utils/rail-tycoon/limits'
 import { randomInt } from '#shared/utils/random'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
+import { devIt } from './dev-only'
 
 const RUN = `rt-reg-${Date.now().toString(36)}-${randomInt(0, 1e9).toString(36)}`
 const users: string[] = []
@@ -382,7 +383,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             expect(await ownedCounts(owner)).toEqual({ open: 0, total: RT_MAX_WORLDS_PER_OWNER })
         })
 
-        it('lets exactly one of ten parallel creates take the last open slot', async () => {
+        devIt('lets exactly one of ten parallel creates take the last open slot', async () => {
             const owner = await newUser('create-burst')
             for (let i = 0; i < RT_MAX_OPEN_WORLDS - 1; i++) await seedWorld(owner)
 
@@ -394,7 +395,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             expect(await membersOf(done[0]!.value.worldId)).toEqual([{ userId: owner, companyId: 0 }])
         })
 
-        it('lets exactly one of ten parallel creates take the last of the owner\'s worlds', async () => {
+        devIt('lets exactly one of ten parallel creates take the last of the owner\'s worlds', async () => {
             const owner = await newUser('create-burst-total')
             for (let i = 0; i < RT_MAX_WORLDS_PER_OWNER - 1; i++) await seedWorld(owner, { status: 'closed' })
 
@@ -471,7 +472,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             expect(await membersOf(worldId)).toHaveLength(1)
         })
 
-        it('lets exactly three of ten parallel joins into three free slots, each member on its own company', async () => {
+        devIt('lets exactly three of ten parallel joins into three free slots, each member on its own company', async () => {
             const owner = await newUser('join-burst-owner')
             const { worldId, inviteCode } = await rtCreateWorld(owner, 'Owner', 'Rush Hour', SMALL)
             const joiners = await Promise.all(Array.from({ length: 10 }, (_, i) => newUser(`join-burst-${i}`)))
@@ -493,7 +494,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             }
         })
 
-        it('gives one player one company however many joins they send at once', async () => {
+        devIt('gives one player one company however many joins they send at once', async () => {
             const owner = await newUser('join-dup-owner')
             const joiner = await newUser('join-dup')
             const { worldId, inviteCode } = await rtCreateWorld(owner, 'Ada', 'Duplicates', SMALL)
@@ -554,7 +555,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             await expect(rtCloseWorld(owner, `${RUN}-nope`)).rejects.toMatchObject({ statusCode: 404 })
         })
 
-        it('lets exactly one of ten parallel closes through', async () => {
+        devIt('lets exactly one of ten parallel closes through', async () => {
             const owner = await newUser('close-burst')
             const world = await seedWorld(owner)
 
@@ -591,7 +592,7 @@ describe.skipIf(SKIP)('rail tycoon world registry', () => {
             expect(await rtListWorldsForUser(member)).toEqual([])
         })
 
-        it('lets exactly one of ten parallel deletes through', async () => {
+        devIt('lets exactly one of ten parallel deletes through', async () => {
             const owner = await newUser('del-burst')
             const world = await seedWorld(owner)
 

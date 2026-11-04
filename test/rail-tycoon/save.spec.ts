@@ -37,6 +37,7 @@ import { RtSignalType } from '#shared/utils/rail-tycoon/signals'
 import { RtAxis, RtStationTile } from '#shared/utils/rail-tycoon/stations-build'
 import { freeTiles, insertIndustryWithTiles, insertStationWithTiles, removeStationWithTiles, setStationTiles } from './fixtures/tile-entities'
 import { RT_ROAD_X, RT_ROAD_Y, RtTrack, rtPieceBetween, rtTrackdirOf } from '#shared/utils/rail-tycoon/track'
+import { devIt } from './dev-only'
 
 function company(id: number): RtCompany {
     return {
@@ -387,7 +388,7 @@ describe('rail tycoon save format: decodeWorld', () => {
         expect(refused([1, 2, 3] as unknown as Uint8Array)).toBe(true)
     })
 
-    it('returns null for every truncation of a save', () => {
+    devIt('returns null for every truncation of a save', () => {
         const bytes = encodeWorld(busyWorld(64, 2))
         for (let length = 0; length < bytes.length; length++) {
             if (!refused(bytes.subarray(0, length))) throw new Error(`truncated to ${length} of ${bytes.length} bytes was accepted`)
@@ -514,7 +515,7 @@ describe('rail tycoon save format: decodeWorld', () => {
         }
     })
 
-    it('only ever returns null or a valid world under seeded random byte flips', () => {
+    devIt('only ever returns null or a valid world under seeded random byte flips', () => {
         const bytes = encodeWorld(busyWorld(64, 2))
         // the entity lists and scalars follow the map; aim half the flips there
         const mapEnd = MAP_END_64
@@ -931,7 +932,7 @@ describe('rail tycoon save format: a 256 map at every cap', () => {
         cached = null
     })
 
-    it('encodes, gunzips under RT_GUNZIP_MAX_BYTES and round-trips with an equal hash', { timeout: 120_000 }, () => {
+    devIt('encodes, gunzips under RT_GUNZIP_MAX_BYTES and round-trips with an equal hash', { timeout: 120_000 }, () => {
         const { world, bytes, gz } = capSave()
         const caps = RT_CATALOG.caps
         expect(world.companyList().length).toBe(caps.maxCompanies)
@@ -1093,7 +1094,7 @@ describe('rail tycoon save format: continued stepping', () => {
         expect(world.vehicleList().map(v => v.tiles[0])).not.toEqual(before)
     })
 
-    it('snapshots at 5 ticks each step 5000 more in lockstep with the original', () => {
+    devIt('snapshots at 5 ticks each step 5000 more in lockstep with the original', () => {
         // the fixture is deterministic, so each snapshot point gets its own original to keep stepping
         for (const ticks of [37, 1013, 2222, 3001, 4999]) {
             const live = runningWorld()

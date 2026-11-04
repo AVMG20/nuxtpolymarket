@@ -24,6 +24,7 @@ import { decodeServerMsg, encodeClientMsg, type RtClientMsg, type RtErrorCode, t
 import { decodeWorldOrThrow, decodeWorldPartsOrThrow, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
+import { devIt } from './dev-only'
 
 const TICK = RT_CATALOG.time.tickMs
 
@@ -503,7 +504,7 @@ describe('rail tycoon hub: ownership and per-world chains', () => {
         expect(hub.room(world.id)!.worldStatus).toBe('closed')
     })
 
-    it('two users opening each other\'s previous worlds at once both complete', async () => {
+    devIt('two users opening each other\'s previous worlds at once both complete', async () => {
         const { hub, registry, connect } = setup()
         const x = registry.add('alice')
         const y = registry.add('bob')

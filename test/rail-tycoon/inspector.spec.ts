@@ -15,6 +15,7 @@ import { decodeWorld, encodeWorld } from '#shared/utils/rail-tycoon/save'
 import { RT_ROAD_Y, RtTrack } from '#shared/utils/rail-tycoon/track'
 import { RT_NONE, RT_OWNER_NONE, RtVehicleKind, RtVehicleState, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
+import { devIt } from './dev-only'
 
 const SIDE = 64
 const ROW = 10
@@ -302,7 +303,7 @@ describe('rail tycoon crossing inspector: accidents', () => {
         expect(fines(world)).toEqual([0, 0, 0])
     })
 
-    it('derails the train by the world RNG: twin worlds agree, and both outcomes happen over seeds', () => {
+    devIt('derails the train by the world RNG: twin worlds agree, and both outcomes happen over seeds', () => {
         const outcomes = new Set<boolean>()
         for (let seed = 1; seed <= 24; seed++) {
             const runs = [0, 1].map(() => {

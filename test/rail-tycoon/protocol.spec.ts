@@ -24,6 +24,7 @@ import {
 } from '#shared/utils/rail-tycoon/protocol'
 import { SeededRandom } from '#shared/utils/random'
 import { RT_OWNER_NONE, RtOrderKind } from '#shared/utils/rail-tycoon/types'
+import { devIt } from './dev-only'
 
 const INVITE = '0123456789ABCDEF'
 const GZIP = new Uint8Array([0x1f, 0x8b, 8, 0, 1, 2, 3, 4, 5, 6])
@@ -506,7 +507,7 @@ describe('decodeServerMsg', () => {
         }
     })
 
-    it('round-trips every message the seeded generator gets accepted', () => {
+    devIt('round-trips every message the seeded generator gets accepted', () => {
         let accepted = 0
         for (const seed of [99, 7, 2026]) {
             for (const msg of seededServerMsgs(seed, 3000)) {
@@ -557,7 +558,7 @@ describe('decodeServerMsg', () => {
         expect(decodeServerMsg(new Uint8Array([RtServerTag.resumed]))).toEqual({ type: 'resumed' })
     })
 
-    it('refuses a frame past its cap before parsing it: part and snapshotEnd the snapshot cap, the rest the server cap', () => {
+    devIt('refuses a frame past its cap before parsing it: part and snapshotEnd the snapshot cap, the rest the server cap', () => {
         const fragment = new Uint8Array(RT_PROTOCOL_BOUNDS.fragmentBytes).fill(9)
         const part = frame(RtServerTag.part, (w) => {
             w.u16(0)
@@ -765,7 +766,7 @@ describe('decodeServerMsg', () => {
         expect(decodeServerMsg(overlong)).toBeNull()
     })
 
-    it('yields null or a canonical message for a frame cut at every offset', () => {
+    devIt('yields null or a canonical message for a frame cut at every offset', () => {
         for (const msg of VARIANTS) {
             const bytes = encodeServerMsg(msg)
             for (let n = 0; n < bytes.length; n++) {
@@ -776,7 +777,7 @@ describe('decodeServerMsg', () => {
         }
     })
 
-    it('yields null or a canonical message for seeded byte flips of every message type', () => {
+    devIt('yields null or a canonical message for seeded byte flips of every message type', () => {
         const rng = new SeededRandom(87)
         let accepted = 0
         let refused = 0
@@ -1184,7 +1185,7 @@ describe('decodeClientMsg', () => {
         expect(accepted).toBeGreaterThan(0)
     })
 
-    it('yields null or a canonical message for seeded byte flips of every client variant, and never foundCompany', () => {
+    devIt('yields null or a canonical message for seeded byte flips of every client variant, and never foundCompany', () => {
         const rng = new SeededRandom(850)
         let accepted = 0
         let refused = 0

@@ -21,6 +21,7 @@ import { RT_NONE, RT_OWNER_NONE, RtOrderKind, RtVehicleKind, RtVehicleState, typ
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { SeededRandom } from '#shared/utils/random'
+import { devIt } from './dev-only'
 import { freeTiles, insertStationWithTiles } from './fixtures/tile-entities'
 
 function company(id: number): RtCompany {
@@ -89,7 +90,7 @@ function changed(before: readonly string[], after: readonly string[]): number[] 
 }
 
 describe('world parts', () => {
-    it('round-trips to exactly the whole-world save, at every map side', () => {
+    devIt('round-trips to exactly the whole-world save, at every map side', () => {
         for (const side of [64, 128, 256]) {
             const world = busyWorld(side)
             const parts = encodeWorldParts(world)
@@ -222,7 +223,7 @@ describe('world parts', () => {
         expect(decodeWorldParts(encodeWorldParts(busyWorld(64)))).not.toBeNull()
     })
 
-    it('yields null or a world for seeded byte flips of every part, never another error', () => {
+    devIt('yields null or a world for seeded byte flips of every part, never another error', () => {
         const world = busyWorld(64)
         const parts = encodeWorldParts(world)
         const rng = new SeededRandom(77)

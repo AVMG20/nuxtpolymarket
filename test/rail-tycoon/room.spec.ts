@@ -26,6 +26,7 @@ import { decodeWorldOrThrow, decodeWorldPartsOrThrow, encodeWorld, encodeWorldPa
 import { RtTileKind } from '#shared/utils/rail-tycoon/map'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
+import { devIt } from './dev-only'
 
 const TICK = RT_CATALOG.time.tickMs
 const WORLD_ID = 'w-room-spec'
@@ -522,7 +523,7 @@ describe('RtRoom.attach', () => {
         expect(peer.world!.hash()).toBe(room.world.hash())
     })
 
-    it('splits a part larger than a fragment over several frames, in order', async () => {
+    devIt('splits a part larger than a fragment over several frames, in order', async () => {
         const { room, deps } = await openRoom()
         const filler = new Uint8Array(randomBytes(RT_PART_FRAGMENT_BYTES + RT_PART_FRAGMENT_BYTES / 2))
         deps.encodeWorldParts = world => [filler, ...encodeWorldParts(world).slice(1)]

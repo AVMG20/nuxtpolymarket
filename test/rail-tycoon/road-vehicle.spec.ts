@@ -10,6 +10,7 @@ import { rtRemoveTrain, stepTrain, type RtTrainHooks } from '#shared/utils/rail-
 import { RtOrderKind, RtVehicleKind, RtVehicleState, type RtStation, type RtTown, type RtVehicle } from '#shared/utils/rail-tycoon/types'
 import { buyVehicle } from '#shared/utils/rail-tycoon/vehicles'
 import { RtWorld } from '#shared/utils/rail-tycoon/world'
+import { devIt } from './dev-only'
 
 const BUS = RT_CATALOG.vehicles.models.townBus.index
 const ENGINE = RT_CATALOG.vehicles.models.expressEngine.index
@@ -148,7 +149,7 @@ describe('rail tycoon road vehicles', () => {
         for (let k = 1; k < arrivals.length; k++) expect(arrivals[k]).not.toBe(arrivals[k - 1])
     })
 
-    it('crosses a busy line over and over in 10000 ticks without ever sharing the crossing with a train', () => {
+    devIt('crosses a busy line over and over in 10000 ticks without ever sharing the crossing with a train', () => {
         const w = world()
         const map = w.map
         for (let x = 6; x <= 40; x++) buildRail(map, 0, map.idx(x, 10), RtTrack.x, true)

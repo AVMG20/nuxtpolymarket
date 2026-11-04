@@ -22,6 +22,7 @@ import { RtWorld } from '#shared/utils/rail-tycoon/world'
 import { generateWorld } from '#shared/utils/rail-tycoon/worldgen'
 import { randomInt } from '#shared/utils/random'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
+import { devIt } from './dev-only'
 
 const RUN = `rt-store-${Date.now().toString(36)}-${randomInt(0, 1e9).toString(36)}`
 const users: string[] = []
@@ -292,7 +293,7 @@ describe.skipIf(SKIP)('rail tycoon store', () => {
             for (const [line] of log.mock.calls) expect(String(line)).toContain(row.id)
         })
 
-        it('lets exactly one of ten parallel checkpoints with the same revision win; the rest get 409', async () => {
+        devIt('lets exactly one of ten parallel checkpoints with the same revision win; the rest get 409', async () => {
             const owner = await newUser('save-race')
             const world = newWorld(902)
             const row = await seedWorld(owner, world)

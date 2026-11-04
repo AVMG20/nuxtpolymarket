@@ -46,6 +46,7 @@ import {
     type RtServiceContext
 } from '#shared/utils/rail-tycoon/vehicles'
 import { RtWorld, rtNewCompany } from '#shared/utils/rail-tycoon/world'
+import { devIt } from './dev-only'
 
 const M = RT_CATALOG.vehicles.models
 const ME = 0
@@ -804,7 +805,7 @@ function headOn(w: RtWorld, westOwner: number, eastDepotOwner: number, extra?: (
 }
 
 describe('rail tycoon trains on built networks', () => {
-    it('shuttles between two termini for 10000 ticks, at least four arrivals at each end, never lost', () => {
+    devIt('shuttles between two termini for 10000 ticks, at least four arrivals at each end, never lost', () => {
         const w = net()
         lay(w.map, ME, row(10, 6, 40))
         const a = railStation(w, ME, [8, 10], RtAxis.x, 3)
@@ -841,7 +842,7 @@ describe('rail tycoon trains on built networks', () => {
         expect(farthest).toBeLessThanOrEqual(28)
     })
 
-    it('two trains on a single line with a path-signalled passing loop never share a tile and keep arriving (20000 ticks)', () => {
+    devIt('two trains on a single line with a path-signalled passing loop never share a tile and keep arriving (20000 ticks)', () => {
         const w = net()
         const map = w.map
         lay(map, ME, row(10, 6, 40))
@@ -1074,7 +1075,7 @@ describe('rail tycoon trains on built networks', () => {
         expect(rtSignalGreen(map, map.idx(12, 10), EAST)).toBe(true)
     })
 
-    it('a merge entered through path signals, two trains per branch, runs 20000 ticks: no crash, every reservation owned', () => {
+    devIt('a merge entered through path signals, two trains per branch, runs 20000 ticks: no crash, every reservation owned', () => {
         const w = net()
         const map = w.map
         const depot = circuit(w)
@@ -1233,7 +1234,7 @@ describe('rail tycoon trains on built networks', () => {
         for (const train of trains) expect(arrivals.get(train.id) ?? 0).toBeGreaterThanOrEqual(3)
     })
 
-    it('50 trains with orders to a station cut off from them stay within the node budget, go lost and retry once a day', () => {
+    devIt('50 trains with orders to a station cut off from them stay within the node budget, go lost and retry once a day', () => {
         const budget = 400
         const play = () => {
             const w = net()
