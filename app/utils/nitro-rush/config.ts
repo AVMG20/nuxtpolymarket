@@ -48,10 +48,18 @@ export const DRIFT_SCRUB = 26
 
 /** How much of the speed into a wall bounces back out of it. */
 export const WALL_RESTITUTION = 0.25
-/** Fraction of the impact speed also lost along the wall. */
-export const WALL_FRICTION = 0.6
+/** Speed lost along the wall per unit of impact speed: high enough that turning off a wall loses to braking for the bend (scripts/nitro-rush-walls.ts). */
+export const WALL_FRICTION = 2
+/** Share of its speed along the wall a hit always leaves, so a medium crash doesn't leave the car crawling straight across the road. */
+export const WALL_KEEP_MIN = 0.2
 /** Impacts above this (m/s into the wall) break a drift. */
 export const WALL_HARD_IMPACT = 7
+/** Share of its speed the car sheds per second while rubbing a side wall. */
+export const WALL_SCRAPE = 1.5
+/** Metres off a side wall that still count as rubbing it: a car pressed on one lifts off a little between hits. */
+export const WALL_TOUCH_GAP = 0.2
+/** Seconds after a hit that the car still counts as pressed on the wall: a rub only hits where the wall bends, at the road's points. */
+export const WALL_PRESS_HOLD = 0.3
 
 export const NITRO_DURATION = 3
 export const NITRO_ACCEL = 16

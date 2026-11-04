@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
-import { createCar, fireNitro, stepCar, wallLimit, type CarInput } from '../../app/utils/nitro-rush/physics'
+import { createCar, fireNitro, stepCar, wallLimit, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
+import { compileCustomTrack } from '#shared/utils/nitro-rush/custom'
 import { buildTrack } from '#shared/utils/nitro-rush/layout'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { POLYTOWN_OVAL } from '#shared/utils/nitro-rush/tracks'
@@ -37,6 +38,64 @@ describe('car physics', () => {
         expect(impact).toBeGreaterThan(0)
         // A glancing blow scrapes speed off but keeps the car rolling forward.
         expect(car.speed).toBeGreaterThan(0)
+    })
+
+    describe('wall contact', () => {
+        // The oval's main straight, on the right-hand wall.
+        const atWall = (speed: number) => {
+            const car = createCar(track, 40, wallLimit(track, createCar(track, 40)))
+            car.speed = speed
+            return car
+        }
+        const flatOut = (car: CarState, steer: number) => {
+            let scraped = false
+            for (let i = 0; i < PHYSICS_HZ; i++) scraped = stepCar(car, input({ throttle: 1, steer }), track, DT).scraping || scraped
+            return scraped
+        }
+
+        it('drags on a car pressed along a wall', () => {
+            const rubbing = atWall(50)
+            const free = createCar(track, 40)
+            free.speed = 50
+            expect(flatOut(rubbing, 0.15)).toBe(true)
+            expect(flatOut(free, 0)).toBe(false)
+            expect(rubbing.speed).toBeLessThan(free.speed)
+        })
+
+        it('leaves a car alone that only runs alongside a wall or stands by it', () => {
+            expect(flatOut(atWall(50), 0)).toBe(false)
+            const parked = atWall(0)
+            expect(stepCar(parked, input(), track, DT).scraping).toBe(false)
+        })
+
+        it('does not drag on a car in the air', () => {
+            const car = atWall(50)
+            car.airborne = true
+            car.wallPress = 1
+            expect(stepCar(car, input(), track, DT).scraping).toBe(false)
+        })
+
+        it('keeps some of the speed along the wall after a big hit', () => {
+            const car = createCar(track, 40)
+            car.speed = 70
+            car.travel = car.heading -= 0.5
+            let hit = 0
+            for (let i = 0; i < PHYSICS_HZ && !hit; i++) hit = stepCar(car, input(), track, DT).wallImpact
+            expect(hit).toBeGreaterThan(0)
+            const along = -Math.sin(car.travel) * car.proj.tx - Math.cos(car.travel) * car.proj.tz
+            expect(along * car.speed).toBeGreaterThan(5)
+        })
+
+        it('is gentler on rails, where there is no bend to cut', () => {
+            const looping = new Track(compileCustomTrack({ id: 'custom-rail', name: 'Rail', closed: false, sections: ['straight-20', 'start', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200'] }).def!)
+            const car = createCar(looping, looping.rails[0]![0] + 5)
+            car.speed = 60
+            car.rel = -0.3
+            let hit = 0
+            for (let i = 0; i < PHYSICS_HZ && !hit; i++) hit = stepCar(car, input({ throttle: 1 }), looping, DT).wallImpact
+            expect(hit).toBeGreaterThan(0)
+            expect(car.speed).toBeGreaterThan(30)
+        })
     })
 
     describe('drifting', () => {
