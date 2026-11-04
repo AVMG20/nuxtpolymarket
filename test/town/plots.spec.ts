@@ -509,7 +509,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             // Under construction — the map draws it as a site, scaffold and all.
             await seedBuilding(SELLER, homestead.id, 'farm', 2, 0)
 
-            const view = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }])
+            const view = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }], 6)
 
             expect(view.towns).toHaveLength(2)
             expect(view.towns.map(t => t.id)).not.toContain(ownPlot!.id)
@@ -529,6 +529,18 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             ])
         })
 
+        it('shows every town in the realm, however far away, unless a radius narrows it', async () => {
+            const at = await freeRegion()
+            const [ownPlot] = await townAt(OWNER, [{ x: at.x, y: at.y }])
+            const [far] = await townAt(SELLER, [{ x: at.x + 14, y: at.y - 14 }], { balance: '0' })
+
+            const everyone = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }])
+            expect(everyone.towns.map(t => t.id)).toContain(far!.id)
+
+            const nearby = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }], 6)
+            expect(nearby.towns.map(t => t.id)).not.toContain(far!.id)
+        })
+
         it('works for a town whose centre falls between two squares', async () => {
             // Two plots side by side put the centre at x + 0.5. The distance
             // ORDER BY used to hand that to Postgres as a parameter subtracted
@@ -538,7 +550,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             const ownPlots = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
             const near = await townAt(SELLER, [{ x: at.x + 2, y: at.y + 1 }], { balance: '0' })
 
-            const view = await getWorldView(OWNER, ownPlots.map(p => ({ x: p.x, y: p.y })))
+            const view = await getWorldView(OWNER, ownPlots.map(p => ({ x: p.x, y: p.y })), 6)
 
             expect(view.towns.map(t => t.id)).toEqual([near[0]!.id])
         })

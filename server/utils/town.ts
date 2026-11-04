@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townRealm, townEvents, townContracts, townContractDays, townStorage, townRedesignDrafts } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townEvents, townContracts, townContractDays, townStorage, townRedesignDrafts } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { pruneTownEvents, recordTownEvent } from '#server/utils/town-events'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
@@ -446,59 +446,44 @@ export async function settleTownForRead(userId: string) {
 
 // ─── Founding & plots ────────────────────────────────────────────────────────
 
-/** First free square walking the spiral out from the origin — where new towns are founded. */
 /**
  * Every town lives in one realm. A new one is planted on the first square of
- * the spiral that is TOWN_FOUNDING_GAP plots clear of everybody else's land,
+ * the spiral out from the origin that is TOWN_FOUNDING_GAP plots clear of everybody else's land,
  * so new mayors get room to grow before they meet a neighbour.
  */
 async function claimFoundingPlot(tx: DbExecutor, userId: string) {
     await lockPlots(tx)
 
-    // Resume where the last founding finished. Squares behind the cursor were
-    // rejected once and can only have become more crowded since, so walking
-    // them again is pure waste — and it is what used to make founding
-    // quadratic in the number of towns and fail outright past a few thousand.
-    const [realm] = await tx.insert(townRealm)
-        .values({ id: 1, foundingCursor: 0 })
-        .onConflictDoNothing()
-        .returning({ foundingCursor: townRealm.foundingCursor })
-    let cursor = realm?.foundingCursor
-        ?? (await tx.select({ foundingCursor: townRealm.foundingCursor }).from(townRealm).where(eq(townRealm.id, 1)))[0]?.foundingCursor
-        ?? 0
+    // Walk the spiral from the centre every time, so a new town lands next to
+    // the others, in the first gap there is, including land a town that closed
+    // gave back. The realm is a few dozen plots, so it is read once and
+    // checked in memory. A cursor that only moved outward used to plant new
+    // mayors far from everybody else.
+    const taken = new Set((await tx.select({ x: townPlots.x, y: townPlots.y }).from(townPlots)).map(p => `${p.x},${p.y}`))
+    const crowded = (x: number, y: number) => {
+        for (let dx = -TOWN_FOUNDING_GAP; dx <= TOWN_FOUNDING_GAP; dx++) {
+            for (let dy = -TOWN_FOUNDING_GAP; dy <= TOWN_FOUNDING_GAP; dy++) {
+                if (taken.has(`${x + dx},${y + dy}`)) return true
+            }
+        }
+        return false
+    }
 
-    for (let checked = 0; checked < 50_000; checked++, cursor++) {
-        const spot = townSpiralCoords(cursor)
+    for (let index = 0; index < 200_000; index++) {
+        const spot = townSpiralCoords(index)
 
         // Flat grassland is perfectly buildable but has no soil, no timber and
         // no stone worth the name. A first plot should have some of each so a
         // new mayor can see what terrain is for; bland land is something you
         // buy on purpose later, not something you are handed.
-        if (townPlotIsFlat(spot.x, spot.y)) continue
-
-        // Only the square's own neighbourhood matters, so ask the database for
-        // that box instead of pulling the whole realm into memory.
-        const [near] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) })
-            .from(townPlots)
-            .where(and(
-                gte(townPlots.x, spot.x - TOWN_FOUNDING_GAP),
-                lte(townPlots.x, spot.x + TOWN_FOUNDING_GAP),
-                gte(townPlots.y, spot.y - TOWN_FOUNDING_GAP),
-                lte(townPlots.y, spot.y + TOWN_FOUNDING_GAP)
-            ))
-        if ((near?.n ?? 0) > 0) continue
+        if (townPlotIsFlat(spot.x, spot.y) || crowded(spot.x, spot.y)) continue
 
         const [plot] = await tx.insert(townPlots)
             .values({ userId, x: spot.x, y: spot.y, paidPrice: '0' })
             .onConflictDoNothing()
             .returning()
-        if (!plot) continue
-
-        // Everything up to and including this square is spoken for.
-        await tx.update(townRealm)
-            .set({ foundingCursor: cursor + 1 })
-            .where(eq(townRealm.id, 1))
-        return plot
+        if (plot) return plot
+        taken.add(`${spot.x},${spot.y}`)
     }
     throw createError({ statusCode: 500, statusMessage: 'No free land left' })
 }
@@ -701,16 +686,21 @@ export async function buyPlotFromPlayer(userId: string, plotId: string, expected
     })
 }
 
+/** Most other plots one world view draws, nearest first: every town in today's realm, with room to spare. */
+const TOWN_WORLD_PLOT_CAP = 240
+
 /**
  * Everything the map should draw around the player: other mayors' plots (and
- * what stands on them) within a few squares, plus anything they have listed.
+ * what stands on them), plus anything they have listed. The whole realm by
+ * default, so every mayor sees every other town however far apart they are;
+ * `radius` (in squares around the player's own land) narrows it.
  */
-export async function getWorldView(userId: string, ownPlots: { x: number, y: number }[], radius = 6) {
+export async function getWorldView(userId: string, ownPlots: { x: number, y: number }[], radius?: number) {
     if (ownPlots.length === 0) return { towns: [], listings: [] }
-    const minX = Math.min(...ownPlots.map(p => p.x)) - radius
-    const maxX = Math.max(...ownPlots.map(p => p.x)) + radius
-    const minY = Math.min(...ownPlots.map(p => p.y)) - radius
-    const maxY = Math.max(...ownPlots.map(p => p.y)) + radius
+    const minX = Math.min(...ownPlots.map(p => p.x))
+    const maxX = Math.max(...ownPlots.map(p => p.x))
+    const minY = Math.min(...ownPlots.map(p => p.y))
+    const maxY = Math.max(...ownPlots.map(p => p.y))
 
     // When the cap bites, it is the farthest land that goes, never a random
     // square in the middle of a neighbour's town. Distance is measured from
@@ -733,11 +723,15 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
         .innerJoin(user, eq(user.id, townPlots.userId))
         .where(and(
             sql`${townPlots.userId} <> ${userId}`,
-            gte(townPlots.x, minX), lte(townPlots.x, maxX),
-            gte(townPlots.y, minY), lte(townPlots.y, maxY)
+            radius === undefined
+                ? undefined
+                : and(
+                        gte(townPlots.x, minX - radius), lte(townPlots.x, maxX + radius),
+                        gte(townPlots.y, minY - radius), lte(townPlots.y, maxY + radius)
+                    )
         ))
         .orderBy(sql`greatest(abs(2 * ${townPlots.x} - ${cx2}), abs(2 * ${townPlots.y} - ${cy2}))`, townPlots.id)
-        .limit(120)
+        .limit(TOWN_WORLD_PLOT_CAP)
     if (rows.length === 0) return { towns: [], listings: [] }
 
     // Level 0 rows are included: a neighbour's building site, with its scaffold
@@ -745,7 +739,7 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
     // them out meant a plot stayed visibly empty until the moment it finished.
     //
     // Every building on those plots comes back — no row cap. The plot cap above
-    // already bounds this at 120 × 64 tiles. A cap here used to be 600, without
+    // already bounds this at TOWN_WORLD_PLOT_CAP × 64 tiles. A cap here used to be 600, without
     // an ORDER BY, so Postgres served heap order: an UPDATE writes a fresh tuple
     // at the end of the heap, which put every building a neighbour had just
     // moved behind the cut once the realm held more than 600 within range.

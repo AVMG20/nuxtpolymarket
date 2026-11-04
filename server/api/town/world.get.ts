@@ -4,7 +4,7 @@ import { db } from '#server/database'
 import { townPlots } from '#server/database/schema'
 import { eq } from 'drizzle-orm'
 
-// The other mayors around you: their plots, what stands on them, and what they
+// Every other mayor in the realm: their plots, what stands on them, and what they
 // have listed. Kept out of /api/town/state because it is most of the bytes and
 // none of it is needed to play your own town, so the client loads it after the
 // town is on screen and refreshes it far less often than the state.
