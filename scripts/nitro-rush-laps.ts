@@ -1,22 +1,26 @@
 /**
- * Reports how Nitro Rush drives, for tuning: acceleration and top speed, the demo bot on every
- * registered course, a keyboard drift round a spiral, and how much slopes pull on the car.
+ * Reports how Nitro Rush drives, for tuning: acceleration and top speed, the demo bot on every registered
+ * course, a keyboard drift round a spiral, drift against grip through each bend, and how much slopes pull on the car.
  *
  *   bun --tsconfig-override .nuxt/tsconfig.app.json scripts/nitro-rush-laps.ts
  *
  * (The override gives Bun the `#shared` alias; run `bunx nuxt prepare` first on a fresh checkout.)
  */
 import { compileCustomTrack, type SectionId } from '../shared/utils/nitro-rush/custom'
-import { buildTrack, corner, LINE_BLOCK_LENGTH, ramp, SLOPE_LENGTH, start, straight } from '../shared/utils/nitro-rush/layout'
+import { buildTrack, corner, finish, LINE_BLOCK_LENGTH, ramp, SLOPE_LENGTH, start, straight } from '../shared/utils/nitro-rush/layout'
 import { LapTimer } from '../shared/utils/nitro-rush/timing'
-import { Track, wrapAngle } from '../shared/utils/nitro-rush/track'
-import { TRACKS } from '../shared/utils/nitro-rush/tracks'
-import { ENGINE_TOP_SPEED, KMH_PER_SPEED, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
-import { botInput, createCar, slipAngle, stepCar, type CarInput } from '../app/utils/nitro-rush/physics'
+import { headingOf, Track, wrapAngle } from '../shared/utils/nitro-rush/track'
+import { ROAD, TRACKS } from '../shared/utils/nitro-rush/tracks'
+import { BRAKE_DECEL, DRIFT_ALIGN, DRIFT_SLIP_IN, DRIFT_SLIP_MID, DRIFT_SLIP_WIDE, ENGINE_TOP_SPEED, KMH_PER_SPEED, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
+import { botInput, createCar, slipAngle, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 
 const DT = 1 / PHYSICS_HZ
 const GRID = -14
 const input = (o: Partial<CarInput> = {}): CarInput => ({ throttle: 0, brake: 0, steer: 0, drift: false, ...o })
+const clamp = (v: number) => Math.max(-1, Math.min(1, v))
+const roadHeading = (car: CarState) => headingOf(car.proj.tx, car.proj.tz)
+/** Steers along the road and back onto its middle; + lateral is the right of the road. */
+const followRoad = (car: CarState) => clamp(-(wrapAngle(roadHeading(car) - car.travel) + car.proj.lateral * 0.04) * 3)
 
 /** Flat out down a straight long enough never to reach the end. */
 function pace() {
@@ -69,11 +73,11 @@ function spiralDrift() {
     let started = false
     let held = 0
     for (let i = 0; i < PHYSICS_HZ * 20 && car.proj.s < from + length; i++) {
-        const tan = Math.atan2(-car.proj.tx, -car.proj.tz)
+        const tan = roadHeading(car)
         let steer: number
         let throttle = 1
         if (car.proj.s < from - 4) {
-            steer = Math.max(-1, Math.min(1, -(wrapAngle(tan - car.travel) - car.proj.lateral * 0.04) * 3))
+            steer = followRoad(car)
             throttle = car.speed < 30 ? 1 : 0
         } else if (!started) {
             started = stepCar(car, input({ throttle: 1, drift: true, steer: 1 }), helix, DT).driftStarted
@@ -93,6 +97,52 @@ function spiralDrift() {
         if (stepCar(car, input({ throttle, steer, drift: started }), helix, DT).wallImpact > 0) hits++
     }
     console.log(`spiral drift: ${car.proj.s >= from + length ? 'made it round' : 'fell short'}, still drifting ${car.drifting}, held ${held.toFixed(1)}s, wall hits ${hits}`)
+}
+
+/** A clean drift through each kind of bend from the best entry speed against the grip bot, and the speed the drift gives up. */
+function driftBends() {
+    const LEAD = 350
+    for (const [radius, angle] of [[30, 180], [40, 90], [60, 90], [60, 180], [80, 90], [80, 180]] as const) {
+        const track = new Track(buildTrack({
+            id: 'bend', name: 'Bend', group: 'sprints', ...ROAD, closed: false, origin: { x: 0, z: 0, heading: 0 },
+            pieces: [straight(30), start, straight(450), corner('left', radius, angle), straight(450), finish, straight(200)]
+        }))
+        const from = track.startS + LINE_BLOCK_LENGTH / 2 + 450
+        const to = from + radius * angle * Math.PI / 180
+        const run = (drive: (car: CarState) => CarInput) => {
+            const car = createCar(track, from - LEAD)
+            car.speed = 70
+            let time = 0
+            let clean = true
+            let inSpeed = 0
+            let outSpeed = 0
+            for (let i = 0; i < PHYSICS_HZ * 40 && car.proj.s < to + LEAD; i++) {
+                if (stepCar(car, drive(car), track, DT).wallImpact > 0) clean = false
+                time += DT
+                if (!inSpeed && car.proj.s >= from) inSpeed = car.speed
+                if (!outSpeed && car.proj.s >= to) outSpeed = car.speed
+            }
+            return { time, clean: clean && car.proj.s >= to + LEAD, inSpeed, outSpeed }
+        }
+        const grip = run(car => botInput(car, track))
+        let best: ReturnType<typeof run> | null = null
+        for (let entry = 20; entry <= 75; entry += 2.5) {
+            const attempt = run((car) => {
+                const s = car.proj.s
+                if (s >= from - 4 && s < to) {
+                    // The slip that bends the path round this radius, corrected back onto the middle of the road.
+                    const want = (car.speed / radius - 2 * wrapAngle(car.travel - roadHeading(car)) + 0.025 * car.proj.lateral) / DRIFT_ALIGN
+                    const into = want >= DRIFT_SLIP_MID ? (want - DRIFT_SLIP_MID) / (DRIFT_SLIP_IN - DRIFT_SLIP_MID) : (want - DRIFT_SLIP_MID) / (DRIFT_SLIP_MID - DRIFT_SLIP_WIDE)
+                    return input({ throttle: 1, drift: true, steer: car.drifting ? -clamp(into) : -1 })
+                }
+                const allowed = s < from ? Math.sqrt(entry * entry + 2 * BRAKE_DECEL * Math.max(0, from - s)) : Infinity
+                return input({ throttle: car.speed < allowed ? 1 : 0, brake: car.speed > allowed + 0.5 ? 1 : 0, steer: followRoad(car) })
+            })
+            if (attempt.clean && (!best || attempt.time < best.time)) best = attempt
+        }
+        const drift = best ? `${best.time.toFixed(2)}s, ${best.inSpeed.toFixed(0)} to ${best.outSpeed.toFixed(0)} m/s` : 'never clean'
+        console.log(`R${radius} ${angle}deg: grip bot ${grip.time.toFixed(2)}s, ${grip.inSpeed.toFixed(0)} to ${grip.outSpeed.toFixed(0)} m/s; best drift ${drift}`)
+    }
 }
 
 function slopes() {
@@ -119,4 +169,5 @@ function slopes() {
 pace()
 for (const def of TRACKS) botDrive(new Track(def))
 spiralDrift()
+driftBends()
 slopes()
