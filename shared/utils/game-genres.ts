@@ -68,6 +68,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     Firewall: 'active',
     Hackerz: 'active',
     Meadowbrawl: 'active',
+    'Nitro Rush': 'active',
     'Rail Tycoon': 'active',
     Riftborn: 'active',
     TCG: 'active',
