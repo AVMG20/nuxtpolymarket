@@ -94,6 +94,7 @@ class ScenePass extends Pass {
         depthTest: false,
         depthWrite: false
     })
+
     private readonly copy = new FullScreenQuad(this.material)
 
     constructor(scene: THREE.Scene, camera: THREE.Camera) {
