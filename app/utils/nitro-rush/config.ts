@@ -44,7 +44,7 @@ export const DRIFT_SLIP_MID = 0.5
 export const DRIFT_SLIP_WIDE = 0.22
 export const DRIFT_SLIP_RESPONSE = 4.5
 /** Speed scrubbed per second at a full sideways slide; scaled by sin(slip). */
-export const DRIFT_SCRUB = 26
+export const DRIFT_SCRUB = 22
 
 /** How much of the speed into a wall bounces back out of it. */
 export const WALL_RESTITUTION = 0.25
