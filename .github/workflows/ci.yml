@@ -141,6 +141,16 @@ jobs:
       - name: Apply database migrations
         run: bunx drizzle-kit migrate
 
+      # vue-tsc keeps its incremental state here (see the typecheck script). It
+      # compares file contents, not mtimes, so the last run's state is safe to
+      # reuse on a fresh checkout and only the files that changed get rechecked.
+      - name: Restore typecheck state
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/vue-tsc
+          key: vue-tsc-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: vue-tsc-
+
       - name: Typecheck
         run: bun run typecheck
 
