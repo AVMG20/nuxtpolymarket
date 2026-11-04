@@ -1,0 +1,489 @@
+<script setup lang="ts">
+import { NitroAudio } from '~/utils/nitro-rush/audio'
+import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
+import { NitroRushEngine } from '~/utils/nitro-rush/engine'
+import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
+import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
+import { EMPTY_RECORD, type Control, type GhostToggles, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
+import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
+import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
+
+/** No input, or a hidden tab, for this long sends the player back to the title screen. */
+const AWAY_MS = 3 * 60 * 1000
+const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'wheel'] as const
+
+const root = ref<HTMLElement | null>(null)
+const stage = ref<HTMLElement | null>(null)
+const phase = ref<Phase>('attract')
+/** Which menu the attract phase shows: the title, track and car selection, or the track builder. */
+const screen = ref<'splash' | 'select' | 'builder'>('splash')
+/** The course open in the builder. */
+const building = ref<CustomTrack | null>(null)
+const paused = ref(false)
+const hud = shallowRef<HudState | null>(null)
+const popups = ref<(Popup & { id: number })[]>([])
+const records = ref<Record<string, TrackRecord>>({})
+const trackId = ref('')
+const trackName = ref('')
+/** The course on the engine, for the minimap. */
+const trackDef = shallowRef<TrackDef | null>(null)
+const paint = ref<PaintId>('hotpink')
+const musicOn = ref(true)
+const sfxOn = ref(true)
+const isTouch = ref(false)
+watch(isTouch, t => engine?.setTouch(t))
+const isFullscreen = ref(false)
+
+let engine: NitroRushEngine | null = null
+const audio = new NitroAudio()
+let popupId = 0
+let lastActive = Date.now()
+let awayTimer: ReturnType<typeof setInterval> | undefined
+
+const custom = useNitroRushCustomTracks()
+const { toggles: ghosts, load: loadGhostToggles, toggle: toggleGhostKind } = useNitroRushGhostToggles()
+
+/** A record changed from the server: the engine races it if that course is open. */
+function onServerRecord(id: string) {
+    if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
+}
+
+const { board, boardLoading, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
+const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
+const community = useNitroRushCommunity(custom, addSummaries)
+const ownEntries = community.entries
+const ownTracks = useNitroRushOwnTrackActions({
+    ownEntry: community.ownEntry,
+    publishTrack: community.publish,
+    unpublishTrack: community.unpublish,
+    removeTrack: custom.remove,
+    records,
+    forgetRecord,
+    trackId,
+    resolveTrack,
+    loadTrack,
+    click: () => audio.ui()
+})
+
+/** Other players on this course, as live ghost cars. */
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
+const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
+
+const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
+const inRace = computed(() => phase.value === 'racing' || phase.value === 'countdown')
+/** On the clock, or between runs of a sprint: everything but the menu. */
+const inSession = computed(() => inRace.value || phase.value === 'finished')
+const rank = computed(() => board.value?.me ? { rank: board.value.me.rank, entries: board.value.entries } : null)
+
+function pushPopup(p: Popup) {
+    const id = ++popupId
+    popups.value = [...popups.value.slice(-3), { ...p, id }]
+    setTimeout(() => {
+        popups.value = popups.value.filter(x => x.id !== id)
+    }, p.big ? 1300 : 1000)
+}
+
+function onRecord(id: string, r: TrackRecord) {
+    const was = records.value[id]
+    records.value = { ...records.value, [id]: r }
+    writeStorage(STORAGE_KEYS.records, records.value)
+    // A faster ghost alone, below a best from another device, is no new time for the board.
+    const lap = r.bestLap !== null && r.bestLap !== (was?.bestLap ?? null) ? submitLap(id, r.bestLap) : null
+    const ghost = r.ghost !== was?.ghost ? submitGhost(id, r) : null
+    // The lap may have taken the record, or given the holder a ghost to race.
+    if (lap || ghost) {
+        Promise.all([lap, ghost]).then(() => {
+            if (engine?.trackDef.id === id) recordGhost.load(engine.trackDef)
+        })
+    }
+}
+
+function forgetRecord(id: string) {
+    const { [id]: _, ...rest } = records.value
+    records.value = rest
+    writeStorage(STORAGE_KEYS.records, rest)
+}
+
+/** A built-in course, one of the player's finished ones, or a published one. */
+function resolveTrack(id: string): TrackDef | null {
+    return findTrack(id) ?? custom.trackDef(id) ?? community.trackDef(id)
+}
+
+/** The id a course of the player's is driven under: its published copy's while that matches. */
+function playIdOf(sourceId: string) {
+    return community.ownEntry(sourceId)?.playId ?? sourceId
+}
+
+/** Mirrors the course on the engine, and its record, into the UI. */
+function syncTrack(def: TrackDef) {
+    trackDef.value = def
+    trackId.value = def.id
+    trackName.value = def.name
+    engine?.setRecord(record.value)
+}
+
+/** Puts a course on the engine, also a rebuilt version of the one already on it. */
+function loadTrack(def: TrackDef) {
+    if (!engine) return
+    engine.setTrack(def)
+    syncTrack(engine.trackDef)
+    writeStorage(STORAGE_KEYS.track, { id: def.id })
+    loadBoard(def.id)
+    loadGhost(def.id)
+    recordGhost.load(engine.trackDef)
+}
+
+function selectTrack(id: string) {
+    const def = resolveTrack(id)
+    if (!engine || id === trackId.value || !def) return
+    audio.ui()
+    loadTrack(def)
+}
+
+function openBuilder(id?: string) {
+    audio.ui()
+    building.value = (id ? community.ownEntry(id)?.track : null) ?? newCustomTrack()
+    screen.value = 'builder'
+}
+
+/** Stores a course from the builder; a changed road wipes the bests set on the old one. */
+function commitCustom(t: CustomTrack) {
+    const old = custom.find(t.id)
+    custom.save(t)
+    if (old && !sameRoad(old, t)) forgetRecord(t.id)
+    if (t.id !== trackId.value) return
+    // The course on the engine changed under it: rebuild it, or fall back while it's unfinished.
+    loadTrack(resolveTrack(t.id) ?? TRACKS[0]!)
+}
+
+function onBuilderDone(t: CustomTrack | null) {
+    audio.ui()
+    if (t) commitCustom(t)
+    building.value = null
+    screen.value = 'select'
+}
+
+function onBuilderDrive(t: CustomTrack) {
+    if (t !== building.value) commitCustom(t)
+    building.value = null
+    screen.value = 'select'
+    selectTrack(playIdOf(t.id))
+    play()
+}
+
+async function onBuilderDelete(id: string) {
+    await ownTracks.deleteTrack(id)
+    // Still there means the published copy couldn't come down; another course means the player already moved on.
+    if (custom.find(id) || building.value?.id !== id) return
+    building.value = null
+    screen.value = 'select'
+}
+
+/** Clears a pause and any held controls before the run restarts or ends. */
+function unpause() {
+    paused.value = false
+    engine?.setPaused(false)
+    engine?.releaseControls()
+}
+
+function play() {
+    // A publish or delete in flight may still move the engine off this course.
+    if (community.busy.value) return
+    audio.unlock()
+    audio.startMusic()
+    audio.ui()
+    popups.value = []
+    unpause()
+    engine?.start()
+    root.value?.focus()
+}
+
+function toMenu() {
+    audio.ui()
+    unpause()
+    engine?.toMenu()
+}
+
+function openSelect() {
+    audio.unlock()
+    audio.ui()
+    screen.value = 'select'
+    community.load()
+}
+
+/** Back to the title, ending any run in progress. */
+function showSplash() {
+    if (inSession.value) {
+        unpause()
+        engine?.toMenu()
+    }
+    screen.value = 'splash'
+}
+
+function backToTitle() {
+    audio.ui()
+    showSplash()
+}
+
+function markActive() {
+    lastActive = Date.now()
+}
+
+function checkAway() {
+    // A course half built would be lost; the builder waits for the player.
+    if (screen.value === 'builder') return
+    if (Date.now() - lastActive >= AWAY_MS && (screen.value !== 'splash' || phase.value !== 'attract')) showSplash()
+}
+
+function togglePause(force?: boolean) {
+    if (!inSession.value) return
+    paused.value = force ?? !paused.value
+    engine?.setPaused(paused.value)
+    engine?.releaseControls()
+}
+
+function setPaint(id: PaintId) {
+    paint.value = id
+    engine?.setPaint(id)
+    writeStorage(STORAGE_KEYS.paint, { id })
+    audio.unlock()
+    audio.ui()
+}
+
+function toggleMusic() {
+    musicOn.value = !musicOn.value
+    audio.setMusic(musicOn.value)
+    saveAudio()
+}
+
+function toggleSfx() {
+    sfxOn.value = !sfxOn.value
+    audio.setSfx(sfxOn.value)
+    saveAudio()
+}
+
+function saveAudio() {
+    writeStorage(STORAGE_KEYS.audio, { music: musicOn.value, sfx: sfxOn.value })
+}
+
+function toggleGhost(kind: keyof GhostToggles) {
+    toggleGhostKind(kind)
+    engine?.setBestGhost(ghosts.value.best)
+}
+
+async function toggleFullscreen() {
+    try {
+        if (document.fullscreenElement) await document.exitFullscreen()
+        else await root.value?.requestFullscreen()
+    } catch {
+        // Fullscreen refused (iOS Safari): nothing to do.
+    }
+}
+
+function nitro() {
+    audio.unlock()
+    engine?.nitro()
+}
+
+function onKeyDown(e: KeyboardEvent) {
+    markActive()
+    if (isTyping(e)) return
+    const menu = phase.value === 'attract'
+    // The builder handles its own keys.
+    if (menu && screen.value === 'builder') return
+    if (e.code === 'Escape' && menu && screen.value === 'select') {
+        backToTitle()
+        return
+    }
+    if (e.code === 'Escape' || e.code === 'KeyP') {
+        togglePause()
+        return
+    }
+    const confirm = e.code === 'Enter' || e.code === 'Space'
+    // On the menus a focused button (a track card, a swatch) handles the key itself.
+    if (confirm && menu && e.target instanceof HTMLElement && e.target.closest('button')) return
+    if (confirm && (menu || (phase.value === 'finished' && !paused.value))) {
+        e.preventDefault()
+        if (e.repeat) return
+        if (menu && screen.value === 'splash') openSelect()
+        else play()
+        return
+    }
+    if (e.code === 'KeyR' && !e.repeat && inSession.value) {
+        play()
+        return
+    }
+    if (paused.value) return
+    if (NITRO_KEYS.has(e.code)) {
+        e.preventDefault()
+        if (!e.repeat) nitro()
+        return
+    }
+    const c = CONTROL_KEYS[e.code]
+    if (!c) return
+    e.preventDefault()
+    engine?.setControl(c, true)
+}
+
+function onKeyUp(e: KeyboardEvent) {
+    const c = CONTROL_KEYS[e.code]
+    if (c) engine?.setControl(c, false)
+}
+
+// A key let go while the window is unfocused never fires keyup.
+function onBlur() {
+    engine?.releaseControls()
+}
+
+function touchControl(c: Control, down: boolean) {
+    audio.unlock()
+    isTouch.value = true
+    engine?.setControl(c, down)
+}
+
+function onVisibility() {
+    if (document.visibilityState === 'hidden') togglePause(true)
+    else checkAway()
+}
+
+function onFullscreen() {
+    isFullscreen.value = !!document.fullscreenElement
+}
+
+onMounted(() => {
+    records.value = readStorage<Record<string, TrackRecord>>(STORAGE_KEYS.records, {})
+    paint.value = findPaint(readStorage<{ id: string }>(STORAGE_KEYS.paint, { id: '' }).id).id
+    const a = readStorage(STORAGE_KEYS.audio, { music: true, sfx: true })
+    musicOn.value = a.music
+    sfxOn.value = a.sfx
+    audio.setMusic(a.music)
+    audio.setSfx(a.sfx)
+    isTouch.value = window.matchMedia('(pointer: coarse)').matches
+    custom.load()
+    const storedId = readStorage<{ id: string }>(STORAGE_KEYS.track, { id: '' }).id
+    const storedTrack = resolveTrack(storedId) ?? TRACKS[0]!
+
+    engine = new NitroRushEngine(stage.value!, {
+        hud: (h) => {
+            hud.value = h
+        },
+        popup: pushPopup,
+        phase: (p) => {
+            phase.value = p
+            if (p === 'attract') {
+                paused.value = false
+                hud.value = null
+            }
+            if (p === 'finished') engine?.releaseControls()
+        },
+        record: onRecord
+    }, audio, paint.value, storedTrack)
+    syncTrack(engine.trackDef)
+    engine.setTouch(isTouch.value)
+    loadGhostToggles()
+    engine.setBestGhost(ghosts.value.best)
+    loadBoard(trackId.value)
+    loadGhost(trackId.value)
+    recordGhost.load(engine.trackDef)
+    loadSummaries()
+    community.load().then(() => {
+        // A published course resolves only once the list is in; until then the fallback stands in.
+        const def = storedId !== storedTrack.id && trackId.value === storedTrack.id ? resolveTrack(storedId) : null
+        if (def && phase.value === 'attract') loadTrack(def)
+    })
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('fullscreenchange', onFullscreen)
+    for (const type of ACTIVITY_EVENTS) window.addEventListener(type, markActive, { passive: true })
+    awayTimer = setInterval(checkAway, 10_000)
+})
+
+onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('blur', onBlur)
+    document.removeEventListener('visibilitychange', onVisibility)
+    document.removeEventListener('fullscreenchange', onFullscreen)
+    for (const type of ACTIVITY_EVENTS) window.removeEventListener(type, markActive)
+    clearInterval(awayTimer)
+    engine?.dispose()
+    engine = null
+    audio.dispose()
+})
+</script>
+
+<template>
+  <div
+    ref="root"
+    tabindex="0"
+    class="nr-root relative h-full w-full select-none overflow-hidden rounded-xl outline-none"
+    :class="{ 'nr-nitro': hud?.nitroActive }"
+  >
+    <div ref="stage" class="absolute inset-0" />
+
+    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
+    <NitroRushTouchPads v-if="isTouch && inSession && !paused" @control="touchControl" />
+    <NitroRushPopups :popups="popups" />
+
+    <Transition name="nr-fade">
+      <NitroRushTitle v-if="phase === 'attract' && screen === 'splash'" :is-touch="isTouch" @drive="openSelect" />
+    </Transition>
+    <Transition name="nr-fade">
+      <NitroRushSelect
+        v-if="phase === 'attract' && screen === 'select'"
+        :track-id="trackId"
+        :track-name="trackName"
+        :track-def="trackDef"
+        :board="board"
+        :board-loading="boardLoading"
+        :paint="paint"
+        :is-touch="isTouch"
+        :records="records"
+        :summaries="summaries"
+        :custom-tracks="ownEntries"
+        :community-tracks="community.communityEntries.value"
+        :busy="community.busy.value"
+        :voting="community.voting.value"
+        @back="backToTitle"
+        @select="selectTrack"
+        @paint="setPaint"
+        @start="play"
+        @build="openBuilder"
+        @publish="ownTracks.publish"
+        @unpublish="ownTracks.unpublish"
+        @delete="ownTracks.deleteTrack"
+        @vote="community.vote"
+      />
+    </Transition>
+    <Transition name="nr-fade">
+      <NitroRushBuilder
+        v-if="phase === 'attract' && screen === 'builder' && building"
+        :track="building"
+        :saved="!!custom.find(building.id)"
+        :clears-times="!!community.ownEntry(building.id)?.published?.summary.entries"
+        @done="onBuilderDone"
+        @drive="onBuilderDrive"
+        @delete="onBuilderDelete"
+      />
+    </Transition>
+
+    <NitroRushPause v-if="paused" @resume="togglePause(false)" @restart="play" @quit="toMenu" />
+    <NitroRushSettings
+      v-if="!inSession || paused"
+      :music-on="musicOn"
+      :sfx-on="sfxOn"
+      :ghosts="ghosts"
+      :is-fullscreen="isFullscreen"
+      @music="toggleMusic"
+      @sfx="toggleSfx"
+      @ghost="toggleGhost"
+      @fullscreen="toggleFullscreen"
+    />
+  </div>
+</template>
+
+<style src="./nitro-rush.css"></style>

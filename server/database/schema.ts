@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision, customType, primaryKey } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision, customType, primaryKey, smallint, check } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
@@ -19,6 +19,8 @@ import type {
   TcgCondition
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
+import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
+import type { SectionId } from '#shared/utils/nitro-rush/custom'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2759,4 +2761,61 @@ export const railTycoonMembers = pgTable('rail_tycoon_members', {
 }, t => [
   primaryKey({ columns: [t.worldId, t.userId] }),
   uniqueIndex('rail_tycoon_members_world_company_idx').on(t.worldId, t.companyId)
+])
+
+// Nitro Rush: each player's best single lap per course. The unique key is the
+// one-entry-per-player rule, so a lap is an upsert that only ever lowers it.
+export const nitroRushLaps = pgTable('nitro_rush_laps', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `TRACKS` id from `shared/utils/nitro-rush/track.ts`. */
+  trackId: text('track_id').notNull(),
+  lapMs: integer('lap_ms').notNull(),
+  /** When the current best was set: an equal time ranks behind whoever got there first. */
+  setAt: timestamp('set_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_laps_user_track_idx').on(t.userId, t.trackId),
+  index('nitro_rush_laps_track_lap_idx').on(t.trackId, t.lapMs)
+])
+
+// Nitro Rush: courses players built and published for everyone to race. `sourceId` is
+// the author's own copy; a changed road is published under a new `id`.
+export const nitroRushTracks = pgTable('nitro_rush_tracks', {
+  id: text('id').primaryKey(),
+  authorId: text('author_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull(),
+  name: text('name').notNull(),
+  closed: boolean('closed').notNull(),
+  sections: jsonb('sections').$type<SectionId[]>().notNull(),
+  publishedAt: timestamp('published_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_tracks_author_source_idx').on(t.authorId, t.sourceId),
+  index('nitro_rush_tracks_published_idx').on(t.publishedAt)
+])
+
+// Nitro Rush: one up (+1) or down (-1) vote per player on a published course; they go with the course.
+export const nitroRushTrackVotes = pgTable('nitro_rush_track_votes', {
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull().references(() => nitroRushTracks.id, { onDelete: 'cascade' }),
+  value: smallint('value').notNull()
+}, t => [
+  primaryKey({ columns: [t.userId, t.trackId] }),
+  index('nitro_rush_track_votes_track_idx').on(t.trackId),
+  check('nitro_rush_track_votes_value_check', sql`${t.value} in (-1, 1)`)
+])
+
+// Nitro Rush: the ghost each player races on a course, so it follows them to any
+// device. The course record's holder's is raced by everyone; a faster one replaces it.
+export const nitroRushGhosts = pgTable('nitro_rush_ghosts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  trackId: text('track_id').notNull(),
+  /** The ghost's lap time, the same as its `end`. */
+  lapMs: integer('lap_ms').notNull(),
+  /** A loop's first lap from the grid, kept only until a flying lap is driven. */
+  standing: boolean('standing').notNull().default(false),
+  ghost: jsonb('ghost').$type<StoredGhost>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('nitro_rush_ghosts_user_track_idx').on(t.userId, t.trackId)
 ])

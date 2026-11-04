@@ -1,0 +1,630 @@
+/* Shared by every Nitro Rush screen; each rule is scoped under the game root so nothing leaks into the app. */
+/* Game art palette: the HUD is part of the neon scene, not app chrome. */
+.nr-root {
+    --nr-pink: #ff2bd6;
+    --nr-cyan: #3df2ff;
+    --nr-gold: #ffd23d;
+    --nr-orange: #ff8a1f;
+    --nr-blue: #5b8cff;
+    --nr-red: #ff3b5c;
+    --nr-green: #4dff8a;
+    --nr-violet: #b46bff;
+    background: #0b0221;
+    touch-action: none;
+    font-family: 'Tilt Neon', system-ui, sans-serif;
+    /* Tilt Neon has one weight; a faked bold smears its tube strokes. */
+    font-synthesis-weight: none;
+    color: #fff;
+}
+
+.nr-root .nr-label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: rgb(255 255 255 / 0.75);
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
+    text-shadow: 0 1px 6px rgb(0 0 0 / 0.6);
+}
+
+.nr-root .nr-pad {
+    display: grid;
+    place-items: center;
+    width: 78px;
+    height: 78px;
+    border-radius: 22px;
+    background: rgb(5 5 20 / 0.45);
+    border: 2px solid rgb(255 255 255 / 0.25);
+    color: #fff;
+    touch-action: none;
+}
+
+.nr-root .nr-pad:active { background: rgb(61 242 255 / 0.25); border-color: var(--nr-cyan); }
+
+.nr-root .nr-pad-brake {
+    width: 108px;
+    font-size: 16px;
+    line-height: 1.1;
+    text-align: center;
+}
+
+.nr-root .nr-pad-brake small {
+    font-family: system-ui, sans-serif;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: rgb(255 255 255 / 0.65);
+}
+
+.nr-root .nr-pad-brake:active { background: rgb(255 59 92 / 0.3); border-color: var(--nr-red); }
+
+.nr-root .nr-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgb(5 5 20 / 0.55);
+    border: 1px solid rgb(255 255 255 / 0.2);
+    color: #fff;
+    cursor: pointer;
+}
+
+.nr-root .nr-icon-btn:hover { background: rgb(40 20 70 / 0.8); }
+
+.nr-root .nr-popup {
+    text-align: center;
+    animation: nr-pop 1s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+    --c: var(--nr-cyan);
+}
+
+.nr-root .nr-popup.is-big { animation-duration: 1.3s; }
+
+.nr-root .nr-popup-text {
+    font-size: clamp(20px, 3.6vw, 34px);
+    line-height: 1;
+    color: #fff;
+    -webkit-text-stroke: 1px rgb(0 0 0 / 0.35);
+    text-shadow: 0 0 14px var(--c), 0 0 32px var(--c), 0 3px 0 rgb(0 0 0 / 0.4);
+    font-style: italic;
+}
+
+.nr-root .nr-popup.is-big .nr-popup-text { font-size: clamp(36px, 8vw, 76px); }
+
+.nr-root .nr-popup-sub {
+    font-size: 15px;
+    color: var(--c);
+    font-weight: 900;
+    text-shadow: 0 0 10px var(--c);
+}
+
+.nr-root .tone-good { --c: var(--nr-green); }
+.nr-root .tone-bad { --c: var(--nr-red); }
+.nr-root .tone-best { --c: var(--nr-violet); }
+.nr-root .tone-lap { --c: var(--nr-cyan); }
+.nr-root .tone-drift { --c: var(--nr-orange); }
+.nr-root .tone-nitro { --c: var(--nr-blue); }
+.nr-root .tone-danger { --c: var(--nr-red); }
+.nr-root .tone-count { --c: #fff; }
+
+.nr-root .nr-title {
+    font-size: clamp(56px, 13vw, 120px);
+    line-height: 0.85;
+    font-style: italic;
+    /* The gradient only paints inside the box, and the faked slant leans the last letter past it. */
+    padding: 0.06em 0.16em;
+    background: linear-gradient(180deg, #fff 10%, var(--nr-gold) 45%, var(--nr-pink) 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 18px rgb(255 43 214 / 0.8)) drop-shadow(0 4px 0 rgb(40 0 60 / 0.9));
+    animation: nr-float 3s ease-in-out infinite;
+}
+
+.nr-root .nr-play {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 42px;
+    border-radius: 999px;
+    font-size: 26px;
+    font-style: italic;
+    color: #fff;
+    position: relative;
+    background: linear-gradient(90deg, var(--nr-pink), var(--nr-orange));
+    box-shadow: 0 0 28px rgb(255 43 214 / 0.8), inset 0 -3px 0 rgb(0 0 0 / 0.25);
+    cursor: pointer;
+    transition: transform 0.12s;
+}
+
+/* :where keeps this below the builder's own BUILD shadow. */
+.nr-root .nr-play:where(:not(:disabled)) { box-shadow: none; }
+
+/* Two glows cross-faded by opacity: animating box-shadow repaints on the main thread every frame, over a running game. */
+.nr-root .nr-play:not(:disabled)::before,
+.nr-root .nr-play:not(:disabled)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: nr-glow 1.4s ease-in-out infinite alternate;
+}
+
+.nr-root .nr-play:not(:disabled)::before {
+    box-shadow: 0 0 18px rgb(255 43 214 / 0.6);
+    animation-direction: alternate-reverse;
+}
+
+.nr-root .nr-play:not(:disabled)::after { box-shadow: 0 0 38px rgb(255 138 31 / 0.9); }
+
+.nr-root .nr-play:hover { transform: scale(1.05); }
+.nr-root .nr-play:active { transform: scale(0.97); }
+
+.nr-root .nr-ghost {
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
+    font-size: 14px;
+    color: #fff;
+    border: 1px solid rgb(255 255 255 / 0.3);
+    background: rgb(255 255 255 / 0.06);
+    cursor: pointer;
+}
+
+.nr-root .nr-ghost:hover { background: rgb(255 255 255 / 0.14); }
+
+.nr-root .nr-select {
+    background: linear-gradient(90deg, rgb(0 0 0 / 0.6), rgb(0 0 0 / 0.15) 55%, rgb(0 0 0 / 0.5));
+}
+
+.nr-root .nr-heading {
+    padding-right: 0.15em;
+    font-size: clamp(24px, 4vw, 36px);
+    font-style: italic;
+    line-height: 1;
+    text-shadow: 0 0 14px var(--nr-pink);
+}
+
+/* Cards wrap into as many columns as fit, so the list grows with the track count. */
+.nr-root .nr-track-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: 8px;
+}
+
+.nr-root .nr-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgb(0 0 0 / 0.3);
+}
+
+.nr-root .nr-tab {
+    flex: 1;
+    padding: 8px 6px;
+    border-radius: 10px;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    color: rgb(255 255 255 / 0.6);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nr-root .nr-tab:hover { color: #fff; }
+
+.nr-root .nr-tab.is-active {
+    color: #fff;
+    background: rgb(255 43 214 / 0.22);
+    box-shadow: inset 0 0 0 1px var(--nr-pink);
+}
+
+.nr-root .nr-blurb {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-track-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+}
+
+.nr-root .nr-ghost.nr-small {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+}
+
+.nr-root .nr-ghost:disabled {
+    opacity: 0.4;
+    cursor: wait;
+}
+
+/* Waiting on the player, not the server. */
+.nr-root .nr-ghost.is-locked:disabled { cursor: not-allowed; }
+
+.nr-root .nr-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 11rem;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgb(12 4 30 / 0.95);
+    border: 1px solid rgb(255 255 255 / 0.2);
+}
+
+.nr-root .nr-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+    color: #fff;
+    cursor: pointer;
+}
+
+.nr-root .nr-menu-item:hover { background: rgb(255 255 255 / 0.1); }
+.nr-root .nr-menu-item[aria-checked='false'] { color: rgb(255 255 255 / 0.55); }
+
+.nr-root .nr-group {
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    color: var(--nr-cyan);
+}
+
+.nr-root .nr-track {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px 8px 8px;
+    border-radius: 14px;
+    text-align: left;
+    background: rgb(255 255 255 / 0.05);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.nr-root .nr-track:hover { background: rgb(255 255 255 / 0.1); }
+
+.nr-root .nr-track.is-active {
+    background: rgb(255 43 214 / 0.16);
+    border-color: var(--nr-pink);
+    box-shadow: 0 0 18px rgb(255 43 214 / 0.35);
+}
+
+.nr-root .nr-track-preview {
+    flex-shrink: 0;
+    width: 84px;
+    height: 60px;
+    border-radius: 10px;
+    background: radial-gradient(ellipse at 50% 60%, rgb(61 242 255 / 0.1), rgb(0 0 0 / 0.35) 75%);
+    filter: drop-shadow(0 0 3px rgb(61 242 255 / 0.5));
+}
+
+.nr-root .nr-track.is-active .nr-track-preview {
+    background: radial-gradient(ellipse at 50% 60%, rgb(255 43 214 / 0.14), rgb(0 0 0 / 0.35) 75%);
+    filter: drop-shadow(0 0 3px rgb(255 43 214 / 0.6));
+}
+
+.nr-root .nr-track-new {
+    border-style: dashed;
+    border-color: rgb(61 242 255 / 0.45);
+    color: var(--nr-cyan);
+}
+
+.nr-root .nr-track-new:hover { background: rgb(61 242 255 / 0.1); }
+
+/* The tools get their own column, so a record or long name never runs under them. */
+.nr-root .nr-own-track .nr-track {
+    padding-right: 44px;
+}
+
+.nr-root .nr-track-tools {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.nr-root .nr-track-tools .nr-icon-btn {
+    width: 28px;
+    height: 28px;
+}
+
+.nr-root .nr-track-tools .nr-track-delete.is-armed {
+    width: auto;
+    padding: 0 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    border-color: var(--nr-red);
+    /* Solid: it opens over the card's record. */
+    background: #7a1830;
+}
+
+.nr-root .nr-track-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 17px;
+}
+
+.nr-root .nr-track-times {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    margin-top: 3px;
+    align-items: baseline;
+}
+
+.nr-root .nr-track-times dt {
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-track-times dd {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: 16px;
+    color: var(--nr-gold);
+}
+
+.nr-root .nr-track-times dd.is-you { color: var(--nr-violet); }
+
+/* Smaller than the time and centred on it, so the row keeps its height with or without one. */
+.nr-root .nr-crown {
+    display: inline-flex;
+    align-self: center;
+    width: 0.8em;
+    height: 0.8em;
+    color: var(--nr-gold);
+}
+
+.nr-root .nr-track-holder {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.55);
+}
+
+.nr-root .nr-swatch {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: var(--swatch);
+    border: 3px solid rgb(255 255 255 / 0.25);
+    box-shadow: 0 0 12px var(--swatch);
+    cursor: pointer;
+    transition: transform 0.12s;
+}
+
+.nr-root .nr-swatch.is-active {
+    border-color: #fff;
+    transform: scale(1.18);
+}
+
+.nr-root .nr-card {
+    padding: 22px;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgb(30 8 50 / 0.92), rgb(8 4 22 / 0.95));
+    border: 1px solid rgb(255 43 214 / 0.45);
+    box-shadow: 0 0 40px rgb(255 43 214 / 0.35);
+    animation: nr-card-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+.nr-root .nr-play:disabled,
+.nr-root .nr-icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    animation: none;
+    transform: none;
+}
+
+.nr-root .nr-ghost.is-danger {
+    border-color: var(--nr-red);
+    background: rgb(255 59 92 / 0.2);
+}
+
+.nr-root .nr-seg {
+    display: flex;
+    flex-shrink: 0;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.3);
+}
+
+.nr-root .nr-seg-btn {
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-family: system-ui, sans-serif;
+    font-weight: 800;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: rgb(255 255 255 / 0.6);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nr-root .nr-seg-btn:hover { color: #fff; }
+
+.nr-root .nr-seg-btn.is-active {
+    color: #fff;
+    background: rgb(255 43 214 / 0.22);
+    box-shadow: inset 0 0 0 1px var(--nr-pink);
+}
+
+.nr-root .nr-vote {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 999px;
+    border: 1px solid rgb(255 255 255 / 0.2);
+    background: rgb(255 255 255 / 0.04);
+}
+
+.nr-root .nr-vote-btn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    color: rgb(255 255 255 / 0.55);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.nr-root .nr-vote-btn:hover { color: #fff; background: rgb(255 255 255 / 0.1); }
+.nr-root .nr-vote-btn.is-up { color: var(--nr-cyan); background: rgb(61 242 255 / 0.16); }
+.nr-root .nr-vote-btn.is-down { color: var(--nr-red); background: rgb(255 59 92 / 0.18); }
+/* Stays at full strength while a vote is in flight, so the lit button doesn't flicker. */
+.nr-root .nr-vote-btn:disabled { cursor: wait; }
+
+.nr-root .nr-vote-score {
+    min-width: 2ch;
+    text-align: center;
+    font-size: 13px;
+    color: #fff;
+}
+
+.nr-root .nr-score {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 3px;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-score.is-down { color: rgb(255 59 92 / 0.7); }
+
+/* Room for all five rows from the start, so the panel keeps its height while a board loads. */
+.nr-root .nr-board {
+    min-height: 100px;
+    transition: opacity 0.15s;
+}
+
+.nr-root .nr-board.is-loading { opacity: 0.45; }
+
+.nr-root .nr-board-row {
+    display: grid;
+    grid-template-columns: 1.5em minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 8px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 6px;
+}
+
+.nr-root .nr-board-row.is-you { background: rgb(180 107 255 / 0.14); }
+
+.nr-root .nr-board-rank {
+    text-align: right;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-board-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: rgb(255 255 255 / 0.8);
+}
+
+.nr-root .nr-board-time {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--nr-gold);
+}
+
+.nr-root .nr-board-row.is-you .nr-board-name,
+.nr-root .nr-board-row.is-you .nr-board-time { color: var(--nr-violet); }
+
+/* The viewer's own row, set off from the top 5 above it. */
+.nr-root .nr-board-own {
+    position: relative;
+    margin-top: 9px;
+}
+
+.nr-root .nr-board-own::before {
+    content: '';
+    position: absolute;
+    inset: -5px 0 auto;
+    border-top: 1px solid rgb(255 255 255 / 0.15);
+}
+
+.nr-root .nr-board-empty {
+    padding: 2px 6px;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-fade-enter-active, .nr-root .nr-fade-leave-active { transition: opacity 0.35s; }
+.nr-root .nr-fade-enter-from, .nr-root .nr-fade-leave-to { opacity: 0; }
+
+@keyframes nr-pop {
+    0% { transform: scale(0.3) translateY(10px); opacity: 0; }
+    15% { transform: scale(1.18); opacity: 1; }
+    30% { transform: scale(1); }
+    75% { opacity: 1; }
+    100% { transform: scale(1) translateY(-30px); opacity: 0; }
+}
+
+@keyframes nr-glow {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes nr-float {
+    0%, 100% { transform: translateY(0) rotate(-2deg); }
+    50% { transform: translateY(-6px) rotate(-1deg); }
+}
+
+@keyframes nr-card-in {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}

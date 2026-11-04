@@ -1,0 +1,310 @@
+/* The track builder: its section bar, piece list, map card and status. Loaded by NitroRushBuilder. */
+
+.nr-root .nr-card.nr-card-tight { padding: 14px; }
+
+.nr-root .nr-card.nr-card-map {
+    padding: 0;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at 50% 50%, rgb(61 242 255 / 0.06), transparent 70%),
+        linear-gradient(180deg, rgb(20 6 40 / 0.95), rgb(6 3 18 / 0.97));
+}
+
+.nr-root .nr-input {
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: rgb(5 5 20 / 0.6);
+    border: 1px solid rgb(255 255 255 / 0.2);
+    color: #fff;
+    font-size: 17px;
+    outline: none;
+}
+
+.nr-root .nr-input:focus { border-color: var(--nr-cyan); box-shadow: 0 0 12px rgb(61 242 255 / 0.35); }
+
+.nr-root .nr-section:disabled,
+.nr-root .nr-piece-tool:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    animation: none;
+    transform: none;
+}
+
+/* Section bar, piece list and status: system type, since they're dense tool UI. */
+.nr-root .nr-section,
+.nr-root .nr-piece {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 8px;
+    text-align: left;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: rgb(255 255 255 / 0.05);
+    border: 1px solid rgb(255 255 255 / 0.12);
+    cursor: pointer;
+}
+
+.nr-root .nr-section:hover:not(:disabled),
+.nr-root .nr-piece:hover { background: rgb(61 242 255 / 0.12); border-color: rgb(61 242 255 / 0.4); }
+
+.nr-root .nr-section-strip {
+    display: flex;
+    gap: 8px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+}
+
+.nr-root .nr-section {
+    flex: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    width: 7.5rem;
+    padding: 4px;
+    font-size: 11px;
+    line-height: 1.2;
+}
+
+.nr-root .nr-section-thumb {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 8 / 5;
+    overflow: hidden;
+    border-radius: 5px;
+    color: rgb(255 255 255 / 0.35);
+    background: #0d0a22;
+}
+
+.nr-root .nr-section-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Two lines held open, so the cards line up however long their names run. */
+.nr-root .nr-section-name {
+    display: -webkit-box;
+    min-height: 2.4em;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+/* Scrolls inside the bar on a phone, where five tabs don't fit across. */
+.nr-root .nr-tabs.is-compact {
+    max-width: 100%;
+    padding: 3px;
+    overflow-x: auto;
+    border-radius: 11px;
+    scrollbar-width: none;
+}
+
+.nr-root .nr-tabs.is-compact .nr-tab { flex: none; padding: 4px 8px; border-radius: 8px; font-size: 13px; }
+
+.nr-root .nr-piece.is-active {
+    background: rgb(255 43 214 / 0.18);
+    border-color: var(--nr-pink);
+}
+
+.nr-root .nr-piece-index {
+    width: 1.6em;
+    flex-shrink: 0;
+    text-align: right;
+    color: rgb(255 255 255 / 0.45);
+}
+
+.nr-root .nr-piece-tag {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.7em;
+    letter-spacing: 0.08em;
+    color: var(--nr-pink);
+}
+
+.nr-root .nr-piece-grip {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 18px;
+    height: 28px;
+    border-radius: 6px;
+    color: rgb(255 255 255 / 0.4);
+    cursor: grab;
+    touch-action: none;
+}
+
+.nr-root .nr-piece-grip:hover { color: #fff; background: rgb(255 255 255 / 0.08); }
+
+.nr-root .is-dragging,
+.nr-root .is-dragging .nr-piece-grip { cursor: grabbing; }
+
+.nr-root .nr-piece-row { position: relative; }
+
+.nr-root .nr-piece-row.is-lifted { opacity: 0.45; }
+
+.nr-root .nr-piece-row.is-drop-before::before,
+.nr-root .nr-piece-row.is-drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--nr-pink);
+    box-shadow: 0 0 8px var(--nr-pink);
+    pointer-events: none;
+}
+
+.nr-root .nr-piece-row.is-drop-before::before { top: -3px; }
+
+.nr-root .nr-piece-row.is-drop-after::after { bottom: -3px; }
+
+.nr-root .nr-piece-tool {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    color: #fff;
+    background: rgb(255 255 255 / 0.06);
+    border: 1px solid rgb(255 255 255 / 0.15);
+    cursor: pointer;
+}
+
+.nr-root .nr-piece-tool:hover:not(:disabled) { background: rgb(255 255 255 / 0.16); }
+.nr-root .nr-piece-tool.is-danger:hover { background: rgb(255 59 92 / 0.35); border-color: var(--nr-red); }
+
+.nr-root .nr-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgb(5 5 20 / 0.6);
+}
+
+.nr-root .nr-toggle button {
+    padding: 6px;
+    border-radius: 9px;
+    font-size: 16px;
+    color: rgb(255 255 255 / 0.6);
+    cursor: pointer;
+}
+
+.nr-root .nr-toggle.is-small button {
+    padding: 4px 12px;
+    font-size: 13px;
+}
+
+.nr-root .nr-toggle.is-row {
+    display: flex;
+}
+
+.nr-root .nr-toggle.is-row button {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    padding: 4px 8px;
+}
+
+.nr-root .nr-construct {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+}
+
+.nr-root .nr-construct-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Wraps to a new row as one; only a line too narrow for both splits them. */
+.nr-root .nr-construct-pair {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px 12px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* A fixed width, or a longer next piece's name would knock it onto a new row. */
+.nr-root .nr-construct-action {
+    width: 13rem;
+    max-width: 100%;
+    margin-left: auto;
+    align-items: flex-end;
+}
+
+/* Doubled up because nr-play and nr-label come from a sheet that loads after this one. */
+.nr-root .nr-construct .nr-construct-build {
+    padding: 4px 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    box-shadow: 0 0 10px rgb(255 43 214 / 0.5);
+}
+
+.nr-root .nr-construct .nr-construct-build::before,
+.nr-root .nr-construct .nr-construct-build::after {
+    display: none;
+}
+
+.nr-root .nr-construct .nr-construct-next {
+    max-width: 100%;
+    overflow: hidden;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nr-root .nr-construct .nr-construct-next.is-blocked {
+    color: #ff6b7d;
+}
+
+.nr-root .nr-drawer {
+    padding-top: 10px;
+    border-top: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.nr-root .nr-drawer-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.nr-root .nr-toggle button.is-active {
+    color: #fff;
+    background: rgb(255 43 214 / 0.3);
+    box-shadow: 0 0 12px rgb(255 43 214 / 0.4);
+}
+
+.nr-root .nr-build-status {
+    display: flex;
+    flex: none;
+    margin: 10px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--nr-gold);
+    background: rgb(5 5 20 / 0.75);
+    border: 1px solid rgb(255 210 61 / 0.35);
+}
+
+.nr-root .nr-build-status.is-ok {
+    color: var(--nr-green);
+    border-color: rgb(77 255 138 / 0.4);
+}
