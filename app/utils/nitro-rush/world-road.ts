@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { NEON_PINK } from './config'
-import { checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
+import { BOOST_TILE_LENGTH, checkerTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
 import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, sweep } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
@@ -113,6 +113,15 @@ export function buildRoad({ track, group, own, add }: WorldKit, reflectionSize: 
         })
     }
     return { reflector, wetUniforms }
+}
+
+/** The material of a boost pad, showing `map`; bright whatever the lighting, so a pad reads from a distance. */
+export function boostPadMaterial(map: THREE.Texture) {
+    return new THREE.MeshBasicMaterial({ map, polygonOffset: true, polygonOffsetFactor: -2 })
+}
+
+export function addBoostPads({ track, add }: WorldKit, material: THREE.Material) {
+    for (const p of track.boostPads) add(ribbon(track, p.from, p.to, p.latFrom, p.latTo, 0.03, BOOST_TILE_LENGTH), material)
 }
 
 /** Run-off aprons, the ground, kerbs on the bends and the chequered lines. */

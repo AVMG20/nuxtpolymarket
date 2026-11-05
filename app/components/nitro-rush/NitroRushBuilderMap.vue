@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
+import { STEP } from '#shared/utils/nitro-rush/road-checks'
+import { BOOST_LANES, type BoostLane } from '#shared/utils/nitro-rush/track'
 
 /** The track builder's top-down map: the course as laid so far, where the next section attaches and where a loop has to close. */
 const props = defineProps<{
@@ -26,6 +28,7 @@ const TOP = 24
 const GROUND = [61, 242, 255] as const
 const HIGH = [255, 210, 61] as const
 const PINK = '#ff2bd6'
+const BOOST = '#2bff5a'
 const GHOST = 'rgba(61, 242, 255, 0.5)'
 const GHOST_BLOCKED = 'rgba(255, 59, 82, 0.6)'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
@@ -87,7 +90,7 @@ function draw() {
     const w = el.width
     const h = el.height
     const dpr = w / Math.max(1, el.clientWidth)
-    const { pts, end, lines } = props.walk
+    const { pts, end, lines, boosts } = props.walk
     const hw = props.halfWidth
     const ghost = props.ghost
     const ghostPath: readonly (readonly [number, number])[] = ghost ? [...ghost.pts, [ghost.end.x, ghost.end.z]] : []
@@ -166,25 +169,33 @@ function draw() {
             ctx.stroke()
         }
 
-        // Line blocks: a bar across the road where each line crosses.
-        ctx.lineCap = 'butt'
-        ctx.lineWidth = Math.max(2 * dpr, 2 * scale)
-        for (const line of lines) {
-            const s = segs[Math.min(line.at, segs.length - 1)]
-            if (!s || s.layer !== layer) continue
-            const [px, pz] = line.at < pts.length ? pts[line.at]! : [end.x, end.z]
+        // A bar across the road at point `at`, over `lane` of its width.
+        const crossBar = (at: number, color: string, lane: BoostLane = 'full') => {
+            const s = segs[Math.min(at, segs.length - 1)]
+            if (!s || s.layer !== layer) return
+            const [px, pz] = at < pts.length ? pts[at]! : [end.x, end.z]
             const dx = s.b[0] - s.a[0]
             const dz = s.b[1] - s.a[1]
             const len = Math.hypot(dx, dz) || 1
             const reach = road / 2 + dpr
             const nx = -dz / len * reach
             const ny = dx / len * reach
-            ctx.strokeStyle = cssColor(LINE_COLORS[line.type])
+            ctx.strokeStyle = color
             ctx.beginPath()
-            ctx.moveTo(sx(px) - nx, sy(pz) - ny)
-            ctx.lineTo(sx(px) + nx, sy(pz) + ny)
+            const [a, b] = BOOST_LANES[lane]
+            ctx.moveTo(sx(px) + nx * a, sy(pz) + ny * a)
+            ctx.lineTo(sx(px) + nx * b, sy(pz) + ny * b)
             ctx.stroke()
         }
+        ctx.lineCap = 'butt'
+        // Boost pads as thick as they're long, and no thinner than a line block.
+        for (const { range: [from, to], lane } of boosts) {
+            ctx.lineWidth = Math.max(3 * dpr, (to - from) * STEP * scale)
+            crossBar(Math.floor((from + to) / 2), BOOST, lane)
+        }
+        // Line blocks: where each line crosses.
+        ctx.lineWidth = Math.max(2 * dpr, 2 * scale)
+        for (const line of lines) crossBar(line.at, cssColor(LINE_COLORS[line.type]))
     }
 
     const marker = Math.max(9 * dpr, hw * 1.4 * scale)

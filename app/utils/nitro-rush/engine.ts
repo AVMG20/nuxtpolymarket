@@ -6,7 +6,7 @@ import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
-import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState } from './physics'
+import { botInput, createCar, fireNitro, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
@@ -401,7 +401,7 @@ export class NitroRushEngine {
         this.lampLight.color.copy(this.world.lampColor)
         this.lampLight.intensity = 160 * Math.max(0, 1 - lampDist / 16)
 
-        this.fx.update(dt, this.car.group.position, s.nitroTime > 0)
+        this.fx.update(dt, this.car.group.position, surging(s))
     }
 
     private playerInput() {
@@ -455,8 +455,8 @@ export class NitroRushEngine {
     private render(dt: number) {
         const s = this.state
         const racing = this.phase === 'racing'
-        const nitro = s.nitroTime > 0
-        this.grade.easeNitro(dt, nitro)
+        const surge = surging(s)
+        this.grade.easeNitro(dt, surge)
         const nitroK = this.grade.nitroK
         const speedK = THREE.MathUtils.clamp(Math.abs(s.speed) / ENGINE_TOP_SPEED, 0, 1)
 
@@ -475,7 +475,7 @@ export class NitroRushEngine {
         const blend = this.cam.blend
         this.fx.frame(dt, {
             camera: this.cam.camera, height: this.height, pixelRatio: this.resolution.ratio, yaw: this.cam.yaw, blend,
-            roadY: y, speed: s.speed, speedK, nitroK, nitro, tails: this.car.tailLights(this.tails)
+            roadY: y, speed: s.speed, speedK, nitroK, nitro: surge, tails: this.car.tailLights(this.tails)
         })
 
         this.ghosts.draw({
@@ -490,10 +490,10 @@ export class NitroRushEngine {
         this.post.render()
 
         const live = this.phase !== 'attract'
-        this.audio.engine(speedK, nitro, live)
+        this.audio.engine(speedK, surge, live)
         this.audio.setIntensity(racing ? 0.25 + speedK * 0.75 : 0)
         // Nothing shows a HUD on the menu, and each one re-renders the game's root component.
-        if (live) this.emitHud(nitro)
+        if (live) this.emitHud(s.nitroTime > 0)
     }
 
     private emitHud(nitro: boolean) {

@@ -378,6 +378,30 @@ export function kerbTexture() {
     return t
 }
 
+/** World length of one chevron on a boost pad. */
+export const BOOST_TILE_LENGTH = 6
+
+/** A boost pad's chevrons, pointing the way the road runs; tiles along it, and fills its width. */
+export function boostPadTexture() {
+    const [c, ctx] = canvas(256, 256)
+    ctx.fillStyle = '#071a33'
+    ctx.fillRect(0, 0, 256, 256)
+    ctx.strokeStyle = '#3df2ff'
+    ctx.lineWidth = 44
+    ctx.lineJoin = 'miter'
+    ctx.beginPath()
+    ctx.moveTo(-16, 210)
+    ctx.lineTo(128, 66)
+    ctx.lineTo(272, 210)
+    ctx.stroke()
+    ctx.fillStyle = '#3df2ff'
+    ctx.fillRect(0, 0, 10, 256)
+    ctx.fillRect(246, 0, 10, 256)
+    const t = finish(c)
+    t.wrapT = THREE.RepeatWrapping
+    return t
+}
+
 /** The chequered start and finish line, eight squares across. */
 export function checkerTexture() {
     const [c, ctx] = canvas(256, 64)

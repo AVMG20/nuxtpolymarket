@@ -52,7 +52,28 @@ export interface TrackDef {
     rails?: [number, number][]
     /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
     gaps?: [number, number][]
+    boosts?: BoostPadDef[]
 }
+
+/** Which part of the road's width a boost pad covers. */
+export type BoostLane = 'full' | 'left' | 'right'
+
+export interface BoostPadDef {
+    /** Point range, [from, to). */
+    range: [number, number]
+    lane: BoostLane
+}
+
+/** A boost pad on the road: distances along it and offsets across it, + to the right. */
+export interface BoostPad {
+    from: number
+    to: number
+    latFrom: number
+    latTo: number
+}
+
+/** A lane's edges, as shares of the road's half width. */
+export const BOOST_LANES: Readonly<Record<BoostLane, readonly [number, number]>> = { full: [-1, 1], left: [-1, 0], right: [0, 1] }
 
 export interface Projection {
     seg: number
@@ -149,6 +170,7 @@ export class Track {
     /** Distance ranges driven on rails, and with no road. */
     readonly rails: readonly (readonly [number, number])[]
     readonly gaps: readonly (readonly [number, number])[]
+    readonly boostPads: readonly BoostPad[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
     private readonly scratchFrame = newTrackFrame()
@@ -178,6 +200,12 @@ export class Track {
         }
         this.rails = toDistance(this.cum, def.rails)
         this.gaps = toDistance(this.cum, def.gaps)
+        this.boostPads = (def.boosts ?? []).map(({ range: [a, b], lane }) => ({
+            from: this.cum[a]!,
+            to: this.cum[b]!,
+            latFrom: BOOST_LANES[lane][0] * def.halfWidth,
+            latTo: BOOST_LANES[lane][1] * def.halfWidth
+        }))
         this.length = this.cum[n]!
         this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
         this.txs = new Float64Array(n)
@@ -271,6 +299,13 @@ export class Track {
     solidRoadAt(s: number) {
         const i = this.segmentAt(s)
         return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s)
+    }
+
+    /** Whether a car `lateral` across the road at `s` is on a boost pad. */
+    boostAt(s: number, lateral: number) {
+        if (!this.boostPads.length) return false
+        const at = this.wrapS(s)
+        return this.boostPads.some(p => at >= p.from && at < p.to && lateral >= p.latFrom && lateral <= p.latTo)
     }
 
     /** True over a jump's gap, where there's no road. */

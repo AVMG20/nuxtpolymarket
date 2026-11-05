@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { LINE_COLORS, NEON_PINK } from './config'
 import { ribbon } from './road-geometry'
-import { concreteTexture, gridTexture, ROAD_TILE_LENGTH } from './textures'
-import { buildBarriers } from './world-road'
+import { boostPadTexture, concreteTexture, gridTexture, ROAD_TILE_LENGTH } from './textures'
+import { addBoostPads, boostPadMaterial, buildBarriers } from './world-road'
 import type { WorldKit } from './world-kit'
 import type { LineBlock } from '#shared/utils/nitro-rush/layout'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
@@ -32,13 +32,15 @@ export class CourseMaterials {
     readonly origin = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
     readonly lines = Object.fromEntries(Object.entries(LINE_COLORS).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, polygonOffset: true, polygonOffsetFactor: -1 })])) as Record<LineBlock, THREE.MeshBasicMaterial>
     readonly markerGeo = new THREE.ConeGeometry(3, 8, 4).rotateX(-Math.PI / 2)
+    readonly boostPads = boostPadTexture()
+    readonly boostPad = boostPadMaterial(this.boostPads)
 
     constructor() {
         this.concrete.repeat.set(0.5, 0.5)
     }
 
     dispose() {
-        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.markerGeo, ...Object.values(this.lines)]) m.dispose()
+        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.markerGeo, this.boostPads, this.boostPad, ...Object.values(this.lines)]) m.dispose()
     }
 }
 
@@ -57,6 +59,7 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
     // Wall to wall: the game fills the run-off between road and walls with aprons.
     const deck = kit.add(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, 0, ROAD_TILE_LENGTH), mats.deck)
     buildBarriers(kit, mats.concrete, { endWalls })
+    addBoostPads(kit, mats.boostPad)
     for (const line of course.lines) {
         const s = track.cum[Math.min(line.at, track.n - 1)]!
         kit.add(ribbon(track, s - 1.2, s + 1.2, -track.halfWidth, track.halfWidth, 0.02, 2.4), mats.lines[line.type])

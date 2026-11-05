@@ -1,5 +1,5 @@
 import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP } from './road-checks'
-import { Track, wallFoot, type TrackDef, type TrackGroup } from './track'
+import { Track, wallFoot, type BoostLane, type BoostPadDef, type TrackDef, type TrackGroup } from './track'
 
 export { MIN_CLEARANCE } from './road-checks'
 
@@ -32,6 +32,9 @@ export { MIN_CLEARANCE } from './road-checks'
  * A bank piece rolls the road and every piece after rides that bank until another
  * levels it; the low edge stays at the road's height, so it never cuts into the ground.
  * A slope piece does the same with the road's grade, where a ramp comes back to level by itself.
+ *
+ * A boost pad is a short straight with a pad on the road, across all of it or one half. It's
+ * plain road to everything else, so it goes on any bank or slope.
  */
 
 export type LineBlock = 'start' | 'finish' | 'checkpoint'
@@ -46,6 +49,7 @@ export type TrackPiece =
     | { type: 'jump', rise: number, gap: number }
     | { type: 'looping', side: 'left' | 'right', radius: number }
     | { type: 'corkscrew', turn: 'left' | 'right', length: number }
+    | { type: 'boost', lane: BoostLane }
     | { type: LineBlock }
 
 export interface TrackLayout {
@@ -86,6 +90,9 @@ const BANK_EASE = 0.3
 export const BANK_LENGTH = 60
 /** A slope piece's length: with grades in tenths, it and any grid-long straight on them rise whole metres. */
 export const SLOPE_LENGTH = 40
+/** A boost piece's length, a grid multiple so a loop can still close, and the pad in the middle of it. */
+const BOOST_PIECE_LENGTH = 20
+const BOOST_PAD_LENGTH = 12
 const RADIANS = Math.PI / 180
 
 export const straight = (length: number): TrackPiece => ({ type: 'straight', length })
@@ -105,6 +112,8 @@ export const jump = (rise: number, gap: number): TrackPiece => ({ type: 'jump', 
 export const looping = (side: 'left' | 'right', radius: number): TrackPiece => ({ type: 'looping', side, radius })
 /** The road rolls a full turn toward `turn` over `length` metres. */
 export const corkscrew = (turn: 'left' | 'right', length: number): TrackPiece => ({ type: 'corkscrew', turn, length })
+/** A short straight with a boost pad on `lane`. */
+export const boostPad = (lane: BoostLane): TrackPiece => ({ type: 'boost', lane })
 export const start: TrackPiece = { type: 'start' }
 export const finish: TrackPiece = { type: 'finish' }
 export const checkpoint: TrackPiece = { type: 'checkpoint' }
@@ -160,6 +169,8 @@ export interface LayoutWalk {
     rails: [number, number][]
     /** Point ranges, [from, to), of jump gaps: no road there. */
     gaps: [number, number][]
+    /** Boost pads, by point range. */
+    boosts: BoostPadDef[]
     /** Each line block and the index of the point its line crosses. */
     lines: { type: LineBlock, at: number }[]
     /** The index of each piece's first point. */
@@ -189,6 +200,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const ups: Vec3[] = []
     const rails: [number, number][] = []
     const gaps: [number, number][] = []
+    const boosts: BoostPadDef[] = []
     const lines: { type: LineBlock, at: number }[] = []
     let { x, z, heading: h } = layout.origin
     // Measured from where the road sets off until the walk's done, when the lowest point goes on the ground.
@@ -383,6 +395,13 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
         } else if (piece.type === 'corkscrew') {
             if (!(piece.length >= 100)) fail('a corkscrew needs at least 100 m')
             screw(piece.turn === 'right' ? 1 : -1, piece.length)
+        } else if (piece.type === 'boost') {
+            const margin = (BOOST_PIECE_LENGTH - BOOST_PAD_LENGTH) / 2
+            run(margin)
+            const from = pts.length
+            run(BOOST_PAD_LENGTH)
+            boosts.push({ range: [from, pts.length], lane: piece.lane })
+            run(margin)
         } else {
             run(LINE_BLOCK_LENGTH / 2)
             lines.push({ type: piece.type, at: pts.length })
@@ -393,7 +412,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const low = Math.min(y, ...ys.map((v, i) => v - lifts[i]!))
     const rise = low < -CLOSE_TOLERANCE ? -low : 0
     return {
-        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, rails, gaps, lines, pieceStarts, states, misplaced, rise,
+        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, rails, gaps, boosts, lines, pieceStarts, states, misplaced, rise,
         end: { x, z, heading: h, y: y + rise + liftOf(roll), lift: liftOf(roll), aboveStart: y, bank: roll / RADIANS, grade }
     }
 }
@@ -403,7 +422,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
-    const { pts, ys, lifts, ups, rails, gaps, lines, misplaced, end: { x, z, heading: h, y, aboveStart, bank, grade } } = walkLayout(layout)
+    const { pts, ys, lifts, ups, rails, gaps, boosts, lines, misplaced, end: { x, z, heading: h, y, aboveStart, bank, grade } } = walkLayout(layout)
     const fault = layoutFault({ misplaced, lines }, closed)
     if (fault) fail(fault)
     if (closed) {
@@ -438,6 +457,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     if (ups.some(u => u !== UP)) def.ups = rotate(ups).map(u => u.map(c => Math.round(c * 1e4) / 1e4) as Vec3)
     if (rails.length) def.rails = rails.map(reindex)
     if (gaps.length) def.gaps = gaps.map(reindex)
+    if (boosts.length) def.boosts = boosts.map(b => ({ ...b, range: reindex(b.range) }))
     if (!closed) def.closed = false
     // Distances as the track measures them: along the ground, except on rails, where it's the road itself.
     const cum = new Track(def).cum

@@ -1,4 +1,4 @@
-import { bankTo, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { placementFault } from './road-checks'
 import { wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
@@ -119,6 +119,9 @@ export const SECTIONS = {
     'looping-right': stunt('Looping, out right', 'i-lucide-repeat', looping('right', 22)),
     'corkscrew-left': { ...stunt('Corkscrew left', 'i-lucide-tornado', corkscrew('left', 200)), from: { bank: -BANK_ANGLE } },
     'corkscrew-right': { ...stunt('Corkscrew right', 'i-lucide-tornado', corkscrew('right', 200)), from: { bank: BANK_ANGLE } },
+    'boost-pad': stunt('Boost pad', 'i-lucide-chevrons-up', boostPad('full')),
+    'boost-pad-left': stunt('Boost pad, left', 'i-lucide-chevrons-up', boostPad('left')),
+    'boost-pad-right': stunt('Boost pad, right', 'i-lucide-chevrons-up', boostPad('right')),
     'start': { label: 'Start line', category: 'lines', icon: 'i-lucide-flag-triangle-right', piece: start },
     'checkpoint': { label: 'Checkpoint', category: 'lines', icon: 'i-lucide-milestone', piece: checkpoint },
     'finish': { label: 'Finish line', category: 'lines', icon: 'i-lucide-flag', piece: finish }
@@ -249,6 +252,7 @@ export function draftTrackDef(walk: LayoutWalk, closes: boolean): TrackDef | nul
     if (ups.some(u => u[0] !== 0 || u[1] !== 1 || u[2] !== 0)) def.ups = ups
     if (walk.rails.length) def.rails = walk.rails
     if (walk.gaps.length) def.gaps = walk.gaps
+    if (walk.boosts.length) def.boosts = walk.boosts
     if (!closes) def.closed = false
     return def
 }
@@ -264,6 +268,7 @@ export function lastPieceWalk(walk: LayoutWalk): LayoutWalk {
         ups: walk.ups.slice(from),
         rails: [],
         gaps: [],
+        boosts: [],
         lines: [],
         pieceStarts: [0],
         states: walk.states.slice(-1)

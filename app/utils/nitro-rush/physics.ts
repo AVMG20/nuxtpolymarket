@@ -1,5 +1,5 @@
 import {
-    AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
+    AERO_DRAG, BOOST_DURATION, BOOST_KICK, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
     DRIFT_SLIP_RESPONSE, DRIFT_SLIP_WIDE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION,
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PRESS_HOLD, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
@@ -38,6 +38,10 @@ export interface CarState {
     driftSpent: boolean
     nitro: number
     nitroTime: number
+    /** Seconds left of the surge from the last boost pad. */
+    boostTime: number
+    /** Over a pad now, so it kicks only once per pass. */
+    onBoostPad: boolean
     /** Last projection onto the track; `seg` is the search hint for the next. */
     proj: Projection
     /** Height of the car's wheels: on the road, except in the air. */
@@ -77,6 +81,8 @@ export interface StepEvents {
     landed: number
     /** Dropped into a gap: the engine puts the car back on the road. */
     fell: boolean
+    /** Drove onto a boost pad this step. */
+    boosted: boolean
 }
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
@@ -101,7 +107,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const z = p.z + p.tx * lateral
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
-        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0,
+        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0, boostTime: 0, onBoostPad: false,
         proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
@@ -163,8 +169,13 @@ export function fireNitro(car: CarState) {
     return true
 }
 
+/** Under nitro or a pad's boost: the engine pulls harder, and the car shows it. */
+export function surging(car: CarState) {
+    return car.nitroTime > 0 || car.boostTime > 0
+}
+
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false }
+    const ev: StepEvents = { wallImpact: 0, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false }
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -174,15 +185,16 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
 
     // ── Speed along the direction of travel ──
     const v = car.speed
-    const nitro = car.nitroTime > 0
-    if (nitro) car.nitroTime = Math.max(0, car.nitroTime - dt)
-    const top = ENGINE_TOP_SPEED * (nitro ? NITRO_TOP_SPEED_MULT : 1)
+    const surge = surging(car)
+    car.nitroTime = Math.max(0, car.nitroTime - dt)
+    car.boostTime = Math.max(0, car.boostTime - dt)
+    const top = ENGINE_TOP_SPEED * (surge ? NITRO_TOP_SPEED_MULT : 1)
     const pull = Math.max(0, 1 - v / top)
     let drive = 0
     // In the air the wheels have nothing to push on or brake against.
     const grounded = !car.airborne
     if (grounded && input.throttle > 0 && v >= -0.5) drive += ENGINE_ACCEL * input.throttle * pull
-    if (nitro) drive += NITRO_ACCEL * pull
+    if (surge) drive += NITRO_ACCEL * pull
     // The brakes are off mid-drift, because the touch pedal is the drift button too.
     const brake = car.drifting || !grounded ? 0 : input.brake
     if (brake > 0 && v <= 0.5 && v > -REVERSE_MAX) drive -= REVERSE_ACCEL * brake
@@ -253,6 +265,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         }
     }
     stepHeight(car, track, dt, ev)
+    stepBoostPad(car, track, ev)
     // Onto a looping or corkscrew: the rails take over from here.
     if (!car.airborne && track.railAt(p.s)) {
         if (car.drifting) endDrift(car, ev, true)
@@ -263,6 +276,21 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     // Cleared last, after any drift this step ended, so a one-step release is enough to drift again.
     if (!input.drift) car.driftSpent = false
     return ev
+}
+
+/** Only a car driving the right way over a pad gets anything from it. */
+function stepBoostPad(car: CarState, track: Track, ev: StepEvents) {
+    const p = car.proj
+    const on = !car.airborne && car.speed > 0 && Math.cos(wrapAngle(car.travel - headingOf(p.tx, p.tz))) > 0 && track.boostAt(p.s, p.lateral)
+    if (on) {
+        car.boostTime = BOOST_DURATION
+        if (!car.onBoostPad) {
+            // Never past nitro's top speed, which the server's lap check trusts as the car's limit; never a loss either.
+            car.speed = Math.max(car.speed, Math.min(car.speed + BOOST_KICK, ENGINE_TOP_SPEED * NITRO_TOP_SPEED_MULT))
+            ev.boosted = true
+        }
+    }
+    car.onBoostPad = on
 }
 
 /** How fast the grip steering turns the car's path, in radians per second, `left` -1 to 1. */

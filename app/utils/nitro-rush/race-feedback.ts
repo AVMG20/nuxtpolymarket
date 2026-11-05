@@ -44,12 +44,16 @@ export class RaceFeedback {
     }
 
     nitroFired(s: CarState) {
-        const { audio, events, grade, fx } = this.deps
+        this.surge(s)
+        this.deps.events.popup({ text: 'NITRO!', tone: 'nitro' })
+    }
+
+    private surge(s: CarState) {
+        const { audio, grade, fx } = this.deps
         audio.nitroStart()
         grade.pulse(1)
         grade.flash(0.1, 0.2, 0.45)
         fx.nitroFired(s)
-        events.popup({ text: 'NITRO!', tone: 'nitro' })
     }
 
     nitroReady() {
@@ -59,6 +63,7 @@ export class RaceFeedback {
 
     step(ev: StepEvents, s: CarState) {
         const { audio, events, grade, cam, fx } = this.deps
+        if (ev.boosted) this.surge(s)
         if (ev.landed > HARD_LANDING) {
             cam.shake(Math.min(0.8, ev.landed / 30))
             audio.bump()

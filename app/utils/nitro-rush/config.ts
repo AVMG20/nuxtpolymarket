@@ -64,6 +64,9 @@ export const WALL_PRESS_HOLD = 0.3
 export const NITRO_DURATION = 3
 export const NITRO_ACCEL = 16
 export const NITRO_TOP_SPEED_MULT = 1.2
+/** Speed a boost pad adds on the way over it, and how long its surge lasts after the car leaves it; the surge is nitro's, and doesn't touch the tank. */
+export const BOOST_KICK = 12
+export const BOOST_DURATION = 1.5
 /** Nitro earned per second of drift, banked when the drift ends. */
 export const NITRO_PER_DRIFT_SECOND = 0.16
 
