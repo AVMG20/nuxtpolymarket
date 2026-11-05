@@ -1,4 +1,4 @@
-import { clearanceFault, CLOSE_TOLERANCE, layoutFault, STEP } from './road-checks'
+import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP } from './road-checks'
 import { Track, wallFoot, type TrackDef, type TrackGroup } from './track'
 
 export { MIN_CLEARANCE } from './road-checks'
@@ -24,10 +24,10 @@ export { MIN_CLEARANCE } from './road-checks'
  *
  * Stunt pieces, after Trackmania: a jump is a kicker, a gap with no road and a
  * landing ramp; a looping goes up and over, upside down at the top, and comes
- * out a road width to the side; a corkscrew rolls the road a full turn round
- * an axis above it. Loopings and corkscrews are driven on rails
- * (`TrackDef.rails`), since their ground plan overlaps itself or turns the road
- * on its side.
+ * out a road width to the side; a corkscrew carries on from a bank leaning its
+ * way, rolling the road a full turn round an axis above it and back onto that
+ * bank. Loopings and corkscrews are driven on rails (`TrackDef.rails`), since
+ * their ground plan overlaps itself or turns the road on its side.
  *
  * A bank piece rolls the road and every piece after rides that bank until another
  * levels it; the low edge stays at the road's height, so it never cuts into the ground.
@@ -78,6 +78,8 @@ export const LANDING_LENGTH = 60
 export const LOOPING_SHIFT = 30
 /** Height of a corkscrew's axis above the road: the road rolls round it. */
 export const CORKSCREW_AXIS = 10
+/** Share of a corkscrew its axis spends climbing clear of the ground, and again coming back: done before the rolling edge is at its lowest. */
+const CORKSCREW_CLIMB = 0.2
 /** Share of a banked corner spent rolling into its bank, and again out of it. */
 const BANK_EASE = 0.3
 /** A bank piece's length: a grid multiple so a loop can still close, and long enough that the high edge climbs no steeper than a steep ramp. */
@@ -140,11 +142,6 @@ const rollAt = (from: number, to: number, t: number) => {
     if (from * to >= 0) return from + (to - from) * smooth(t)
     return t < 0.5 ? from * (1 - smooth(t * 2)) : to * smooth(t * 2 - 1)
 }
-/** What each piece that a bank or slope can't carry is called: a level arch or a flight doesn't fit a tilted road. */
-const NEEDS_LEVEL_ROAD: Partial<Record<TrackPiece['type'], string>> = {
-    jump: 'a jump', looping: 'a looping', corkscrew: 'a corkscrew', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint'
-}
-
 /** What the road holds from one piece to the next: bank in degrees, + low on the right, and grade in metres per metre, + climbing. */
 export interface RoadState {
     bank: number
@@ -173,8 +170,8 @@ export interface LayoutWalk {
     rise: number
     /** Where the last piece ends and the state it leaves; `y` is the centre's height, `lift` of it the bank's. */
     end: RoadState & { x: number, z: number, heading: number, y: number, lift: number, aboveStart: number }
-    /** The first piece laid on a bank or slope that can't be, which only a finished course minds. */
-    notLevel: string | null
+    /** What's wrong with the first piece laid where it can't go, which only a finished course minds. */
+    misplaced: string | null
 }
 
 /**
@@ -200,7 +197,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     let roll = (from.bank ?? 0) * RADIANS
     // The grade the road holds.
     let grade = from.grade ?? 0
-    let notLevel: string | null = null
+    let misplaced: string | null = null
     const edge = wallFoot(layout.wallOffset)
     const liftOf = (b: number) => edge * Math.abs(Math.sin(b))
 
@@ -327,13 +324,18 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
         const [rx, rz] = [Math.cos(h), Math.sin(h)]
         const from = pts.length
         const n = Math.max(8, Math.round(length / STEP))
+        const [sinIn, cosIn] = [Math.sin(roll), Math.cos(roll)]
+        // The road's edge swings wider than the axis is high, so the axis climbs until that swing clears the ground.
+        const climb = Math.hypot(CORKSCREW_AXIS, edge) - (CORKSCREW_AXIS * cosIn + edge * Math.abs(sinIn))
+        const centre = y + liftOf(roll)
         for (let i = 0; i < n; i++) {
             const t = i / n
-            // The roll eases in and out, a full turn over the length.
-            const roll = 2 * Math.PI * t - Math.sin(2 * Math.PI * t)
+            // The roll eases in and out, a full turn over the length, from the bank the road came in on.
+            const angle = roll + side * (2 * Math.PI * t - Math.sin(2 * Math.PI * t))
             // The road turns round an axis above it, so it stays the floor of a tube the car runs inside.
-            const lat = -side * CORKSCREW_AXIS * Math.sin(roll)
-            push(x + dx * length * t + rx * lat, z + dz * length * t + rz * lat, y + CORKSCREW_AXIS * (1 - Math.cos(roll)), [side * Math.sin(roll) * rx, Math.cos(roll), side * Math.sin(roll) * rz])
+            const lat = CORKSCREW_AXIS * (sinIn - Math.sin(angle))
+            const axisRise = climb * smooth(Math.min(1, t / CORKSCREW_CLIMB, (1 - t) / CORKSCREW_CLIMB))
+            push(x + dx * length * t + rx * lat, z + dz * length * t + rz * lat, centre + axisRise + CORKSCREW_AXIS * (cosIn - Math.cos(angle)), [Math.sin(angle) * rx, Math.cos(angle), Math.sin(angle) * rz])
         }
         rails.push([from, pts.length])
         x += dx * length
@@ -348,8 +350,9 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const states: RoadState[] = []
     for (const piece of layout.pieces) {
         pieceStarts.push(pts.length)
-        states.push({ bank: roll / RADIANS, grade })
-        if ((roll || grade) && !notLevel) notLevel = NEEDS_LEVEL_ROAD[piece.type] ?? null
+        const state = { bank: roll / RADIANS, grade }
+        states.push(state)
+        misplaced ??= placementFault(piece, state)
         if (piece.type === 'straight') {
             if (!(piece.length > 0)) fail('a straight needs a positive length')
             run(piece.length)
@@ -390,7 +393,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const low = Math.min(y, ...ys.map((v, i) => v - lifts[i]!))
     const rise = low < -CLOSE_TOLERANCE ? -low : 0
     return {
-        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, rails, gaps, lines, pieceStarts, states, notLevel, rise,
+        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, rails, gaps, lines, pieceStarts, states, misplaced, rise,
         end: { x, z, heading: h, y: y + rise + liftOf(roll), lift: liftOf(roll), aboveStart: y, bank: roll / RADIANS, grade }
     }
 }
@@ -400,8 +403,8 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
-    const { pts, ys, lifts, ups, rails, gaps, lines, notLevel, end: { x, z, heading: h, y, aboveStart, bank, grade } } = walkLayout(layout)
-    const fault = layoutFault({ notLevel, lines }, closed)
+    const { pts, ys, lifts, ups, rails, gaps, lines, misplaced, end: { x, z, heading: h, y, aboveStart, bank, grade } } = walkLayout(layout)
+    const fault = layoutFault({ misplaced, lines }, closed)
     if (fault) fail(fault)
     if (closed) {
         if (Math.hypot(x - layout.origin.x, z - layout.origin.z) > CLOSE_TOLERANCE || Math.cos(h - layout.origin.heading) < 1 - 1e-9) {

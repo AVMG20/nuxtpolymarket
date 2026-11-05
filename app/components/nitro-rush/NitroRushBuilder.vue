@@ -45,7 +45,7 @@ const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
     if (loopError.value) return { ok: false, text: friendly(`can't finish the loop: ${loopError.value}`) }
     const g = gap.value
-    if (g && !walk.value.notLevel && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0)) {
+    if (g && !walk.value.misplaced && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
         if (g.turn) parts.push(`turn ${Math.abs(g.turn)}° ${g.turn > 0 ? 'right' : 'left'}`)
         if (Math.abs(g.climb) > 0.01) parts.push(`${Math.round(Math.abs(g.climb))} m ${g.climb > 0 ? 'down' : 'up'}`)

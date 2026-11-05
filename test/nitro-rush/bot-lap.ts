@@ -16,7 +16,7 @@ const GRID_OFFSET = -14
 
 export const RECTANGLE: SectionId[] = ['start', 'straight-100', 'right-tight', 'right-tight', 'straight-100', 'straight-20', 'right-tight', 'right-tight']
 export const LONG_RECTANGLE: SectionId[] = RECTANGLE.map(s => s === 'straight-100' ? 'straight-200' : s)
-export const STUNT_SPRINT: SectionId[] = ['straight-20', 'start', 'straight-100', 'jump', 'straight-100', 'looping-right', 'straight-100', 'corkscrew-left', 'straight-100', 'right-spiral-up', 'straight-100', 'left-banked', 'straight-60', 'right-hairpin', 'straight-100', 'big-jump', 'straight-100', 'finish', 'straight-200']
+export const STUNT_SPRINT: SectionId[] = ['straight-20', 'start', 'straight-100', 'jump', 'straight-100', 'looping-right', 'straight-100', 'bank-left', 'corkscrew-left', 'bank-flat', 'straight-100', 'right-spiral-up', 'straight-100', 'left-banked', 'straight-60', 'right-hairpin', 'straight-100', 'big-jump', 'straight-100', 'finish', 'straight-200']
 
 export function trackOf(closed: boolean, sections: SectionId[]) {
     const { def, error } = compileCustomTrack({ id: 'custom-drive', name: 'Drive', closed, sections })

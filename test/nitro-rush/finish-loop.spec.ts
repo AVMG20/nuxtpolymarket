@@ -63,7 +63,7 @@ describe('finishing a loop', () => {
     it('says what\'s wrong rather than papering over it', () => {
         expect(finishLoop(loop(['straight-60'])).error).toMatch(/start block/)
         expect(finishLoop(loop(['start', 'straight-60', 'start'])).error).toMatch(/start block/)
-        expect(finishLoop(loop(['start', 'slope-up', 'jump', 'straight-20'])).error).toMatch(/level the road out/)
+        expect(finishLoop(loop(['start', 'slope-up', 'jump', 'straight-20'])).error).toMatch(/level the slope first/)
     })
 
     it('climbs back to the start line from a road that already dug in, and it can be driven', () => {

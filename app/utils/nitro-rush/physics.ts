@@ -325,6 +325,10 @@ function stepRail(car: CarState, left: number, track: Track, dt: number, ev: Ste
     placeOnRail(car, track, s, lateral)
     if (!leaving) return
     car.onRail = false
+    // Rails count lateral along the tilted road and banks on the plan, so a bank exit keeps the number to keep the car where it is.
+    const across = Math.hypot(railFrame.rx, railFrame.rz)
+    car.x = railFrame.x + railFrame.rx / across * lateral
+    car.z = railFrame.z + railFrame.rz / across * lateral
     track.project(car.x, car.z, track.segmentAt(p.s), p, car.y)
 }
 

@@ -1,4 +1,5 @@
 import { bankTo, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { placementFault } from './road-checks'
 import { wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
@@ -116,8 +117,8 @@ export const SECTIONS = {
     'big-jump': stunt('Big jump', 'i-lucide-rocket', jump(6, 60)),
     'looping-left': stunt('Looping, out left', 'i-lucide-repeat', looping('left', 22)),
     'looping-right': stunt('Looping, out right', 'i-lucide-repeat', looping('right', 22)),
-    'corkscrew-left': stunt('Corkscrew left', 'i-lucide-tornado', corkscrew('left', 200)),
-    'corkscrew-right': stunt('Corkscrew right', 'i-lucide-tornado', corkscrew('right', 200)),
+    'corkscrew-left': { ...stunt('Corkscrew left', 'i-lucide-tornado', corkscrew('left', 200)), from: { bank: -BANK_ANGLE } },
+    'corkscrew-right': { ...stunt('Corkscrew right', 'i-lucide-tornado', corkscrew('right', 200)), from: { bank: BANK_ANGLE } },
     'start': { label: 'Start line', category: 'lines', icon: 'i-lucide-flag-triangle-right', piece: start },
     'checkpoint': { label: 'Checkpoint', category: 'lines', icon: 'i-lucide-milestone', piece: checkpoint },
     'finish': { label: 'Finish line', category: 'lines', icon: 'i-lucide-flag', piece: finish }
@@ -205,10 +206,13 @@ export function loopGap(walk: LayoutWalk) {
     return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: aboveStart, bank, grade }
 }
 
+/** Why a section can't be laid on road in this state, in the builder's words; null when it can. */
+export const sectionFault = (id: SectionId, state: RoadState) => placementFault(SECTIONS[id].piece, state)
+
 /** How the state a section starts out in changes it, for its row in the list; a piece that sets that state itself doesn't ride it. */
 export function rideTag(id: SectionId, { bank, grade }: RoadState) {
     const { type } = SECTIONS[id].piece
-    const tilt = bank && type !== 'bank' ? 'BANKED' : ''
+    const tilt = bank && type !== 'bank' && type !== 'corkscrew' ? 'BANKED' : ''
     const climb = grade && type !== 'slope' ? (grade > 0 ? 'UP' : 'DOWN') : ''
     return [tilt, climb].filter(Boolean).join(' ')
 }
