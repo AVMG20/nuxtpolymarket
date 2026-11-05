@@ -2,7 +2,7 @@ import {
     AERO_DRAG, BOOST_DURATION, BOOST_KICK, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
     DRIFT_SLIP_RESPONSE, DRIFT_SLIP_WIDE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION,
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
-    WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PRESS_HOLD, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
+    WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_TOUCH_KEEP, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
 import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
@@ -69,6 +69,8 @@ export interface CarInput {
 export interface StepEvents {
     /** Speed into the wall on a hit this step, else 0. */
     wallImpact: number
+    /** First touched a wall this step, which costs speed however light the touch. */
+    wallTouched: boolean
     /** Rubbing along a side wall this step. */
     scraping: boolean
     driftStarted: boolean
@@ -175,7 +177,7 @@ export function surging(car: CarState) {
 }
 
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false }
+    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false }
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -238,6 +240,12 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         car.travel = wrapAngle(car.travel + gripTurn(car.speed, left) * dt)
         const slip = slipAngle(car) * Math.exp(-GRIP_ALIGN * dt)
         car.heading = wrapAngle(car.travel + slip)
+        // Nosed up to a wall the car can't roll, and the wheel needs it rolling to turn: gas and wheel pivot it off instead.
+        // Only while it's on the wall, not through the press's hold, or the nose keeps going once it's free.
+        if (car.wallPress === WALL_PRESS_HOLD && input.throttle > 0 && Math.abs(car.speed) < WALL_PIVOT_SPEED) {
+            car.heading = wrapAngle(car.heading + left * WALL_PIVOT_RATE * dt)
+            car.travel = wrapAngle(car.travel + left * WALL_PIVOT_RATE * dt)
+        }
     }
 
     car.x += car.speed * -Math.sin(car.travel) * dt
@@ -335,6 +343,8 @@ function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
 /** A step on rails: the car moves along and across the road itself, held inside its walls. */
 function stepRail(car: CarState, left: number, track: Track, dt: number, ev: StepEvents) {
     const p = car.proj
+    // Rails charge no touch, but a press from before them still runs out, so it can't excuse a touch long after.
+    car.wallPress = Math.max(0, car.wallPress - dt)
     car.rel = wrapAngle(car.rel + gripTurn(car.speed, left) * dt)
     const s = p.s + car.speed * Math.cos(car.rel) * dt
     // + rel turns the nose left, which is toward - lateral.
@@ -375,8 +385,7 @@ function endReach(car: CarState) {
 
 /** A side wall drags on a car pressed on it for as long as it rubs, however shallow the angle; one merely running alongside is left alone. */
 function scrapeWall(car: CarState, ev: StepEvents, offset: number, limit: number, dt: number) {
-    if (ev.wallImpact > 0) car.wallPress = WALL_PRESS_HOLD
-    else car.wallPress = Math.max(0, car.wallPress - dt)
+    if (ev.wallImpact === 0) car.wallPress = Math.max(0, car.wallPress - dt)
     if (car.airborne || car.wallPress === 0 || offset < limit - WALL_TOUCH_GAP) return
     ev.scraping = true
     car.speed *= Math.exp(-WALL_SCRAPE * dt)
@@ -392,6 +401,9 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     if (vn >= 0) return
     const impact = -vn
     ev.wallImpact = Math.max(ev.wallImpact, impact)
+    // Or-ed, as a corner can hit a side wall and an end barrier in one step.
+    ev.wallTouched ||= car.wallPress === 0
+    car.wallPress = WALL_PRESS_HOLD
     vx -= (1 + WALL_RESTITUTION) * vn * nx
     vz -= (1 + WALL_RESTITUTION) * vn * nz
     // Along the barrier's face, which is the normal turned a quarter.
@@ -402,11 +414,24 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     const kept = Math.max(WALL_KEEP_MIN, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
     vx = tx * along * kept + nx * across
     vz = tz * along * kept + nz * across
-    // A car hitting sideways keeps rolling the way it was going; grip then swings the nose round.
-    const speed = Math.hypot(vx, vz)
     const forward = car.speed >= 0
-    car.speed = forward ? speed : -speed
-    if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
+    const noseward = vx * -Math.sin(car.heading) + vz * -Math.cos(car.heading)
+    if (forward ? noseward < 0 : noseward > 0) {
+        // Thrown back off the end it hit with: it rolls straight back, or grip would swing the nose round to follow.
+        car.speed = noseward
+        car.travel = car.heading
+    } else {
+        // Deflected: it keeps rolling the way it was going, and grip turns the nose along the wall.
+        const speed = Math.hypot(vx, vz)
+        car.speed = forward ? speed : -speed
+        // Slow, what's left of the bounce would set the direction and aim the car across the road, so it rolls along the face.
+        if (speed < WALL_PIVOT_SPEED && Math.abs(along) > 0.01) {
+            vx -= nx * across
+            vz -= nz * across
+        }
+        if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
+    }
+    if (ev.wallTouched) car.speed *= WALL_TOUCH_KEEP
     if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
 }
 

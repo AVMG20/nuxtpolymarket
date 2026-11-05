@@ -68,9 +68,10 @@ export class RaceFeedback {
             cam.shake(Math.min(0.8, ev.landed / 30))
             audio.bump()
         }
-        if (ev.wallImpact > 1.5) {
+        if (ev.wallImpact > 1.5 || ev.wallTouched) {
             const k = Math.min(1, ev.wallImpact / 14)
-            const hard = ev.wallImpact > 6
+            // A graze costs as much speed as a crash, so it can't sound like a rub.
+            const hard = ev.wallImpact > 6 || ev.wallTouched
             // The steps after a hit still read as rubbing; the hit has already made its noise.
             this.scrapeSteps = SCRAPE_EVERY
             cam.shake(0.15 + k * 0.45)
