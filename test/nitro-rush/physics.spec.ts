@@ -120,10 +120,10 @@ describe('car physics', () => {
             return car
         }
 
-        it('starts on the drift button with the wheel turned, lasts while it is held and banks nitro on release', () => {
+        it('starts on the drift button with the steer turned, lasts while it is held and banks nitro on release', () => {
             const car = createCar(open, 0)
             car.speed = 40
-            // The wheel eases in, so the drift waits until it is turned far enough.
+            // From centre the wheel eases in, so the drift waits until it is turned far enough.
             expect(stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted).toBe(false)
             let began = false
             for (let i = 0; i < PHYSICS_HZ && !began; i++) began = stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted
@@ -169,6 +169,25 @@ describe('car physics', () => {
             const car = drifting()
             expect(stepCar(car, input({ throttle: 1, steer: -1 }), open, DT).driftEnded).toBeGreaterThan(0)
             expect(stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT).driftStarted).toBe(true)
+        })
+
+        it('drifts the way the player now steers after a quick swap, though the wheel still points the old way', () => {
+            const car = drifting()
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT)
+            expect(car.steer).toBe(-1)
+            for (let i = 0; i < 2; i++) stepCar(car, input({ throttle: 1, steer: 1 }), open, DT)
+            expect(car.drifting).toBe(false)
+            expect(car.steer).toBeLessThan(-0.5)
+            expect(stepCar(car, input({ throttle: 1, drift: true, steer: 1 }), open, DT).driftStarted).toBe(true)
+            expect(car.driftDir).toBe(-1)
+        })
+
+        it('never starts on a light steer, though the wheel is still turned', () => {
+            const car = createCar(open, 0)
+            car.speed = 40
+            car.steer = -1
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ throttle: 1, drift: true, steer: -0.2 }), open, DT)
+            expect(car.drifting).toBe(false)
         })
 
         it('needs the button let go after a hard wall hit breaks the drift', () => {

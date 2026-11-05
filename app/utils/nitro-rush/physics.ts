@@ -62,7 +62,7 @@ export interface CarInput {
     brake: number
     /** -1 full left to 1 full right. */
     steer: number
-    /** The drift button: held with the wheel turned it starts a drift, and the drift lasts until it is let go. */
+    /** The drift button: held with the steer turned it starts a drift, and the drift lasts until it is let go. */
     drift: boolean
 }
 
@@ -89,7 +89,7 @@ export interface StepEvents {
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
 const CAR_HALF_LENGTH = 2.25
-/** Wheel the drift button needs to be paired with to throw the car into a drift. */
+/** Held steer the drift button needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
 const GRAVITY = 9.81
 /** Speed kept when a car on rails grazes a wall, per unit of the hit. */
@@ -215,10 +215,13 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         return ev
     }
 
-    // ── Drift entry: the drift button held with the wheel turned, at speed ──
-    if (grounded && !car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD) {
+    // ── Drift entry: the drift button held with the steer turned, at speed ──
+    // The held steer picks the way, as the wheel still points the old way just after a quick swap.
+    // From centre the wheel must catch up too, so a tap of steer with the touch pedal held still brakes.
+    const swapping = car.steer * want < 0
+    if (grounded && !car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(want) > DRIFT_STEER_THRESHOLD && (swapping || Math.abs(car.steer) > DRIFT_STEER_THRESHOLD)) {
         car.drifting = true
-        car.driftDir = Math.sign(left)
+        car.driftDir = -Math.sign(want)
         car.driftTime = 0
         ev.driftStarted = true
     }
