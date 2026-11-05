@@ -58,7 +58,7 @@ export class RaceFeedback {
 
     nitroReady() {
         this.deps.audio.nitroReady()
-        this.deps.events.popup({ text: 'NITRO READY', sub: 'SHIFT TO BOOST', tone: 'nitro' })
+        this.deps.events.popup({ text: 'NITRO READY', tone: 'nitro' })
     }
 
     step(ev: StepEvents, s: CarState) {

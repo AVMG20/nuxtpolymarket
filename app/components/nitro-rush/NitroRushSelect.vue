@@ -18,6 +18,7 @@ const props = defineProps<{
     boardLoading: boolean
     paint: PaintId
     isTouch: boolean
+    hasPad: boolean
     /** This browser's bests, by track. */
     records: Record<string, TrackRecord>
     /** The leaderboard's record and the player's own best, by track. */
@@ -136,7 +137,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
           <UIcon name="i-lucide-flag" class="size-6" />
           START
         </button>
-        <p v-if="!isTouch" class="text-center text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">Enter to start · Esc for the title</p>
+        <p v-if="hasPad || !isTouch" class="text-center text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ hasPad ? 'D-pad: browse · A: pick · Start: race · B: back' : 'Enter to start · Esc for the title' }}</p>
       </div>
     </div>
   </div>

@@ -11,7 +11,7 @@ import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
 import { settleLap } from './record'
-import { carInput } from './input'
+import { carInput, withPad } from './input'
 import { createRushRenderer, RushPost } from './post'
 import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
@@ -77,6 +77,7 @@ export class NitroRushEngine {
     private runs = 0
     private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false }
     private touch = false
+    private pad: CarInput | null = null
     private nitroReadyAnnounced = false
     private wrongWayTime = 0
 
@@ -180,6 +181,11 @@ export class NitroRushEngine {
         this.controls[c] = down
     }
 
+    /** What the controller holds this frame, with a smooth wheel and trigger the keys can't give. */
+    setPad(pad: CarInput | null) {
+        this.pad = pad
+    }
+
     /** Touch play holds the gas for the player. */
     setTouch(touch: boolean) {
         this.touch = touch
@@ -187,6 +193,7 @@ export class NitroRushEngine {
 
     releaseControls() {
         for (const k of Object.keys(this.controls) as Control[]) this.controls[k] = false
+        this.pad = null
     }
 
     nitro() {
@@ -405,7 +412,7 @@ export class NitroRushEngine {
     }
 
     private playerInput() {
-        return carInput(this.controls, this.touch, this.state.drifting)
+        return withPad(carInput(this.controls, this.touch, this.state.drifting), this.pad)
     }
 
     private stepInput(): CarInput {
@@ -466,7 +473,7 @@ export class NitroRushEngine {
         this.car.place(m.pos, m.quat)
         const { x, z, along, lateral } = m.drawn
         const y = m.pos.y
-        this.car.animate(dt, s, m.latAcc, m.longAcc, racing && this.controls.throttle)
+        this.car.animate(dt, s, m.latAcc, m.longAcc, racing && this.playerInput().throttle > 0)
 
         this.cam.update(dt, this.time, {
             x, y, z, along, lateral, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK, latAcc: m.latAcc,

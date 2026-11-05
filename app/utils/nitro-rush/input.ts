@@ -24,6 +24,17 @@ export function carInput(c: Readonly<Record<Control, boolean>>, touch: boolean, 
     }
 }
 
+/** The keys and the controller together, so a player can rest on either; the keys' steering wins as it's all or nothing. */
+export function withPad(keys: CarInput, pad: CarInput | null): CarInput {
+    if (!pad) return keys
+    return {
+        throttle: Math.max(keys.throttle, pad.throttle),
+        brake: Math.max(keys.brake, pad.brake),
+        steer: keys.steer || pad.steer,
+        drift: keys.drift || pad.drift
+    }
+}
+
 /** Keys typed into a field belong to the field, not the car. */
 export function isTyping(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null

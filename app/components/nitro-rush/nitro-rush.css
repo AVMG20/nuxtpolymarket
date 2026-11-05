@@ -26,6 +26,9 @@
     text-shadow: 0 1px 6px rgb(0 0 0 / 0.6);
 }
 
+/* A controller has no pointer, so the player needs to see where the d-pad has got to. */
+.nr-root.nr-pad-focus button:focus { outline: 3px solid var(--nr-cyan); outline-offset: 2px; }
+
 .nr-root .nr-pad {
     display: grid;
     place-items: center;

@@ -11,6 +11,7 @@ const props = defineProps<{
     /** Other players driving this course right now, shown as live ghosts. */
     racers?: number
     isTouch: boolean
+    hasPad: boolean
 }>()
 defineEmits<{ pause: [], nitro: [] }>()
 
@@ -66,7 +67,7 @@ const recent = computed(() => props.hud.recentLaps.map((l) => {
           <div class="nr-nitro-fill" :style="{ width: `${Math.min(1, hud.nitro) * 100}%` }" />
           <span class="nr-nitro-text">
             <UIcon name="i-lucide-zap" class="size-3.5" />
-            {{ hud.nitroActive ? 'NITRO' : nitroFull ? (isTouch ? 'TAP FOR NITRO' : 'SHIFT FOR NITRO') : 'DRIFT TO CHARGE' }}
+            {{ hud.nitroActive ? 'NITRO' : nitroFull ? (hasPad ? 'X FOR NITRO' : isTouch ? 'TAP FOR NITRO' : 'SHIFT FOR NITRO') : 'DRIFT TO CHARGE' }}
           </span>
         </button>
       </div>
