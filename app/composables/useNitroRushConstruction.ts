@@ -46,5 +46,5 @@ export function useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo,
         building = false
     }
 
-    return { choice, next, shownWalk, ghost, blocked, pick, build }
+    return { choice, state, next, shownWalk, ghost, blocked, pick, build }
 }

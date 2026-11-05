@@ -32,7 +32,7 @@ const drawerOpened = ref(false)
 watch(drawerOpen, () => {
     drawerOpened.value = true
 })
-const { choice, next, shownWalk, ghost, blocked, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
+const { choice, state, next, shownWalk, ghost, blocked, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
 
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
@@ -166,7 +166,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
             <UIcon :name="drawerOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="size-3.5" />
           </button>
         </NitroRushBuilderConstruct>
-        <NitroRushBuilderPalette v-if="drawerOpened" v-show="drawerOpen" class="nr-drawer" :disabled="full" @add="insert" />
+        <NitroRushBuilderPalette v-if="drawerOpened" v-show="drawerOpen" class="nr-drawer" :disabled="full" :state="state" @add="insert" />
       </div>
 
       <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0">
