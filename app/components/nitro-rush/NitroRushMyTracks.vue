@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CustomTrackEntry } from '~/utils/nitro-rush/types'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import { MAX_CUSTOM_TRACKS } from '#shared/utils/nitro-rush/custom'
 import { GHOST_MAX_SECONDS } from '#shared/utils/nitro-rush/ghost'
 
 /** The player's own courses: drive, edit, and publish them for everyone to race. */
@@ -55,16 +56,21 @@ function askDelete(c: CustomTrackEntry) {
 }
 
 const hasBoard = (c: CustomTrackEntry) => c.playId !== c.track.id
+
+const atLimit = computed(() => props.tracks.length >= MAX_CUSTOM_TRACKS)
 </script>
 
 <template>
   <div>
     <div class="mb-1.5 flex items-baseline justify-between gap-3">
-      <h3 class="nr-group">MY TRACKS</h3>
-      <span class="nr-blurb">Build your own from track sections</span>
+      <div class="flex shrink-0 items-baseline gap-2">
+        <h3 class="nr-group">MY TRACKS</h3>
+        <span class="nr-track-count" :class="{ 'is-full': atLimit }" :aria-label="`${tracks.length} of ${MAX_CUSTOM_TRACKS} tracks`">{{ tracks.length }}/{{ MAX_CUSTOM_TRACKS }}</span>
+      </div>
+      <span class="nr-blurb">{{ atLimit ? 'Delete a track to build a new one' : 'Build your own from track sections' }}</span>
     </div>
     <div class="nr-track-grid">
-      <button class="nr-track nr-track-new" @click="$emit('build')">
+      <button class="nr-track nr-track-new" :disabled="atLimit" @click="$emit('build')">
         <span class="nr-track-preview grid place-items-center"><UIcon name="i-lucide-plus" class="size-7" /></span>
         <span class="nr-track-name">TRACK BUILDER</span>
       </button>

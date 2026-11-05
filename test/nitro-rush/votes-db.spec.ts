@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { and, eq, sql } from 'drizzle-orm'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 import { db } from '#server/database'
 import { nitroRushTrackVotes, nitroRushTracks } from '#server/database/schema'
@@ -35,6 +35,10 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         await seedUser(A)
         await seedUser(B)
         await seedUser(C)
+    })
+    // Each test publishes its own courses, which would otherwise add up to the per-player cap.
+    beforeEach(async () => {
+        await db.delete(nitroRushTracks).where(inArray(nitroRushTracks.authorId, [A, B]))
     })
     afterAll(async () => {
         await cleanupUser(A)

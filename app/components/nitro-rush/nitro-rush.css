@@ -334,6 +334,20 @@
 
 .nr-root .nr-track-new:hover { background: rgb(61 242 255 / 0.1); }
 
+.nr-root .nr-track-new:disabled {
+    background: rgb(255 255 255 / 0.05);
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.nr-root .nr-track-count {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: rgb(255 255 255 / 0.5);
+}
+
+.nr-root .nr-track-count.is-full { color: var(--nr-pink); }
+
 /* The tools get their own column, so a record or long name never runs under them. */
 .nr-root .nr-own-track .nr-track {
     padding-right: 44px;

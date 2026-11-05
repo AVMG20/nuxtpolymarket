@@ -152,8 +152,8 @@ export const isCustomTrackId = (id: string) => id.startsWith(ID_PREFIX)
 const PUBLISHED_PREFIX = 'pub-'
 export const isPublishedTrackId = (id: string) => id.startsWith(PUBLISHED_PREFIX)
 export const newPublishedTrackId = () => `${PUBLISHED_PREFIX}${crypto.randomUUID()}`
-/** How many courses one player may have published at a time. */
-export const MAX_PUBLISHED_TRACKS = 20
+/** How many courses one player may have: the builder stops at it, and the server holds published ones to it. */
+export const MAX_CUSTOM_TRACKS = 5
 
 /** A fresh course: a loop is just its start line; a sprint has room for the grid behind it. */
 export function newCustomTrack(closed = true): CustomTrack {
