@@ -11,6 +11,7 @@ import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
 import { settleLap } from './record'
+import { refillAtLine } from './lap-refill'
 import { carInput, withPad } from './input'
 import { createRushRenderer, RushPost } from './post'
 import { prewarm } from './prewarm'
@@ -439,6 +440,8 @@ export class NitroRushEngine {
                 this.events.record(this.track.def.id, record)
             }
             this.feedback.lap(label, e.time, rec.bestLap, isBest)
+            // The lap popup already fills the line, so the meter alone shows the refill; a burn still running announces it when it ends.
+            if (refillAtLine(this.state, this.track.closed) && this.state.nitroTime <= 0) this.nitroReadyAnnounced = true
             if (!this.track.closed) {
                 this.phase = 'finished'
                 this.finishedAt = this.time
