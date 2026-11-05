@@ -51,6 +51,13 @@
 
 .nr-root .nr-laps-best .nr-mono { font-size: 19px; }
 
+.nr-root .nr-laps-best .nr-medal { font-size: 15px; }
+
+/* The next medal's time, kept quieter than the best above it. */
+.nr-root .nr-laps-target .nr-label { font-size: 10px; color: var(--medal); }
+
+.nr-root .nr-laps-target .nr-mono { font-size: 13px; color: rgb(255 255 255 / 0.75); }
+
 .nr-root .nr-laps-recent {
     display: flex;
     flex-direction: column;

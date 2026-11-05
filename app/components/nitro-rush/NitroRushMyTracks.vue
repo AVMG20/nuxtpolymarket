@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { CustomTrackEntry } from '~/utils/nitro-rush/types'
+import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import { MAX_CUSTOM_TRACKS } from '#shared/utils/nitro-rush/custom'
 import { GHOST_MAX_SECONDS } from '#shared/utils/nitro-rush/ghost'
 
@@ -9,6 +11,8 @@ const props = defineProps<{
     trackId: string
     tracks: CustomTrackEntry[]
     summaries: Record<string, NrTrackSummary>
+    /** The medal the viewer's best holds on a course. */
+    medalOn: (id: string, def: TrackDef) => Medal | null
     busy: string | null
     /** Whether the player has a lap with a ghost on this local course. */
     hasLap: (id: string) => boolean
@@ -82,6 +86,7 @@ const atLimit = computed(() => props.tracks.length >= MAX_CUSTOM_TRACKS)
             :active="c.playId === trackId"
             :has-board="hasBoard(c)"
             :record="summaries[c.playId]?.record ?? null"
+            :medal="medalOn(c.playId, c.def)"
             @select="$emit('select', c.playId)"
           />
           <button v-else class="nr-track" :disabled="!!busy" @click="$emit('build', c.track.id)">

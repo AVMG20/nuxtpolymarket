@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { topRows } from '~/utils/nitro-rush/board'
+import { MEDAL_LABELS, MEDALS, medalFor } from '~/utils/nitro-rush/medals'
 import type { NrBoard } from '#server/utils/nitro-rush'
 import type { NrPublishedTrack, NrVote } from '#server/utils/nitro-rush-tracks'
 import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 import { lapTimeOrBlank } from '#shared/utils/nitro-rush/timing'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 
-/** The selected course in the menu's side panel: who built it, its length, its votes and its top 5. */
+/** The selected course in the menu's side panel: who built it, its length, its votes, its medal times and its top 5. */
 const props = defineProps<{
     trackId: string
     trackName: string
@@ -46,6 +47,13 @@ const own = computed(() => fresh.value ? rows.value.own : null)
 const inTop = computed(() => !!fresh.value && rows.value.top.some(r => r.you))
 const showBest = computed(() => !own.value && !inTop.value && !(fresh.value?.entries === 0 && props.best === null))
 const time = (ms: number) => lapTimeOrBlank(ms / 1000)
+
+const medals = useNitroRushMedals()
+// Undefined while the bot lap is still running, null on a course the bot can't drive.
+const medalTimes = computed(() => props.def ? medals.times(props.def) : null)
+const earned = computed(() => medalFor(props.best, medalTimes.value ?? null))
+// The last course's board stays up while the next loads, and this course's times can't grade it.
+const medalOf = (ms: number) => fresh.value ? medalFor(ms / 1000, medalTimes.value ?? null) : null
 </script>
 
 <template>
@@ -58,6 +66,13 @@ const time = (ms: number) => lapTimeOrBlank(ms / 1000)
     </div>
     <div class="nr-track-holder">{{ meta }}</div>
 
+    <div v-if="medalTimes !== null" class="nr-medals mt-3">
+      <div v-for="m in MEDALS" :key="m" class="nr-medals-tier" :class="[`medal-${m}`, { 'is-earned': m === earned }]">
+        <span class="nr-label"><NitroRushMedal :medal="m" aria-hidden="true" /> {{ MEDAL_LABELS[m] }}</span>
+        <span class="nr-medals-time tabular-nums">{{ lapTimeOrBlank(medalTimes?.[m] ?? null) }}</span>
+      </div>
+    </div>
+
     <template v-if="showTop">
       <div class="nr-label mt-3 mb-1">TOP 5</div>
       <ol class="nr-board" :class="{ 'is-loading': !fresh && !!listed }">
@@ -65,6 +80,7 @@ const time = (ms: number) => lapTimeOrBlank(ms / 1000)
           <span class="nr-board-rank">{{ r.rank }}</span>
           <span class="nr-board-name">{{ r.name }}</span>
           <span class="nr-board-time">{{ time(r.lapMs) }}</span>
+          <span class="nr-board-medal"><NitroRushMedal :medal="medalOf(r.lapMs)" /></span>
         </li>
         <li v-if="fresh && !fresh.entries" class="nr-board-empty">No times yet</li>
       </ol>
@@ -73,10 +89,12 @@ const time = (ms: number) => lapTimeOrBlank(ms / 1000)
       <span class="nr-board-rank">{{ own.rank }}</span>
       <span class="nr-board-name">{{ own.name }}</span>
       <span class="nr-board-time">{{ time(own.lapMs) }}</span>
+      <span class="nr-board-medal"><NitroRushMedal :medal="medalOf(own.lapMs)" /></span>
     </div>
     <div v-else-if="showBest" class="nr-board-row is-you" :class="showTop ? 'nr-board-own' : 'mt-3'">
       <span class="nr-board-name col-span-2">YOUR BEST</span>
       <span class="nr-board-time">{{ lapTimeOrBlank(best) }}</span>
+      <span class="nr-board-medal"><NitroRushMedal :medal="earned" /></span>
     </div>
   </div>
 </template>

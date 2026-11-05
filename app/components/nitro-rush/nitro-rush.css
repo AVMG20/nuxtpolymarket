@@ -108,6 +108,23 @@
 .nr-root .tone-nitro { --c: var(--nr-blue); }
 .nr-root .tone-danger { --c: var(--nr-red); }
 .nr-root .tone-count { --c: #fff; }
+.nr-root .tone-gold { --c: var(--nr-gold); }
+.nr-root .tone-silver { --c: #cfe0ff; }
+.nr-root .tone-bronze { --c: #e8955a; }
+
+/* Silver runs cool to sit with the cyan; bronze is browner than the drift orange so the two never read alike. */
+.nr-root .medal-gold { --medal: var(--nr-gold); }
+.nr-root .medal-silver { --medal: #cfe0ff; }
+.nr-root .medal-bronze { --medal: #e8955a; }
+
+.nr-root .nr-medal {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 1em;
+    height: 1em;
+    color: var(--medal);
+    filter: drop-shadow(0 0 3px var(--medal));
+}
 
 .nr-root .nr-title {
     font-size: clamp(56px, 13vw, 120px);
@@ -313,6 +330,19 @@
     background: rgb(255 43 214 / 0.16);
     border-color: var(--nr-pink);
     box-shadow: 0 0 18px rgb(255 43 214 / 0.35);
+}
+
+.nr-root .nr-track-thumb {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+}
+
+.nr-root .nr-track-medal {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 15px;
 }
 
 .nr-root .nr-track-preview {
@@ -561,7 +591,8 @@
 
 .nr-root .nr-board-row {
     display: grid;
-    grid-template-columns: 1.5em minmax(0, 1fr) auto;
+    /* The last column stays even without a medal, so the times line up. */
+    grid-template-columns: 1.5em minmax(0, 1fr) auto 11px;
     align-items: baseline;
     gap: 8px;
     height: 20px;
@@ -599,6 +630,12 @@
 .nr-root .nr-board-row.is-you .nr-board-name,
 .nr-root .nr-board-row.is-you .nr-board-time { color: var(--nr-violet); }
 
+.nr-root .nr-board-medal {
+    display: flex;
+    align-self: center;
+    font-size: 11px;
+}
+
 /* The viewer's own row, set off from the top 5 above it. */
 .nr-root .nr-board-own {
     position: relative;
@@ -610,6 +647,41 @@
     position: absolute;
     inset: -5px 0 auto;
     border-top: 1px solid rgb(255 255 255 / 0.15);
+}
+
+.nr-root .nr-medals {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.nr-root .nr-medals-tier {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    border: 1px solid rgb(255 255 255 / 0.1);
+    opacity: 0.65;
+}
+
+.nr-root .nr-medals-tier .nr-label {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--medal);
+}
+
+.nr-root .nr-medals-time { font-size: 13px; }
+
+/* The medal the viewer's best holds. */
+.nr-root .nr-medals-tier.is-earned {
+    opacity: 1;
+    border-color: var(--medal);
+    background: color-mix(in srgb, var(--medal) 14%, transparent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--medal) 35%, transparent);
 }
 
 .nr-root .nr-board-empty {

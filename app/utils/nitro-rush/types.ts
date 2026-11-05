@@ -57,7 +57,7 @@ export interface TrackRecord {
 
 export const EMPTY_RECORD: Readonly<TrackRecord> = { bestLap: null, bestSplits: null }
 
-export type PopupTone = 'good' | 'bad' | 'best' | 'drift' | 'nitro' | 'count' | 'lap' | 'danger'
+export type PopupTone = 'good' | 'bad' | 'best' | 'drift' | 'nitro' | 'count' | 'lap' | 'danger' | 'gold' | 'silver' | 'bronze'
 
 export interface Popup {
     text: string

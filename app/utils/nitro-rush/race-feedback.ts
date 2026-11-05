@@ -2,6 +2,7 @@ import type { NitroAudio } from './audio'
 import type { ChaseCamera } from './camera'
 import type { CarEffects } from './car-fx'
 import { PHYSICS_HZ } from './config'
+import { MEDAL_LABELS, type Medal, type MedalTarget } from './medals'
 import type { CarState, StepEvents } from './physics'
 import type { RaceGrade } from './race-grade'
 import type { EngineEvents } from './types'
@@ -106,6 +107,12 @@ export class RaceFeedback {
         if (isBest) grade.flash(0.25, 0.2, 0.05)
         audio.lap(isBest)
         events.popup({ text: formatLapTime(time), sub: isBest ? `${sub} · BEST LAP` : sub, tone: isBest ? 'best' : 'lap', big: true })
+    }
+
+    /** A better medal than before, with the next one to chase. */
+    medal(medal: Medal, next: MedalTarget | null) {
+        const text = MEDAL_LABELS[medal]
+        this.deps.events.popup(next ? { text, sub: `${MEDAL_LABELS[next.medal]} AT ${formatLapTime(next.time)}`, tone: medal } : { text, tone: medal })
     }
 
     finish() {
