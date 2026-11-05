@@ -58,6 +58,7 @@ const ownTracks = useNitroRushOwnTrackActions({
     ownEntry: community.ownEntry,
     publishTrack: community.publish,
     unpublishTrack: community.unpublish,
+    saveTrack: custom.save,
     removeTrack: custom.remove,
     records,
     forgetRecord,

@@ -10,6 +10,7 @@ export interface OwnTrackActionDeps {
     ownEntry: (sourceId: string) => CustomTrackEntry | undefined
     publishTrack: (track: CustomTrack, lap: NrGhost | null) => Promise<string | null>
     unpublishTrack: (sourceId: string) => Promise<boolean>
+    saveTrack: (track: CustomTrack) => void
     removeTrack: (id: string) => void
     records: Ref<Record<string, TrackRecord>>
     forgetRecord: (id: string) => void
@@ -48,6 +49,9 @@ export function useNitroRushOwnTrackActions(deps: OwnTrackActionDeps) {
 
     async function unpublish(sourceId: string) {
         deps.click()
+        // Saved first: a course published from another device has no copy here, so taking it down would lose it.
+        const entry = ownEntry(sourceId)
+        if (entry) deps.saveTrack(entry.track)
         const old = await takeDown(sourceId)
         if (old && trackId.value === old) loadTrack(resolveTrack(sourceId) ?? TRACKS[0]!)
     }
