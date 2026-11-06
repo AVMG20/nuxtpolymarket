@@ -255,6 +255,7 @@ function togglePause(force?: boolean) {
     paused.value = force ?? !paused.value
     engine?.setPaused(paused.value)
     engine?.releaseControls()
+    resumeHeldKeys()
 }
 
 function setPaint(id: PaintId) {
@@ -301,7 +302,7 @@ function nitroControl(down: boolean) {
     engine?.setControl('nitro', down)
 }
 
-const { hasPad, padFocus } = useNitroRushControls({
+const { hasPad, padFocus, resumeHeldKeys } = useNitroRushControls({
     engine: () => engine,
     root,
     phase,
@@ -317,11 +318,6 @@ const { hasPad, padFocus } = useNitroRushControls({
     play,
     togglePause
 })
-
-// A key let go while the window is unfocused never fires keyup.
-function onBlur() {
-    engine?.releaseControls()
-}
 
 function touchControl(c: Control, down: boolean) {
     audio.unlock()
@@ -364,6 +360,8 @@ onMounted(() => {
                 hud.value = null
             }
             if (p === 'finished') engine?.releaseControls()
+            // Gas or nitro held through a restart carries into the countdown, so it fires on the GO.
+            if (p === 'countdown') resumeHeldKeys()
         },
         record: onRecord
     }, audio, paint.value, storedTrack)
@@ -381,7 +379,6 @@ onMounted(() => {
         if (def && phase.value === 'attract') loadTrack(def)
     })
 
-    window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibility)
     document.addEventListener('fullscreenchange', onFullscreen)
     for (const type of ACTIVITY_EVENTS) window.addEventListener(type, markActive, { passive: true })
@@ -389,7 +386,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-    window.removeEventListener('blur', onBlur)
     document.removeEventListener('visibilitychange', onVisibility)
     document.removeEventListener('fullscreenchange', onFullscreen)
     for (const type of ACTIVITY_EVENTS) window.removeEventListener(type, markActive)

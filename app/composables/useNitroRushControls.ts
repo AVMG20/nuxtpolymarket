@@ -28,6 +28,8 @@ export function useNitroRushControls(c: Controls) {
     /** The controller moved last, so the focused menu button has to show. */
     const padFocus = ref(false)
     const presses = new PadPresses()
+    /** Driving keys down now, tracked through pauses too, so a restart picks them up without a fresh press. */
+    const heldKeys = new Set<string>()
     let raf = 0
 
     const onMenu = () => c.phase.value === 'attract'
@@ -47,6 +49,7 @@ export function useNitroRushControls(c: Controls) {
         c.onActive()
         padFocus.value = false
         if (isTyping(e) || inBuilder()) return
+        if (CONTROL_KEYS[e.code]) heldKeys.add(e.code)
         if (e.code === 'Escape' && onMenu() && c.screen.value === 'select') {
             c.backToTitle()
             return
@@ -75,8 +78,23 @@ export function useNitroRushControls(c: Controls) {
     }
 
     function onKeyUp(e: KeyboardEvent) {
+        heldKeys.delete(e.code)
         const control = CONTROL_KEYS[e.code]
-        if (control) c.engine()?.setControl(control, false)
+        // W and the up arrow both hold the gas: letting go of one leaves it on while the other is down.
+        if (control && ![...heldKeys].some(k => CONTROL_KEYS[k] === control)) c.engine()?.setControl(control, false)
+    }
+
+    /** Puts the held keys back on the car after a restart or resume released every control. */
+    function resumeHeldKeys() {
+        const engine = c.engine()
+        if (!engine || c.paused.value) return
+        for (const code of heldKeys) engine.setControl(CONTROL_KEYS[code]!, true)
+    }
+
+    // A key let go while the window is unfocused never fires keyup.
+    function onBlur() {
+        heldKeys.clear()
+        c.engine()?.releaseControls()
     }
 
     /** The menu's buttons in tab order, stepped through since a controller has no pointer. */
@@ -138,6 +156,7 @@ export function useNitroRushControls(c: Controls) {
     onMounted(() => {
         window.addEventListener('keydown', onKeyDown)
         window.addEventListener('keyup', onKeyUp)
+        window.addEventListener('blur', onBlur)
         window.addEventListener('pointerdown', onPointerDown, { passive: true })
         raf = requestAnimationFrame(pollPad)
     })
@@ -145,9 +164,10 @@ export function useNitroRushControls(c: Controls) {
     onBeforeUnmount(() => {
         window.removeEventListener('keydown', onKeyDown)
         window.removeEventListener('keyup', onKeyUp)
+        window.removeEventListener('blur', onBlur)
         window.removeEventListener('pointerdown', onPointerDown)
         cancelAnimationFrame(raf)
     })
 
-    return { hasPad, padFocus }
+    return { hasPad, padFocus, resumeHeldKeys }
 }
