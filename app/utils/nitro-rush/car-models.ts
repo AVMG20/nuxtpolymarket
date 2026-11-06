@@ -1,12 +1,15 @@
 import type * as THREE from 'three'
 import type { CarId } from '#shared/utils/nitro-rush/cars'
 import { buildKestrel } from './car-kestrel'
+import { buildOg } from './car-og'
 
 /** What every car model hands the view; a model only changes the look, so physics never sees which one is picked. */
 export interface PlayerCar {
     group: THREE.Group
     body: THREE.Group
     paint: THREE.MeshPhysicalMaterial
+    /** For spinning the wheels at road speed. */
+    wheelRadius: number
     wheels: THREE.Object3D[]
     flames: THREE.Mesh[]
     flameMat: THREE.MeshBasicMaterial
@@ -17,7 +20,8 @@ export interface PlayerCar {
 
 /** Keyed by every `CarId`, so a car added to the list without a model fails the typecheck. */
 const MODELS: Record<CarId, (color: number) => PlayerCar> = {
-    kestrel: buildKestrel
+    kestrel: buildKestrel,
+    og: buildOg
 }
 
 export const buildCar = (id: CarId, color: number) => MODELS[id](color)

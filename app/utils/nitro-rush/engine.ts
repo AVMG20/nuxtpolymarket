@@ -48,7 +48,8 @@ export class NitroRushEngine {
     private world: World
     private readonly envTarget: THREE.WebGLRenderTarget
     private readonly fx: CarEffects
-    private readonly car: CarView
+    private car: CarView
+    private paint: PaintId
     private readonly lampLight: THREE.PointLight
     private readonly lampPos = new THREE.Vector3()
     private readonly resizeObserver: ResizeObserver
@@ -107,6 +108,7 @@ export class NitroRushEngine {
         this.feedback = new RaceFeedback({ audio, events, grade: this.grade, cam: this.cam, fx: this.fx })
         this.world = this.buildWorld()
 
+        this.paint = paint
         this.car = new CarView(car, findPaint(paint).color)
         this.scene.add(this.car.group)
         // Rides with whichever floodlight is nearest, so the paint flares as each one passes.
@@ -133,7 +135,17 @@ export class NitroRushEngine {
     }
 
     setPaint(id: PaintId) {
+        this.paint = id
         this.car.setPaint(findPaint(id).color)
+    }
+
+    /** Swaps only the model: every car drives the same, so the physics state carries straight over. */
+    setCar(id: CarId) {
+        this.scene.remove(this.car.group)
+        this.car.dispose()
+        this.car = new CarView(id, findPaint(this.paint).color)
+        this.scene.add(this.car.group)
+        this.car.place(this.motion.pos, this.motion.quat)
     }
 
     setRecord(r: TrackRecord) {

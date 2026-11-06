@@ -1,6 +1,7 @@
 /** The car models to pick from; they only look different, so every one drives exactly like the others. */
 export const CARS = [
-    { id: 'kestrel', label: 'Kestrel' }
+    { id: 'kestrel', label: 'Kestrel' },
+    { id: 'og', label: 'The OG' }
 ] as const
 
 export type CarId = typeof CARS[number]['id']

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NitroAudio } from '~/utils/nitro-rush/audio'
-import { CARS, findPaint, type CarId, type PaintId } from '~/utils/nitro-rush/config'
+import { CARS, findCar, findPaint, type CarId, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { medalFor, nextMedal } from '~/utils/nitro-rush/medals'
 import { bestLap } from '~/utils/nitro-rush/record'
@@ -259,6 +259,14 @@ function togglePause(force?: boolean) {
     resumeHeldKeys()
 }
 
+function setCar(id: CarId) {
+    car.value = id
+    engine?.setCar(id)
+    writeStorage(STORAGE_KEYS.car, { id })
+    audio.unlock()
+    audio.ui()
+}
+
 function setPaint(id: PaintId) {
     paint.value = id
     engine?.setPaint(id)
@@ -338,6 +346,7 @@ function onFullscreen() {
 onMounted(() => {
     clearRetiredStorage()
     records.value = readStorage<Record<string, TrackRecord>>(STORAGE_KEYS.records, {})
+    car.value = findCar(readStorage<{ id: string }>(STORAGE_KEYS.car, { id: '' }).id).id
     paint.value = findPaint(readStorage<{ id: string }>(STORAGE_KEYS.paint, { id: '' }).id).id
     const a = readStorage(STORAGE_KEYS.audio, { music: true, sfx: true })
     musicOn.value = a.music
@@ -421,6 +430,7 @@ onBeforeUnmount(() => {
         :track-def="trackDef"
         :board="board"
         :board-loading="boardLoading"
+        :car="car"
         :paint="paint"
         :is-touch="isTouch"
         :has-pad="hasPad"
@@ -432,6 +442,7 @@ onBeforeUnmount(() => {
         :voting="community.voting.value"
         @back="backToTitle"
         @select="selectTrack"
+        @car="setCar"
         @paint="setPaint"
         @start="play"
         @build="openBuilder"
