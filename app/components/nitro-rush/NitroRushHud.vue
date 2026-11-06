@@ -18,9 +18,16 @@ const props = defineProps<{
     isTouch: boolean
     hasPad: boolean
 }>()
-defineEmits<{ pause: [], nitro: [] }>()
+defineEmits<{ pause: [], nitro: [down: boolean] }>()
 
 const nitroFull = computed(() => !props.hud.nitroActive && props.hud.nitro >= 1)
+/** Any nitro in the tank can be burnt, so the hint shows as soon as a drift banks some. */
+const nitroHint = computed(() => {
+    if (props.hud.nitroActive) return 'NITRO'
+    if (props.hud.nitro <= 0) return 'DRIFT TO CHARGE'
+    if (props.isTouch && !props.hasPad) return 'HOLD FOR NITRO'
+    return `HOLD ${props.hasPad ? 'X' : 'SHIFT'} FOR NITRO`
+})
 const lapWord = computed(() => props.hud.closed ? 'LAP' : 'RUN')
 /** Each recent lap against the personal best; the lap that set it reads as the best. */
 const recent = computed(() => props.hud.recentLaps.map((l) => {
@@ -73,12 +80,15 @@ const recent = computed(() => props.hud.recentLaps.map((l) => {
         <button
           class="nr-nitro-bar pointer-events-auto"
           :class="{ 'is-full': nitroFull, 'is-active': hud.nitroActive }"
-          @pointerdown.stop="$emit('nitro')"
+          @pointerdown.stop.prevent="$emit('nitro', true)"
+          @pointerup="$emit('nitro', false)"
+          @pointercancel="$emit('nitro', false)"
+          @pointerleave="$emit('nitro', false)"
         >
           <div class="nr-nitro-fill" :style="{ width: `${Math.min(1, hud.nitro) * 100}%` }" />
           <span class="nr-nitro-text">
             <UIcon name="i-lucide-zap" class="size-3.5" />
-            {{ hud.nitroActive ? 'NITRO' : nitroFull ? (hasPad ? 'X FOR NITRO' : isTouch ? 'TAP FOR NITRO' : 'SHIFT FOR NITRO') : 'DRIFT TO CHARGE' }}
+            {{ nitroHint }}
           </span>
         </button>
       </div>

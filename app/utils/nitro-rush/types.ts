@@ -8,7 +8,7 @@ import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
 export type Phase = 'attract' | 'countdown' | 'racing' | 'finished'
 
-export type Control = 'throttle' | 'brake' | 'left' | 'right' | 'drift'
+export type Control = 'throttle' | 'brake' | 'left' | 'right' | 'drift' | 'nitro'
 
 export interface HudState {
     /** 1-based lap of this session, or run on an open course. */
@@ -21,7 +21,7 @@ export interface HudState {
     /** The personal best on this track. */
     bestLap: number | null
     speedKmh: number
-    /** The meter while charging, the time left while burning. */
+    /** The tank, 0 to 1. */
     nitro: number
     nitroActive: boolean
     drifting: boolean

@@ -7,10 +7,9 @@ export const CONTROL_KEYS: Readonly<Record<string, Control>> = {
     ArrowDown: 'brake', KeyS: 'brake',
     ArrowLeft: 'left', KeyA: 'left',
     ArrowRight: 'right', KeyD: 'right',
-    Space: 'drift'
+    Space: 'drift',
+    ShiftLeft: 'nitro', ShiftRight: 'nitro', KeyE: 'nitro', KeyN: 'nitro'
 }
-
-export const NITRO_KEYS: ReadonlySet<string> = new Set(['ShiftLeft', 'ShiftRight', 'KeyE', 'KeyN'])
 
 /** The held controls as the car's input; on touch the gas is held for the player and the pedal is brake and drift button in one. */
 export function carInput(c: Readonly<Record<Control, boolean>>, touch: boolean, drifting: boolean): CarInput {
@@ -20,7 +19,8 @@ export function carInput(c: Readonly<Record<Control, boolean>>, touch: boolean, 
         throttle: c.throttle || (touch && !c.brake && (!pedal || drifting)) ? 1 : 0,
         brake: c.brake || pedal ? 1 : 0,
         steer: (c.right ? 1 : 0) - (c.left ? 1 : 0),
-        drift: c.drift
+        drift: c.drift,
+        nitro: c.nitro
     }
 }
 
@@ -31,7 +31,8 @@ export function withPad(keys: CarInput, pad: CarInput | null): CarInput {
         throttle: Math.max(keys.throttle, pad.throttle),
         brake: Math.max(keys.brake, pad.brake),
         steer: keys.steer || pad.steer,
-        drift: keys.drift || pad.drift
+        drift: keys.drift || pad.drift,
+        nitro: !!(keys.nitro || pad.nitro)
     }
 }
 

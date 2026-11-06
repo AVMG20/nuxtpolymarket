@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
+import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { poseCar } from '../../app/utils/nitro-rush/car-pose'
 import { GhostRecorder } from '../../app/utils/nitro-rush/ghost'
 import { botInput, createCar, stepCar, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
@@ -34,9 +34,9 @@ export function driveFlatOut(track: Track, speed: number, lateral = 0): Ghost {
     const car = createCar(track, track.startS + GRID_OFFSET, lateral)
     car.speed = speed
     return recordRun(track, car, (c) => {
-        c.nitroTime = NITRO_DURATION
+        c.nitro = 1
         if (!c.airborne) c.speed = speed
-        return { throttle: 1, brake: 0, steer: 0, drift: false }
+        return { throttle: 1, brake: 0, steer: 0, drift: false, nitro: true }
     })
 }
 

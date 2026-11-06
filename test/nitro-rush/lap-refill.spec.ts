@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { NITRO_DURATION } from '../../app/utils/nitro-rush/config'
+import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { refillAtLine } from '../../app/utils/nitro-rush/lap-refill'
-import { createCar, fireNitro } from '../../app/utils/nitro-rush/physics'
+import { createCar, stepCar } from '../../app/utils/nitro-rush/physics'
 import { RECTANGLE, trackOf } from './bot-lap'
 
 const SPRINT = ['straight-20', 'start', 'straight-100', 'right-tight', 'straight-100', 'finish', 'straight-200'] as const
@@ -13,7 +13,6 @@ describe('nitro refill at the line', () => {
         car.nitro = 0.25
         expect(refillAtLine(car, track.closed)).toBe(true)
         expect(car.nitro).toBe(1)
-        expect(fireNitro(car)).toBe(true)
     })
 
     it('leaves a sprint\'s meter alone', () => {
@@ -24,16 +23,17 @@ describe('nitro refill at the line', () => {
         expect(car.nitro).toBe(0.25)
     })
 
-    it('keeps a burning nitro going for its full time', () => {
+    it('keeps a held burn going on the refilled tank', () => {
         const track = trackOf(true, RECTANGLE)
         const car = createCar(track, track.startS)
-        car.nitro = 1
-        fireNitro(car)
-        car.nitroTime = NITRO_DURATION / 2
+        const held = { throttle: 1, brake: 0, steer: 0, drift: false, nitro: true }
+        car.nitro = 0.5
+        stepCar(car, held, track, 1 / PHYSICS_HZ)
         refillAtLine(car, track.closed)
-        expect(car.nitroTime).toBe(NITRO_DURATION / 2)
         expect(car.nitro).toBe(1)
-        // The refilled tank waits for the burn to end.
-        expect(fireNitro(car)).toBe(false)
+        const ev = stepCar(car, held, track, 1 / PHYSICS_HZ)
+        expect(ev.nitroStarted).toBe(false)
+        expect(car.nitroOn).toBe(true)
+        expect(car.nitro).toBeLessThan(1)
     })
 })

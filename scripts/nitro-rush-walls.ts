@@ -10,7 +10,7 @@ import { headingOf, Track, wrapAngle } from '../shared/utils/nitro-rush/track'
 import { ROAD, TRACKS } from '../shared/utils/nitro-rush/tracks'
 import { createSeededRandom } from '../shared/utils/random'
 import { BRAKE_DECEL, GRIP_LATERAL, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
-import { botInput, createCar, fireNitro, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
+import { botInput, createCar, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 
 const DT = 1 / PHYSICS_HZ
 const GRID = -14
@@ -155,13 +155,12 @@ const paced = (pace: number, wheel: Driver): Driver => (car, track) => {
     return { ...wheel(car, track), throttle, brake }
 }
 
-/** Drift button down through every bend, cashing the nitro on the next straight. */
+/** Drift button down through every bend, nitro held down every straight. */
 const drifted = (wheel: Driver): Driver => (car, track) => {
     const held = wheel(car, track)
     if (car.onRail) return held
     const bend = bendAt(track, car.proj.s)
-    if (!bend) fireNitro(car)
-    return { ...held, drift: !!bend }
+    return { ...held, drift: !!bend, nitro: !bend }
 }
 
 const range = (from: number, to: number, step: number) => Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => from + i * step)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DRIFT_MIN_SPEED, NITRO_DURATION, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
-import { createCar, fireNitro, stepCar, wallLimit, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
+import { createCar, stepCar, surging, wallLimit, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
 import { compileCustomTrack } from '#shared/utils/nitro-rush/custom'
 import { buildTrack } from '#shared/utils/nitro-rush/layout'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -210,15 +210,54 @@ describe('car physics', () => {
         })
     })
 
-    it('fires nitro only from a full meter, once at a time', () => {
-        const car = createCar(track, 0)
-        car.nitro = 0.9
-        expect(fireNitro(car)).toBe(false)
-        car.nitro = 1
-        expect(fireNitro(car)).toBe(true)
-        expect(car.nitroTime).toBe(NITRO_DURATION)
-        car.nitro = 1
-        expect(fireNitro(car)).toBe(false)
+    describe('nitro', () => {
+        const nitro = input({ throttle: 1, nitro: true })
+
+        it('burns any amount in the tank, in bursts as short as the button is held', () => {
+            const car = createCar(track, 0)
+            car.nitro = 0.1
+            expect(stepCar(car, nitro, track, DT).nitroStarted).toBe(true)
+            expect(surging(car)).toBe(true)
+            expect(car.nitro).toBeLessThan(0.1)
+            const left = car.nitro
+            expect(stepCar(car, nitro, track, DT).nitroStarted).toBe(false)
+            stepCar(car, input({ throttle: 1 }), track, DT)
+            expect(car.nitroOn).toBe(false)
+            expect(car.nitro).toBeLessThan(left)
+            const kept = car.nitro
+            stepCar(car, input({ throttle: 1 }), track, DT)
+            expect(car.nitro).toBe(kept)
+            expect(stepCar(car, nitro, track, DT).nitroStarted).toBe(true)
+        })
+
+        it('empties a full tank in its burn time, then stops', () => {
+            const car = createCar(track, 0)
+            car.nitro = 1
+            const steps = Math.round(NITRO_DURATION * PHYSICS_HZ)
+            for (let i = 0; i < steps - 1; i++) stepCar(car, nitro, track, DT)
+            expect(car.nitroOn).toBe(true)
+            for (let i = 0; i < 3; i++) stepCar(car, nitro, track, DT)
+            expect(car.nitro).toBe(0)
+            expect(car.nitroOn).toBe(false)
+            expect(surging(car)).toBe(false)
+        })
+
+        it('never lights from an empty tank', () => {
+            const car = createCar(track, 0)
+            expect(stepCar(car, nitro, track, DT).nitroStarted).toBe(false)
+            expect(car.nitroOn).toBe(false)
+        })
+
+        it('pulls harder than the engine alone', () => {
+            const plain = createCar(track, 0)
+            const lit = createCar(track, 0)
+            lit.nitro = 1
+            for (let i = 0; i < PHYSICS_HZ; i++) {
+                stepCar(plain, input({ throttle: 1 }), track, DT)
+                stepCar(lit, nitro, track, DT)
+            }
+            expect(lit.speed).toBeGreaterThan(plain.speed + 5)
+        })
     })
 })
 
