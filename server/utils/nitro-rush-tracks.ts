@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushGhosts, nitroRushLaps, nitroRushTrackVotes, nitroRushTracks, user } from '#server/database/schema'
 import { nrTrackSummaries, validGhost, type NrGhost, type NrTrackSummary } from '#server/utils/nitro-rush'
-import { compileCustomTrack, isPublishedTrackId, MAX_PUBLISHED_TRACKS, newPublishedTrackId, sameRoad, sanitizeCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, isPublishedTrackId, MAX_CUSTOM_TRACKS, newPublishedTrackId, sameRoad, sanitizeCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -106,7 +106,7 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         }
         if (!old) {
             const [row] = await tx.select({ count: sql<number>`count(*)::int` }).from(nitroRushTracks).where(eq(nitroRushTracks.authorId, userId))
-            if ((row?.count ?? 0) >= MAX_PUBLISHED_TRACKS) throw createError({ statusCode: 400, statusMessage: `You can publish up to ${MAX_PUBLISHED_TRACKS} tracks` })
+            if ((row?.count ?? 0) >= MAX_CUSTOM_TRACKS) throw createError({ statusCode: 400, statusMessage: `You can publish up to ${MAX_CUSTOM_TRACKS} tracks` })
         }
         // Only a road new to the board needs a lap; a rename above keeps the one it has.
         const driven = drivenLap(def, lap.ghost, lap.standing)

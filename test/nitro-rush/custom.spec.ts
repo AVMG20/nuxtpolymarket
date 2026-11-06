@@ -23,11 +23,12 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-100', 'looping-left', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-down', 'straight-60', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'left-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-up', 'straight-60', 'right-quarter-spiral-down', 'straight-60', 'left-quarter-spiral-down', 'straight-100', 'right-half-spiral-up', 'straight-200', 'left-half-spiral-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'corkscrew-left', 'straight-100', 'corkscrew-right', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'bank-left', 'corkscrew-left', 'bank-right', 'corkscrew-right', 'bank-flat', 'straight-100', 'right-banked', 'straight-100', 'left-banked', 'steep-up', 'steep-down', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'bank-left', 'straight-100', 'left-tight', 'bank-flat', 'straight-60', 'bank-right', 'right-wide', 'bank-flat', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'slope-up', 'straight-20', 'slope-up-steep', 'straight-20', 'slope-down', 'slope-down-steep', 'slope-flat', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'left-medium', 'straight-100', 'right-medium', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'left-eighth-tight', 'straight-100', 'right-eighth-tight', 'straight-100', 'left-eighth-wide', 'straight-100', 'right-eighth-wide', 'straight-100', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'boost-pad', 'boost-pad-left', 'boost-pad-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200'])
     ]
 
@@ -53,7 +54,7 @@ describe('custom track sections', () => {
 
 describe('banks', () => {
     it('has to level out before a course ends', () => {
-        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'finish', 'bank-flat', 'straight-200'])).error).toMatch(/level the road out before a finish line/)
+        expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'bank-left', 'finish', 'bank-flat', 'straight-200'])).error).toMatch(/a finish line needs flat, unbanked road: level the bank first/)
         expect(compileCustomTrack(sprint(['straight-20', 'start', 'straight-20', 'finish', 'straight-100', 'bank-left'])).error).toMatch(/level out before it ends/)
         const open = ['start', 'straight-60', 'bank-right', 'right-tight', 'right-tight', 'straight-60', 'straight-60', 'right-tight', 'right-tight'] as SectionId[]
         const { error } = compileCustomTrack(loop(open))
@@ -62,12 +63,11 @@ describe('banks', () => {
 
     it('refuses stunts and lines on a bank, naming what to level out for', () => {
         const on = (piece: SectionId) => compileCustomTrack(sprint(['straight-20', 'start', 'bank-left', 'straight-20', piece, 'straight-100', 'bank-flat', 'finish', 'straight-200'])).error
-        expect(on('jump')).toMatch(/before a jump/)
-        expect(on('looping-left')).toMatch(/before a looping/)
-        expect(on('corkscrew-right')).toMatch(/before a corkscrew/)
-        expect(on('checkpoint')).toMatch(/before a checkpoint/)
-        expect(walkCustomTrack(sprint(['bank-left', 'jump'])).notLevel).toBe('a jump')
-        expect(walkCustomTrack(sprint(['bank-left', 'bank-flat', 'jump'])).notLevel).toBeNull()
+        expect(on('jump')).toMatch(/a jump needs flat, unbanked road: level the bank first/)
+        expect(on('looping-left')).toMatch(/a looping needs flat/)
+        expect(on('checkpoint')).toMatch(/a checkpoint needs flat/)
+        expect(walkCustomTrack(sprint(['bank-left', 'jump'])).misplaced).toMatch(/a jump needs flat/)
+        expect(walkCustomTrack(sprint(['bank-left', 'bank-flat', 'jump'])).misplaced).toBeNull()
     })
 
     it('closes a loop through a bank, and tells a loop still banked to level', () => {

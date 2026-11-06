@@ -6,12 +6,14 @@ import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
-import { botInput, createCar, fireNitro, slipAngle, stepCar, type CarInput, type CarState } from './physics'
+import { botInput, createCar, fireNitro, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
 import { settleLap } from './record'
-import { carInput } from './input'
+import { refillAtLine } from './lap-refill'
+import { medalUpgrade, nextMedal, type MedalTimes } from './medals'
+import { carInput, withPad } from './input'
 import { createRushRenderer, RushPost } from './post'
 import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
@@ -71,12 +73,16 @@ export class NitroRushEngine {
     private accumulator = 0
     private timer: LapTimer | null = null
     private record: TrackRecord = { ...EMPTY_RECORD }
+    private medals: MedalTimes | null = null
+    /** The viewer's best here from any device, so a medal held already doesn't pop up again. */
+    private medalBest: number | null = null
     /** Newest first; replaced, never mutated, so each HUD frame holds a stable list. */
     private recentLaps: readonly LapEntry[] = []
     /** Runs started this session, for the sprint HUD. */
     private runs = 0
     private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false }
     private touch = false
+    private pad: CarInput | null = null
     private nitroReadyAnnounced = false
     private wrongWayTime = 0
 
@@ -135,6 +141,11 @@ export class NitroRushEngine {
         this.ghosts.setKept(decodeGhost(r.ghost), !!r.ghostStanding)
     }
 
+    setMedals(times: MedalTimes | null, best: number | null) {
+        this.medals = times
+        this.medalBest = best
+    }
+
     /** Shows or hides the kept lap's ghost; other ghost sources are not affected. */
     setBestGhost(on: boolean) {
         this.ghosts.setShown(on)
@@ -161,6 +172,8 @@ export class NitroRushEngine {
         this.sizeWorld()
         prewarm(this.renderer, this.scene, this.cam.camera, this.post.sceneTarget)
         this.record = { ...EMPTY_RECORD }
+        this.medals = null
+        this.medalBest = null
         this.ghosts.setKept(null, false)
         this.toMenu()
         this.lineUpDemo()
@@ -180,6 +193,11 @@ export class NitroRushEngine {
         this.controls[c] = down
     }
 
+    /** What the controller holds this frame, with a smooth wheel and trigger the keys can't give. */
+    setPad(pad: CarInput | null) {
+        this.pad = pad
+    }
+
     /** Touch play holds the gas for the player. */
     setTouch(touch: boolean) {
         this.touch = touch
@@ -187,6 +205,7 @@ export class NitroRushEngine {
 
     releaseControls() {
         for (const k of Object.keys(this.controls) as Control[]) this.controls[k] = false
+        this.pad = null
     }
 
     nitro() {
@@ -401,11 +420,11 @@ export class NitroRushEngine {
         this.lampLight.color.copy(this.world.lampColor)
         this.lampLight.intensity = 160 * Math.max(0, 1 - lampDist / 16)
 
-        this.fx.update(dt, this.car.group.position, s.nitroTime > 0)
+        this.fx.update(dt, this.car.group.position, surging(s))
     }
 
     private playerInput() {
-        return carInput(this.controls, this.touch, this.state.drifting)
+        return withPad(carInput(this.controls, this.touch, this.state.drifting), this.pad)
     }
 
     private stepInput(): CarInput {
@@ -432,6 +451,9 @@ export class NitroRushEngine {
                 this.events.record(this.track.def.id, record)
             }
             this.feedback.lap(label, e.time, rec.bestLap, isBest)
+            this.awardMedal(e.time, rec.bestLap)
+            // The lap and medal popups already fill the line, so the meter alone shows the refill; a burn still running announces it when it ends.
+            if (refillAtLine(this.state, this.track.closed) && this.state.nitroTime <= 0) this.nitroReadyAnnounced = true
             if (!this.track.closed) {
                 this.phase = 'finished'
                 this.finishedAt = this.time
@@ -439,6 +461,14 @@ export class NitroRushEngine {
                 this.events.phase(this.phase)
             }
         }
+    }
+
+    /** A popup when the lap earns a better medal than the player held. */
+    private awardMedal(time: number, localBest: number | null) {
+        const best = localBest === null ? this.medalBest : Math.min(localBest, this.medalBest ?? Infinity)
+        const won = medalUpgrade(time, best, this.medals)
+        this.medalBest = Math.min(time, best ?? Infinity)
+        if (won) this.feedback.medal(won, nextMedal(won, this.medals))
     }
 
     /** The lap clock as the car is drawn, up to a step behind the timer; past a sprint's finish it runs on so a ghost behind can still cross. */
@@ -455,8 +485,8 @@ export class NitroRushEngine {
     private render(dt: number) {
         const s = this.state
         const racing = this.phase === 'racing'
-        const nitro = s.nitroTime > 0
-        this.grade.easeNitro(dt, nitro)
+        const surge = surging(s)
+        this.grade.easeNitro(dt, surge)
         const nitroK = this.grade.nitroK
         const speedK = THREE.MathUtils.clamp(Math.abs(s.speed) / ENGINE_TOP_SPEED, 0, 1)
 
@@ -466,7 +496,7 @@ export class NitroRushEngine {
         this.car.place(m.pos, m.quat)
         const { x, z, along, lateral } = m.drawn
         const y = m.pos.y
-        this.car.animate(dt, s, m.latAcc, m.longAcc, racing && this.controls.throttle)
+        this.car.animate(dt, s, m.latAcc, m.longAcc, racing && this.playerInput().throttle > 0)
 
         this.cam.update(dt, this.time, {
             x, y, z, along, lateral, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK, latAcc: m.latAcc,
@@ -475,7 +505,7 @@ export class NitroRushEngine {
         const blend = this.cam.blend
         this.fx.frame(dt, {
             camera: this.cam.camera, height: this.height, pixelRatio: this.resolution.ratio, yaw: this.cam.yaw, blend,
-            roadY: y, speed: s.speed, speedK, nitroK, nitro, tails: this.car.tailLights(this.tails)
+            roadY: y, speed: s.speed, speedK, nitroK, nitro: surge, tails: this.car.tailLights(this.tails)
         })
 
         this.ghosts.draw({
@@ -490,10 +520,10 @@ export class NitroRushEngine {
         this.post.render()
 
         const live = this.phase !== 'attract'
-        this.audio.engine(speedK, nitro, live)
+        this.audio.engine(speedK, surge, live)
         this.audio.setIntensity(racing ? 0.25 + speedK * 0.75 : 0)
         // Nothing shows a HUD on the menu, and each one re-renders the game's root component.
-        if (live) this.emitHud(nitro)
+        if (live) this.emitHud(s.nitroTime > 0)
     }
 
     private emitHud(nitro: boolean) {

@@ -18,6 +18,7 @@ const props = defineProps<{
     boardLoading: boolean
     paint: PaintId
     isTouch: boolean
+    hasPad: boolean
     /** This browser's bests, by track. */
     records: Record<string, TrackRecord>
     /** The leaderboard's record and the player's own best, by track. */
@@ -43,6 +44,9 @@ const TABS: readonly { id: Tab, label: string }[] = [
 const tab = ref<Tab>(findTrack(props.trackId) ? 'tracks' : props.communityTracks.some(c => c.track.id === props.trackId) ? 'community' : 'mine')
 const paintLabel = computed(() => findPaint(props.paint).label)
 const best = (id: string) => bestLap(props.records[id], props.summaries[id])
+const medals = useNitroRushMedals()
+/** Only courses the viewer has a time on are ever worked out. */
+const medalOn = (id: string, def: TrackDef) => medals.medalOf(def, best(id))
 /** Publishing a road needs a lap driven on it in this browser, ghost and all. */
 const hasLap = (id: string) => !!props.records[id]?.ghost
 /** Its best lap ran past what a ghost holds, so no lap driven so far can publish it. */
@@ -83,13 +87,14 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
           </button>
         </div>
         <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
-          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" @select="$emit('select', $event)" />
-          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" @select="$emit('select', $event)" />
+          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
           <NitroRushMyTracks
             v-else
             :track-id="trackId"
             :tracks="customTracks"
             :summaries="summaries"
+            :medal-on="medalOn"
             :busy="busy"
             :has-lap="hasLap"
             :lap-too-long="lapTooLong"
@@ -136,7 +141,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
           <UIcon name="i-lucide-flag" class="size-6" />
           START
         </button>
-        <p v-if="!isTouch" class="text-center text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">Enter to start · Esc for the title</p>
+        <p v-if="hasPad || !isTouch" class="text-center text-[11px] font-semibold text-white/50 [font-family:system-ui,sans-serif]">{{ hasPad ? 'D-pad: browse · A: pick · Start: race · B: back' : 'Enter to start · Esc for the title' }}</p>
       </div>
     </div>
   </div>

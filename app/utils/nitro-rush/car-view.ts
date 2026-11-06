@@ -3,7 +3,7 @@ import { WHEEL_R } from './car-body'
 import { modelShared } from './car-kit'
 import { buildPlayerCar, type PlayerCar } from './models'
 import { marksCar } from './stencil'
-import type { CarState } from './physics'
+import { surging, type CarState } from './physics'
 import type { CarPose } from './types'
 
 /** The player's car model, posed on the road and animated from the physics state. */
@@ -60,7 +60,7 @@ export class CarView {
 
     /** Body lean, steering, spinning wheels and exhaust flames for one frame. */
     animate(dt: number, s: CarState, latAcc: number, longAcc: number, throttle: boolean) {
-        const nitro = s.nitroTime > 0
+        const nitro = surging(s)
         // The body leans out of bends and squats or dives with the throttle and brakes.
         this.roll += (THREE.MathUtils.clamp(-latAcc * 0.0035, -0.085, 0.085) - this.roll) * Math.min(1, dt * 10)
         this.pitch += (THREE.MathUtils.clamp(longAcc * 0.0022, -0.05, 0.04) - this.pitch) * Math.min(1, dt * 8)

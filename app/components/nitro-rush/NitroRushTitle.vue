@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ isTouch: boolean }>()
+defineProps<{ isTouch: boolean, hasPad: boolean }>()
 defineEmits<{ drive: [] }>()
 </script>
 
@@ -13,8 +13,11 @@ defineEmits<{ drive: [] }>()
       <UIcon name="i-lucide-play" class="size-6" />
       DRIVE
     </button>
-    <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75" :class="isTouch ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
-      <template v-if="isTouch">
+    <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-semibold text-white/75" :class="isTouch && !hasPad ? 'sm:grid-cols-4' : 'sm:grid-cols-3'">
+      <template v-if="hasPad">
+        <span>RT gas</span><span>LT brake</span><span>Stick: steer</span><span>Hold A + steer: drift</span><span>X nitro</span><span>View: restart</span>
+      </template>
+      <template v-else-if="isTouch">
         <span>◀ ▶ steer</span><span>Gas is automatic</span><span>Hold brake + steer: drift</span><span>Tap bar: nitro</span>
       </template>
       <template v-else>

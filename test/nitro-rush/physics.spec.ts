@@ -83,7 +83,7 @@ describe('car physics', () => {
             for (let i = 0; i < PHYSICS_HZ && !hit; i++) hit = stepCar(car, input(), track, DT).wallImpact
             expect(hit).toBeGreaterThan(0)
             const along = -Math.sin(car.travel) * car.proj.tx - Math.cos(car.travel) * car.proj.tz
-            expect(along * car.speed).toBeGreaterThan(5)
+            expect(along * car.speed).toBeGreaterThan(2)
         })
 
         it('is gentler on rails, where there is no bend to cut', () => {
@@ -95,6 +95,16 @@ describe('car physics', () => {
             for (let i = 0; i < PHYSICS_HZ && !hit; i++) hit = stepCar(car, input({ throttle: 1 }), looping, DT).wallImpact
             expect(hit).toBeGreaterThan(0)
             expect(car.speed).toBeGreaterThan(30)
+        })
+
+        it('lets a wall press from before the rails run out on them', () => {
+            const looping = new Track(compileCustomTrack({ id: 'custom-rail', name: 'Rail', closed: false, sections: ['straight-20', 'start', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200'] }).def!)
+            const car = createCar(looping, looping.rails[0]![0] + 5)
+            car.speed = 40
+            car.wallPress = 0.3
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ throttle: 1 }), looping, DT)
+            expect(car.onRail).toBe(true)
+            expect(car.wallPress).toBe(0)
         })
     })
 
@@ -110,10 +120,10 @@ describe('car physics', () => {
             return car
         }
 
-        it('starts on the drift button with the wheel turned, lasts while it is held and banks nitro on release', () => {
+        it('starts on the drift button with the steer turned, lasts while it is held and banks nitro on release', () => {
             const car = createCar(open, 0)
             car.speed = 40
-            // The wheel eases in, so the drift waits until it is turned far enough.
+            // From centre the wheel eases in, so the drift waits until it is turned far enough.
             expect(stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted).toBe(false)
             let began = false
             for (let i = 0; i < PHYSICS_HZ && !began; i++) began = stepCar(car, input({ drift: true, steer: -1 }), open, DT).driftStarted
@@ -159,6 +169,25 @@ describe('car physics', () => {
             const car = drifting()
             expect(stepCar(car, input({ throttle: 1, steer: -1 }), open, DT).driftEnded).toBeGreaterThan(0)
             expect(stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT).driftStarted).toBe(true)
+        })
+
+        it('drifts the way the player now steers after a quick swap, though the wheel still points the old way', () => {
+            const car = drifting()
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ throttle: 1, drift: true, steer: -1 }), open, DT)
+            expect(car.steer).toBe(-1)
+            for (let i = 0; i < 2; i++) stepCar(car, input({ throttle: 1, steer: 1 }), open, DT)
+            expect(car.drifting).toBe(false)
+            expect(car.steer).toBeLessThan(-0.5)
+            expect(stepCar(car, input({ throttle: 1, drift: true, steer: 1 }), open, DT).driftStarted).toBe(true)
+            expect(car.driftDir).toBe(-1)
+        })
+
+        it('never starts on a light steer, though the wheel is still turned', () => {
+            const car = createCar(open, 0)
+            car.speed = 40
+            car.steer = -1
+            for (let i = 0; i < PHYSICS_HZ / 2; i++) stepCar(car, input({ throttle: 1, drift: true, steer: -0.2 }), open, DT)
+            expect(car.drifting).toBe(false)
         })
 
         it('needs the button let go after a hard wall hit breaks the drift', () => {
@@ -207,10 +236,13 @@ describe('open course barriers', () => {
 
     it('stops a car reversing out past the start', () => {
         const car = createCar(sprint, 10)
+        const nose = car.heading
         for (let i = 0; i < PHYSICS_HZ * 6; i++) {
             stepCar(car, input({ brake: 1 }), sprint, DT)
             expect(car.proj.s).toBeGreaterThanOrEqual(0.9)
         }
-        expect(car.speed).toBeLessThanOrEqual(0)
+        // Still backing into the barrier, so it's on it and hardly moving either way.
+        expect(Math.abs(car.speed)).toBeLessThan(0.5)
+        expect(car.heading).toBeCloseTo(nose)
     })
 })

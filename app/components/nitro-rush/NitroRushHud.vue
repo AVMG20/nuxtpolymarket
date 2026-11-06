@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatLapTime, lapTimeOrBlank } from '#shared/utils/nitro-rush/timing'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
+import type { Medal, MedalTarget } from '~/utils/nitro-rush/medals'
 import type { HudState } from '~/utils/nitro-rush/types'
 
 const props = defineProps<{
@@ -10,7 +11,12 @@ const props = defineProps<{
     rank: { rank: number, entries: number } | null
     /** Other players driving this course right now, shown as live ghosts. */
     racers?: number
+    /** The medal the player's best holds here. */
+    medal: Medal | null
+    /** The next medal up and its time; null at gold, or while the times aren't known. */
+    target: MedalTarget | null
     isTouch: boolean
+    hasPad: boolean
 }>()
 defineEmits<{ pause: [], nitro: [] }>()
 
@@ -34,6 +40,12 @@ const recent = computed(() => props.hud.recentLaps.map((l) => {
         <div class="nr-laps-row nr-laps-best">
           <span class="nr-label">BEST</span>
           <NitroRushDigits class="nr-mono nr-best" :text="lapTimeOrBlank(hud.bestLap)" />
+          <span class="flex self-center justify-self-start"><NitroRushMedal :medal="medal" /></span>
+        </div>
+        <div v-if="target" class="nr-laps-row nr-laps-target">
+          <span class="nr-label" :class="`medal-${target.medal}`">NEXT</span>
+          <NitroRushDigits class="nr-mono" :text="formatLapTime(target.time)" />
+          <span />
         </div>
         <ol v-if="recent.length" class="nr-laps-recent">
           <li v-for="l in recent" :key="l.lap" class="nr-laps-row">
@@ -66,7 +78,7 @@ const recent = computed(() => props.hud.recentLaps.map((l) => {
           <div class="nr-nitro-fill" :style="{ width: `${Math.min(1, hud.nitro) * 100}%` }" />
           <span class="nr-nitro-text">
             <UIcon name="i-lucide-zap" class="size-3.5" />
-            {{ hud.nitroActive ? 'NITRO' : nitroFull ? (isTouch ? 'TAP FOR NITRO' : 'SHIFT FOR NITRO') : 'DRIFT TO CHARGE' }}
+            {{ hud.nitroActive ? 'NITRO' : nitroFull ? (hasPad ? 'X FOR NITRO' : isTouch ? 'TAP FOR NITRO' : 'SHIFT FOR NITRO') : 'DRIFT TO CHARGE' }}
           </span>
         </button>
       </div>

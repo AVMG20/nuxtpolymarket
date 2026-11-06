@@ -14,7 +14,7 @@ describe('slope state', () => {
 
     it('asks for level road before a line or stunt, and before the course ends', () => {
         for (const piece of ['jump', 'looping-left', 'corkscrew-right', 'checkpoint', 'finish'] as SectionId[]) {
-            expect(compileCustomTrack(sprint(['slope-up', 'straight-20', piece])).error, piece).toMatch(/level the road out/)
+            expect(compileCustomTrack(sprint(['slope-up', 'straight-20', piece])).error, piece).toMatch(/level the slope first/)
         }
         expect(compileCustomTrack(course(false, ['straight-20', 'start', 'straight-60', 'finish', 'straight-200', 'slope-up'])).error).toMatch(/level out/)
         expect(loopGap(walkCustomTrack(course(true, ['start', 'slope-up']))).grade).toBe(0.1)

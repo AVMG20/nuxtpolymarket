@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Medal } from '~/utils/nitro-rush/medals'
 import { lapTimeOrBlank } from '#shared/utils/nitro-rush/timing'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import type { NrTrackVotes } from '#server/utils/nitro-rush-tracks'
@@ -15,13 +16,18 @@ defineProps<{
     author?: string
     /** Its votes, for another player's course. */
     votes?: NrTrackVotes
+    /** The medal the viewer's best holds on it. */
+    medal?: Medal | null
 }>()
 defineEmits<{ select: [] }>()
 </script>
 
 <template>
   <button class="nr-track" :class="{ 'is-active': active }" :aria-pressed="active" @click="$emit('select')">
-    <NitroRushTrackPreview class="nr-track-preview" :points="track.points" :heights="track.heights" :closed="track.closed !== false" :color="active ? '#ff2bd6' : '#3df2ff'" />
+    <span class="nr-track-thumb">
+      <NitroRushTrackPreview class="nr-track-preview" :points="track.points" :heights="track.heights" :closed="track.closed !== false" :color="active ? '#ff2bd6' : '#3df2ff'" />
+      <NitroRushMedal class="nr-track-medal" :medal="medal ?? null" />
+    </span>
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline justify-between gap-2">
         <span class="nr-track-name">{{ track.name }}</span>

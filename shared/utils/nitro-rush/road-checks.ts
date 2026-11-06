@@ -1,4 +1,4 @@
-import type { LayoutWalk } from './layout'
+import type { LayoutWalk, RoadState, TrackPiece } from './layout'
 
 /** What rules a walked road in or out as a course, for `buildTrack` and for anything asking about a road still being laid. */
 
@@ -10,6 +10,25 @@ export const MIN_CLEARANCE = 6
 
 type RoadPoints = Pick<LayoutWalk, 'pts' | 'ys' | 'lifts'>
 
+/** What each piece that a bank or slope can't carry is called: a level arch or a flight doesn't fit a tilted road. */
+const NEEDS_LEVEL_ROAD: Partial<Record<TrackPiece['type'], string>> = {
+    jump: 'a jump', looping: 'a looping', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint'
+}
+
+/** Why `piece` can't be laid on road in this state, in the builder's words; null when it can. */
+export function placementFault(piece: TrackPiece, { bank, grade }: RoadState): string | null {
+    if (piece.type === 'corkscrew') {
+        if (grade) return 'a corkscrew needs road with no slope: level the slope first'
+        // Its roll carries on from the bank, so only a bank leaning its way leads into it.
+        const leansItsWay = piece.turn === 'right' ? bank > 0 : bank < 0
+        return leansItsWay ? null : `a corkscrew ${piece.turn} starts and ends on a ${piece.turn} bank: bank the road ${piece.turn} first`
+    }
+    const name = NEEDS_LEVEL_ROAD[piece.type]
+    if (!name || !(bank || grade)) return null
+    const tilted = [bank && 'the bank', grade && 'the slope'].filter(Boolean).join(' and ')
+    return `${name} needs flat, unbanked road: level ${tilted} first`
+}
+
 /** How near two stretches count as the same ground, and how many points apart they must be not to be one road bending (a hairpin). */
 export function clearanceSpan(wallOffset: number) {
     // Deck edge to deck edge, with the wall's footprint on both.
@@ -18,8 +37,8 @@ export function clearanceSpan(wallOffset: number) {
 }
 
 /** What's wrong with a road's pieces and lines, however it goes on from here. */
-export function layoutFault({ notLevel, lines }: Pick<LayoutWalk, 'notLevel' | 'lines'>, closed: boolean): string | null {
-    if (notLevel) return `level the road out before ${notLevel}`
+export function layoutFault({ misplaced, lines }: Pick<LayoutWalk, 'misplaced' | 'lines'>, closed: boolean): string | null {
+    if (misplaced) return misplaced
     const count = (type: string) => lines.filter(l => l.type === type).length
     if (count('start') !== 1) return 'needs exactly one start block'
     if (closed && count('finish') > 0) return 'a loop has no finish block; the start line ends each lap'

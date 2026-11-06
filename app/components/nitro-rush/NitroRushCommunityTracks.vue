@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { sortCommunity, type CommunitySort } from '~/utils/nitro-rush/community'
 import type { CommunityTrackEntry } from '~/utils/nitro-rush/types'
+import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
 /** Other players' published courses, newest or most popular first; the info panel takes the votes. */
 const props = defineProps<{
     trackId: string
     tracks: CommunityTrackEntry[]
     summaries: Record<string, NrTrackSummary>
+    /** The medal the viewer's best holds on a course. */
+    medalOn: (id: string, def: TrackDef) => Medal | null
 }>()
 defineEmits<{ select: [id: string] }>()
 
@@ -51,6 +55,7 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
         :active="c.track.id === trackId"
         has-board
         :record="summaries[c.track.id]?.record ?? null"
+        :medal="medalOn(c.track.id, c.def)"
         :author="c.track.author"
         :votes="c.track.votes"
         @select="$emit('select', c.track.id)"

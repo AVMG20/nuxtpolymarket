@@ -46,12 +46,17 @@ export const DRIFT_SLIP_RESPONSE = 4.5
 /** Speed scrubbed per second at a full sideways slide; scaled by sin(slip). */
 export const DRIFT_SCRUB = 22
 
-/** How much of the speed into a wall bounces back out of it. */
-export const WALL_RESTITUTION = 0.25
+/** How much of the speed into a wall bounces back out of it: a thud, as a real bounce throws the car back across the road. */
+export const WALL_RESTITUTION = 0.05
 /** Speed lost along the wall per unit of impact speed: high enough that turning off a wall loses to braking for the bend (scripts/nitro-rush-walls.ts). */
 export const WALL_FRICTION = 2
+/** Share of its speed the car keeps on first touching a wall, however lightly: a hit is otherwise a free brake and a free turn, and only this low does a clean line always win (scripts/nitro-rush-walls.ts). */
+export const WALL_TOUCH_KEEP = 0.4
 /** Share of its speed along the wall a hit always leaves, so a medium crash doesn't leave the car crawling straight across the road. */
 export const WALL_KEEP_MIN = 0.2
+/** Below this speed, gas and wheel pivot a car pressed on a wall, at this many radians per second. */
+export const WALL_PIVOT_SPEED = 6
+export const WALL_PIVOT_RATE = 2.5
 /** Impacts above this (m/s into the wall) break a drift. */
 export const WALL_HARD_IMPACT = 7
 /** Share of its speed the car sheds per second while rubbing a side wall. */
@@ -64,6 +69,9 @@ export const WALL_PRESS_HOLD = 0.3
 export const NITRO_DURATION = 3
 export const NITRO_ACCEL = 16
 export const NITRO_TOP_SPEED_MULT = 1.2
+/** Speed a boost pad adds on the way over it, and how long its surge lasts after the car leaves it; the surge is nitro's, and doesn't touch the tank. */
+export const BOOST_KICK = 12
+export const BOOST_DURATION = 1.5
 /** Nitro earned per second of drift, banked when the drift ends. */
 export const NITRO_PER_DRIFT_SECOND = 0.16
 

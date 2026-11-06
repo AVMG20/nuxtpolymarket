@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
 /** The game's own courses, by group. */
 defineProps<{
     trackId: string
     summaries: Record<string, NrTrackSummary>
+    /** The medal the viewer's best holds on a course. */
+    medalOn: (id: string, def: TrackDef) => Medal | null
 }>()
 defineEmits<{ select: [id: string] }>()
 
@@ -29,6 +33,7 @@ const trackGroups = TRACK_GROUPS
           :active="t.id === trackId"
           has-board
           :record="summaries[t.id]?.record ?? null"
+          :medal="medalOn(t.id, t)"
           @select="$emit('select', t.id)"
         />
       </div>

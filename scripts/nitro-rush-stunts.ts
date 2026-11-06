@@ -58,7 +58,7 @@ const runIn: SectionId[] = ['straight-20', 'start']
 const runOut: SectionId[] = ['finish', 'straight-200']
 drive('looping', [...runIn, 'straight-200', 'straight-200', 'looping-right', 'straight-100', ...runOut])
 drive('looping cold', [...runIn, 'looping-right', 'straight-100', ...runOut])
-drive('corkscrew', [...runIn, 'straight-200', 'corkscrew-left', 'straight-100', ...runOut])
+drive('corkscrew', [...runIn, 'straight-200', 'bank-left', 'corkscrew-left', 'bank-flat', 'straight-100', ...runOut])
 drive('jumps', [...runIn, 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-200', ...runOut])
-drive('jump cold', [...runIn, 'straight-50', 'big-jump', 'straight-100', ...runOut])
+drive('jump cold', [...runIn, 'straight-60', 'big-jump', 'straight-100', ...runOut])
 drive('banks', [...runIn, 'straight-100', 'bank-right', 'straight-100', 'right-wide', 'bank-flat', 'straight-100', 'bank-left', 'left-wide', 'bank-flat', 'straight-100', ...runOut])

@@ -1,13 +1,16 @@
 import * as THREE from 'three'
 import type { Reflector } from 'three/addons/objects/Reflector.js'
 import type { Theme } from './config'
-import { concreteTexture } from './textures'
+import { boostPadTexture, concreteTexture } from './textures'
 import { buildCity } from './city'
-import { buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
+import { addBoostPads, boostPadMaterial, buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
 import { buildSky } from './world-sky'
 import { buildBillboards, buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
 import { worldKit } from './world-kit'
 import type { Track } from '#shared/utils/nitro-rush/track'
+
+/** Tiles per second a boost pad's chevrons run along the road. */
+const BOOST_SCROLL = 2.5
 
 /**
  * The circuit and everything around it, built once from the track's centreline by the part builders.
@@ -30,6 +33,7 @@ export class World {
     private readonly startLights: THREE.MeshStandardMaterial[]
     private readonly wetUniforms: WetUniforms
     private readonly hidden: THREE.Object3D[] = []
+    private readonly boostPads: THREE.Texture
     private time = 0
 
     constructor(scene: THREE.Scene, track: Track, reflectionSize: { w: number, h: number }) {
@@ -47,6 +51,8 @@ export class World {
         this.reflector = road.reflector
         this.wetUniforms = road.wetUniforms
         buildTrackside(kit)
+        this.boostPads = own(boostPadTexture())
+        addBoostPads(kit, own(boostPadMaterial(this.boostPads)))
         const concrete = own(concreteTexture(150))
         concrete.repeat.set(0.5, 0.5)
         buildBarriers(kit, concrete)
@@ -140,6 +146,7 @@ export class World {
         this.sky.uniforms.uTime!.value = this.time
         this.skyGroup.position.set(camera.position.x, 0, camera.position.z)
         this.beacons.emissiveIntensity = Math.sin(this.time * 3) > 0.6 ? 5 : 0.3
+        this.boostPads.offset.y = -this.time * BOOST_SCROLL % 1
     }
 
     dispose() {

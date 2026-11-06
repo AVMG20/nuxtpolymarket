@@ -6,12 +6,13 @@ import { nitroRushTracks } from '#server/database/schema'
 import { nrGhost, nrLeaderboard, nrRecordGhost, saveNrGhost, submitNrLap } from '#server/utils/nitro-rush'
 import { nrPublishedTracks, nrTrackDef, publishNrTrack, unpublishNrTrack } from '#server/utils/nitro-rush-tracks'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount } from '#shared/utils/nitro-rush/ghost'
-import { MAX_PUBLISHED_TRACKS, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { MAX_CUSTOM_TRACKS, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { LONG_RECTANGLE, publishLap, RECTANGLE } from './bot-lap'
 
 const tag = Date.now().toString(36)
 const A = `nrp-a-${tag}`
 const B = `nrp-b-${tag}`
+const C = `nrp-c-${tag}`
 
 const course = (id: string, sections = RECTANGLE, name = 'Neon Ring'): CustomTrack => ({ id: `custom-${id}-${tag}`, name, closed: true, sections })
 const LAPS = new Map([[RECTANGLE, publishLap(true, RECTANGLE)], [LONG_RECTANGLE, publishLap(true, LONG_RECTANGLE)]])
@@ -29,10 +30,12 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
     beforeAll(async () => {
         await seedUser(A)
         await seedUser(B)
+        await seedUser(C)
     })
     afterAll(async () => {
         await cleanupUser(A)
         await cleanupUser(B)
+        await cleanupUser(C)
     })
 
     it('publishes a course that others can race, and refuses one that isn\'t finished or named', async () => {
@@ -108,18 +111,19 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
     })
 
     it('takes a track down with its times, and only its author can', async () => {
-        const id = await publish(A, course('gone'))
+        // Its own author, since the tests above leave A at the cap.
+        const id = await publish(C, course('gone'))
         await submitNrLap(B, id, 30_000)
         await expect(unpublishNrTrack(B, course('gone').id)).rejects.toMatchObject({ statusCode: 404 })
-        await unpublishNrTrack(A, course('gone').id)
+        await unpublishNrTrack(C, course('gone').id)
         expect(await nrTrackDef(id)).toBeNull()
         expect((await nrPublishedTracks(B)).community.some(t => t.id === id)).toBe(false)
-        await expect(unpublishNrTrack(A, course('gone').id)).rejects.toMatchObject({ statusCode: 404 })
+        await expect(unpublishNrTrack(C, course('gone').id)).rejects.toMatchObject({ statusCode: 404 })
     })
 
     it('caps how many tracks one player may publish', async () => {
         const have = (await nrPublishedTracks(B)).mine.length
-        await Promise.all(Array.from({ length: MAX_PUBLISHED_TRACKS - have }, (_, i) => publish(B, course(`cap${i}`))))
+        await Promise.all(Array.from({ length: MAX_CUSTOM_TRACKS - have }, (_, i) => publish(B, course(`cap${i}`))))
         await expect(publish(B, course('one-more'))).rejects.toMatchObject({ statusCode: 400 })
         expect(await publish(B, course('cap0', RECTANGLE, 'Still editable'))).toBeTruthy()
     })

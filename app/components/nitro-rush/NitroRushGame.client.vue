@@ -2,7 +2,8 @@
 import { NitroAudio } from '~/utils/nitro-rush/audio'
 import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
-import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
+import { medalFor, nextMedal } from '~/utils/nitro-rush/medals'
+import { bestLap } from '~/utils/nitro-rush/record'
 import { clearRetiredStorage, readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
 import { EMPTY_RECORD, type Control, type GhostToggles, type HudState, type Phase, type Popup, type TrackRecord } from '~/utils/nitro-rush/types'
 import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
@@ -57,6 +58,7 @@ const ownTracks = useNitroRushOwnTrackActions({
     ownEntry: community.ownEntry,
     publishTrack: community.publish,
     unpublishTrack: community.unpublish,
+    saveTrack: custom.save,
     removeTrack: custom.remove,
     records,
     forgetRecord,
@@ -75,6 +77,16 @@ const inRace = computed(() => phase.value === 'racing' || phase.value === 'count
 /** On the clock, or between runs of a sprint: everything but the menu. */
 const inSession = computed(() => inRace.value || phase.value === 'finished')
 const rank = computed(() => board.value?.me ? { rank: board.value.me.rank, entries: board.value.entries } : null)
+
+const medals = useNitroRushMedals()
+watch(inRace, holdMedalWork, { immediate: true })
+onUnmounted(() => holdMedalWork(false))
+/** The best lap here from this browser or the server, which may hold a faster one from another device. */
+const viewerBest = computed(() => bestLap(records.value[trackId.value], summaries.value[trackId.value]))
+const trackMedals = computed(() => medals.times(trackDef.value) ?? null)
+const heldMedal = computed(() => medalFor(viewerBest.value, trackMedals.value))
+const medalTarget = computed(() => nextMedal(heldMedal.value, trackMedals.value))
+watch(viewerBest, b => engine?.setMedals(trackMedals.value, b))
 
 function pushPopup(p: Popup) {
     const id = ++popupId
@@ -121,6 +133,8 @@ function syncTrack(def: TrackDef) {
     trackId.value = def.id
     trackName.value = def.name
     engine?.setRecord(record.value)
+    // Worked out now, while the menu is up, so a lap never waits on the bot.
+    engine?.setMedals(medals.ensure(def), viewerBest.value)
 }
 
 /** Puts a course on the engine, also a rebuilt version of the one already on it. */
@@ -286,50 +300,23 @@ function nitro() {
     engine?.nitro()
 }
 
-function onKeyDown(e: KeyboardEvent) {
-    markActive()
-    if (isTyping(e)) return
-    const menu = phase.value === 'attract'
-    // The builder handles its own keys.
-    if (menu && screen.value === 'builder') return
-    if (e.code === 'Escape' && menu && screen.value === 'select') {
-        backToTitle()
-        return
-    }
-    if (e.code === 'Escape' || e.code === 'KeyP') {
-        togglePause()
-        return
-    }
-    const confirm = e.code === 'Enter' || e.code === 'Space'
-    // On the menus a focused button (a track card, a swatch) handles the key itself.
-    if (confirm && menu && e.target instanceof HTMLElement && e.target.closest('button')) return
-    if (confirm && (menu || (phase.value === 'finished' && !paused.value))) {
-        e.preventDefault()
-        if (e.repeat) return
-        if (menu && screen.value === 'splash') openSelect()
-        else play()
-        return
-    }
-    if (e.code === 'KeyR' && !e.repeat && inSession.value) {
-        play()
-        return
-    }
-    if (paused.value) return
-    if (NITRO_KEYS.has(e.code)) {
-        e.preventDefault()
-        if (!e.repeat) nitro()
-        return
-    }
-    const c = CONTROL_KEYS[e.code]
-    if (!c) return
-    e.preventDefault()
-    engine?.setControl(c, true)
-}
-
-function onKeyUp(e: KeyboardEvent) {
-    const c = CONTROL_KEYS[e.code]
-    if (c) engine?.setControl(c, false)
-}
+const { hasPad, padFocus } = useNitroRushControls({
+    engine: () => engine,
+    root,
+    phase,
+    screen,
+    paused,
+    inSession,
+    onActive: markActive,
+    onPadUsed: () => {
+        isTouch.value = false
+    },
+    openSelect,
+    backToTitle,
+    play,
+    togglePause,
+    nitro
+})
 
 // A key let go while the window is unfocused never fires keyup.
 function onBlur() {
@@ -394,8 +381,6 @@ onMounted(() => {
         if (def && phase.value === 'attract') loadTrack(def)
     })
 
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onBlur)
     document.addEventListener('visibilitychange', onVisibility)
     document.addEventListener('fullscreenchange', onFullscreen)
@@ -404,8 +389,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-    window.removeEventListener('keydown', onKeyDown)
-    window.removeEventListener('keyup', onKeyUp)
     window.removeEventListener('blur', onBlur)
     document.removeEventListener('visibilitychange', onVisibility)
     document.removeEventListener('fullscreenchange', onFullscreen)
@@ -422,16 +405,16 @@ onBeforeUnmount(() => {
     ref="root"
     tabindex="0"
     class="nr-root relative h-full w-full select-none overflow-hidden rounded-xl outline-none"
-    :class="{ 'nr-nitro': hud?.nitroActive }"
+    :class="{ 'nr-nitro': hud?.nitroActive, 'nr-pad-focus': padFocus }"
   >
     <div ref="stage" class="absolute inset-0" />
 
-    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :is-touch="isTouch" @pause="togglePause()" @nitro="nitro" />
+    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :medal="heldMedal" :target="medalTarget" :is-touch="isTouch" :has-pad="hasPad" :inert="paused" @pause="togglePause()" @nitro="nitro" />
     <NitroRushTouchPads v-if="isTouch && inSession && !paused" @control="touchControl" />
     <NitroRushPopups :popups="popups" />
 
     <Transition name="nr-fade">
-      <NitroRushTitle v-if="phase === 'attract' && screen === 'splash'" :is-touch="isTouch" @drive="openSelect" />
+      <NitroRushTitle v-if="phase === 'attract' && screen === 'splash'" :is-touch="isTouch" :has-pad="hasPad" @drive="openSelect" />
     </Transition>
     <Transition name="nr-fade">
       <NitroRushSelect
@@ -443,6 +426,7 @@ onBeforeUnmount(() => {
         :board-loading="boardLoading"
         :paint="paint"
         :is-touch="isTouch"
+        :has-pad="hasPad"
         :records="records"
         :summaries="summaries"
         :custom-tracks="ownEntries"

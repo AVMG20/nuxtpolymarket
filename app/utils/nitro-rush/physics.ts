@@ -1,8 +1,8 @@
 import {
-    AERO_DRAG, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
+    AERO_DRAG, BOOST_DURATION, BOOST_KICK, BRAKE_DECEL, CAR_HALF_WIDTH, DRIFT_ALIGN, DRIFT_LATERAL, DRIFT_MIN_SPEED, DRIFT_SCRUB, DRIFT_SLIP_IN, DRIFT_SLIP_MID,
     DRIFT_SLIP_RESPONSE, DRIFT_SLIP_WIDE, ENGINE_ACCEL, ENGINE_TOP_SPEED, GRIP_ALIGN, GRIP_LATERAL, MAX_STEER_ANGLE, NITRO_ACCEL, NITRO_DURATION,
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
-    WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PRESS_HOLD, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
+    WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_TOUCH_KEEP, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
 import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
@@ -38,6 +38,10 @@ export interface CarState {
     driftSpent: boolean
     nitro: number
     nitroTime: number
+    /** Seconds left of the surge from the last boost pad. */
+    boostTime: number
+    /** Over a pad now, so it kicks only once per pass. */
+    onBoostPad: boolean
     /** Last projection onto the track; `seg` is the search hint for the next. */
     proj: Projection
     /** Height of the car's wheels: on the road, except in the air. */
@@ -58,13 +62,15 @@ export interface CarInput {
     brake: number
     /** -1 full left to 1 full right. */
     steer: number
-    /** The drift button: held with the wheel turned it starts a drift, and the drift lasts until it is let go. */
+    /** The drift button: held with the steer turned it starts a drift, and the drift lasts until it is let go. */
     drift: boolean
 }
 
 export interface StepEvents {
     /** Speed into the wall on a hit this step, else 0. */
     wallImpact: number
+    /** First touched a wall this step, which costs speed however light the touch. */
+    wallTouched: boolean
     /** Rubbing along a side wall this step. */
     scraping: boolean
     driftStarted: boolean
@@ -77,11 +83,13 @@ export interface StepEvents {
     landed: number
     /** Dropped into a gap: the engine puts the car back on the road. */
     fell: boolean
+    /** Drove onto a boost pad this step. */
+    boosted: boolean
 }
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
 const CAR_HALF_LENGTH = 2.25
-/** Wheel the drift button needs to be paired with to throw the car into a drift. */
+/** Held steer the drift button needs to be paired with to throw the car into a drift. */
 const DRIFT_STEER_THRESHOLD = 0.35
 const GRAVITY = 9.81
 /** Speed kept when a car on rails grazes a wall, per unit of the hit. */
@@ -101,7 +109,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const z = p.z + p.tx * lateral
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
-        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0,
+        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0, boostTime: 0, onBoostPad: false,
         proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
@@ -163,8 +171,13 @@ export function fireNitro(car: CarState) {
     return true
 }
 
+/** Under nitro or a pad's boost: the engine pulls harder, and the car shows it. */
+export function surging(car: CarState) {
+    return car.nitroTime > 0 || car.boostTime > 0
+}
+
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false }
+    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false }
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -174,15 +187,16 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
 
     // ── Speed along the direction of travel ──
     const v = car.speed
-    const nitro = car.nitroTime > 0
-    if (nitro) car.nitroTime = Math.max(0, car.nitroTime - dt)
-    const top = ENGINE_TOP_SPEED * (nitro ? NITRO_TOP_SPEED_MULT : 1)
+    const surge = surging(car)
+    car.nitroTime = Math.max(0, car.nitroTime - dt)
+    car.boostTime = Math.max(0, car.boostTime - dt)
+    const top = ENGINE_TOP_SPEED * (surge ? NITRO_TOP_SPEED_MULT : 1)
     const pull = Math.max(0, 1 - v / top)
     let drive = 0
     // In the air the wheels have nothing to push on or brake against.
     const grounded = !car.airborne
     if (grounded && input.throttle > 0 && v >= -0.5) drive += ENGINE_ACCEL * input.throttle * pull
-    if (nitro) drive += NITRO_ACCEL * pull
+    if (surge) drive += NITRO_ACCEL * pull
     // The brakes are off mid-drift, because the touch pedal is the drift button too.
     const brake = car.drifting || !grounded ? 0 : input.brake
     if (brake > 0 && v <= 0.5 && v > -REVERSE_MAX) drive -= REVERSE_ACCEL * brake
@@ -201,10 +215,13 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         return ev
     }
 
-    // ── Drift entry: the drift button held with the wheel turned, at speed ──
-    if (grounded && !car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(left) > DRIFT_STEER_THRESHOLD) {
+    // ── Drift entry: the drift button held with the steer turned, at speed ──
+    // The held steer picks the way, as the wheel still points the old way just after a quick swap.
+    // From centre the wheel must catch up too, so a tap of steer with the touch pedal held still brakes.
+    const swapping = car.steer * want < 0
+    if (grounded && !car.drifting && !car.driftSpent && input.drift && car.speed > DRIFT_MIN_SPEED && Math.abs(want) > DRIFT_STEER_THRESHOLD && (swapping || Math.abs(car.steer) > DRIFT_STEER_THRESHOLD)) {
         car.drifting = true
-        car.driftDir = Math.sign(left)
+        car.driftDir = -Math.sign(want)
         car.driftTime = 0
         ev.driftStarted = true
     }
@@ -226,6 +243,12 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         car.travel = wrapAngle(car.travel + gripTurn(car.speed, left) * dt)
         const slip = slipAngle(car) * Math.exp(-GRIP_ALIGN * dt)
         car.heading = wrapAngle(car.travel + slip)
+        // Nosed up to a wall the car can't roll, and the wheel needs it rolling to turn: gas and wheel pivot it off instead.
+        // Only while it's on the wall, not through the press's hold, or the nose keeps going once it's free.
+        if (car.wallPress === WALL_PRESS_HOLD && input.throttle > 0 && Math.abs(car.speed) < WALL_PIVOT_SPEED) {
+            car.heading = wrapAngle(car.heading + left * WALL_PIVOT_RATE * dt)
+            car.travel = wrapAngle(car.travel + left * WALL_PIVOT_RATE * dt)
+        }
     }
 
     car.x += car.speed * -Math.sin(car.travel) * dt
@@ -253,6 +276,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         }
     }
     stepHeight(car, track, dt, ev)
+    stepBoostPad(car, track, ev)
     // Onto a looping or corkscrew: the rails take over from here.
     if (!car.airborne && track.railAt(p.s)) {
         if (car.drifting) endDrift(car, ev, true)
@@ -263,6 +287,21 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     // Cleared last, after any drift this step ended, so a one-step release is enough to drift again.
     if (!input.drift) car.driftSpent = false
     return ev
+}
+
+/** Only a car driving the right way over a pad gets anything from it. */
+function stepBoostPad(car: CarState, track: Track, ev: StepEvents) {
+    const p = car.proj
+    const on = !car.airborne && car.speed > 0 && Math.cos(wrapAngle(car.travel - headingOf(p.tx, p.tz))) > 0 && track.boostAt(p.s, p.lateral)
+    if (on) {
+        car.boostTime = BOOST_DURATION
+        if (!car.onBoostPad) {
+            // Never past nitro's top speed, which the server's lap check trusts as the car's limit; never a loss either.
+            car.speed = Math.max(car.speed, Math.min(car.speed + BOOST_KICK, ENGINE_TOP_SPEED * NITRO_TOP_SPEED_MULT))
+            ev.boosted = true
+        }
+    }
+    car.onBoostPad = on
 }
 
 /** How fast the grip steering turns the car's path, in radians per second, `left` -1 to 1. */
@@ -307,6 +346,8 @@ function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
 /** A step on rails: the car moves along and across the road itself, held inside its walls. */
 function stepRail(car: CarState, left: number, track: Track, dt: number, ev: StepEvents) {
     const p = car.proj
+    // Rails charge no touch, but a press from before them still runs out, so it can't excuse a touch long after.
+    car.wallPress = Math.max(0, car.wallPress - dt)
     car.rel = wrapAngle(car.rel + gripTurn(car.speed, left) * dt)
     const s = p.s + car.speed * Math.cos(car.rel) * dt
     // + rel turns the nose left, which is toward - lateral.
@@ -325,6 +366,10 @@ function stepRail(car: CarState, left: number, track: Track, dt: number, ev: Ste
     placeOnRail(car, track, s, lateral)
     if (!leaving) return
     car.onRail = false
+    // Rails count lateral along the tilted road and banks on the plan, so a bank exit keeps the number to keep the car where it is.
+    const across = Math.hypot(railFrame.rx, railFrame.rz)
+    car.x = railFrame.x + railFrame.rx / across * lateral
+    car.z = railFrame.z + railFrame.rz / across * lateral
     track.project(car.x, car.z, track.segmentAt(p.s), p, car.y)
 }
 
@@ -343,8 +388,7 @@ function endReach(car: CarState) {
 
 /** A side wall drags on a car pressed on it for as long as it rubs, however shallow the angle; one merely running alongside is left alone. */
 function scrapeWall(car: CarState, ev: StepEvents, offset: number, limit: number, dt: number) {
-    if (ev.wallImpact > 0) car.wallPress = WALL_PRESS_HOLD
-    else car.wallPress = Math.max(0, car.wallPress - dt)
+    if (ev.wallImpact === 0) car.wallPress = Math.max(0, car.wallPress - dt)
     if (car.airborne || car.wallPress === 0 || offset < limit - WALL_TOUCH_GAP) return
     ev.scraping = true
     car.speed *= Math.exp(-WALL_SCRAPE * dt)
@@ -360,6 +404,9 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     if (vn >= 0) return
     const impact = -vn
     ev.wallImpact = Math.max(ev.wallImpact, impact)
+    // Or-ed, as a corner can hit a side wall and an end barrier in one step.
+    ev.wallTouched ||= car.wallPress === 0
+    car.wallPress = WALL_PRESS_HOLD
     vx -= (1 + WALL_RESTITUTION) * vn * nx
     vz -= (1 + WALL_RESTITUTION) * vn * nz
     // Along the barrier's face, which is the normal turned a quarter.
@@ -370,11 +417,24 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     const kept = Math.max(WALL_KEEP_MIN, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
     vx = tx * along * kept + nx * across
     vz = tz * along * kept + nz * across
-    // A car hitting sideways keeps rolling the way it was going; grip then swings the nose round.
-    const speed = Math.hypot(vx, vz)
     const forward = car.speed >= 0
-    car.speed = forward ? speed : -speed
-    if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
+    const noseward = vx * -Math.sin(car.heading) + vz * -Math.cos(car.heading)
+    if (forward ? noseward < 0 : noseward > 0) {
+        // Thrown back off the end it hit with: it rolls straight back, or grip would swing the nose round to follow.
+        car.speed = noseward
+        car.travel = car.heading
+    } else {
+        // Deflected: it keeps rolling the way it was going, and grip turns the nose along the wall.
+        const speed = Math.hypot(vx, vz)
+        car.speed = forward ? speed : -speed
+        // Slow, what's left of the bounce would set the direction and aim the car across the road, so it rolls along the face.
+        if (speed < WALL_PIVOT_SPEED && Math.abs(along) > 0.01) {
+            vx -= nx * across
+            vz -= nz * across
+        }
+        if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
+    }
+    if (ev.wallTouched) car.speed *= WALL_TOUCH_KEEP
     if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
 }
 

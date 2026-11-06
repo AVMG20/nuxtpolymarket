@@ -2,6 +2,7 @@ import type { NitroAudio } from './audio'
 import type { ChaseCamera } from './camera'
 import type { CarEffects } from './car-fx'
 import { PHYSICS_HZ } from './config'
+import { MEDAL_LABELS, type Medal, type MedalTarget } from './medals'
 import type { CarState, StepEvents } from './physics'
 import type { RaceGrade } from './race-grade'
 import type { EngineEvents } from './types'
@@ -44,28 +45,34 @@ export class RaceFeedback {
     }
 
     nitroFired(s: CarState) {
-        const { audio, events, grade, fx } = this.deps
+        this.surge(s)
+        this.deps.events.popup({ text: 'NITRO!', tone: 'nitro' })
+    }
+
+    private surge(s: CarState) {
+        const { audio, grade, fx } = this.deps
         audio.nitroStart()
         grade.pulse(1)
         grade.flash(0.1, 0.2, 0.45)
         fx.nitroFired(s)
-        events.popup({ text: 'NITRO!', tone: 'nitro' })
     }
 
     nitroReady() {
         this.deps.audio.nitroReady()
-        this.deps.events.popup({ text: 'NITRO READY', sub: 'SHIFT TO BOOST', tone: 'nitro' })
+        this.deps.events.popup({ text: 'NITRO READY', tone: 'nitro' })
     }
 
     step(ev: StepEvents, s: CarState) {
         const { audio, events, grade, cam, fx } = this.deps
+        if (ev.boosted) this.surge(s)
         if (ev.landed > HARD_LANDING) {
             cam.shake(Math.min(0.8, ev.landed / 30))
             audio.bump()
         }
-        if (ev.wallImpact > 1.5) {
+        if (ev.wallImpact > 1.5 || ev.wallTouched) {
             const k = Math.min(1, ev.wallImpact / 14)
-            const hard = ev.wallImpact > 6
+            // A graze costs as much speed as a crash, so it can't sound like a rub.
+            const hard = ev.wallImpact > 6 || ev.wallTouched
             // The steps after a hit still read as rubbing; the hit has already made its noise.
             this.scrapeSteps = SCRAPE_EVERY
             cam.shake(0.15 + k * 0.45)
@@ -100,6 +107,12 @@ export class RaceFeedback {
         if (isBest) grade.flash(0.25, 0.2, 0.05)
         audio.lap(isBest)
         events.popup({ text: formatLapTime(time), sub: isBest ? `${sub} · BEST LAP` : sub, tone: isBest ? 'best' : 'lap', big: true })
+    }
+
+    /** A better medal than before, with the next one to chase. */
+    medal(medal: Medal, next: MedalTarget | null) {
+        const text = MEDAL_LABELS[medal]
+        this.deps.events.popup(next ? { text, sub: `${MEDAL_LABELS[next.medal]} AT ${formatLapTime(next.time)}`, tone: medal } : { text, tone: medal })
     }
 
     finish() {
