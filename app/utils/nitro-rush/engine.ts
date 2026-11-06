@@ -451,7 +451,7 @@ export class NitroRushEngine {
         } else {
             const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
             this.recentLaps = [{ lap: this.lapNumber(e.lap), time: e.time }, ...this.recentLaps].slice(0, RECENT_LAPS)
-            const { isBest, record, stored, standing } = settleLap(rec, e, this.track.closed, this.ghosts.kept, this.ghosts.finishLap(e.time))
+            const { isBest, record, stored, standing } = settleLap(rec, e, this.track.closed, this.ghosts.kept, this.ghosts.finishLap(e.time, this.car.id))
             if (record) {
                 this.record = record
                 if (stored) this.ghosts.setKept(decodeGhost(stored), standing)

@@ -13,11 +13,13 @@ import {
     type NrLiveSocket
 } from '#server/utils/nitro-rush-live'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { CARS } from '#shared/utils/nitro-rush/cars'
+import { LiveGhosts, poseMessage } from '../../app/utils/nitro-rush/live'
 
 const TRACK = TRACKS[0]!.id
 const OTHER = TRACKS[1]!.id
 const ID = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
-const pose = (over: Record<string, unknown> = {}) => JSON.stringify({ t: 'pose', at: 1000, paint: 'cyan', pose: { ...ID, ...over } })
+const pose = (over: Record<string, unknown> = {}) => JSON.stringify({ t: 'pose', at: 1000, paint: 'cyan', car: 'og', pose: { ...ID, ...over } })
 
 describe('live message validation', () => {
     it('accepts a sane pose and renormalizes its quaternion', () => {
@@ -49,6 +51,16 @@ describe('live message validation', () => {
         expect(parseNrLiveMessage('null')).toBeNull()
         const big = JSON.stringify({ t: 'pose', at: 1, paint: 'cyan', pose: ID, pad: 'x'.repeat(NR_LIVE_MAX_FRAME) })
         expect(parseNrLiveMessage(big)).toBeNull()
+    })
+
+    it('keeps the car, and shows the first car for a missing or unknown one', () => {
+        const car = (raw: unknown) => {
+            const msg = parseNrLiveMessage(JSON.stringify({ t: 'pose', at: 1, paint: 'cyan', car: raw, pose: ID }))
+            return msg?.t === 'pose' ? msg.car : null
+        }
+        expect(car('og')).toBe('og')
+        expect(car(undefined)).toBe(CARS[0].id)
+        expect(car('hovercraft')).toBe(CARS[0].id)
     })
 
     it('takes built-in tracks and bounded custom ids only', () => {
@@ -113,7 +125,7 @@ describe('live rooms', () => {
         expect(a.sent).toEqual([])
         expect(c.sent).toEqual([])
         expect(b.sent).toHaveLength(1)
-        expect(b.sent[0]).toMatchObject({ t: 'pose', id: 'ua', name: 'Alice', paint: 'cyan', at: 1000, pose: { x: 5 } })
+        expect(b.sent[0]).toMatchObject({ t: 'pose', id: 'ua', name: 'Alice', paint: 'cyan', car: 'og', at: 1000, pose: { x: 5 } })
     })
 
     it('stamps the server-side name, whatever the client sends', () => {
@@ -204,5 +216,17 @@ describe('live rooms', () => {
         hub.message('b', JSON.stringify({ t: 'join', track: TRACK }), 0)
         for (let i = 0; i < 100; i++) hub.message('a', pose(), 0)
         expect(b.sent).toHaveLength(NR_LIVE_BURST - 1)
+    })
+})
+
+describe('live ghosts on the client', () => {
+    it('sends the car and draws each racer in theirs', () => {
+        const msg = poseMessage(ID, { paint: 'cyan', car: 'og' }, 1000)
+        expect(msg).toMatchObject({ t: 'pose', paint: 'cyan', car: 'og' })
+        const ghosts = new LiveGhosts()
+        ghosts.push({ ...msg, id: 'ua', name: 'Alice' }, 1000)
+        ghosts.push({ ...msg, id: 'ub', name: 'Bob', car: 'hovercraft' }, 1000)
+        const cars = Object.fromEntries(ghosts.frames(1000).map(f => [f.label, f.car]))
+        expect(cars).toEqual({ Alice: 'og', Bob: CARS[0].id })
     })
 })

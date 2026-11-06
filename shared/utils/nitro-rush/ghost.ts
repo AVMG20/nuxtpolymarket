@@ -6,6 +6,8 @@
  * the lap's end time. Poses are 7 numbers: x, y, z, qx, qy, qz, qw.
  */
 
+import { isCarId, type CarId } from './cars'
+
 /** Samples per second of lap time. */
 export const GHOST_HZ = 15
 /** Laps longer than this keep no ghost, which bounds what a record stores. */
@@ -25,6 +27,8 @@ export interface Ghost {
     end: number
     /** GHOST_POSE numbers per sample. */
     data: Float32Array
+    /** The car the lap was driven in; ghosts from before cars could be picked have none and show the first car. */
+    car?: CarId
 }
 
 /** How a ghost is kept in a track record and on the server: plain JSON, quantized and delta-packed. */
@@ -37,6 +41,7 @@ export interface StoredGhost {
     o: number[]
     /** Base64 of little-endian int16 deltas between successive quantized poses. */
     d: string
+    car?: CarId
 }
 
 /** Grid samples (k / hz for k from 0) before `end`, then one at `end`. */
@@ -82,7 +87,9 @@ export function encodeGhost(g: Ghost): StoredGhost | null {
         if (Math.abs(d) > INT16) return null
         view.setInt16((i - GHOST_POSE) * 2, d, true)
     }
-    return { v: 1, hz: g.hz, end: Math.round(g.end * 1000), o: Array.from(q.subarray(0, GHOST_POSE)), d: toBase64(new Uint8Array(view.buffer)) }
+    const stored: StoredGhost = { v: 1, hz: g.hz, end: Math.round(g.end * 1000), o: Array.from(q.subarray(0, GHOST_POSE)), d: toBase64(new Uint8Array(view.buffer)) }
+    if (g.car) stored.car = g.car
+    return stored
 }
 
 /** A stored ghost back to poses, or null for anything that isn't one (missing, from an old version, damaged). */
@@ -113,7 +120,8 @@ export function decodeGhost(raw: unknown): Ghost | null {
             if (len < QUAT_SCALE * 0.5) return null
             for (let j = 3; j < GHOST_POSE; j++) data[i + j] = q[i + j]! / len
         }
-        return { hz, end, data }
+        // An unknown car (one since retired) only loses its look, never the lap.
+        return isCarId(s.car) ? { hz, end, data, car: s.car } : { hz, end, data }
     } catch {
         return null
     }

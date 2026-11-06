@@ -18,8 +18,8 @@ export class CarView {
     private readonly poseQuat = new THREE.Quaternion()
     private readonly poseScale = new THREE.Vector3()
 
-    constructor(car: CarId, color: number) {
-        this.car = buildCar(car, color)
+    constructor(readonly id: CarId, color: number) {
+        this.car = buildCar(id, color)
         this.group = this.car.group
         for (const w of this.car.wheels) w.parent!.userData.baseYaw = w.parent!.rotation.y
         this.frontWheels = this.car.wheels.map(w => w.parent!).filter(w => w.position.z < 0)

@@ -80,6 +80,15 @@ describe('ghost storage', () => {
         for (const raw of bad) expect(decodeGhost(raw)).toBeNull()
         expect(decodeGhost(good)).not.toBeNull()
     })
+
+    it('keeps the car the lap was driven in, and drops one it does not know', () => {
+        const stored = encodeGhost({ ...ghostOf(5), car: 'og' })!
+        expect(decodeGhost(JSON.parse(JSON.stringify(stored)))?.car).toBe('og')
+        expect(encodeGhost(ghostOf(5))).not.toHaveProperty('car')
+        const unknown = decodeGhost({ ...stored, car: 'hovercraft' })
+        expect(unknown).not.toBeNull()
+        expect(unknown).not.toHaveProperty('car')
+    })
 })
 
 describe('ghost recording', () => {

@@ -70,7 +70,7 @@ const ownTracks = useNitroRushOwnTrackActions({
 })
 
 /** Other players on this course, as live ghost cars. */
-const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, car, show: computed(() => ghosts.value.live) })
 const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))

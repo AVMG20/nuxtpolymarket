@@ -65,11 +65,13 @@ function nrMinLapMs(def: TrackDef) {
 /** A ghost the server will keep: on a known course, one that unpacks, and a lap the car could drive; only a loop has a standing lap. Pass `minLapMs` for a course with no id yet. */
 export function validGhost(def: TrackDef | null, ghost: unknown, standing: unknown, minLapMs?: number): NrGhost & { trackId: string } | null {
     if (!def || typeof standing !== 'boolean') return null
-    if ((standing && def.closed === false) || !decodeGhost(ghost)) return null
-    // Only the fields a ghost has, so nothing else rides into the row.
+    if (standing && def.closed === false) return null
+    const decoded = decodeGhost(ghost)
+    if (!decoded) return null
+    // Only the fields a ghost has, so nothing else rides into the row; the car only as one decode accepted.
     const { v, hz, end, o, d } = ghost as StoredGhost
     if (end < (minLapMs ?? nrMinLapMs(def))) return null
-    return { trackId: def.id, ghost: { v, hz, end, o, d }, standing }
+    return { trackId: def.id, ghost: decoded.car ? { v, hz, end, o, d, car: decoded.car } : { v, hz, end, o, d }, standing }
 }
 
 /** Keeps a ghost unless the player's is already the one to race; the row lock settles parallel saves on that one. */

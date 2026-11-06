@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { canvas, finish } from './canvas'
-import { CARS, GHOST_COLOR } from './config'
+import { CARS, GHOST_COLOR, type CarId } from './config'
 import { modelShared } from './car-kit'
 import { buildCar } from './car-models'
 import { avoidsCar } from './stencil'
@@ -24,9 +24,11 @@ const TAG_ORDER = 3
 
 type Part = 'shell' | 'tail' | 'head'
 
-/** The ghost car's shape: the first car merged into a translucent shell and its lamps, built once and shared by every ghost whatever its driver picked. */
-function buildTemplate(): Map<Part, THREE.BufferGeometry> {
-    const car = buildCar(CARS[0].id, 0xffffff)
+type Template = Map<Part, THREE.BufferGeometry>
+
+/** A car model's ghost shape: merged into a translucent shell and its lamps, built once and shared by every ghost in that car. */
+function buildTemplate(id: CarId): Template {
+    const car = buildCar(id, 0xffffff)
     const slots = modelShared().slots
     // Decals, the shadow and the flames would only clutter a see-through car.
     const skip = new Set<THREE.Material>([slots.decal, modelShared().shadow])
@@ -90,7 +92,7 @@ class GhostModel {
     private color = -1
     lastSeen = 0
 
-    constructor(template: Map<Part, THREE.BufferGeometry>, depth: THREE.Material) {
+    constructor(readonly car: CarId, template: Template, depth: THREE.Material) {
         this.shell = new THREE.MeshStandardMaterial({
             transparent: true, depthWrite: false, roughness: 0.3, metalness: 0.5, emissiveIntensity: 0.45
         })
@@ -165,12 +167,12 @@ class GhostModel {
 
 /**
  * Draws ghost cars: the player's best lap and other players on the course. Each
- * ghost is a see-through copy of the player car that never draws over the real
+ * ghost is a see-through copy of the car it was driven in, never drawn over the real
  * car, and is keyed by its frame's id so its model lives on.
  */
 export class GhostView {
     readonly group = new THREE.Group()
-    private template: Map<Part, THREE.BufferGeometry> | null = null
+    private readonly templates = new Map<CarId, Template>()
     /** Depth only, in the transparent pass so it lands after the car's glass. */
     private readonly depth = new THREE.MeshBasicMaterial({ colorWrite: false, transparent: true })
     private readonly models = new Map<string, GhostModel>()
@@ -185,10 +187,12 @@ export class GhostView {
     update(frames: readonly GhostFrame[], now: number, camera: THREE.PerspectiveCamera, viewHeight: number) {
         for (const m of this.models.values()) m.group.visible = false
         for (const f of frames) {
+            const car = f.car ?? CARS[0].id
             let m = this.models.get(f.id)
-            if (!m) {
-                this.template ??= buildTemplate()
-                m = new GhostModel(this.template, this.depth)
+            // A live racer who swapped cars gets a new shell; the old one only held materials.
+            if (m?.car !== car) {
+                m?.dispose()
+                m = new GhostModel(car, this.template(car), this.depth)
                 this.models.set(f.id, m)
                 this.group.add(m.group)
             }
@@ -207,11 +211,20 @@ export class GhostView {
         }
     }
 
+    private template(car: CarId) {
+        let t = this.templates.get(car)
+        if (!t) {
+            t = buildTemplate(car)
+            this.templates.set(car, t)
+        }
+        return t
+    }
+
     dispose() {
         for (const m of this.models.values()) m.dispose()
         this.models.clear()
-        if (this.template) for (const g of this.template.values()) g.dispose()
-        this.template = null
+        for (const t of this.templates.values()) for (const g of t.values()) g.dispose()
+        this.templates.clear()
         this.depth.dispose()
         this.group.removeFromParent()
     }

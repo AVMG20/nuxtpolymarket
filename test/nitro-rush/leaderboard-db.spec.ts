@@ -47,6 +47,14 @@ describe('ghost validation', () => {
         expect(validGhost(findTrack('polytown-oval'), { ...ghostOf(25), extra: 'x'.repeat(100) }, false)?.ghost).not.toHaveProperty('extra')
         expect(validGhost(findTrack('s-bend-sprint'), ghostOf(40), true)).toBeNull()
     })
+
+    it('keeps a known car and drops an unknown one without losing the lap', () => {
+        const oval = findTrack('polytown-oval')
+        expect(validGhost(oval, { ...ghostOf(25), car: 'og' }, false)?.ghost.car).toBe('og')
+        const unknown = validGhost(oval, { ...ghostOf(25), car: { evil: true } }, false)
+        expect(unknown).not.toBeNull()
+        expect(unknown?.ghost).not.toHaveProperty('car')
+    })
 })
 
 describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
