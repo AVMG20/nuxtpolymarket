@@ -125,3 +125,4 @@ export const NIGHT: Theme = {
 }
 
 export { findPaint, PAINTS, type PaintId } from '#shared/utils/nitro-rush/paints'
+export { CARS, findCar, type CarId } from '#shared/utils/nitro-rush/cars'

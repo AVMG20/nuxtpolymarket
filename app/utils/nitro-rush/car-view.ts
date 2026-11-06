@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { WHEEL_R } from './car-body'
 import { modelShared } from './car-kit'
-import { buildPlayerCar, type PlayerCar } from './models'
+import { buildCar, type PlayerCar } from './car-models'
+import type { CarId } from './config'
 import { marksCar } from './stencil'
 import { surging, type CarState } from './physics'
 import type { CarPose } from './types'
@@ -18,8 +19,8 @@ export class CarView {
     private readonly poseQuat = new THREE.Quaternion()
     private readonly poseScale = new THREE.Vector3()
 
-    constructor(color: number) {
-        this.car = buildPlayerCar(color)
+    constructor(car: CarId, color: number) {
+        this.car = buildCar(car, color)
         this.group = this.car.group
         for (const w of this.car.wheels) w.parent!.userData.baseYaw = w.parent!.rotation.y
         this.frontWheels = this.car.wheels.map(w => w.parent!).filter(w => w.position.z < 0)

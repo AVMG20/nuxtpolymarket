@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { canvas, finish } from './canvas'
-import { GHOST_COLOR } from './config'
+import { CARS, GHOST_COLOR } from './config'
 import { modelShared } from './car-kit'
-import { buildPlayerCar } from './models'
+import { buildCar } from './car-models'
 import { avoidsCar } from './stencil'
 import type { GhostFrame } from './types'
 
@@ -24,9 +24,9 @@ const TAG_ORDER = 3
 
 type Part = 'shell' | 'tail' | 'head'
 
-/** The ghost car's shape: the player car merged into a translucent shell and its lamps, built once and shared by every ghost. */
+/** The ghost car's shape: the first car merged into a translucent shell and its lamps, built once and shared by every ghost whatever its driver picked. */
 function buildTemplate(): Map<Part, THREE.BufferGeometry> {
-    const car = buildPlayerCar(0xffffff)
+    const car = buildCar(CARS[0].id, 0xffffff)
     const slots = modelShared().slots
     // Decals, the shadow and the flames would only clutter a see-through car.
     const skip = new Set<THREE.Material>([slots.decal, modelShared().shadow])

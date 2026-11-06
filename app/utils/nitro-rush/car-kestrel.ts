@@ -2,9 +2,10 @@ import * as THREE from 'three'
 import { ARCH_R, AXLE_U, BodySurface, buildSkin, buildTailFace, buildUnderbody, curve, surfacePatch, TAIL_U, TUB_X, WHEEL_R, type Edge, type PatchOptions } from './car-body'
 import { Kit, modelShared, wheelGeos, type Slot } from './car-kit'
 import { atlasUv, DECALS, liveryTexture, mapToDecal } from './car-livery'
+import type { PlayerCar } from './car-models'
 import { plateTexture } from './signs'
 
-/** The hero car, assembled from the lofted body and its parts. Everything faces -z, the direction of travel. */
+/** The Kestrel, assembled from the lofted body and its parts. Everything faces -z, the direction of travel. */
 
 const WHEEL_W = 0.3
 const HALF_TRACK = 0.82
@@ -246,18 +247,6 @@ function addTail(kit: Kit) {
     kit.box('trim', 0.58, 0.16, 0.04, 0, 0.5, z - 0.01, 0.015)
 }
 
-export interface PlayerCar {
-    group: THREE.Group
-    body: THREE.Group
-    paint: THREE.MeshPhysicalMaterial
-    wheels: THREE.Object3D[]
-    flames: THREE.Mesh[]
-    flameMat: THREE.MeshBasicMaterial
-    /** Tail-light positions in the car's local space, for the light trails. */
-    tailPoints: THREE.Vector3[]
-    dispose(): void
-}
-
 /** Paint that lays the livery over the car's colour; the map is premultiplied sRGB, so alpha comes off before linearising or edges go dark. */
 function liveryPaint(color: number, livery: THREE.Texture) {
     const paint = new THREE.MeshPhysicalMaterial({ color, map: livery, roughness: 0.26, metalness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 })
@@ -271,7 +260,7 @@ function liveryPaint(color: number, livery: THREE.Texture) {
     return paint
 }
 
-export function buildPlayerCar(color: number): PlayerCar {
+export function buildKestrel(color: number): PlayerCar {
     const s = modelShared()
     const surface = new BodySurface()
     const group = new THREE.Group()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NitroAudio } from '~/utils/nitro-rush/audio'
-import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
+import { CARS, findPaint, type CarId, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { medalFor, nextMedal } from '~/utils/nitro-rush/medals'
 import { bestLap } from '~/utils/nitro-rush/record'
@@ -29,6 +29,7 @@ const trackId = ref('')
 const trackName = ref('')
 /** The course on the engine, for the minimap. */
 const trackDef = shallowRef<TrackDef | null>(null)
+const car = ref<CarId>(CARS[0].id)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
@@ -364,7 +365,7 @@ onMounted(() => {
             if (p === 'countdown') resumeHeldKeys()
         },
         record: onRecord
-    }, audio, paint.value, storedTrack)
+    }, audio, car.value, paint.value, storedTrack)
     syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)
     loadGhostToggles()

@@ -5,7 +5,7 @@ import { disposeModelShared } from './car-kit'
 import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
-import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type PaintId } from './config'
+import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type CarId, type PaintId } from './config'
 import { botInput, createCar, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
@@ -90,7 +90,7 @@ export class NitroRushEngine {
     private readonly grade = new RaceGrade()
     private readonly feedback: RaceFeedback
 
-    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, track: TrackDef) {
+    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, car: CarId, paint: PaintId, track: TrackDef) {
         this.host = host
         this.events = events
         this.audio = audio
@@ -107,7 +107,7 @@ export class NitroRushEngine {
         this.feedback = new RaceFeedback({ audio, events, grade: this.grade, cam: this.cam, fx: this.fx })
         this.world = this.buildWorld()
 
-        this.car = new CarView(findPaint(paint).color)
+        this.car = new CarView(car, findPaint(paint).color)
         this.scene.add(this.car.group)
         // Rides with whichever floodlight is nearest, so the paint flares as each one passes.
         this.lampLight = new THREE.PointLight(0xffd2a0, 0, 30, 1.6)
