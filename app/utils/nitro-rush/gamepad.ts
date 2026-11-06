@@ -1,7 +1,7 @@
 import type { CarInput } from './physics'
 
 /** What the buttons of a standard controller do besides driving; each fires once per press. */
-export type PadCommand = 'confirm' | 'back' | 'nitro' | 'pause' | 'restart' | 'previous' | 'next'
+export type PadCommand = 'confirm' | 'back' | 'pause' | 'restart' | 'previous' | 'next'
 
 /** A controller as far as the game reads it. */
 export type PadSource = Pick<Gamepad, 'axes' | 'buttons'>
@@ -32,7 +32,6 @@ const RIGHT = 15
 const COMMAND_BUTTONS: Readonly<Record<PadCommand, readonly number[]>> = {
     confirm: [A],
     back: [B],
-    nitro: [X, LB],
     pause: [START],
     restart: [BACK],
     previous: [UP, LEFT],
@@ -64,10 +63,11 @@ export function readPad({ axes, buttons }: PadSource): PadRead {
     const steer = stick || (down(RIGHT) ? 1 : 0) - (down(LEFT) ? 1 : 0)
     const held = new Set(COMMANDS.filter(c => COMMAND_BUTTONS[c].some(down)))
     const drift = down(A) || down(RB)
+    const nitro = down(X) || down(LB)
     return {
-        car: { throttle, brake, steer, drift },
+        car: { throttle, brake, steer, drift, nitro },
         held,
-        active: held.size > 0 || !!(throttle || brake || steer || drift)
+        active: held.size > 0 || !!(throttle || brake || steer || drift || nitro)
     }
 }
 

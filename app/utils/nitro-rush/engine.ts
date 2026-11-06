@@ -5,8 +5,8 @@ import { disposeModelShared } from './car-kit'
 import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
-import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, NITRO_DURATION, PHYSICS_HZ, type PaintId } from './config'
-import { botInput, createCar, fireNitro, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
+import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type PaintId } from './config'
+import { botInput, createCar, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
@@ -80,7 +80,7 @@ export class NitroRushEngine {
     private recentLaps: readonly LapEntry[] = []
     /** Runs started this session, for the sprint HUD. */
     private runs = 0
-    private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false }
+    private readonly controls: Record<Control, boolean> = { throttle: false, brake: false, left: false, right: false, drift: false, nitro: false }
     private touch = false
     private pad: CarInput | null = null
     private nitroReadyAnnounced = false
@@ -206,13 +206,6 @@ export class NitroRushEngine {
     releaseControls() {
         for (const k of Object.keys(this.controls) as Control[]) this.controls[k] = false
         this.pad = null
-    }
-
-    nitro() {
-        if (this.paused || this.phase !== 'racing') return
-        if (!fireNitro(this.state)) return
-        this.feedback.nitroFired(this.state)
-        this.nitroReadyAnnounced = false
     }
 
     start() {
@@ -403,7 +396,9 @@ export class NitroRushEngine {
             // Going the wrong way for a while gets a warning.
             const along = Math.cos(s.travel - headingOf(s.proj.tx, s.proj.tz)) * s.speed
             this.wrongWayTime = along < -3 ? this.wrongWayTime + dt : 0
-            if (s.nitro >= 1 && !this.nitroReadyAnnounced && s.nitroTime <= 0) {
+            // Announced once each time a drift tops the tank up to full.
+            if (s.nitro < 1) this.nitroReadyAnnounced = false
+            else if (!this.nitroReadyAnnounced) {
                 this.nitroReadyAnnounced = true
                 this.feedback.nitroReady()
             }
@@ -452,8 +447,8 @@ export class NitroRushEngine {
             }
             this.feedback.lap(label, e.time, rec.bestLap, isBest)
             this.awardMedal(e.time, rec.bestLap)
-            // The lap and medal popups already fill the line, so the meter alone shows the refill; a burn still running announces it when it ends.
-            if (refillAtLine(this.state, this.track.closed) && this.state.nitroTime <= 0) this.nitroReadyAnnounced = true
+            // The lap and medal popups already fill the line, so the meter alone shows the refill.
+            if (refillAtLine(this.state, this.track.closed)) this.nitroReadyAnnounced = true
             if (!this.track.closed) {
                 this.phase = 'finished'
                 this.finishedAt = this.time
@@ -523,10 +518,10 @@ export class NitroRushEngine {
         this.audio.engine(speedK, surge, live)
         this.audio.setIntensity(racing ? 0.25 + speedK * 0.75 : 0)
         // Nothing shows a HUD on the menu, and each one re-renders the game's root component.
-        if (live) this.emitHud(s.nitroTime > 0)
+        if (live) this.emitHud()
     }
 
-    private emitHud(nitro: boolean) {
+    private emitHud() {
         const s = this.state
         const timer = this.timer
         this.events.hud({
@@ -536,8 +531,8 @@ export class NitroRushEngine {
             recentLaps: this.recentLaps,
             bestLap: this.record.bestLap,
             speedKmh: Math.round(Math.abs(s.speed) * KMH_PER_SPEED),
-            nitro: nitro ? s.nitroTime / NITRO_DURATION : s.nitro,
-            nitroActive: nitro,
+            nitro: s.nitro,
+            nitroActive: s.nitroOn,
             drifting: s.drifting,
             wrongWay: this.wrongWayTime > 1.2,
             car: { x: this.motion.pos.x, z: this.motion.pos.z, heading: this.motion.drawn.heading },

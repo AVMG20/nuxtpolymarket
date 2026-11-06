@@ -295,9 +295,10 @@ async function toggleFullscreen() {
     }
 }
 
-function nitro() {
+/** The HUD's meter is a nitro button too, held like the key; a mouse press on it mustn't switch to touch play. */
+function nitroControl(down: boolean) {
     audio.unlock()
-    engine?.nitro()
+    engine?.setControl('nitro', down)
 }
 
 const { hasPad, padFocus } = useNitroRushControls({
@@ -314,8 +315,7 @@ const { hasPad, padFocus } = useNitroRushControls({
     openSelect,
     backToTitle,
     play,
-    togglePause,
-    nitro
+    togglePause
 })
 
 // A key let go while the window is unfocused never fires keyup.
@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
   >
     <div ref="stage" class="absolute inset-0" />
 
-    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :medal="heldMedal" :target="medalTarget" :is-touch="isTouch" :has-pad="hasPad" :inert="paused" @pause="togglePause()" @nitro="nitro" />
+    <NitroRushHud v-if="hud && trackDef && inSession" :hud="hud" :track="trackDef" :rank="rank" :racers="racers" :medal="heldMedal" :target="medalTarget" :is-touch="isTouch" :has-pad="hasPad" :inert="paused" @pause="togglePause()" @nitro="nitroControl" />
     <NitroRushTouchPads v-if="isTouch && inSession && !paused" @control="touchControl" />
     <NitroRushPopups :popups="popups" />
 

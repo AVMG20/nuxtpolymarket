@@ -36,8 +36,10 @@ export interface CarState {
     driftTime: number
     /** Set when a drift ends with the button still held: it must be let go before the next one. */
     driftSpent: boolean
+    /** The tank, 0 to 1. */
     nitro: number
-    nitroTime: number
+    /** Burning the tank this step. */
+    nitroOn: boolean
     /** Seconds left of the surge from the last boost pad. */
     boostTime: number
     /** Over a pad now, so it kicks only once per pass. */
@@ -64,6 +66,8 @@ export interface CarInput {
     steer: number
     /** The drift button: held with the steer turned it starts a drift, and the drift lasts until it is let go. */
     drift: boolean
+    /** Held, the tank burns for as long as it has any in it. */
+    nitro?: boolean
 }
 
 export interface StepEvents {
@@ -85,6 +89,8 @@ export interface StepEvents {
     fell: boolean
     /** Drove onto a boost pad this step. */
     boosted: boolean
+    /** A nitro burn began this step. */
+    nitroStarted: boolean
 }
 
 /** Half the car's length, for how far a sideways car reaches toward the wall. */
@@ -109,7 +115,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const z = p.z + p.tx * lateral
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
-        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroTime: 0, boostTime: 0, onBoostPad: false,
+        drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroOn: false, boostTime: 0, onBoostPad: false,
         proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
@@ -164,20 +170,22 @@ export function wallLimit(track: Track, car: CarState) {
     return track.wallOffset - reach
 }
 
-export function fireNitro(car: CarState) {
-    if (car.nitro < 1 || car.nitroTime > 0) return false
-    car.nitro = 0
-    car.nitroTime = NITRO_DURATION
-    return true
-}
-
 /** Under nitro or a pad's boost: the engine pulls harder, and the car shows it. */
 export function surging(car: CarState) {
-    return car.nitroTime > 0 || car.boostTime > 0
+    return car.nitroOn || car.boostTime > 0
+}
+
+/** Burns the tank while the button is held, so any amount of it can go in bursts as short as the player likes. */
+function stepNitro(car: CarState, held: boolean, dt: number, ev: StepEvents) {
+    const on = held && car.nitro > 0
+    ev.nitroStarted = on && !car.nitroOn
+    car.nitroOn = on
+    if (on) car.nitro = Math.max(0, car.nitro - dt / NITRO_DURATION)
 }
 
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false }
+    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false, nitroStarted: false }
+    stepNitro(car, !!input.nitro, dt, ev)
 
     // The wheel eases toward the input, and back to centre a little quicker.
     const want = Math.max(-1, Math.min(1, input.steer))
@@ -188,7 +196,6 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     // ── Speed along the direction of travel ──
     const v = car.speed
     const surge = surging(car)
-    car.nitroTime = Math.max(0, car.nitroTime - dt)
     car.boostTime = Math.max(0, car.boostTime - dt)
     const top = ENGINE_TOP_SPEED * (surge ? NITRO_TOP_SPEED_MULT : 1)
     const pull = Math.max(0, 1 - v / top)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BOOST_DURATION, ENGINE_TOP_SPEED, NITRO_DURATION, NITRO_TOP_SPEED_MULT, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
-import { createCar, fireNitro, stepCar, surging, type CarState } from '../../app/utils/nitro-rush/physics'
+import { BOOST_DURATION, ENGINE_TOP_SPEED, NITRO_TOP_SPEED_MULT, PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
+import { createCar, stepCar, surging, type CarState } from '../../app/utils/nitro-rush/physics'
 import { compileCustomTrack, sectionFault, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { SPEED_CEILING, Track } from '#shared/utils/nitro-rush/track'
@@ -135,9 +135,8 @@ describe('boost pad physics', () => {
         car.nitro = 1
         runOver(t, car)
         expect(car.nitro).toBe(1)
-        expect(car.nitroTime).toBe(0)
-        expect(fireNitro(car)).toBe(true)
-        expect(car.nitroTime).toBe(NITRO_DURATION)
+        expect(car.nitroOn).toBe(false)
+        expect(stepCar(car, { ...COAST, nitro: true }, t, DT).nitroStarted).toBe(true)
     })
 
     it('makes a course quicker, and a lap over it still passes the ghost check', () => {

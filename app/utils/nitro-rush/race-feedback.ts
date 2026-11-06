@@ -44,11 +44,6 @@ export class RaceFeedback {
         events.popup({ text: 'GO!', tone: 'count', big: true })
     }
 
-    nitroFired(s: CarState) {
-        this.surge(s)
-        this.deps.events.popup({ text: 'NITRO!', tone: 'nitro' })
-    }
-
     private surge(s: CarState) {
         const { audio, grade, fx } = this.deps
         audio.nitroStart()
@@ -64,7 +59,8 @@ export class RaceFeedback {
 
     step(ev: StepEvents, s: CarState) {
         const { audio, events, grade, cam, fx } = this.deps
-        if (ev.boosted) this.surge(s)
+        // No popup for nitro: a burst can be a tap, and the meter already shows the burn.
+        if (ev.boosted || ev.nitroStarted) this.surge(s)
         if (ev.landed > HARD_LANDING) {
             cam.shake(Math.min(0.8, ev.landed / 30))
             audio.bump()

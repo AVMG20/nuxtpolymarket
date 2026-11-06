@@ -9,7 +9,7 @@ function pad(axes: number[] = [0, 0, 0, 0], held: Record<number, number> = {}): 
     return { axes, buttons: Array.from({ length: 17 }, (_, i) => button(held[i])) }
 }
 
-const IDLE = { throttle: 0, brake: 0, steer: 0, drift: false }
+const IDLE = { throttle: 0, brake: 0, steer: 0, drift: false, nitro: false }
 
 describe('readPad', () => {
     it('reads an idle pad as nothing at all', () => {
@@ -43,12 +43,14 @@ describe('readPad', () => {
         expect(readPad(pad([-0.5, 0], { 15: 1 })).car.steer).toBeLessThan(0)
     })
 
-    it('drifts on A or RB, fires nitro on X or LB', () => {
+    it('drifts on A or RB, burns nitro while X or LB is held', () => {
         expect(readPad(pad(undefined, { 0: 1 })).car.drift).toBe(true)
         expect(readPad(pad(undefined, { 5: 1 })).car.drift).toBe(true)
         expect(readPad(pad(undefined, { 5: 1 })).active).toBe(true)
-        expect(readPad(pad(undefined, { 2: 1 })).held.has('nitro')).toBe(true)
-        expect(readPad(pad(undefined, { 4: 1 })).held.has('nitro')).toBe(true)
+        expect(readPad(pad(undefined, { 2: 1 })).car.nitro).toBe(true)
+        expect(readPad(pad(undefined, { 4: 1 })).car.nitro).toBe(true)
+        expect(readPad(pad(undefined, { 4: 1 })).active).toBe(true)
+        expect(readPad(pad(undefined, { 4: 1 })).held.size).toBe(0)
     })
 
     it('names the menu buttons', () => {
@@ -74,11 +76,11 @@ describe('firstPad', () => {
 describe('PadPresses', () => {
     it('fires a command once per press, and again after a release', () => {
         const presses = new PadPresses()
-        const nitro = new Set<PadCommand>(['nitro'])
-        expect(presses.take(nitro)).toEqual(['nitro'])
-        expect(presses.take(nitro)).toEqual([])
+        const restart = new Set<PadCommand>(['restart'])
+        expect(presses.take(restart)).toEqual(['restart'])
+        expect(presses.take(restart)).toEqual([])
         expect(presses.take(new Set())).toEqual([])
-        expect(presses.take(nitro)).toEqual(['nitro'])
+        expect(presses.take(restart)).toEqual(['restart'])
     })
 })
 
@@ -90,7 +92,12 @@ describe('withPad', () => {
     })
 
     it('takes the harder of each pedal, and either drift', () => {
-        expect(withPad(keys, { throttle: 0.4, brake: 0.6, steer: 0.5, drift: true })).toEqual({ throttle: 1, brake: 0.6, steer: 0.5, drift: true })
+        expect(withPad(keys, { throttle: 0.4, brake: 0.6, steer: 0.5, drift: true })).toEqual({ throttle: 1, brake: 0.6, steer: 0.5, drift: true, nitro: false })
+    })
+
+    it('burns nitro from either', () => {
+        expect(withPad(keys, { ...keys, nitro: true }).nitro).toBe(true)
+        expect(withPad({ ...keys, nitro: true }, { ...keys, nitro: false }).nitro).toBe(true)
     })
 
     it('lets a held steering key win over the stick', () => {

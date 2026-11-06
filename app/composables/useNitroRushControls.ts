@@ -1,6 +1,6 @@
 import type { ComputedRef, Ref } from 'vue'
 import { firstPad, PadPresses, readPad, type PadCommand } from '~/utils/nitro-rush/gamepad'
-import { CONTROL_KEYS, isTyping, NITRO_KEYS } from '~/utils/nitro-rush/input'
+import { CONTROL_KEYS, isTyping } from '~/utils/nitro-rush/input'
 import type { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import type { Phase } from '~/utils/nitro-rush/types'
 
@@ -19,7 +19,6 @@ interface Controls {
     backToTitle: () => void
     play: () => void
     togglePause: (force?: boolean) => void
-    nitro: () => void
 }
 
 /** The keyboard and the controller, both turned into the same game actions. */
@@ -69,11 +68,6 @@ export function useNitroRushControls(c: Controls) {
             return
         }
         if (c.paused.value) return
-        if (NITRO_KEYS.has(e.code)) {
-            e.preventDefault()
-            if (!e.repeat) c.nitro()
-            return
-        }
         const control = CONTROL_KEYS[e.code]
         if (!control) return
         e.preventDefault()
@@ -103,9 +97,7 @@ export function useNitroRushControls(c: Controls) {
 
     function padCommand(command: PadCommand) {
         if (inBuilder()) return
-        if (command === 'nitro') {
-            if (!c.paused.value) c.nitro()
-        } else if (command === 'pause') {
+        if (command === 'pause') {
             if (onMenu()) advance()
             else c.togglePause()
         } else if (command === 'restart') {

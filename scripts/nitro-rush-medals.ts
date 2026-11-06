@@ -6,7 +6,7 @@
 import { BRAKE_DECEL, GRIP_LATERAL, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
 import { refillAtLine } from '../app/utils/nitro-rush/lap-refill'
 import { botLapTime, MEDALS, medalTimesFor } from '../app/utils/nitro-rush/medals'
-import { botInput, createCar, fireNitro, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
+import { botInput, createCar, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 import { compileCustomTrack } from '../shared/utils/nitro-rush/custom'
 import { formatLapTime, LapTimer } from '../shared/utils/nitro-rush/timing'
 import { Track, type TrackDef } from '../shared/utils/nitro-rush/track'
@@ -74,21 +74,25 @@ function nitroLap(track: Track, plan: Plan | null): { time: number, firedAt: num
     let armed = false
     let bent = false
     let firedAt: number | null = null
+    let burning = false
+    /** Lights a full tank and holds the button until it runs dry. */
+    const light = () => !burning && car.nitro >= 1 && (burning = true)
     for (let i = 0; i < PHYSICS_HZ * 240; i++) {
-        if (stepCar(car, playerInput(car, track), track, DT).fell) return null
+        if (stepCar(car, { ...playerInput(car, track), nitro: burning }, track, DT).fell) return null
+        if (car.nitro <= 0) burning = false
         for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
             if (e.type !== 'lap') continue
             if (e.lap === lap) return { time: e.time, firedAt }
             refillAtLine(car, track.closed)
         }
         const into = timer.distance - timer.lap * L
-        if (plan?.carry !== undefined && timer.lap === plan.lap - 1 && into >= L - plan.carry) fireNitro(car)
+        if (plan?.carry !== undefined && timer.lap === plan.lap - 1 && into >= L - plan.carry) light()
         if (plan && !armed && timer.lap === plan.lap) {
             // A player lights it on the exit of the first bend, back on the throttle.
             bent ||= inBend(car, track)
             armed = plan.at === 'straight' ? bent && !inBend(car, track) && playerInput(car, track).throttle === 1 : into >= plan.at
         }
-        if (armed && fireNitro(car) && timer.lap === lap) firedAt ??= into
+        if (armed && light() && timer.lap === lap) firedAt ??= into
     }
     return null
 }
