@@ -11,8 +11,7 @@ RUN apk add --no-cache nodejs
 # edits. --ignore-scripts skips the postinstall `nuxt prepare`, which has no
 # app code to work with at this point and is redone by `nuxt build` anyway.
 COPY package.json bun.lock ./
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts
 
 COPY . .
 
