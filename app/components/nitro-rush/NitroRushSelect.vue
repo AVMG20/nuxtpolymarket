@@ -74,7 +74,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
     </div>
 
     <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row lg:items-start lg:justify-between">
-      <div class="nr-card flex w-full flex-col text-left lg:max-h-full lg:max-w-2xl">
+      <div class="nr-card flex w-full flex-col text-left lg:max-h-full lg:max-w-4xl">
         <div class="nr-tabs" role="tablist">
           <button
             v-for="t in TABS"

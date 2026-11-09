@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
     </section>
     <section class="mt-5">
       <h3 class="nr-group mb-1.5">CAR</h3>
-      <div class="nr-track-grid">
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
         <button
           v-for="c in CARS"
           :key="c.id"
