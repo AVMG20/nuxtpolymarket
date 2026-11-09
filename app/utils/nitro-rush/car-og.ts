@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
 import { assembleCar } from './car-assembly'
-import { Kit, type Pt } from './car-kit'
+import { Kit, SIDES, type Pt } from './car-kit'
 import type { PlayerCar } from './car-models'
 
 /** The OG, Nitro Rush's first car: side profiles drawn as splines, extruded across the car with a rounded bevel. Everything faces -z. */
@@ -25,7 +25,6 @@ const D = {
     noseTaper: 0.2, tailTaper: 0.1
 }
 
-const SIDES = [-1, 1] as const
 const BODY_BEVEL = 0.14
 const PIPE_XS = [0.5, 0.68]
 const PIPE_Y = 0.23

@@ -61,6 +61,7 @@ describe('live message validation', () => {
         expect(car('og')).toBe('og')
         expect(car(undefined)).toBe(CARS[0].id)
         expect(car('hovercraft')).toBe(CARS[0].id)
+        expect(car({ id: 'og' })).toBe(CARS[0].id)
     })
 
     it('takes built-in tracks and bounded custom ids only', () => {

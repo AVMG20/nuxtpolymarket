@@ -10,6 +10,8 @@ import { shadowTexture } from './textures'
 export type Slot = 'skin' | 'paint' | 'glass' | 'trim' | 'chrome' | 'rubber' | 'rim' | 'tail' | 'head' | 'plate' | 'disc' | 'caliper' | 'lens' | 'mesh' | 'decal' | 'white'
 export type Pt = [number, number]
 
+export const SIDES = [-1, 1] as const
+
 let shared: ReturnType<typeof createShared> | null = null
 
 function createShared() {
@@ -64,7 +66,7 @@ export function disposeModelShared() {
 // ─── Geometry helpers ──────────────────────────────────────────────────────
 
 /** Strip to position/normal/uv, non-indexed, so anything can be merged with anything. */
-function normalize(g: THREE.BufferGeometry) {
+export function normalize(g: THREE.BufferGeometry) {
     const out = g.index ? g.toNonIndexed() : g.clone()
     for (const name of Object.keys(out.attributes)) {
         if (name !== 'position' && name !== 'normal' && name !== 'uv') out.deleteAttribute(name)

@@ -2,6 +2,7 @@ import type * as THREE from 'three'
 import type { CarId } from '#shared/utils/nitro-rush/cars'
 import { buildKestrel } from './car-kestrel'
 import { buildOg } from './car-og'
+import { buildRoadster } from './car-roadster'
 
 /** What every car model hands the view; a model only changes the look, so physics never sees which one is picked. */
 export interface PlayerCar {
@@ -21,7 +22,8 @@ export interface PlayerCar {
 /** Keyed by every `CarId`, so a car added to the list without a model fails the typecheck. */
 const MODELS: Record<CarId, (color: number) => PlayerCar> = {
     kestrel: buildKestrel,
-    og: buildOg
+    og: buildOg,
+    roadster: buildRoadster
 }
 
 export const buildCar = (id: CarId, color: number) => MODELS[id](color)

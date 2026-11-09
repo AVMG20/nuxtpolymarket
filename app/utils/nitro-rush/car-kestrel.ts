@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { ARCH_R, AXLE_U, BodySurface, buildSkin, buildTailFace, buildUnderbody, curve, surfacePatch, TAIL_U, TUB_X, WHEEL_R, type Edge, type PatchOptions } from './car-body'
 import { assembleCar } from './car-assembly'
-import { Kit, type Slot } from './car-kit'
+import { Kit, SIDES, type Slot } from './car-kit'
 import { atlasUv, DECALS, liveryTexture, mapToDecal } from './car-livery'
 import type { PlayerCar } from './car-models'
 
@@ -16,8 +16,6 @@ const TAIL_Y = 0.72
 const LAMP_X = 0.36
 const PIPE_XS = [0.38, 0.54]
 const PIPE_Y = 0.29
-
-const SIDES = [-1, 1] as const
 
 /** A patch on the car's right between two edges, mirrored on its left so the faces there still point out. */
 function mirroredPatch(kit: Kit, surface: BodySurface, slot: Slot, u0: number, u1: number, lo: Edge, hi: Edge, opts?: PatchOptions) {

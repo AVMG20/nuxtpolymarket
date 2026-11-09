@@ -1,6 +1,6 @@
 import { isCustomTrackId, isPublishedTrackId } from '#shared/utils/nitro-rush/custom'
 import { isPaintId } from '#shared/utils/nitro-rush/paints'
-import { CARS, isCarId, type CarId } from '#shared/utils/nitro-rush/cars'
+import { findCar, type CarId } from '#shared/utils/nitro-rush/cars'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
 // Nitro Rush live ghosts: players on the same course see each other as ghost
@@ -116,8 +116,7 @@ export function parseNrLiveMessage(raw: string): NrLiveClientMsg | null {
             if (typeof m.paint !== 'string' || !isPaintId(m.paint)) return null
             const pose = nrLivePose(m.pose)
             // Tabs still on a build from before car choice send none: they drive the first car.
-            const car = isCarId(m.car) ? m.car : CARS[0].id
-            return pose ? { t: 'pose', at: m.at, paint: m.paint, car, pose } : null
+            return pose ? { t: 'pose', at: m.at, paint: m.paint, car: findCar(m.car).id, pose } : null
         }
         default:
             return null
