@@ -64,7 +64,7 @@ export function disposeModelShared() {
 // ─── Geometry helpers ──────────────────────────────────────────────────────
 
 /** Strip to position/normal/uv, non-indexed, so anything can be merged with anything. */
-function normalize(g: THREE.BufferGeometry) {
+export function normalize(g: THREE.BufferGeometry) {
     const out = g.index ? g.toNonIndexed() : g.clone()
     for (const name of Object.keys(out.attributes)) {
         if (name !== 'position' && name !== 'normal' && name !== 'uv') out.deleteAttribute(name)
