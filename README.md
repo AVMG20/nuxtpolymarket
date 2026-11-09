@@ -23,9 +23,12 @@ Use this template to get started with [Nuxt UI](https://ui.nuxt.com) quickly.
 npm create nuxt@latest -- -t ui
 ```
 
-## Deploy your own
+## Deploy
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-name=starter&repository-url=https%3A%2F%2Fgithub.com%2Fnuxt-ui-templates%2Fstarter&demo-image=https%3A%2F%2Fui.nuxt.com%2Fassets%2Ftemplates%2Fnuxt%2Fstarter-dark.png&demo-url=https%3A%2F%2Fstarter-template.nuxt.dev%2F&demo-title=Nuxt%20Starter%20Template&demo-description=A%20minimal%20template%20to%20get%20started%20with%20Nuxt%20UI.)
+Runs on bitploy at https://polymarket.avmg.nl. Every push to `main` is built
+from the `Dockerfile` on the server and goes live once `/` answers; the
+container applies the Drizzle migrations at start (`docker-entrypoint.sh`).
+`DATABASE_URL` comes from the project's Postgres service.
 
 ## Setup
 
