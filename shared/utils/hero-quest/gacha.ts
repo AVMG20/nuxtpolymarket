@@ -397,16 +397,21 @@ export function applyDupes(entry: CollectionEntry, count: number, rarity: Rarity
     return { entry: current, levelsGained, starsGained, essenceGained }
 }
 
-/** Total duplicates to take a copy from scratch to 5★ Lv10. The doc's figure is 1,066. */
-export function totalDupesToMax(): number {
+/** Duplicates this copy still takes to reach 5★ Lv10, counting what it has banked. */
+export function dupesToMax(entry: CollectionEntry): number {
     let total = 0
-    for (let star = 0; star <= MAX_STAR; star++) {
-        for (let level = 1; level <= LEVELS_PER_STAR; level++) {
+    for (let star = entry.star; star <= MAX_STAR; star++) {
+        for (let level = star === entry.star ? entry.level : 1; level <= LEVELS_PER_STAR; level++) {
             if (star === MAX_STAR && level === LEVELS_PER_STAR) break
             total += dupesToLevelUp(star, level)
         }
     }
-    return total
+    return Math.max(0, total - entry.dupeProgress)
+}
+
+/** Total duplicates to take a copy from scratch to 5★ Lv10. The doc's figure is 1,066. */
+export function totalDupesToMax(): number {
+    return dupesToMax(newEntry())
 }
 
 // ── Essence and crafting ───────────────────────────────  §6
@@ -417,4 +422,15 @@ export function essenceValueFor(rarity: Rarity): number {
 
 export function craftCostFor(rarity: Rarity): number {
     return CRAFT_COST_PER_RARITY[rarityIndex(rarity)] ?? 0
+}
+
+/** Copies a craft max buys: all the Essence affords, stopping at 5★ Lv10 where a copy only refunds a fifth of its price. */
+export function craftMaxCopies(entry: CollectionEntry | null, essence: number, rarity: Rarity): number {
+    const toMax = entry ? dupesToMax(entry) : 1 + totalDupesToMax()
+    return Math.min(Math.floor(essence / craftCostFor(rarity)), toMax)
+}
+
+/** Grant `count` crafted copies: the first of an unowned item is the copy itself, every other one a duplicate. */
+export function applyCraft(entry: CollectionEntry | null, count: number, rarity: Rarity): DupeOutcome {
+    return entry ? applyDupes(entry, count, rarity) : applyDupes(newEntry(), count - 1, rarity)
 }

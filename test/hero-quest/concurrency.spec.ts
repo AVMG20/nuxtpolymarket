@@ -38,7 +38,6 @@ import {
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import { credit, creditGems, getBalance } from '#server/utils/balance'
 import {
-    ESSENCE_COLUMN,
     SEAL_COLUMN,
     buyLadderSeals,
     buyShopTrack,
@@ -47,7 +46,6 @@ import {
     essenceBalance,
     getCollections,
     heroSnapshotOf,
-    essenceSpend,
     getShopLevels,
     getTraitBoard,
     purchaseBattleSpeed,
@@ -55,10 +53,13 @@ import {
     sealSpend,
     settleHq
 } from '#server/utils/hero-quest'
+import { craftItem } from '#server/utils/hero-quest-craft'
 import {
     applyDupes,
     applyPulls,
     craftCostFor,
+    dupesToLevelUp,
+    essenceValueFor,
     newEntry,
     pullCost,
     rarityFromRoll,
@@ -836,7 +837,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             // Exactly three crafts' worth.
             await db.update(hqState).set({ championEssence: cost * 3 }).where(eq(hqState.userId, USER_ID))
 
-            const { ok } = await burst(15, () => $craft('champion', RARE))
+            const { ok } = await burst(15, () => craftItem(USER_ID, 'champion', RARE))
             expect(ok).toBe(3)
 
             const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
@@ -846,6 +847,42 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             const rows = await db.select().from(hqCollection).where(eq(hqCollection.userId, USER_ID))
             expect(rows).toHaveLength(1)
             expect(rows[0]!.contentId).toBe(RARE)
+        })
+
+        it('lets one of a burst of craft maxes spend the Essence, the rest finding it gone', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ championEssence: cost * 3 + 1 }).where(eq(hqState.userId, USER_ID))
+
+            const { ok } = await burst(10, () => craftItem(USER_ID, 'champion', RARE, true))
+            expect(ok).toBe(1)
+
+            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
+            expect(state!.championEssence).toBe(1)
+
+            const [row] = await db.select().from(hqCollection).where(eq(hqCollection.userId, USER_ID))
+            expect(row).toMatchObject({ star: 0, level: 2, dupeProgress: 0 })
+        })
+
+        it('stops a craft max at the maxed copy and keeps the rest of the Essence', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ championEssence: cost * 5 }).where(eq(hqState.userId, USER_ID))
+            await db.insert(hqCollection).values({ userId: USER_ID, system: 'champion', contentId: RARE, star: 5, level: 9, dupeProgress: dupesToLevelUp(5, 9) - 2 })
+
+            const crafted = await craftItem(USER_ID, 'champion', RARE, true)
+            expect(crafted).toMatchObject({ isNew: false, star: 5, level: 10, crafted: 2, spent: cost * 2, refunded: 0, essence: cost * 3 })
+
+            await expect(craftItem(USER_ID, 'champion', RARE, true)).rejects.toThrow('already maxed')
+            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
+            expect(state!.championEssence).toBe(cost * 3)
+        })
+
+        it('still converts a single craft onto a maxed copy back to Essence', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ championEssence: cost }).where(eq(hqState.userId, USER_ID))
+            await db.insert(hqCollection).values({ userId: USER_ID, system: 'champion', contentId: RARE, star: 5, level: 10, dupeProgress: 0 })
+
+            const crafted = await craftItem(USER_ID, 'champion', RARE)
+            expect(crafted).toMatchObject({ crafted: 1, spent: cost, refunded: essenceValueFor('rare'), essence: essenceValueFor('rare') })
         })
     })
 
@@ -955,7 +992,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
                     gearEssence: cost, skillEssence: cost, artifactEssence: cost
                 }).where(eq(hqState.userId, USER_ID))
 
-                const { ok } = await burst(10, () => $craft(system, contentId))
+                const { ok } = await burst(10, () => craftItem(USER_ID, system, contentId))
                 expect(ok, system).toBe(1)
 
                 const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
@@ -979,40 +1016,6 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         })
     })
 })
-
-/**
- * The craft route body, inlined. Guard under test: the conditional Essence debit.
- */
-async function $craft(system: GachaSystem, contentId: string) {
-    const definition = gachaContent(system).get(contentId)
-    const cost = craftCostFor(definition.rarity)
-    return db.transaction(async (tx) => {
-        const [claimed] = await tx.update(hqState)
-            .set(essenceSpend(system, cost))
-            .where(and(eq(hqState.userId, USER_ID), sql`${ESSENCE_COLUMN[system]} >= ${cost}`))
-            .returning()
-        if (!claimed) throw new Error('insufficient essence')
-
-        const [existing] = await tx.select().from(hqCollection)
-            .where(and(
-                eq(hqCollection.userId, USER_ID),
-                eq(hqCollection.system, system),
-                eq(hqCollection.contentId, contentId)
-            ))
-        const before = existing
-            ? { star: existing.star, level: existing.level, dupeProgress: existing.dupeProgress }
-            : null
-        const entry = before ? applyDupes(before, 1, definition.rarity).entry : newEntry()
-
-        await tx.insert(hqCollection)
-            .values({ userId: USER_ID, system, contentId, ...entry })
-            .onConflictDoUpdate({
-                target: [hqCollection.userId, hqCollection.system, hqCollection.contentId],
-                set: { star: entry.star, level: entry.level, dupeProgress: entry.dupeProgress }
-            })
-        return entry
-    })
-}
 
 /**
  * The buy-seals route body, inlined. Guard under test: **lock-then-read**. The price depends

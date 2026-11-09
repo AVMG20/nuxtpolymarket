@@ -331,7 +331,7 @@ async function withCollections(work: () => Promise<unknown>) {
 
 function onCollectionAction(action: DetailButton, id: string) {
     const tab = collections.value.tab
-    void withCollections(() => action === 'craft' ? craft(SYSTEM_OF[tab], id) : equipGear(id))
+    void withCollections(() => action === 'equip' ? equipGear(id) : craft(SYSTEM_OF[tab], id, action === 'craftMax'))
 }
 
 function onCollectionPick(id: string, pick: string) {

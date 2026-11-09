@@ -502,9 +502,9 @@ export const useHeroQuest = () => {
         return call<HqPullResponse, HqPullRequest>('/api/hero-quest/gacha/pull', { system, free: true }, '')
     }
 
-    /** Spend a gacha's Essence on a specific item — the full RNG bypass. */
-    async function craft(system: GachaSystem, contentId: string) {
-        return call<HqCraftResponse, HqCraftRequest>('/api/hero-quest/gacha/craft', { system, contentId }, '')
+    /** Spend a gacha's Essence on a specific item — the full RNG bypass; `max` buys all it can. */
+    async function craft(system: GachaSystem, contentId: string, max = false) {
+        return call<HqCraftResponse, HqCraftRequest>('/api/hero-quest/gacha/craft', { system, contentId, max }, '')
     }
 
     /** Buy Seals with Gold on that gacha's own daily escalating ladder. */

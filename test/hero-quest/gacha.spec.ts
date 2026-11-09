@@ -5,12 +5,15 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+    applyCraft,
     applyDupes,
     applyPulls,
     bulkPullSize,
     craftCostFor,
+    craftMaxCopies,
     dropRatesFor,
     dupesToLevelUp,
+    dupesToMax,
     essenceValueFor,
     isMaxed,
     isPullSize,
@@ -20,7 +23,8 @@ import {
     pullsToNextLevel,
     rarityFromRoll,
     sealLadderPrice,
-    sealLadderTotal
+    sealLadderTotal,
+    totalDupesToMax
 } from '#shared/utils/hero-quest/gacha'
 import {
     DROP_RATE_TABLE,
@@ -226,5 +230,36 @@ describe('essence and crafting', () => {
         for (const rarity of RARITIES) {
             expect(craftCostFor(rarity), rarity).toBe(essenceValueFor(rarity) * 5)
         }
+    })
+
+    it('counts the duplicates left to max, banked ones included', () => {
+        expect(dupesToMax(newEntry())).toBe(totalDupesToMax())
+        expect(dupesToMax({ star: 5, level: 10, dupeProgress: 0 })).toBe(0)
+        expect(dupesToMax({ star: 5, level: 9, dupeProgress: 3 })).toBe(dupesToLevelUp(5, 9) - 3)
+    })
+
+    it('reaches exactly the maxed copy on the duplicates it counts', () => {
+        for (const entry of [newEntry(), { star: 2, level: 7, dupeProgress: 4 }, { star: 5, level: 9, dupeProgress: 1 }]) {
+            const { entry: after, essenceGained } = applyDupes(entry, dupesToMax(entry), 'rare')
+            expect(isMaxed(after)).toBe(true)
+            expect(essenceGained).toBe(0)
+        }
+    })
+
+    it('has a craft max buy what the Essence affords and no copy past maxed', () => {
+        const cost = craftCostFor('rare')
+        expect(craftMaxCopies(null, cost - 1, 'rare')).toBe(0)
+        expect(craftMaxCopies(null, cost * 3 + 1, 'rare')).toBe(3)
+        expect(craftMaxCopies({ star: 5, level: 9, dupeProgress: dupesToLevelUp(5, 9) - 2 }, cost * 9, 'rare')).toBe(2)
+        expect(craftMaxCopies({ star: 5, level: 10, dupeProgress: 0 }, cost * 9, 'rare')).toBe(0)
+        // unowned: the first copy, then every duplicate
+        expect(craftMaxCopies(null, cost * 5000, 'rare')).toBe(totalDupesToMax() + 1)
+    })
+
+    it('grants a craft as one copy then duplicates, the same as crafting them one at a time', () => {
+        expect(applyCraft(null, 1, 'rare').entry).toEqual(newEntry())
+        let oneByOne = applyCraft(null, 1, 'rare').entry
+        for (let i = 1; i < 40; i++) oneByOne = applyCraft(oneByOne, 1, 'rare').entry
+        expect(applyCraft(null, 40, 'rare').entry).toEqual(oneByOne)
     })
 })
