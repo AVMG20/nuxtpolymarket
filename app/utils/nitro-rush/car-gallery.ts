@@ -12,8 +12,8 @@ const FRAME_SECONDS = 1 / 30
 const MAX_PIXEL_RATIO = 2
 const FOV = 26
 /** Far enough that a car's corners stay in view at every angle on a 16:10 card. */
-const CAMERA_POS = new THREE.Vector3(0, 2.2, 7.6)
-const LOOK_AT = new THREE.Vector3(0, 0.5, 0)
+const CAMERA_POS = new THREE.Vector3(0, 1.9, 6.5)
+const LOOK_AT = new THREE.Vector3(0, 0.43, 0)
 
 interface Slot {
     car: PlayerCar

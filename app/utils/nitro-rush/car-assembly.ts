@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { modelShared, wheelGeos, type Kit } from './car-kit'
 import type { PlayerCar } from './car-models'
+import { CAR_HALF_LENGTH, CAR_HALF_WIDTH } from './config'
 import { plateTexture } from './signs'
 
 /** What a car model builds itself; everything faces -z, the direction of travel. */
@@ -19,6 +20,16 @@ export interface CarParts {
 
 const SIDES = [-1, 1] as const
 
+/** Fills the hitbox exactly, so what the player sees is what hits the wall; height follows length to keep the wheels round. */
+function fitToHitbox(fit: THREE.Group) {
+    const box = new THREE.Box3().setFromObject(fit)
+    const across = CAR_HALF_WIDTH * 2 / (box.max.x - box.min.x)
+    const along = CAR_HALF_LENGTH * 2 / (box.max.z - box.min.z)
+    fit.scale.set(across, along, along)
+    fit.position.z = -along * (box.max.z + box.min.z) / 2
+    return along
+}
+
 /** Bakes a model's parts and adds what every car shares: wheels, shadow, number plate and exhaust flames. */
 export function assembleCar(p: CarParts): PlayerCar {
     const s = modelShared()
@@ -28,8 +39,11 @@ export function assembleCar(p: CarParts): PlayerCar {
         return x
     }
     const group = new THREE.Group()
+    // Its own group, as `group` is where the game places and turns the car.
+    const fit = new THREE.Group()
     const body = new THREE.Group()
-    group.add(body)
+    group.add(fit)
+    fit.add(body)
 
     // Backlit like the billboards, so the ad still reads at night.
     const plateMap = own(plateTexture())
@@ -56,16 +70,19 @@ export function assembleCar(p: CarParts): PlayerCar {
             w.add(spin, new THREE.Mesh(wheelSet.caliper, s.slots.caliper))
             w.position.set(side * halfTrack, r, -u)
             if (side < 0) w.rotation.y = Math.PI
-            group.add(w)
+            fit.add(w)
             wheels.push(spin)
         }
     }
+    // Before the shadow and flames, which aren't part of the car's shape.
+    const along = fitToHitbox(fit)
 
     const shadow = new THREE.Mesh(s.shadowGeo, s.shadow)
     shadow.scale.set(2.8, 1, 5.6)
-    shadow.position.y = 0.03
+    // The fit scales this too, and the lift is what keeps it off the road.
+    shadow.position.y = 0.03 / along
     shadow.renderOrder = 2
-    group.add(shadow)
+    fit.add(shadow)
 
     const flameGeo = own(new THREE.ConeGeometry(0.09, 1.1, 10, 1, true).rotateX(-Math.PI / 2).translate(0, 0, 0.55))
     const flameMat = own(new THREE.MeshBasicMaterial({ color: 0x7ab8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }))
@@ -81,7 +98,7 @@ export function assembleCar(p: CarParts): PlayerCar {
         group,
         body,
         paint: p.paint,
-        wheelRadius: r,
+        wheelRadius: r * along,
         wheels,
         flames,
         flameMat,

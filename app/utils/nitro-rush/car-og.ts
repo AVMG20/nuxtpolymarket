@@ -161,9 +161,9 @@ function addDetails(kit: Kit) {
         const tx = side * (edgeX(tu + 0.1, tv) - 0.3)
         kit.box('tail', 0.42, 0.07, 0.04, tx, tv, tz + 0.02, 0.02)
         kit.box('lens', 0.5, 0.15, 0.08, tx, tv, tz + 0.01, 0.04)
-        // Mirrors on stalks, ahead of the side glass.
+        // Mirrors tucked against the door, as one past the flank would squeeze the whole car once it's fitted to the hitbox.
         const mu = D.cabin[0]![0] - 0.25
-        const mx = side * (edgeX(mu, D.belt) + 0.1)
+        const mx = side * (edgeX(mu, D.belt) - 0.06)
         kit.box('paint', 0.2, 0.12, 0.08, mx, D.belt + 0.1, -mu, 0.04)
         kit.box('trim', 0.12, 0.03, 0.05, mx - side * 0.1, D.belt + 0.05, -mu, 0.012)
         // Chrome along the bottom of the side glass.

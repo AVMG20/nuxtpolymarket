@@ -175,10 +175,11 @@ function addAero(kit: Kit, surface: BodySurface) {
     const glass = new THREE.CircleGeometry(1, 20)
     for (const side of SIDES) {
         const root = surface.point(0.6, side * surface.sAtY(0.6, 0.76))
-        const head: [number, number, number] = [side * 1.08, 0.9, -0.52]
-        kit.add('paint', mirror, head[0], head[1], head[2], 0, 0, 0, 0.115, 0.055, 0.09)
-        kit.add('glass', glass, head[0], head[1], head[2] + 0.086, 0, 0, 0, 0.092, 0.04, 1)
-        kit.beam('trim', [root.x, root.y, root.z], [head[0] - side * 0.06, head[1] - 0.02, head[2]], 0.014, 0.014)
+        // Tucked in, as a mirror past the flank would squeeze the whole car once it's fitted to the hitbox.
+        const head: [number, number, number] = [side * 0.93, 0.9, -0.52]
+        kit.add('paint', mirror, head[0], head[1], head[2], 0, 0, 0, 0.09, 0.055, 0.09)
+        kit.add('glass', glass, head[0], head[1], head[2] + 0.086, 0, 0, 0, 0.072, 0.04, 1)
+        kit.beam('trim', [root.x, root.y, root.z], [head[0] - side * 0.04, head[1] - 0.02, head[2]], 0.014, 0.014)
         // The black blade under the sill between the wheels.
         kit.box('trim', 0.09, 0.075, 2.04, side * 0.88, 0.19, 0, 0.015)
         kit.box('trim', 0.05, 0.14, 2.0, side * 0.82, 0.25, 0, 0.012)
@@ -193,7 +194,7 @@ function addAero(kit: Kit, surface: BodySurface) {
 
     for (const side of SIDES) {
         // Canards, stacked off the front corner.
-        kit.beam('trim', [side * 0.72, 0.21, -2.12], [side * 1.03, 0.27, -1.86], 0.016, 0.1)
+        kit.beam('trim', [side * 0.72, 0.21, -2.12], [side * 0.96, 0.27, -1.86], 0.016, 0.1)
         kit.beam('trim', [side * 0.42, 0.19, -2.42], [side * 0.74, 0.19, -2.14], 0.018, 0.09)
         kit.box('trim', 0.022, 0.1, 0.34, side * 0.34, 0.2, -2.32, 0.008)
     }
