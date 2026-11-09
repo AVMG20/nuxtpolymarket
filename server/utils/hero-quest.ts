@@ -1352,7 +1352,7 @@ export const SEAL_COLUMN = {
     artifact: hqState.excavationSeals
 } as const
 
-export const ESSENCE_COLUMN = {
+const ESSENCE_COLUMN = {
     gear: hqState.gearEssence,
     champion: hqState.championEssence,
     skill: hqState.skillEssence,

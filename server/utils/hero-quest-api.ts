@@ -179,10 +179,13 @@ export const BUY_SEALS_BODY: BodySchema<HqBuySealsRequest> = {
 export interface HqCraftRequest {
     system: GachaSystem
     contentId: string
+    /** Craft all the Essence buys, up to maxing the item, instead of one; the server counts them. */
+    max?: boolean
 }
 export const CRAFT_BODY: BodySchema<HqCraftRequest> = {
     system: { check: isGacha, message: 'Unknown gacha' },
-    contentId: { check: isString, message: 'Unknown item' }
+    contentId: { check: isString, message: 'Unknown item' },
+    max: { read: asFlag, check: isBoolean, message: 'Say whether to craft the most', optional: true }
 }
 
 export interface HqPullRequest {
@@ -1144,6 +1147,7 @@ export interface HqCraftResponse {
     isNew: boolean
     star: number
     level: number
+    crafted: number
     spent: number
     refunded: number
     essence: number

@@ -44,7 +44,7 @@ export interface CollectionTile {
     actions: readonly CollectionAction[]
     /** Where Equip can put it, opened over the detail; null where Equip acts at once (Gear). */
     picker: EquipPicker | null
-    /** The craft button, its cost spelled out; null once the entry is maxed. */
+    /** Craft, its cost spelled out, and Craft Max beside it; null once the entry is maxed. */
     craft: { cost: string, enabled: boolean } | null
 }
 
@@ -83,7 +83,7 @@ export interface CollectionsView {
     heroClassId: string | null
 }
 
-export type DetailButton = CollectionActionId | 'craft'
+export type DetailButton = CollectionActionId | 'craft' | 'craftMax'
 
 /** A press in the picker: a spot by row and place, the x that frees one, its remove button, or Cancel. */
 export type PickerTarget = `spot:${number}:${number}` | `unset:${number}:${number}` | 'remove' | 'cancel'
@@ -139,9 +139,11 @@ const ESSENCE_ICONS: Readonly<Record<HqCollectionTab, Glyph>> = {
 const MARK_COLORS: Readonly<Record<TileMark, number>> = { E: C.gold2, F: C.red3, B: C.blue2 }
 
 /** Each button's plate: the colour of what it does, Front and Back matching their tile letters. */
+const CRAFT_PLATE = [C.purple0, C.purple1, C.purple2] as const
 const PLATES: Readonly<Record<DetailButton, readonly [number, number, number]>> = {
     equip: [C.green0, C.green1, C.green2],
-    craft: [C.purple0, C.purple1, C.purple2]
+    craft: CRAFT_PLATE,
+    craftMax: CRAFT_PLATE
 }
 const REMOVE_PLATE = [C.red0, C.red1, C.red2] as const
 const CANCEL_PLATE = [C.stone0, C.stone1, C.stone2] as const
@@ -230,7 +232,12 @@ function detailFooter(w: number, h: number, e: CollectionTile): { x: number, y: 
     const y = p.y + p.h - 6 - BTN_H
     const width = (label: string) => textWidth(label) + 2 * BTN_PAD
     const actions = e.actions.map(a => ({ id: a.id as DetailButton, label: a.label.toUpperCase(), enabled: a.enabled, current: !!a.current }))
-    const craft = e.craft ? [{ id: 'craft' as DetailButton, label: craftLabel(e.craft.cost), enabled: e.craft.enabled, current: false }] : []
+    const craft = e.craft
+        ? [
+                { id: 'craft' as DetailButton, label: craftLabel(e.craft.cost), enabled: e.craft.enabled, current: false },
+                { id: 'craftMax' as DetailButton, label: 'CRAFT MAX', enabled: e.craft.enabled, current: false }
+            ]
+        : []
     const span = (row: { label: string }[]) => row.reduce((sum, b) => sum + width(b.label) + 3, 0)
     // the Essence readout needs about this much on the bottom row's left
     const oneRow = span([...craft, ...actions]) <= right - x - ESSENCE_W

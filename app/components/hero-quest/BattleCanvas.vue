@@ -491,7 +491,7 @@ type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuS
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
-const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'craft']
+const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'craft', 'craftMax']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
 const hover = ref<Target | null>(null)
 const pressed = ref(false)
