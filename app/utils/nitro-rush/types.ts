@@ -1,5 +1,6 @@
 /** What the engine and the game's UI exchange: phases, controls, the HUD, popups and records. */
 
+import type { CarId } from '#shared/utils/nitro-rush/cars'
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
@@ -94,6 +95,8 @@ export interface GhostFrame {
     label?: string
     /** Body colour, as a hex number. */
     color?: number
+    /** The car's shape; the first car when left out. */
+    car?: CarId
 }
 
 /** Which ghosts race along: the player's best lap, the course record, and other players live. */

@@ -1,3 +1,4 @@
+import { findCar, type CarId } from '#shared/utils/nitro-rush/cars'
 import { isCustomTrackId, isPublishedTrackId } from '#shared/utils/nitro-rush/custom'
 import { isPaintId } from '#shared/utils/nitro-rush/paints'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
@@ -55,11 +56,11 @@ export interface NrLivePose {
 export type NrLiveClientMsg =
     | { t: 'join', track: string }
     | { t: 'leave' }
-    | { t: 'pose', at: number, paint: string, pose: NrLivePose }
+    | { t: 'pose', at: number, paint: string, car: CarId, pose: NrLivePose }
 
 export type NrLiveServerMsg =
     /** Another player's car. `at` is the sender's clock in ms, only meaningful between their own poses. */
-    | { t: 'pose', id: string, name: string, paint: string, at: number, pose: NrLivePose }
+    | { t: 'pose', id: string, name: string, paint: string, car: CarId, at: number, pose: NrLivePose }
     /** That player left this course or closed their last tab on it. */
     | { t: 'gone', id: string }
     /** The room is at its cap: no ghosts on this course for now. */
@@ -114,7 +115,8 @@ export function parseNrLiveMessage(raw: string): NrLiveClientMsg | null {
             if (!finite(m.at) || m.at < 0 || m.at > MAX_CLOCK_MS) return null
             if (typeof m.paint !== 'string' || !isPaintId(m.paint)) return null
             const pose = nrLivePose(m.pose)
-            return pose ? { t: 'pose', at: m.at, paint: m.paint, pose } : null
+            // An older client sends no car, and an unknown one is a car this build doesn't have: both drive the first.
+            return pose ? { t: 'pose', at: m.at, paint: m.paint, car: findCar(m.car).id, pose } : null
         }
         default:
             return null
@@ -254,7 +256,7 @@ export class NrLiveHub {
         if (presence.driver && presence.driver !== conn && now - presence.driverAt < NR_LIVE_HANDOFF_MS) return
         presence.driver = conn
         presence.driverAt = now
-        const frame: NrLiveServerMsg = { t: 'pose', id: conn.userId, name: conn.name, paint: msg.paint, at: msg.at, pose: msg.pose }
+        const frame: NrLiveServerMsg = { t: 'pose', id: conn.userId, name: conn.name, paint: msg.paint, car: msg.car, at: msg.at, pose: msg.pose }
         this.broadcast(room, conn.userId, JSON.stringify(frame))
     }
 

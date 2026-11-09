@@ -9,6 +9,7 @@ import { EMPTY_RECORD, type Control, type GhostToggles, type HudState, type Phas
 import { newCustomTrack, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import { findTrack, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { findCar, type CarId } from '#shared/utils/nitro-rush/cars'
 
 /** No input, or a hidden tab, for this long sends the player back to the title screen. */
 const AWAY_MS = 3 * 60 * 1000
@@ -30,6 +31,7 @@ const trackName = ref('')
 /** The course on the engine, for the minimap. */
 const trackDef = shallowRef<TrackDef | null>(null)
 const paint = ref<PaintId>('hotpink')
+const car = ref<CarId>('kestrel')
 const musicOn = ref(true)
 const sfxOn = ref(true)
 const isTouch = ref(false)
@@ -69,7 +71,7 @@ const ownTracks = useNitroRushOwnTrackActions({
 })
 
 /** Other players on this course, as live ghost cars. */
-const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, car, show: computed(() => ghosts.value.live) })
 const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
@@ -266,6 +268,14 @@ function setPaint(id: PaintId) {
     audio.ui()
 }
 
+function setCar(id: CarId) {
+    car.value = id
+    engine?.setCar(id)
+    writeStorage(STORAGE_KEYS.car, { id })
+    audio.unlock()
+    audio.ui()
+}
+
 function toggleMusic() {
     musicOn.value = !musicOn.value
     audio.setMusic(musicOn.value)
@@ -338,6 +348,7 @@ onMounted(() => {
     clearRetiredStorage()
     records.value = readStorage<Record<string, TrackRecord>>(STORAGE_KEYS.records, {})
     paint.value = findPaint(readStorage<{ id: string }>(STORAGE_KEYS.paint, { id: '' }).id).id
+    car.value = findCar(readStorage<{ id: string }>(STORAGE_KEYS.car, { id: '' }).id).id
     const a = readStorage(STORAGE_KEYS.audio, { music: true, sfx: true })
     musicOn.value = a.music
     sfxOn.value = a.sfx
@@ -364,7 +375,7 @@ onMounted(() => {
             if (p === 'countdown') resumeHeldKeys()
         },
         record: onRecord
-    }, audio, paint.value, storedTrack)
+    }, audio, paint.value, car.value, storedTrack)
     syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)
     loadGhostToggles()
@@ -421,6 +432,7 @@ onBeforeUnmount(() => {
         :board="board"
         :board-loading="boardLoading"
         :paint="paint"
+        :car="car"
         :is-touch="isTouch"
         :has-pad="hasPad"
         :records="records"
@@ -432,6 +444,7 @@ onBeforeUnmount(() => {
         @back="backToTitle"
         @select="selectTrack"
         @paint="setPaint"
+        @car="setCar"
         @start="play"
         @build="openBuilder"
         @publish="ownTracks.publish"

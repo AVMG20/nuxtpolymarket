@@ -17,6 +17,7 @@ import { carInput, withPad } from './input'
 import { createRushRenderer, RushPost } from './post'
 import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
+import type { CarId } from '#shared/utils/nitro-rush/cars'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
 import { headingOf, Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -48,7 +49,9 @@ export class NitroRushEngine {
     private world: World
     private readonly envTarget: THREE.WebGLRenderTarget
     private readonly fx: CarEffects
-    private readonly car: CarView
+    private car: CarView
+    private carId: CarId
+    private paintColor: number
     private readonly lampLight: THREE.PointLight
     private readonly lampPos = new THREE.Vector3()
     private readonly resizeObserver: ResizeObserver
@@ -90,7 +93,7 @@ export class NitroRushEngine {
     private readonly grade = new RaceGrade()
     private readonly feedback: RaceFeedback
 
-    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, track: TrackDef) {
+    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, car: CarId, track: TrackDef) {
         this.host = host
         this.events = events
         this.audio = audio
@@ -107,7 +110,9 @@ export class NitroRushEngine {
         this.feedback = new RaceFeedback({ audio, events, grade: this.grade, cam: this.cam, fx: this.fx })
         this.world = this.buildWorld()
 
-        this.car = new CarView(findPaint(paint).color)
+        this.carId = car
+        this.paintColor = findPaint(paint).color
+        this.car = new CarView(car, this.paintColor)
         this.scene.add(this.car.group)
         // Rides with whichever floodlight is nearest, so the paint flares as each one passes.
         this.lampLight = new THREE.PointLight(0xffd2a0, 0, 30, 1.6)
@@ -133,7 +138,20 @@ export class NitroRushEngine {
     }
 
     setPaint(id: PaintId) {
-        this.car.setPaint(findPaint(id).color)
+        this.paintColor = findPaint(id).color
+        this.car.setPaint(this.paintColor)
+    }
+
+    /** Swaps the model where it stands; the physics never changes, every car drives the same. */
+    setCar(id: CarId) {
+        if (id === this.carId) return
+        const old = this.car
+        this.carId = id
+        this.car = new CarView(id, this.paintColor)
+        this.car.place(old.group.position, old.group.quaternion)
+        old.dispose()
+        this.scene.add(this.car.group)
+        prewarm(this.renderer, this.scene, this.cam.camera, this.post.sceneTarget)
     }
 
     setRecord(r: TrackRecord) {

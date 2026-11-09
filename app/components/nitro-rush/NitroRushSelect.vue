@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { findPaint, PAINTS, type PaintId } from '~/utils/nitro-rush/config'
+import { CARS, type CarId } from '#shared/utils/nitro-rush/cars'
 import { bestLap } from '~/utils/nitro-rush/record'
 import type { CommunityTrackEntry, CustomTrackEntry, TrackRecord } from '~/utils/nitro-rush/types'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
@@ -17,6 +18,7 @@ const props = defineProps<{
     board: NrBoard | null
     boardLoading: boolean
     paint: PaintId
+    car: CarId
     isTouch: boolean
     hasPad: boolean
     /** This browser's bests, by track. */
@@ -32,7 +34,7 @@ const props = defineProps<{
     /** Community courses with a vote in flight. */
     voting: Set<string>
 }>()
-defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
+defineEmits<{ back: [], select: [id: string], paint: [id: PaintId], car: [id: CarId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
 
 type Tab = 'tracks' | 'community' | 'mine'
 const TABS: readonly { id: Tab, label: string }[] = [
@@ -110,6 +112,19 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
       <div class="nr-card flex w-full flex-col gap-4 text-left lg:w-72 lg:shrink-0">
         <div>
           <div class="nr-label mb-2">CAR</div>
+          <div class="nr-tabs mb-3" role="radiogroup" aria-label="Car">
+            <button
+              v-for="c in CARS"
+              :key="c.id"
+              class="nr-tab"
+              :class="{ 'is-active': car === c.id }"
+              role="radio"
+              :aria-checked="car === c.id"
+              @click="$emit('car', c.id)"
+            >
+              {{ c.label.toUpperCase() }}
+            </button>
+          </div>
           <div class="flex flex-wrap items-center gap-2">
             <button
               v-for="p in PAINTS"

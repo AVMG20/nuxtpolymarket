@@ -42,6 +42,17 @@ describe('live message validation', () => {
         expect(parseNrLiveMessage(JSON.stringify({ t: 'pose', paint: 'cyan', pose: ID }))).toBeNull()
     })
 
+    it('passes a known car through and falls back to the first car for a missing or unknown one', () => {
+        const car = (value: unknown) => {
+            const msg = parseNrLiveMessage(JSON.stringify({ t: 'pose', at: 1, paint: 'cyan', car: value, pose: ID }))
+            return msg?.t === 'pose' ? msg.car : null
+        }
+        expect(car('roadster')).toBe('roadster')
+        expect(car(undefined)).toBe('kestrel')
+        expect(car('tank')).toBe('kestrel')
+        expect(car({ id: 'roadster' })).toBe('kestrel')
+    })
+
     it('rejects an unknown paint, an unknown type, garbage and oversized frames', () => {
         expect(parseNrLiveMessage(JSON.stringify({ t: 'pose', at: 1, paint: 'chrome', pose: ID }))).toBeNull()
         expect(parseNrLiveMessage(JSON.stringify({ t: 'teleport' }))).toBeNull()
@@ -113,7 +124,7 @@ describe('live rooms', () => {
         expect(a.sent).toEqual([])
         expect(c.sent).toEqual([])
         expect(b.sent).toHaveLength(1)
-        expect(b.sent[0]).toMatchObject({ t: 'pose', id: 'ua', name: 'Alice', paint: 'cyan', at: 1000, pose: { x: 5 } })
+        expect(b.sent[0]).toMatchObject({ t: 'pose', id: 'ua', name: 'Alice', paint: 'cyan', car: 'kestrel', at: 1000, pose: { x: 5 } })
     })
 
     it('stamps the server-side name, whatever the client sends', () => {

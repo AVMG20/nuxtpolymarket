@@ -5,6 +5,7 @@
  */
 
 import { findPaint } from './config'
+import { findCar, type CarId } from '#shared/utils/nitro-rush/cars'
 import type { CarPose, GhostFrame } from './types'
 
 /** How far behind a remote car is drawn, so there is usually a pose on each side to blend. */
@@ -26,6 +27,8 @@ export interface LivePoseMsg {
     id: string
     name: string
     paint: string
+    /** Missing from a server older than the garage. */
+    car?: string
     /** The sender's clock in ms. */
     at: number
     pose: CarPose
@@ -37,11 +40,12 @@ const round = (v: number, places: number) => {
 }
 
 /** The pose frame for the socket: centimetres and four-decimal rotation keep it small. */
-export function poseMessage(pose: CarPose, paint: string, at: number) {
+export function poseMessage(pose: CarPose, paint: string, car: CarId, at: number) {
     return {
         t: 'pose' as const,
         at: Math.round(at),
         paint,
+        car,
         pose: {
             x: round(pose.x, 2), y: round(pose.y, 2), z: round(pose.z, 2),
             qx: round(pose.qx, 4), qy: round(pose.qy, 4), qz: round(pose.qz, 4), qw: round(pose.qw, 4)
@@ -136,6 +140,7 @@ export class LiveGhosts {
         }
         p.frame.label = msg.name
         p.frame.color = findPaint(msg.paint).color
+        p.frame.car = findCar(msg.car).id
         p.offset = sample < p.offset ? sample : p.offset + (sample - p.offset) * OFFSET_RELAX
         p.heardAt = now
         p.samples.push({ at: msg.at, pose: copyPose(msg.pose) })
