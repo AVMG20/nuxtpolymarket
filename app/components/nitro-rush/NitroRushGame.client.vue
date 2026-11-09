@@ -267,6 +267,10 @@ function setCar(id: CarId) {
     audio.ui()
 }
 
+function onGarage(open: boolean) {
+    engine?.holdResolution(open)
+}
+
 function setPaint(id: PaintId) {
     paint.value = id
     engine?.setPaint(id)
@@ -443,6 +447,7 @@ onBeforeUnmount(() => {
         @back="backToTitle"
         @select="selectTrack"
         @car="setCar"
+        @garage="onGarage"
         @paint="setPaint"
         @start="play"
         @build="openBuilder"

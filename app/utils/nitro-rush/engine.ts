@@ -148,6 +148,11 @@ export class NitroRushEngine {
         this.car.place(this.motion.pos, this.motion.quat)
     }
 
+    /** A menu's own 3D shares the GPU, and must not read as a slow machine that lowers the race's resolution for the session. */
+    holdResolution(on: boolean) {
+        this.resolution.held = on
+    }
+
     setRecord(r: TrackRecord) {
         this.record = { ...r }
         this.ghosts.setKept(decodeGhost(r.ghost), !!r.ghostStanding)

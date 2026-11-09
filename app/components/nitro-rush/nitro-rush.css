@@ -233,6 +233,15 @@
     transition: background 0.15s, color 0.15s;
 }
 
+/* Four labels only fit side by side on a phone at this size. */
+@media (max-width: 480px) {
+    .nr-root .nr-tab {
+        padding: 8px 2px;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+    }
+}
+
 .nr-root .nr-tab:hover { color: #fff; }
 
 .nr-root .nr-tab.is-active {
@@ -330,6 +339,25 @@
     background: rgb(255 43 214 / 0.16);
     border-color: var(--nr-pink);
     box-shadow: 0 0 18px rgb(255 43 214 / 0.35);
+}
+
+.nr-root .nr-car {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 8px;
+}
+
+.nr-root .nr-car-stage {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border-radius: 10px;
+    background: radial-gradient(ellipse 70% 55% at 50% 62%, rgb(61 242 255 / 0.16), rgb(0 0 0 / 0.35));
+}
+
+.nr-root .nr-track.is-active .nr-car-stage {
+    background: radial-gradient(ellipse 70% 55% at 50% 62%, rgb(255 43 214 / 0.24), rgb(0 0 0 / 0.35));
 }
 
 .nr-root .nr-track-thumb {
@@ -465,6 +493,15 @@
     font-size: 11px;
     font-weight: 700;
     color: rgb(255 255 255 / 0.55);
+}
+
+/* The panel scrolls, which would clip the active swatch's growth and glow at its edge. */
+.nr-root .nr-paints {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
 }
 
 .nr-root .nr-swatch {

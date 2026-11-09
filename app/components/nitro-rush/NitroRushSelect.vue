@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CARS, findPaint, PAINTS, type CarId, type PaintId } from '~/utils/nitro-rush/config'
+import { findCar, findPaint, type CarId, type PaintId } from '~/utils/nitro-rush/config'
 import { bestLap } from '~/utils/nitro-rush/record'
 import type { CommunityTrackEntry, CustomTrackEntry, TrackRecord } from '~/utils/nitro-rush/types'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
@@ -33,17 +33,18 @@ const props = defineProps<{
     /** Community courses with a vote in flight. */
     voting: Set<string>
 }>()
-defineEmits<{ back: [], select: [id: string], car: [id: CarId], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
+defineEmits<{ back: [], select: [id: string], car: [id: CarId], garage: [open: boolean], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
 
-type Tab = 'tracks' | 'community' | 'mine'
+type Tab = 'tracks' | 'community' | 'mine' | 'garage'
 const TABS: readonly { id: Tab, label: string }[] = [
     { id: 'tracks', label: 'TRACKS' },
     { id: 'community', label: 'COMMUNITY' },
-    { id: 'mine', label: 'MY TRACKS' }
+    { id: 'mine', label: 'MY TRACKS' },
+    { id: 'garage', label: 'GARAGE' }
 ]
 /** Opens on the tab holding the course on the engine. */
 const tab = ref<Tab>(findTrack(props.trackId) ? 'tracks' : props.communityTracks.some(c => c.track.id === props.trackId) ? 'community' : 'mine')
-const paintLabel = computed(() => findPaint(props.paint).label)
+const carSummary = computed(() => `${findCar(props.car).label} · ${findPaint(props.paint).label}`)
 const best = (id: string) => bestLap(props.records[id], props.summaries[id])
 const medals = useNitroRushMedals()
 /** Only courses the viewer has a time on are ever worked out. */
@@ -90,6 +91,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
         <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
           <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
           <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushGarage v-else-if="tab === 'garage'" :car="car" :paint="paint" @select="$emit('car', $event)" @paint="$emit('paint', $event)" @open="$emit('garage', $event)" />
           <NitroRushMyTracks
             v-else
             :track-id="trackId"
@@ -110,32 +112,8 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
 
       <div class="nr-card flex w-full flex-col gap-4 text-left lg:w-72 lg:shrink-0">
         <div>
-          <div class="nr-label mb-2">CAR</div>
-          <div class="nr-tabs mb-3">
-            <button
-              v-for="c in CARS"
-              :key="c.id"
-              class="nr-tab"
-              :class="{ 'is-active': car === c.id }"
-              :aria-pressed="car === c.id"
-              @click="$emit('car', c.id)"
-            >
-              {{ c.label.toUpperCase() }}
-            </button>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              v-for="p in PAINTS"
-              :key="p.id"
-              class="nr-swatch"
-              :class="{ 'is-active': paint === p.id }"
-              :style="{ '--swatch': `#${p.color.toString(16).padStart(6, '0')}` }"
-              :aria-label="p.label"
-              :title="p.label"
-              @click="$emit('paint', p.id)"
-            />
-          </div>
-          <div class="mt-2 text-sm text-white/70">{{ paintLabel }}</div>
+          <div class="nr-label mb-1">CAR</div>
+          <div class="text-sm text-white/70">{{ carSummary }}</div>
         </div>
         <NitroRushTrackInfo
           :track-id="trackId"

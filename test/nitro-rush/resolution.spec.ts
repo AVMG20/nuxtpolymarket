@@ -21,6 +21,16 @@ describe('adaptive resolution', () => {
         expect(r.ratio).toBe(1)
     })
 
+    it('takes no notice of slow frames while held, then or after', () => {
+        const r = new AdaptiveResolution(1)
+        r.held = true
+        expect(run(r, 1 / 20, 30)).toBe(false)
+        expect(r.ratio).toBe(1.5)
+        r.held = false
+        expect(run(r, 1 / 60, 30, 30)).toBe(false)
+        expect(r.ratio).toBe(1.5)
+    })
+
     it('holds a standard screen to the pixel budget but never below native', () => {
         const r = new AdaptiveResolution(1)
         r.fit(2560, 1440)
