@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { WHEEL_R } from './car-body'
 import { modelShared } from './car-kit'
-import { buildPlayerCar, type PlayerCar } from './models'
+import { buildCar, type PlayerCar } from './car-models'
+import type { CarId } from './config'
 import { marksCar } from './stencil'
 import { surging, type CarState } from './physics'
 import type { CarPose } from './types'
@@ -18,8 +18,8 @@ export class CarView {
     private readonly poseQuat = new THREE.Quaternion()
     private readonly poseScale = new THREE.Vector3()
 
-    constructor(color: number) {
-        this.car = buildPlayerCar(color)
+    constructor(readonly id: CarId, color: number) {
+        this.car = buildCar(id, color)
         this.group = this.car.group
         for (const w of this.car.wheels) w.parent!.userData.baseYaw = w.parent!.rotation.y
         this.frontWheels = this.car.wheels.map(w => w.parent!).filter(w => w.position.z < 0)
@@ -67,7 +67,7 @@ export class CarView {
         this.car.body.rotation.set(this.pitch, 0, this.roll)
         const steerVisual = -s.steer * 0.45 / (1 + Math.abs(s.speed) / 30)
         for (const w of this.frontWheels) w.rotation.y = (w.userData.baseYaw ?? 0) + steerVisual
-        for (const w of this.car.wheels) w.rotation.x -= s.speed * dt / WHEEL_R * (w.userData.dir ?? 1)
+        for (const w of this.car.wheels) w.rotation.x -= s.speed * dt / this.car.wheelRadius * (w.userData.dir ?? 1)
         const flicker = 0.75 + Math.random() * 0.5
         for (const f of this.car.flames) {
             const k = nitro ? 1.6 * flicker : (throttle ? 0.3 * flicker : 0.001)

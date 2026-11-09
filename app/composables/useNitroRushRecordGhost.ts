@@ -39,6 +39,7 @@ export function useNitroRushRecordGhost(opts: { engine: () => RecordGhostEngine 
             if (r !== request) return
             const ghost = record && decodeGhost(record.ghost)
             current = ghost ? { ghost, standing: record.standing, closed: def.closed !== false } : null
+            frame.car = ghost?.car
             if (record) frame.label = `RECORD · ${record.name}`
         } catch {
             // No record ghost for now; the next course or lap asks again.

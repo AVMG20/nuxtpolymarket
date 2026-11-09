@@ -1,10 +1,11 @@
 import * as THREE from 'three'
 import { ARCH_R, AXLE_U, BodySurface, buildSkin, buildTailFace, buildUnderbody, curve, surfacePatch, TAIL_U, TUB_X, WHEEL_R, type Edge, type PatchOptions } from './car-body'
-import { Kit, modelShared, wheelGeos, type Slot } from './car-kit'
+import { assembleCar } from './car-assembly'
+import { Kit, SIDES, type Slot } from './car-kit'
 import { atlasUv, DECALS, liveryTexture, mapToDecal } from './car-livery'
-import { plateTexture } from './signs'
+import type { PlayerCar } from './car-models'
 
-/** The hero car, assembled from the lofted body and its parts. Everything faces -z, the direction of travel. */
+/** The Kestrel, assembled from the lofted body and its parts. Everything faces -z, the direction of travel. */
 
 const WHEEL_W = 0.3
 const HALF_TRACK = 0.82
@@ -15,8 +16,6 @@ const TAIL_Y = 0.72
 const LAMP_X = 0.36
 const PIPE_XS = [0.38, 0.54]
 const PIPE_Y = 0.29
-
-const SIDES = [-1, 1] as const
 
 /** A patch on the car's right between two edges, mirrored on its left so the faces there still point out. */
 function mirroredPatch(kit: Kit, surface: BodySurface, slot: Slot, u0: number, u1: number, lo: Edge, hi: Edge, opts?: PatchOptions) {
@@ -174,10 +173,11 @@ function addAero(kit: Kit, surface: BodySurface) {
     const glass = new THREE.CircleGeometry(1, 20)
     for (const side of SIDES) {
         const root = surface.point(0.6, side * surface.sAtY(0.6, 0.76))
-        const head: [number, number, number] = [side * 1.08, 0.9, -0.52]
-        kit.add('paint', mirror, head[0], head[1], head[2], 0, 0, 0, 0.115, 0.055, 0.09)
-        kit.add('glass', glass, head[0], head[1], head[2] + 0.086, 0, 0, 0, 0.092, 0.04, 1)
-        kit.beam('trim', [root.x, root.y, root.z], [head[0] - side * 0.06, head[1] - 0.02, head[2]], 0.014, 0.014)
+        // Tucked in, as a mirror past the flank would squeeze the whole car once it's fitted to the hitbox.
+        const head: [number, number, number] = [side * 0.93, 0.9, -0.52]
+        kit.add('paint', mirror, head[0], head[1], head[2], 0, 0, 0, 0.09, 0.055, 0.09)
+        kit.add('glass', glass, head[0], head[1], head[2] + 0.086, 0, 0, 0, 0.072, 0.04, 1)
+        kit.beam('trim', [root.x, root.y, root.z], [head[0] - side * 0.04, head[1] - 0.02, head[2]], 0.014, 0.014)
         // The black blade under the sill between the wheels.
         kit.box('trim', 0.09, 0.075, 2.04, side * 0.88, 0.19, 0, 0.015)
         kit.box('trim', 0.05, 0.14, 2.0, side * 0.82, 0.25, 0, 0.012)
@@ -192,7 +192,7 @@ function addAero(kit: Kit, surface: BodySurface) {
 
     for (const side of SIDES) {
         // Canards, stacked off the front corner.
-        kit.beam('trim', [side * 0.72, 0.21, -2.12], [side * 1.03, 0.27, -1.86], 0.016, 0.1)
+        kit.beam('trim', [side * 0.72, 0.21, -2.12], [side * 0.96, 0.27, -1.86], 0.016, 0.1)
         kit.beam('trim', [side * 0.42, 0.19, -2.42], [side * 0.74, 0.19, -2.14], 0.018, 0.09)
         kit.box('trim', 0.022, 0.1, 0.34, side * 0.34, 0.2, -2.32, 0.008)
     }
@@ -246,18 +246,6 @@ function addTail(kit: Kit) {
     kit.box('trim', 0.58, 0.16, 0.04, 0, 0.5, z - 0.01, 0.015)
 }
 
-export interface PlayerCar {
-    group: THREE.Group
-    body: THREE.Group
-    paint: THREE.MeshPhysicalMaterial
-    wheels: THREE.Object3D[]
-    flames: THREE.Mesh[]
-    flameMat: THREE.MeshBasicMaterial
-    /** Tail-light positions in the car's local space, for the light trails. */
-    tailPoints: THREE.Vector3[]
-    dispose(): void
-}
-
 /** Paint that lays the livery over the car's colour; the map is premultiplied sRGB, so alpha comes off before linearising or edges go dark. */
 function liveryPaint(color: number, livery: THREE.Texture) {
     const paint = new THREE.MeshPhysicalMaterial({ color, map: livery, roughness: 0.26, metalness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 })
@@ -271,21 +259,9 @@ function liveryPaint(color: number, livery: THREE.Texture) {
     return paint
 }
 
-export function buildPlayerCar(color: number): PlayerCar {
-    const s = modelShared()
+export function buildKestrel(color: number): PlayerCar {
     const surface = new BodySurface()
-    const group = new THREE.Group()
-    const body = new THREE.Group()
-    group.add(body)
-    const owned: { dispose(): void }[] = []
-    const own = <T extends { dispose(): void }>(x: T) => {
-        owned.push(x)
-        return x
-    }
-    const paint = own(liveryPaint(color, own(liveryTexture(surface))))
-    // Backlit like the billboards, so the ad still reads at night.
-    const plateMap = own(plateTexture())
-    const plate = own(new THREE.MeshStandardMaterial({ map: plateMap, emissiveMap: plateMap, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.45 }))
+    const livery = liveryTexture(surface)
     const kit = new Kit()
     const skin = buildSkin(surface)
     kit.add('skin', skin)
@@ -306,59 +282,12 @@ export function buildPlayerCar(color: number): PlayerCar {
     addAero(kit, surface)
     addSplitter(kit)
     addTail(kit)
-    for (const [slot, geo] of kit.bake()) {
-        own(geo)
-        const material = slot === 'skin' || slot === 'paint' ? paint : slot === 'plate' ? plate : s.slots[slot]
-        const mesh = new THREE.Mesh(geo, material)
-        if (slot === 'decal') mesh.renderOrder = 1
-        body.add(mesh)
-    }
-
-    const wheelSet = wheelGeos(WHEEL_R, WHEEL_W)
-    const wheels: THREE.Object3D[] = []
-    for (const u of [-AXLE_U, AXLE_U]) {
-        for (const side of SIDES) {
-            const w = new THREE.Group()
-            const spin = new THREE.Group()
-            spin.add(new THREE.Mesh(wheelSet.tire, s.slots.rubber), new THREE.Mesh(wheelSet.rim, s.slots.rim), new THREE.Mesh(wheelSet.lip, s.slots.chrome), new THREE.Mesh(wheelSet.disc, s.slots.disc), new THREE.Mesh(wheelSet.letters, s.slots.decal))
-            // The left wheel is turned round, so it spins the other way about its local axis.
-            spin.userData.dir = side
-            // The caliper stays put while the wheel turns.
-            w.add(spin, new THREE.Mesh(wheelSet.caliper, s.slots.caliper))
-            w.position.set(side * HALF_TRACK, WHEEL_R, -u)
-            if (side < 0) w.rotation.y = Math.PI
-            group.add(w)
-            wheels.push(spin)
-        }
-    }
-
-    const shadow = new THREE.Mesh(s.shadowGeo, s.shadow)
-    shadow.scale.set(2.8, 1, 5.6)
-    shadow.position.y = 0.03
-    shadow.renderOrder = 2
-    group.add(shadow)
-
-    const flameGeo = own(new THREE.ConeGeometry(0.09, 1.1, 10, 1, true).rotateX(-Math.PI / 2).translate(0, 0, 0.55))
-    const flameMat = own(new THREE.MeshBasicMaterial({ color: 0x7ab8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }))
-    const flames: THREE.Mesh[] = []
-    for (const side of SIDES) {
-        for (const x of PIPE_XS) {
-            const f = new THREE.Mesh(flameGeo, flameMat)
-            f.position.set(side * x, PIPE_Y, TAIL_Z + 0.06)
-            f.scale.setScalar(0.001)
-            body.add(f)
-            flames.push(f)
-        }
-    }
-
-    return {
-        group,
-        body,
-        paint,
-        wheels,
-        flames,
-        flameMat,
+    return assembleCar({
+        kit,
+        paint: liveryPaint(color, livery),
+        wheel: { r: WHEEL_R, w: WHEEL_W, halfTrack: HALF_TRACK, axles: [-AXLE_U, AXLE_U] },
+        flames: SIDES.flatMap(side => PIPE_XS.map(x => new THREE.Vector3(side * x, PIPE_Y, TAIL_Z + 0.06))),
         tailPoints: SIDES.map(side => new THREE.Vector3(side * LAMP_X, TAIL_Y, TAIL_Z + 0.05)),
-        dispose: () => owned.forEach(o => o.dispose())
-    }
+        owned: [livery]
+    })
 }

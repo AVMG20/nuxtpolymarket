@@ -3,6 +3,7 @@
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
+import type { CarId } from '#shared/utils/nitro-rush/cars'
 import type { NrPublishedTrack } from '#server/utils/nitro-rush-tracks'
 
 /** `finished` is the pause after an open course's finish line, before the run restarts on its own. */
@@ -94,6 +95,8 @@ export interface GhostFrame {
     label?: string
     /** Body colour, as a hex number. */
     color?: number
+    /** The model it's drawn as; the first car when left out. */
+    car?: CarId
 }
 
 /** Which ghosts race along: the player's best lap, the course record, and other players live. */

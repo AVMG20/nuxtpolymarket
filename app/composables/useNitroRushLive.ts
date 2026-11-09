@@ -13,6 +13,7 @@ interface LiveOptions {
     phase: Ref<Phase>
     paused: Ref<boolean>
     paint: Ref<string>
+    car: Ref<string>
     /** Whether the others are drawn; the player's own car is still sent either way. */
     show: Ref<boolean>
 }
@@ -99,7 +100,7 @@ export function useNitroRushLive(opts: LiveOptions) {
 
     function onTick() {
         const engine = opts.engine()
-        if (engine && !full && driving()) send(poseMessage(engine.carPose(pose), opts.paint.value, performance.now()))
+        if (engine && !full && driving()) send(poseMessage(engine.carPose(pose), { paint: opts.paint.value, car: opts.car.value }, performance.now()))
         ghosts.prune(performance.now())
         if (racers.value !== ghosts.count) racers.value = ghosts.count
     }

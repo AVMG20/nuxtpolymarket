@@ -5,7 +5,7 @@ import { disposeModelShared } from './car-kit'
 import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
-import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type PaintId } from './config'
+import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type CarId, type PaintId } from './config'
 import { botInput, createCar, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
@@ -48,7 +48,8 @@ export class NitroRushEngine {
     private world: World
     private readonly envTarget: THREE.WebGLRenderTarget
     private readonly fx: CarEffects
-    private readonly car: CarView
+    private car: CarView
+    private paint: PaintId
     private readonly lampLight: THREE.PointLight
     private readonly lampPos = new THREE.Vector3()
     private readonly resizeObserver: ResizeObserver
@@ -90,7 +91,7 @@ export class NitroRushEngine {
     private readonly grade = new RaceGrade()
     private readonly feedback: RaceFeedback
 
-    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, paint: PaintId, track: TrackDef) {
+    constructor(host: HTMLElement, events: EngineEvents, audio: NitroAudio, car: CarId, paint: PaintId, track: TrackDef) {
         this.host = host
         this.events = events
         this.audio = audio
@@ -107,7 +108,8 @@ export class NitroRushEngine {
         this.feedback = new RaceFeedback({ audio, events, grade: this.grade, cam: this.cam, fx: this.fx })
         this.world = this.buildWorld()
 
-        this.car = new CarView(findPaint(paint).color)
+        this.paint = paint
+        this.car = new CarView(car, findPaint(paint).color)
         this.scene.add(this.car.group)
         // Rides with whichever floodlight is nearest, so the paint flares as each one passes.
         this.lampLight = new THREE.PointLight(0xffd2a0, 0, 30, 1.6)
@@ -133,7 +135,22 @@ export class NitroRushEngine {
     }
 
     setPaint(id: PaintId) {
+        this.paint = id
         this.car.setPaint(findPaint(id).color)
+    }
+
+    /** Swaps only the model: every car drives the same, so the physics state carries straight over. */
+    setCar(id: CarId) {
+        this.scene.remove(this.car.group)
+        this.car.dispose()
+        this.car = new CarView(id, findPaint(this.paint).color)
+        this.scene.add(this.car.group)
+        this.car.place(this.motion.pos, this.motion.quat)
+    }
+
+    /** A menu's own 3D shares the GPU, and must not read as a slow machine that lowers the race's resolution for the session. */
+    holdResolution(on: boolean) {
+        this.resolution.held = on
     }
 
     setRecord(r: TrackRecord) {
@@ -439,7 +456,7 @@ export class NitroRushEngine {
         } else {
             const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
             this.recentLaps = [{ lap: this.lapNumber(e.lap), time: e.time }, ...this.recentLaps].slice(0, RECENT_LAPS)
-            const { isBest, record, stored, standing } = settleLap(rec, e, this.track.closed, this.ghosts.kept, this.ghosts.finishLap(e.time))
+            const { isBest, record, stored, standing } = settleLap(rec, e, this.track.closed, this.ghosts.kept, this.ghosts.finishLap(e.time, this.car.id))
             if (record) {
                 this.record = record
                 if (stored) this.ghosts.setKept(decodeGhost(stored), standing)

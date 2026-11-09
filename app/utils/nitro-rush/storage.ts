@@ -3,6 +3,7 @@
 export const STORAGE_KEYS = {
     records: 'nitro-rush:records-2',
     paint: 'nitro-rush:paint',
+    car: 'nitro-rush:car',
     audio: 'nitro-rush:audio',
     ghost: 'nitro-rush:ghost',
     track: 'nitro-rush:track',

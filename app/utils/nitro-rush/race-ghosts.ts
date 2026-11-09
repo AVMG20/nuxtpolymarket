@@ -3,6 +3,7 @@ import { GhostRecorder, replayGhost } from './ghost'
 import { GhostView } from './ghost-view'
 import type { CarPose, GhostFrame, GhostSource } from './types'
 import type { Ghost, KeptGhost } from '#shared/utils/nitro-rush/ghost'
+import type { CarId } from '#shared/utils/nitro-rush/cars'
 
 interface GhostDraw {
     /** The lap clock as the car is drawn; null off the clock. */
@@ -66,15 +67,17 @@ export class RaceGhosts {
         this.recorder.reset()
     }
 
-    /** The ghost of the lap that just ended, if it recorded whole. */
-    finishLap(time: number) {
-        return this.recorder.lap(time)
+    /** The ghost of the lap that just ended in `car`, if it recorded whole. */
+    finishLap(time: number, car: CarId): Ghost | null {
+        const ghost = this.recorder.lap(time)
+        return ghost && { ...ghost, car }
     }
 
     // On a loop a flying ghost carries on past the line until the car crosses it.
     private readonly keptSource: GhostSource = (_now, lapTime) => {
         if (!this.shown || !this.ghost || lapTime === null) return []
         replayGhost(this.ghost, this.standing, this.closed, lapTime, this.keptFrame.pose)
+        this.keptFrame.car = this.ghost.car
         return [this.keptFrame]
     }
 

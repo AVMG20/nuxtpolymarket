@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NitroAudio } from '~/utils/nitro-rush/audio'
-import { findPaint, type PaintId } from '~/utils/nitro-rush/config'
+import { CARS, findCar, findPaint, type CarId, type PaintId } from '~/utils/nitro-rush/config'
 import { NitroRushEngine } from '~/utils/nitro-rush/engine'
 import { medalFor, nextMedal } from '~/utils/nitro-rush/medals'
 import { bestLap } from '~/utils/nitro-rush/record'
@@ -29,6 +29,7 @@ const trackId = ref('')
 const trackName = ref('')
 /** The course on the engine, for the minimap. */
 const trackDef = shallowRef<TrackDef | null>(null)
+const car = ref<CarId>(CARS[0].id)
 const paint = ref<PaintId>('hotpink')
 const musicOn = ref(true)
 const sfxOn = ref(true)
@@ -69,7 +70,7 @@ const ownTracks = useNitroRushOwnTrackActions({
 })
 
 /** Other players on this course, as live ghost cars. */
-const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, show: computed(() => ghosts.value.live) })
+const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, car, show: computed(() => ghosts.value.live) })
 const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
@@ -258,6 +259,18 @@ function togglePause(force?: boolean) {
     resumeHeldKeys()
 }
 
+function setCar(id: CarId) {
+    car.value = id
+    engine?.setCar(id)
+    writeStorage(STORAGE_KEYS.car, { id })
+    audio.unlock()
+    audio.ui()
+}
+
+function onGarage(open: boolean) {
+    engine?.holdResolution(open)
+}
+
 function setPaint(id: PaintId) {
     paint.value = id
     engine?.setPaint(id)
@@ -337,6 +350,7 @@ function onFullscreen() {
 onMounted(() => {
     clearRetiredStorage()
     records.value = readStorage<Record<string, TrackRecord>>(STORAGE_KEYS.records, {})
+    car.value = findCar(readStorage<{ id: string }>(STORAGE_KEYS.car, { id: '' }).id).id
     paint.value = findPaint(readStorage<{ id: string }>(STORAGE_KEYS.paint, { id: '' }).id).id
     const a = readStorage(STORAGE_KEYS.audio, { music: true, sfx: true })
     musicOn.value = a.music
@@ -364,7 +378,7 @@ onMounted(() => {
             if (p === 'countdown') resumeHeldKeys()
         },
         record: onRecord
-    }, audio, paint.value, storedTrack)
+    }, audio, car.value, paint.value, storedTrack)
     syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)
     loadGhostToggles()
@@ -420,6 +434,7 @@ onBeforeUnmount(() => {
         :track-def="trackDef"
         :board="board"
         :board-loading="boardLoading"
+        :car="car"
         :paint="paint"
         :is-touch="isTouch"
         :has-pad="hasPad"
@@ -431,6 +446,8 @@ onBeforeUnmount(() => {
         :voting="community.voting.value"
         @back="backToTitle"
         @select="selectTrack"
+        @car="setCar"
+        @garage="onGarage"
         @paint="setPaint"
         @start="play"
         @build="openBuilder"

@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
 import { slipAngle, type CarInput, type CarState } from './physics'
 
-/** Rear wheels in the car's local space (nose toward -z). */
-const REAR_WHEELS = [new THREE.Vector2(-0.82, 1.42), new THREE.Vector2(0.82, 1.42)]
+/** Rear wheels in the car's local space (nose toward -z); close enough for every car, as they all fill one hitbox. */
+const REAR_WHEELS = [new THREE.Vector2(-0.77, 1.27), new THREE.Vector2(0.77, 1.27)]
 const TAIL_RED = new THREE.Color(0xff2040)
 const NITRO_BLUE = new THREE.Color(0x4da3ff)
 const NITRO_PALE = new THREE.Color(0x9fd0ff)

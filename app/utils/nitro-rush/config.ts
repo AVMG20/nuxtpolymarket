@@ -11,6 +11,8 @@
 export const PHYSICS_HZ = 120
 
 export const CAR_HALF_WIDTH = 0.95
+/** How far a sideways car reaches toward the wall. */
+export const CAR_HALF_LENGTH = 2.25
 export const WHEELBASE = 2.84
 
 /** Engine thrust tails off linearly to nothing at this speed; drag keeps the real top a little lower. */
@@ -125,3 +127,4 @@ export const NIGHT: Theme = {
 }
 
 export { findPaint, PAINTS, type PaintId } from '#shared/utils/nitro-rush/paints'
+export { CARS, findCar, type CarId } from '#shared/utils/nitro-rush/cars'
