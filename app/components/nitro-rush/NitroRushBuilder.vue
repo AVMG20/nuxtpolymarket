@@ -2,7 +2,6 @@
 import { isTyping } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
 import { MAX_NAME_LENGTH, MAX_SECTIONS, rideTag, type CustomTrack } from '#shared/utils/nitro-rush/custom'
-import { ROAD } from '#shared/utils/nitro-rush/tracks'
 
 /** The track builder: lay sections one at a time, or from the drawer, until the course is drivable. */
 const props = defineProps<{
@@ -32,7 +31,7 @@ const drawerOpened = ref(false)
 watch(drawerOpen, () => {
     drawerOpened.value = true
 })
-const { choice, state, next, shownWalk, ghost, blocked, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
+const { choice, state, next, shownWalk, ghost, blocked, fault, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
 
 const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
 /** A loop whose road already meets its start line. */
@@ -45,12 +44,14 @@ const status = computed(() => {
     if (compiled.value.def) return { ok: true, text: 'Ready to race' }
     if (loopError.value) return { ok: false, text: friendly(`can't finish the loop: ${loopError.value}`) }
     const g = gap.value
-    if (g && !walk.value.misplaced && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0)) {
+    if (g && !walk.value.misplaced && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0 || g.width !== 0 || g.air !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
         if (g.turn) parts.push(`turn ${Math.abs(g.turn)}° ${g.turn > 0 ? 'right' : 'left'}`)
         if (Math.abs(g.climb) > 0.01) parts.push(`${Math.round(Math.abs(g.climb))} m ${g.climb > 0 ? 'down' : 'up'}`)
         if (g.bank !== 0) parts.push('level the bank')
         if (g.grade !== 0) parts.push('level the slope')
+        if (g.width !== 0) parts.push('set normal width')
+        if (g.air !== 0) parts.push('land the jump')
         return { ok: false, text: `Join the road back up to the start: ${parts.join(', ')}` }
     }
     return { ok: false, text: friendly(compiled.value.error ?? '') }
@@ -133,7 +134,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
             class="absolute inset-0"
             :walk="shownWalk"
             :closed="draft.closed"
-            :half-width="ROAD.halfWidth"
             :selected="cursor >= 0 ? cursor : null"
             :ghost="ghost"
             :ghost-blocked="blocked"
@@ -160,7 +160,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
-        <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" @pick="pick" @build="build">
+        <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" :fault="fault" @pick="pick" @build="build">
           <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
             ALL SECTIONS
             <UIcon :name="drawerOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="size-3.5" />

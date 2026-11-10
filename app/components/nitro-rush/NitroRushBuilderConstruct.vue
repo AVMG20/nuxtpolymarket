@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BANK_STEPS, nextLabel, SLOPE_STEPS, STRAIGHT_LENGTHS, type BendSize, type Construction, type Curve } from '#shared/utils/nitro-rush/construct'
+import { BANK_STEPS, nextLabel, SLOPE_STEPS, STRAIGHT_LENGTHS, WIDTH_STEPS, type BendSize, type Construction, type Curve } from '#shared/utils/nitro-rush/construct'
 import type { SectionId } from '#shared/utils/nitro-rush/custom'
 
 /** Building a piece at a time: set the road you want next, watch its ghost, and build it. */
@@ -9,6 +9,8 @@ defineProps<{
     disabled: boolean
     /** The next piece would run too close to other road. */
     blocked: boolean
+    /** Why the next piece can't go on the road there. */
+    fault: string | null
 }>()
 defineEmits<{ pick: [change: Partial<Construction>], build: [] }>()
 
@@ -113,13 +115,32 @@ const SIZES: { id: BendSize, label: string }[] = [
           </button>
         </div>
       </div>
+
+      <div class="nr-construct-group">
+        <span class="nr-label">WIDTH</span>
+        <div class="nr-toggle is-small is-row" role="radiogroup" aria-label="Width">
+          <button
+            v-for="s in WIDTH_STEPS"
+            :key="s.id"
+            role="radio"
+            :aria-checked="choice.width === s.id"
+            :aria-label="nextLabel(s.id)"
+            :title="nextLabel(s.id)"
+            :class="{ 'is-active': choice.width === s.id }"
+            @click="$emit('pick', { width: s.id })"
+          >
+            {{ s.short }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="nr-construct-group nr-construct-action">
-      <span v-if="blocked" class="nr-label nr-construct-next is-blocked">Too close to other road</span>
+      <span v-if="fault" class="nr-label nr-construct-next is-blocked" :title="fault">Lay a straight or landing ramp</span>
+      <span v-else-if="blocked" class="nr-label nr-construct-next is-blocked">Too close to other road</span>
       <span v-else class="nr-label nr-construct-next" :title="nextLabel(next)">{{ nextLabel(next) }}</span>
       <div class="flex items-center gap-2">
-        <button class="nr-play nr-construct-build" :disabled="disabled || blocked" @click="$emit('build')">BUILD</button>
+        <button class="nr-play nr-construct-build" :disabled="disabled || blocked || !!fault" @click="$emit('build')">BUILD</button>
         <slot />
       </div>
     </div>

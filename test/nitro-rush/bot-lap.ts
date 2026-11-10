@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { poseCar } from '../../app/utils/nitro-rush/car-pose'
 import { GhostRecorder } from '../../app/utils/nitro-rush/ghost'
-import { botInput, createCar, stepCar, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
+import { botInput, createCar, crossesLines, stepCar, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
 import { compileCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { decodeGhost, encodeGhost, type Ghost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
@@ -53,7 +53,7 @@ function recordRun(track: Track, car: CarState, input: (car: CarState) => CarInp
     for (let i = 0; i < PHYSICS_HZ * 240; i++) {
         const ev = stepCar(car, input(car), track, DT)
         if (ev.fell) throw new Error('the bot fell')
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
+        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             const ghost = recorder.lap(e.time)
             if (e.lap === lap) {

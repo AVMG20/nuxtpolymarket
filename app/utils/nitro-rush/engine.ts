@@ -6,7 +6,7 @@ import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type CarId, type PaintId } from './config'
-import { botInput, createCar, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
+import { botInput, createCar, crossesLines, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
@@ -283,9 +283,9 @@ export class NitroRushEngine {
         return this.track.startS + GRID_OFFSET
     }
 
-    /** The car's distance as the lap timer reads it: from the start line on an open course. */
-    private timerS() {
-        return this.track.closed ? this.state.proj.s : this.state.proj.s - this.track.startS
+    /** A distance along the road as the lap timer reads it: from the start line on an open course. */
+    private timerS(s = this.state.proj.s) {
+        return this.track.closed ? s : s - this.track.startS
     }
 
     private resize() {
@@ -335,15 +335,15 @@ export class NitroRushEngine {
         this.fx.place(this.car.tailLights(this.tails))
     }
 
-    /** Back on the road before the gap the car fell into, stopped; the clock keeps running. */
+    /** Back on the road a run-up before where the car left it, stopped; the clock keeps running. */
     private respawn() {
         const s = this.state
-        const gap = this.track.gaps.find(([a, b]) => s.proj.s >= a && s.proj.s < b)
         // Never far enough back to read as a lap the wrong way, nor past the start of an open course.
         const back = Math.min(RESPAWN_BACK, this.track.closed ? this.track.length / 2 - 5 : Infinity)
-        const at = (gap ? gap[0] : s.proj.s) - back
+        const at = this.track.closed ? s.leftS - back : Math.max(this.track.startS - 10, s.leftS - back)
+        this.timer?.rewind(this.timerS(s.leftS), s.leftS - at)
         const nitro = s.nitro
-        this.state = createCar(this.track, this.track.closed ? this.track.wrapS(at) : Math.max(this.track.startS - 10, at))
+        this.state = createCar(this.track, this.track.wrapS(at))
         this.state.nitro = nitro
         // A lap with a jump back in it makes no ghost.
         this.ghosts.restartLap()
@@ -399,7 +399,7 @@ export class NitroRushEngine {
                 const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
                 if (ev.fell) this.respawn()
                 if (racing) this.feedback.step(ev, this.state)
-                if (racing && this.timer) for (const e of this.timer.update(this.timerS(), STEP)) this.onLapEvent(e)
+                if (racing && this.timer) for (const e of this.timer.update(this.timerS(), STEP, crossesLines(this.state, this.track))) this.onLapEvent(e)
             }
         }
         if (this.phase === 'finished' && this.time - this.finishedAt > RESTART_DELAY) this.start()

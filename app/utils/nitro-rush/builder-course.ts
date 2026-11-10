@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { LINE_COLORS, NEON_PINK } from './config'
-import { ribbon } from './road-geometry'
+import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { boostPadTexture, concreteTexture, gridTexture, ROAD_TILE_LENGTH } from './textures'
 import { addBoostPads, boostPadMaterial, buildBarriers } from './world-road'
 import type { WorldKit } from './world-kit'
 import type { LineBlock } from '#shared/utils/nitro-rush/layout'
-import type { TrackDef } from '#shared/utils/nitro-rush/track'
+import { newTrackFrame, type Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 
 /** The road as the builder has it, to draw in a 3D view. */
 export interface PreviewCourse {
@@ -23,6 +23,10 @@ export const MARKER_LIFT = 4
 
 const GROUND_SIZE = 6000
 const GRID_CELL = 10
+/** Metres between the points of an empty stretch's outline, and its dashes and spaces. */
+const OUTLINE_STEP = 2
+export const DASH = 3
+export const DASH_GAP = 2
 
 /** What a builder course is drawn with; lives as long as its view, across rebuilds of the road. */
 export class CourseMaterials {
@@ -30,6 +34,7 @@ export class CourseMaterials {
     readonly deck = new THREE.MeshStandardMaterial({ color: 0x2a2d3c, roughness: 0.85 })
     readonly marker = new THREE.MeshBasicMaterial({ color: NEON_PINK })
     readonly origin = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
+    readonly empty = new THREE.LineDashedMaterial({ color: 0x3df2ff, dashSize: DASH, gapSize: DASH_GAP })
     readonly lines = Object.fromEntries(Object.entries(LINE_COLORS).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, polygonOffset: true, polygonOffsetFactor: -1 })])) as Record<LineBlock, THREE.MeshBasicMaterial>
     readonly markerGeo = new THREE.ConeGeometry(3, 8, 4).rotateX(-Math.PI / 2)
     readonly boostPads = boostPadTexture()
@@ -40,7 +45,7 @@ export class CourseMaterials {
     }
 
     dispose() {
-        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.markerGeo, this.boostPads, this.boostPad, ...Object.values(this.lines)]) m.dispose()
+        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.empty, this.markerGeo, this.boostPads, this.boostPad, ...Object.values(this.lines)]) m.dispose()
     }
 }
 
@@ -53,16 +58,34 @@ export function endMarker(end: NonNullable<PreviewCourse['end']>, geometry: THRE
     return marker
 }
 
+/** Each stretch of empty road between `start` and `stop` as a dashed loop round where its deck would be, so a jump's gap still reads as part of the course. */
+export function emptyOutlines(track: Track, start = 0, stop = track.length): THREE.BufferGeometry[] {
+    const f = newTrackFrame()
+    const within = track.gaps.map(([a, b]) => [Math.max(a, start), Math.min(b, stop)] as const).filter(([a, b]) => b > a)
+    return within.map(([from, to]) => {
+        const steps = Math.max(1, Math.round((to - from) / OUTLINE_STEP))
+        const edge = (side: number) => Array.from({ length: steps + 1 }, (_, k) => {
+            const s = from + (to - from) * k / steps
+            track.frameAt(s, f)
+            const lat = side * track.wallAt(s)
+            return new THREE.Vector3(f.x + f.rx * lat, f.y + f.ry * lat, f.z + f.rz * lat)
+        })
+        // Up one edge and back down the other; the loop closes across the start.
+        return new THREE.BufferGeometry().setFromPoints([...edge(-1), ...edge(1).reverse()])
+    })
+}
+
 /** The road with its real walls, deck and pillars, its lines and markers; returns the deck, which is what picking hits. */
 export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'end' | 'originY'>, mats: CourseMaterials, { endWalls = true } = {}) {
     const { track, group } = kit
     // Wall to wall: the game fills the run-off between road and walls with aprons.
-    const deck = kit.add(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, 0, ROAD_TILE_LENGTH), mats.deck)
+    const deck = kit.add(ribbon(track, 0, track.length, wallLeft, wallRight, 0, ROAD_TILE_LENGTH), mats.deck)
     buildBarriers(kit, mats.concrete, { endWalls })
     addBoostPads(kit, mats.boostPad)
+    for (const geo of emptyOutlines(track)) group.add(new THREE.LineLoop(kit.own(geo), mats.empty).computeLineDistances())
     for (const line of course.lines) {
         const s = track.cum[Math.min(line.at, track.n - 1)]!
-        kit.add(ribbon(track, s - 1.2, s + 1.2, -track.halfWidth, track.halfWidth, 0.02, 2.4), mats.lines[line.type])
+        kit.add(ribbon(track, s - 1.2, s + 1.2, roadLeft, roadRight, 0.02, 2.4), mats.lines[line.type])
     }
     if (course.end) group.add(endMarker(course.end, mats.markerGeo, mats.marker))
     if (course.originY !== null) {

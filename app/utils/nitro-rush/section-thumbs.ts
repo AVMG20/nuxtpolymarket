@@ -49,9 +49,9 @@ export function cardWalk(id: SectionId): LayoutWalk {
 
 /** The road's outer edges, the ground under them and the end marker: everything a card has to show. */
 export function cardExtent(track: Track, end: LayoutWalk['end']) {
-    const edge = wallFoot(track.wallOffset)
     const points: THREE.Vector3[] = []
     for (let i = 0; i < track.n; i++) {
+        const edge = wallFoot(track.walls[i]!)
         const centre = new THREE.Vector3(track.xs[i], track.ys[i], track.zs[i])
         const right = new THREE.Vector3(track.right[i * 3], track.right[i * 3 + 1], track.right[i * 3 + 2])
         for (const side of [-edge, edge]) {

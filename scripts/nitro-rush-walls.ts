@@ -10,7 +10,7 @@ import { headingOf, Track, wrapAngle } from '../shared/utils/nitro-rush/track'
 import { ROAD, TRACKS } from '../shared/utils/nitro-rush/tracks'
 import { createSeededRandom } from '../shared/utils/random'
 import { BRAKE_DECEL, GRIP_LATERAL, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
-import { botInput, createCar, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
+import { botInput, createCar, crossesLines, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 
 const DT = 1 / PHYSICS_HZ
 const GRID = -14
@@ -49,7 +49,7 @@ const holdOn = (wheel: number, side = 0.8) => (car: CarState, track: Track): Car
     if (car.onRail) return botInput(car, track)
     const bend = bendAt(track, car.proj.s)
     if (bend) return { throttle: 1, brake: 0, steer: -bend * wheel, drift: false }
-    return chase(car, track, nextBend(track, car.proj.s, 60) * track.wallOffset * side)
+    return chase(car, track, nextBend(track, car.proj.s, 60) * track.wallAt(car.proj.s) * side)
 }
 
 // ── One bend at a time ──
@@ -84,7 +84,7 @@ function onBrakesFirst(track: Track, from: number, to: number, apexSpeed: number
 
 /** Outside to inside to outside through a left bend, `depth` across the road at the apex. */
 function cleanLine(track: Track, from: number, to: number, apexSpeed: number, depth: number, gasAt: number) {
-    const outside = track.wallOffset * 0.75
+    const outside = track.wallAt(from) * 0.75
     return onBrakesFirst(track, from, to, apexSpeed, gasAt, (car) => {
         const s = car.proj.s
         const u = Math.max(0, Math.min(1, (s - from) / (to - from)))
@@ -123,7 +123,7 @@ function duel(radius: number, angle: number) {
         }
         // Brakes to just over the tyres' limit, then leans on the wall all the way round: the patient way to ride it.
         const lean = runBend(track, from, to, onBrakesFirst(track, from, to, limit * k, 0, car =>
-            chase(car, track, car.proj.s > from - 60 && car.proj.s < to ? track.wallOffset * 1.1 : 0)))
+            chase(car, track, car.proj.s > from - 60 && car.proj.s < to ? track.wallAt(car.proj.s) * 1.1 : 0)))
         if (lean.onWall > 0 && lean.time < leaning.time) leaning = lean
     }
     const beats = (r: Run) => r.time < clean.time - TIE
@@ -146,7 +146,7 @@ interface Lap { time: number, touches: number, onWall: number }
 const apexing = (depth: number, side: number): Driver => (car, track) => {
     if (car.onRail) return botInput(car, track)
     const bend = bendAt(track, car.proj.s)
-    return chase(car, track, (bend ? -bend * depth : nextBend(track, car.proj.s, 60) * side) * track.wallOffset)
+    return chase(car, track, (bend ? -bend * depth : nextBend(track, car.proj.s, 60) * side) * track.wallAt(car.proj.s))
 }
 
 /** The bot's pedals at `pace`, on another driver's wheel. */
@@ -186,7 +186,7 @@ function lapsOf(track: Track, driver: Driver, count = 4) {
         const ev = stepCar(car, driver(car, track), track, DT)
         if (ev.wallTouched || (car.onRail && ev.wallImpact > 0)) lap.touches++
         if (ev.scraping) lap.onWall += DT
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
+        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             laps.push({ ...lap, time: e.time })
             lap = { time: 0, touches: 0, onWall: 0 }
@@ -214,7 +214,7 @@ const following = (plan: Plan): Driver => (car, track) => {
     const blend = (a: Float64Array) => a[i]! * (1 - u) + a[next]! * u
     const cap = blend(plan.cap)
     const v = Math.max(0, car.speed)
-    return { ...chase(car, track, blend(plan.lat) * track.wallOffset), throttle: v < cap ? 1 : 0, brake: v > cap + 1 ? 1 : 0 }
+    return { ...chase(car, track, blend(plan.lat) * track.wallAt(car.proj.s)), throttle: v < cap ? 1 : 0, brake: v > cap + 1 ? 1 : 0 }
 }
 
 /** The lap a driver is judged on: the flying one on a loop, the only one on a sprint. */
@@ -230,7 +230,7 @@ function planOf(track: Track, driver: Driver): Plan {
         stepCar(car, driver(car, track), track, DT)
         const k = Math.floor(roadS(car, track) / SPACING)
         if (k < 0 || k >= n) continue
-        plan.lat[k] = car.proj.lateral / track.wallOffset
+        plan.lat[k] = car.proj.lateral / track.wallAt(car.proj.s)
         plan.cap[k] = Math.max(8, car.speed + 1)
         seen.add(k)
     }

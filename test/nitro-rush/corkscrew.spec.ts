@@ -14,7 +14,7 @@ const sprint = (sections: SectionId[]): SectionId[] => ['straight-20', 'start', 
 const course = (sections: SectionId[]): CustomTrack => ({ id: 'custom-t', name: 'T', closed: false, sections: sprint(sections) })
 
 /** The height of the road's lower edge at point `i`, measured out to the walls' outer foot. */
-const lowEdge = (t: Track, i: number, foot = wallFoot(t.wallOffset)) => t.ys[i]! - foot * Math.abs(t.right[i * 3 + 1]!)
+const lowEdge = (t: Track, i: number, foot = wallFoot(t.walls[i]!)) => t.ys[i]! - foot * Math.abs(t.right[i * 3 + 1]!)
 
 describe('corkscrew placement', () => {
     it('only goes on a bank leaning its way', () => {
@@ -27,8 +27,8 @@ describe('corkscrew placement', () => {
     })
 
     it('doesn\'t tag its row as banked, since it always is', () => {
-        expect(rideTag('corkscrew-left', { bank: -25, grade: 0 })).toBe('')
-        expect(rideTag('straight-20', { bank: -25, grade: 0 })).toBe('BANKED')
+        expect(rideTag('corkscrew-left', { bank: -25, grade: 0, halfWidth: 9 })).toBe('')
+        expect(rideTag('straight-20', { bank: -25, grade: 0, halfWidth: 9 })).toBe('BANKED')
     })
 
     it('holds a finished course to the same rule', () => {
