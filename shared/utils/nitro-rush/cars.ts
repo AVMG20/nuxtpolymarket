@@ -2,7 +2,8 @@
 export const CARS = [
     { id: 'kestrel', label: 'Kestrel' },
     { id: 'og', label: 'The OG' },
-    { id: 'roadster', label: 'Roadster' }
+    { id: 'roadster', label: 'Roadster' },
+    { id: 'spectre', label: 'Spectre' }
 ] as const
 
 export type CarId = typeof CARS[number]['id']
