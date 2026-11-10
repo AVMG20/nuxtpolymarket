@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 type Prewarmable = Pick<THREE.WebGLRenderer, 'compile' | 'initTexture' | 'setRenderTarget'>
 
-function eachTexture(material: THREE.Material, visit: (t: THREE.Texture) => void) {
+export function eachTexture(material: THREE.Material, visit: (t: THREE.Texture) => void) {
     const uniforms = (material as THREE.ShaderMaterial).uniforms
     const values = [...Object.values(material), ...Object.values(uniforms ?? {}).map(u => u.value)]
     for (const v of values) {
