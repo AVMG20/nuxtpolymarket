@@ -115,8 +115,8 @@ const props = withDefaults(defineProps<{
      * staffed workshop.
      */
     boosts?: { build: number | null, production: number | null } | null
-    /** Night: moonlight, stars, and a light on in every building. */
-    night?: boolean
+    /** How dark it is, 0 (day) to 1 (night): moonlight, stars, and a light on in every building. Dusk in between. */
+    night?: number
 }>(), {
     selectedBuildingId: null,
     ghostType: null,
@@ -142,7 +142,7 @@ const props = withDefaults(defineProps<{
     moveIssue: null,
     dragValid: () => [],
     boosts: null,
-    night: false
+    night: 0
 })
 
 const emit = defineEmits<{
@@ -291,7 +291,7 @@ function applyNightMix(mix: number) {
 
 /** Ease toward the asked-for time of day; a cut with reduced motion. */
 function stepNight(dt: number) {
-    const goal = props.night ? 1 : 0
+    const goal = Math.min(1, Math.max(0, props.night))
     if (nightMix === goal) return
     const step = props.reducedMotion || nightMix < 0 ? 1 : dt / NIGHT_FADE_S
     const next = nightMix < 0 ? goal : nightMix + Math.sign(goal - nightMix) * Math.min(step, Math.abs(goal - nightMix))
