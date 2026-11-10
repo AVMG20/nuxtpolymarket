@@ -18,6 +18,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
 import { createCar, createTruck, TOWN_VEHICLE_COLORS, TOWN_VEHICLE_SIZE } from '~/utils/town/vehicles'
 import { townJobProgress } from '~/composables/useTown'
+import { addTownNightLamp, addTownVehicleLights, createMoon, createStarfield, disposeTownNight, setTownNightMix } from '~/utils/town/night'
 
 export interface ScenePlot { id: string, x: number, y: number }
 export interface SceneBuilding {
@@ -114,6 +115,8 @@ const props = withDefaults(defineProps<{
      * staffed workshop.
      */
     boosts?: { build: number | null, production: number | null } | null
+    /** Night: moonlight, stars, and a light on in every building. */
+    night?: boolean
 }>(), {
     selectedBuildingId: null,
     ghostType: null,
@@ -138,7 +141,8 @@ const props = withDefaults(defineProps<{
     moveGhosts: null,
     moveIssue: null,
     dragValid: () => [],
-    boosts: null
+    boosts: null,
+    night: false
 })
 
 const emit = defineEmits<{
@@ -211,6 +215,105 @@ const SKY = 0xcfe4ea
 scene.background = new THREE.Color(SKY)
 scene.fog = new THREE.Fog(SKY, 60, 160)
 
+// ─── Day & night ─────────────────────────────────────────────────────────────
+// One mix from 0 (day) to 1 (night) drives the sky, the lights and every
+// building's lamp. Switching plays a short sunset through a dusk keyframe:
+// the sun sinks and reddens (long shadows), the lamps come on in waves, then
+// the moon and stars. Switching back plays it in reverse as a sunrise.
+const hemi = new THREE.HemisphereLight(0xe2efff, 0x8a7550, 1.25)
+const skyFill = new THREE.DirectionalLight(0xd8e7f1, 0.35)
+const stars = createStarfield()
+const moon = createMoon()
+scene.add(stars, moon)
+interface SkyLook { sky: THREE.Color, hemiSky: THREE.Color, hemiGround: THREE.Color, hemi: number, sun: THREE.Color, sunI: number, fill: number, exposure: number, cloud: number, cloudOpacity: number }
+const DAY: SkyLook = {
+    sky: new THREE.Color(SKY),
+    hemiSky: new THREE.Color(0xe2efff), hemiGround: new THREE.Color(0x8a7550), hemi: 1.25,
+    sun: new THREE.Color(0xffd9a0), sunI: 3.4,
+    fill: 0.35, exposure: 0.94, cloud: 0.32, cloudOpacity: 0.82
+}
+const DUSK: SkyLook = {
+    sky: new THREE.Color(0xe59a7a),
+    hemiSky: new THREE.Color(0xf2b49a), hemiGround: new THREE.Color(0x5a4048), hemi: 0.95,
+    sun: new THREE.Color(0xff7a3c), sunI: 2.6,
+    fill: 0.18, exposure: 0.96, cloud: 0.14, cloudOpacity: 0.75
+}
+const NIGHT: SkyLook = {
+    sky: new THREE.Color(0x0d1630),
+    hemiSky: new THREE.Color(0x3a4f8c), hemiGround: new THREE.Color(0x12121e), hemi: 0.5,
+    sun: new THREE.Color(0x9fb2ff), sunI: 0.7,
+    fill: 0.08, exposure: 0.95, cloud: 0.02, cloudOpacity: 0.45
+}
+const NIGHT_FADE_S = 4
+/** How far the sun sinks at dusk: from 32 up to 32 - this, for long evening shadows. */
+const SUN_DIP = 24
+let nightMix = -1
+let sunHeight = 32
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x))
+function applyNightMix(mix: number) {
+    nightMix = mix
+    // Day → dusk over the first half, dusk → night over the second.
+    const [a, b, t] = mix < 0.5 ? [DAY, DUSK, mix * 2] : [DUSK, NIGHT, mix * 2 - 1]
+    const lerp = (x: number, y: number) => x + (y - x) * t
+    ;(scene.background as THREE.Color).copy(a.sky).lerp(b.sky, t)
+    ;(scene.fog as THREE.Fog).color.copy(scene.background as THREE.Color)
+    hemi.color.copy(a.hemiSky).lerp(b.hemiSky, t)
+    hemi.groundColor.copy(a.hemiGround).lerp(b.hemiGround, t)
+    hemi.intensity = lerp(a.hemi, b.hemi)
+    sun.color.copy(a.sun).lerp(b.sun, t)
+    sun.intensity = lerp(a.sunI, b.sunI)
+    skyFill.intensity = lerp(a.fill, b.fill)
+    if (renderer) renderer.toneMappingExposure = lerp(a.exposure, b.exposure)
+    const cloudMat = clouds[0]?.material as THREE.MeshStandardMaterial | undefined
+    if (cloudMat) {
+        cloudMat.emissiveIntensity = lerp(a.cloud, b.cloud)
+        cloudMat.opacity = lerp(a.cloudOpacity, b.cloudOpacity)
+    }
+    // The sun sets, and what rises in its place is the moon.
+    const height = 32 - SUN_DIP * Math.sin(Math.PI * mix)
+    if (height !== sunHeight) {
+        sunHeight = height
+        placeSun()
+    }
+    const starsIn = clamp01((mix - 0.6) / 0.4)
+    const starMat = stars.material as THREE.PointsMaterial
+    starMat.visible = starsIn > 0
+    starMat.opacity = starsIn * starsIn
+    const moonIn = clamp01((mix - 0.5) / 0.5)
+    moon.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return
+        const m = o.material as THREE.MeshBasicMaterial
+        m.visible = moonIn > 0
+        m.opacity = moonIn * (m.blending === THREE.AdditiveBlending ? 0.5 : 1)
+    })
+    setTownNightMix(mix)
+}
+
+/** Ease toward the asked-for time of day; a cut with reduced motion. */
+function stepNight(dt: number) {
+    const goal = props.night ? 1 : 0
+    if (nightMix === goal) return
+    const step = props.reducedMotion || nightMix < 0 ? 1 : dt / NIGHT_FADE_S
+    const next = nightMix < 0 ? goal : nightMix + Math.sign(goal - nightMix) * Math.min(step, Math.abs(goal - nightMix))
+    applyNightMix(next)
+}
+
+/** The stars and moon hang around wherever the camera looks, out past the fog. */
+function placeSky() {
+    if (nightMix <= 0.01) return
+    stars.position.set(cam.tx, 0, cam.tz)
+    // The moon rises opposite the camera's side so it shows above the town.
+    moon.position.set(cam.tx - Math.sin(cam.yaw + 0.35) * 150, 46, cam.tz - Math.cos(cam.yaw + 0.35) * 150)
+    moon.lookAt(camera.position)
+}
+
+/** Light a fresh building model for the night; roads stay dark. */
+function lightModel(model: THREE.Group, type: string, variant: number) {
+    if (type === 'road') return model
+    addTownNightLamp(model, `${type}:${model.userData.visualLevel as number}:${variant}`)
+    return model
+}
+
 // ─── Camera rig ──────────────────────────────────────────────────────────────
 
 const cam = { tx: 4, tz: 4, yaw: 0.7, pitch: 0.95, dist: 22 }
@@ -255,14 +358,19 @@ function applyCamera() {
     // in steps instead, and only then mark the map dirty.
     if (Math.abs(tx - sunAt.x) > 3 || Math.abs(tz - sunAt.z) > 3) {
         sunAt = { x: tx, z: tz }
-        sun.position.set(tx + 30, 32, tz + 18)
-        sun.target.position.set(tx, 0, tz)
-        sun.target.updateMatrixWorld()
-        markShadowsDirty()
+        placeSun()
     }
     // The meadow rides along under the view in whole texture repeats, so the
     // pattern stays put and there is no edge to walk off, however far the realm reaches.
     if (ground) ground.position.set(Math.round(tx / MEADOW_REPEAT) * MEADOW_REPEAT, -0.02, Math.round(tz / MEADOW_REPEAT) * MEADOW_REPEAT)
+}
+
+function placeSun() {
+    if (!Number.isFinite(sunAt.x)) return
+    sun.position.set(sunAt.x + 30, sunHeight, sunAt.z + 18)
+    sun.target.position.set(sunAt.x, 0, sunAt.z)
+    sun.target.updateMatrixWorld()
+    markShadowsDirty()
 }
 
 function recenter(animate = true) {
@@ -289,9 +397,7 @@ function recenter(animate = true) {
 // ─── Lighting & ground ───────────────────────────────────────────────────────
 
 function setupStatic() {
-    const hemi = new THREE.HemisphereLight(0xe2efff, 0x8a7550, 1.25)
     scene.add(hemi)
-    const skyFill = new THREE.DirectionalLight(0xd8e7f1, 0.35)
     skyFill.position.set(-30, 20, -20)
     scene.add(skyFill)
     sun.castShadow = true
@@ -694,7 +800,7 @@ function buildNeighbourView(n: SceneNeighbour, sig: string, nowMs: number): Neig
         // A monument site shows how far it has got; anything else is drawn as the building it will be.
         const model = b.type === 'road'
             ? buildRoadModel(roadConnections(wx, wy, neighbourRoads))
-            : buildingModel(b.type as TownBuildingId, townSceneLevel(b.type, isTownMonumentId(b.type) ? b.level : Math.max(1, b.level)), tileVariant(wx, wy))
+            : lightModel(buildingModel(b.type as TownBuildingId, townSceneLevel(b.type, isTownMonumentId(b.type) ? b.level : Math.max(1, b.level)), tileVariant(wx, wy)), b.type, tileVariant(wx, wy))
         model.position.set(wx + size / 2, 0.3, wy + size / 2)
         const info = { plotId: n.id, ownerName: n.ownerName, type: b.type, level: b.level }
         if (b.type !== 'road') {
@@ -726,6 +832,7 @@ function buildNeighbourView(n: SceneNeighbour, sig: string, nowMs: number): Neig
                 }
             })
             // A site is not running yet: no sails, no smoke, no lit windows.
+            if (pending) { const lamp = model.getObjectByName('nightlamp'); if (lamp) lamp.visible = false }
             if (!pending && (anim.spin.length || anim.smoke.length || anim.glow.length)) view.anims.push(anim)
         }
         model.traverse((o) => {
@@ -993,7 +1100,7 @@ function syncModelAppearance(e: BuildingEntry, level: number) {
     if (e.visualLevel === level && e.variant === variant) return
     releaseModelGlow(e.model)
     e.group.remove(e.model)
-    e.model = buildingModel(e.data.type as TownBuildingId, level, variant)
+    e.model = lightModel(buildingModel(e.data.type as TownBuildingId, level, variant), e.data.type, variant)
     e.variant = variant
     e.model.rotation.y = (e.data.rotation ?? 0) * Math.PI / 2
     e.model.traverse(o => { o.userData.buildingId = e.data.id })
@@ -1084,7 +1191,7 @@ function syncBuildings() {
             const group = new THREE.Group()
             const model = isRoad
                 ? buildRoadModel(roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads))
-                : buildingModel(b.type as TownBuildingId, displayedLevel(b, now), tileVariant(pos.x, pos.z))
+                : lightModel(buildingModel(b.type as TownBuildingId, displayedLevel(b, now), tileVariant(pos.x, pos.z)), b.type, tileVariant(pos.x, pos.z))
             group.add(model)
             group.userData.buildingId = b.id
             model.traverse((o) => { o.userData.buildingId = b.id })
@@ -2008,6 +2115,7 @@ function takeModel(kind: VehicleKind, color: number): THREE.Group {
     if (parked) return parked
     const group = kind === 'car' ? createCar(color) : createTruck(color)
     group.traverse((o) => { o.castShadow = false; o.receiveShadow = false })
+    addTownVehicleLights(group, kind)
     return group
 }
 
@@ -3484,6 +3592,9 @@ function frame(ms: number) {
 
     moveCamera(dt)
     const still = props.reducedMotion
+    stepNight(dt)
+    // Windows that already glow burn brighter once the sun is down.
+    const nightGlow = 1 + Math.max(0, nightMix) * 0.8
     if (!still) animateTownWater(ms / 1000)
 
     // Camera easing — a cut, not a glide, for reduced motion.
@@ -3602,7 +3713,11 @@ function frame(ms: number) {
         }
         for (const g of e.glow) {
             const m = g.material as THREE.MeshStandardMaterial
-            m.emissiveIntensity = staffed || def.kind === 'housing' ? 1.1 + (still ? 0 : Math.sin(ms / 400 + e.group.position.x) * 0.3) : 0.15
+            m.emissiveIntensity = (staffed || def.kind === 'housing' ? 1.1 + (still ? 0 : Math.sin(ms / 400 + e.group.position.x) * 0.3) : 0.15) * nightGlow
+        }
+        if (nightMix > 0.01) {
+            const lamp = e.model.getObjectByName('nightlamp')
+            if (lamp) lamp.visible = !pending
         }
     }
 
@@ -3615,7 +3730,7 @@ function frame(ms: number) {
             spawn(tmp.clone(), 'smoke')
         }
         for (const g of n.glow) {
-            (g.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.1 + (still ? 0 : Math.sin(ms / 400 + n.x) * 0.3)
+            (g.material as THREE.MeshStandardMaterial).emissiveIntensity = (1.1 + (still ? 0 : Math.sin(ms / 400 + n.x) * 0.3)) * nightGlow
         }
     }
 
@@ -3632,6 +3747,7 @@ function frame(ms: number) {
         }
     }
 
+    placeSky()
     stepGhosts(dt, ms)
     stepTraffic(dt)
     stepParticles(dt)
@@ -3747,6 +3863,7 @@ onBeforeUnmount(() => {
     disposeBoostFx()
     meadowTexture?.dispose()
     plotTexture?.dispose()
+    disposeTownNight()
     renderer?.dispose()
     renderer = null
 })
