@@ -54,7 +54,7 @@ async function buildFixture(): Promise<Fixture> {
 
 let nextSlot = 0
 
-async function seedCopy(ownerId: string): Promise<string> {
+async function seedCopy(ownerId: string, condition = mintCondition()): Promise<string> {
     const [copy] = await db.insert(tcgCopy).values({
         printingId: fx.printingId,
         setId: fx.setId,
@@ -63,7 +63,7 @@ async function seedCopy(ownerId: string): Promise<string> {
         sheetId: fx.sheetId,
         cutIndex: 0,
         slotOffset: nextSlot++,
-        condition: mintCondition()
+        condition
     }).returning()
     return copy!.id
 }
@@ -177,7 +177,11 @@ describe.skipIf(SKIP)('tcg grading integration', () => {
     }, 30_000)
 
     it('crack returns the copy to raw; forced damage lowers exactly one site', async () => {
-        const copyId = await seedCopy(USERS.main)
+        // A site already at the 6.3 floor cannot take a hit (about 1 mint in
+        // 150), so give the forced damage room to land.
+        const condition = mintCondition()
+        condition.sites[0]!.value = Math.max(condition.sites[0]!.value, 8)
+        const copyId = await seedCopy(USERS.main, condition)
         const row = await submitForGrading(USERS.main, copyId, 'PSI', null)
         await forceReturnable(row.id)
         await collectSubmission(USERS.main, row.id)
