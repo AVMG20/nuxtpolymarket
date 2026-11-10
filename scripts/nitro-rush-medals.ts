@@ -6,7 +6,7 @@
 import { BRAKE_DECEL, GRIP_LATERAL, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
 import { refillAtLine } from '../app/utils/nitro-rush/lap-refill'
 import { botLapTime, MEDALS, medalTimesFor } from '../app/utils/nitro-rush/medals'
-import { botInput, createCar, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
+import { botInput, createCar, crossesLines, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 import { compileCustomTrack } from '../shared/utils/nitro-rush/custom'
 import { formatLapTime, LapTimer } from '../shared/utils/nitro-rush/timing'
 import { Track, type TrackDef } from '../shared/utils/nitro-rush/track'
@@ -75,17 +75,23 @@ function nitroLap(track: Track, plan: Plan | null): { time: number, firedAt: num
     let bent = false
     let firedAt: number | null = null
     let burning = false
+    // Distance driven from the start line, unwrapped across laps, to tell how far into a lap the car is.
+    let distance = GRID_OFFSET
+    let lastS = track.closed ? track.wrapS(GRID_OFFSET) : GRID_OFFSET
     /** Lights a full tank and holds the button until it runs dry. */
     const light = () => !burning && car.nitro >= 1 && (burning = true)
     for (let i = 0; i < PHYSICS_HZ * 240; i++) {
         if (stepCar(car, { ...playerInput(car, track), nitro: burning }, track, DT).fell) return null
         if (car.nitro <= 0) burning = false
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
+        const s = track.closed ? car.proj.s : car.proj.s - track.startS
+        distance += track.closed ? s - lastS - Math.round((s - lastS) / L) * L : s - lastS
+        lastS = s
+        for (const e of timer.update(s, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             if (e.lap === lap) return { time: e.time, firedAt }
             refillAtLine(car, track.closed)
         }
-        const into = timer.distance - timer.lap * L
+        const into = distance - timer.lap * L
         if (plan?.carry !== undefined && timer.lap === plan.lap - 1 && into >= L - plan.carry) light()
         if (plan && !armed && timer.lap === plan.lap) {
             // A player lights it on the exit of the first bend, back on the throttle.

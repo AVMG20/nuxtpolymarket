@@ -1,4 +1,4 @@
-import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, jump, looping, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, jump, kicker, landing, looping, MAX_HALF_WIDTH, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, widthTo, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { placementFault } from './road-checks'
 import { wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
@@ -9,7 +9,7 @@ import { ROAD } from './tracks'
  * pieces the game already knows how to drive and draw.
  */
 
-export type SectionCategory = 'straights' | 'bends' | 'banks' | 'climbs' | 'stunts' | 'lines'
+export type SectionCategory = 'straights' | 'bends' | 'banks' | 'widths' | 'climbs' | 'jumps' | 'stunts' | 'lines'
 
 export interface Section {
     label: string
@@ -26,7 +26,9 @@ export const SECTION_CATEGORIES: readonly { id: SectionCategory, name: string }[
     { id: 'straights', name: 'Straights' },
     { id: 'bends', name: 'Bends' },
     { id: 'banks', name: 'Banks' },
+    { id: 'widths', name: 'Widths' },
     { id: 'climbs', name: 'Climbs' },
+    { id: 'jumps', name: 'Jumps' },
     { id: 'stunts', name: 'Stunts' },
     { id: 'lines', name: 'Lines' }
 ]
@@ -50,7 +52,15 @@ const BANK_ANGLE = 25
 /** The grades a slope piece holds, in tenths so heights stay on whole metres. */
 const GENTLE_GRADE = 0.1
 const STEEP_GRADE = 0.2
+/** Half widths a width piece takes the road to: half, one, one and a half and twice the normal road. */
+export const ROAD_WIDTHS = { narrow: MIN_HALF_WIDTH, normal: ROAD.halfWidth, wide: ROAD.halfWidth * 1.5, veryWide: MAX_HALF_WIDTH } as const
+const widen = (label: string, icon: string, to: number): Section => ({ label, category: 'widths', icon, piece: widthTo(to) })
 const stunt = (label: string, icon: string, piece: TrackPiece): Section => ({ label, category: 'stunts', icon, piece })
+/** How high a jump ramp climbs, which its landing ramp comes back down. */
+const KICKER_RISE = 4
+const BIG_KICKER_RISE = 6
+/** Empty road runs as far as a straight does, so a jump is as long as the player makes it. */
+const empty = (length: number): Section => ({ label: `Gap ${length} m`, category: 'jumps', icon: 'i-lucide-cloud', piece: gap(length), from: { air: KICKER_RISE } })
 const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
 /** On a grid multiple, so a half or quarter spiral ends on the grid and a loop can still close. */
 const SPIRAL_RADIUS = 40
@@ -92,6 +102,10 @@ export const SECTIONS = {
     'bank-left': { label: 'Flat to bank left', category: 'banks', icon: 'i-lucide-arrow-up-right', piece: bankTo(-BANK_ANGLE) },
     'bank-right': { label: 'Flat to bank right', category: 'banks', icon: 'i-lucide-arrow-up-left', piece: bankTo(BANK_ANGLE) },
     'bank-flat': { label: 'Bank to flat', category: 'banks', icon: 'i-lucide-arrow-down-to-line', piece: bankTo(0), from: { bank: BANK_ANGLE } },
+    'width-narrow': widen('Narrow road', 'i-lucide-chevrons-right-left', ROAD_WIDTHS.narrow),
+    'width-normal': { ...widen('Normal road', 'i-lucide-move-horizontal', ROAD_WIDTHS.normal), from: { halfWidth: ROAD_WIDTHS.narrow } },
+    'width-wide': widen('Wide road', 'i-lucide-unfold-horizontal', ROAD_WIDTHS.wide),
+    'width-very-wide': widen('Very wide road', 'i-lucide-chevrons-left-right', ROAD_WIDTHS.veryWide),
     'slope-up': { label: 'Slope up', category: 'climbs', icon: 'i-lucide-trending-up', piece: slopeTo(GENTLE_GRADE) },
     'slope-up-steep': { label: 'Steep slope up', category: 'climbs', icon: 'i-lucide-mountain', piece: slopeTo(STEEP_GRADE) },
     'slope-down': { label: 'Slope down', category: 'climbs', icon: 'i-lucide-trending-down', piece: slopeTo(-GENTLE_GRADE) },
@@ -113,8 +127,16 @@ export const SECTIONS = {
     'left-quarter-spiral-down': helix('left', -12, 0.25),
     'right-quarter-spiral-up': helix('right', 12, 0.25),
     'right-quarter-spiral-down': helix('right', -12, 0.25),
-    'jump': stunt('Jump', 'i-lucide-rocket', jump(4, 30)),
-    'big-jump': stunt('Big jump', 'i-lucide-rocket', jump(6, 60)),
+    'jump': { ...stunt('Jump', 'i-lucide-rocket', jump(KICKER_RISE, 30)), retired: true },
+    'big-jump': { ...stunt('Big jump', 'i-lucide-rocket', jump(BIG_KICKER_RISE, 60)), retired: true },
+    'jump-ramp': { label: 'Jump ramp', category: 'jumps', icon: 'i-lucide-rocket', piece: kicker(KICKER_RISE) },
+    'jump-ramp-big': { label: 'Big jump ramp', category: 'jumps', icon: 'i-lucide-rocket', piece: kicker(BIG_KICKER_RISE) },
+    'empty-10': empty(10),
+    'empty-20': empty(20),
+    'empty-60': empty(60),
+    'empty-100': empty(100),
+    'empty-200': empty(200),
+    'landing-ramp': { label: 'Landing ramp', category: 'jumps', icon: 'i-lucide-plane-landing', piece: landing, from: { air: KICKER_RISE } },
     'looping-left': stunt('Looping, out left', 'i-lucide-repeat', looping('left', 22)),
     'looping-right': stunt('Looping, out right', 'i-lucide-repeat', looping('right', 22)),
     'corkscrew-left': { ...stunt('Corkscrew left', 'i-lucide-tornado', corkscrew('left', 200)), from: { bank: -BANK_ANGLE } },
@@ -203,21 +225,22 @@ export function sectionWalk(id: SectionId): LayoutWalk {
     return walkLayout(customLayout({ id: 'section', name: '', closed: false, sections: [id] }), section.from)
 }
 
-/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down (- to climb), and the bank and grade left to level. */
+/** What still separates a loop's end from its start: metres apart, degrees left to turn (+ right), metres to come down (- to climb), the bank and grade left to level, metres of half width to undo (+ to narrow), and a jump still to land. */
 export function loopGap(walk: LayoutWalk) {
-    const { x, z, heading, aboveStart, bank, grade } = walk.end
-    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: aboveStart, bank, grade }
+    const { x, z, heading, aboveStart, bank, grade, halfWidth, air } = walk.end
+    return { distance: Math.hypot(x, z), turn: Math.round(wrapAngle(-heading) * 180 / Math.PI), climb: aboveStart, bank, grade, width: halfWidth - ROAD.halfWidth, air }
 }
 
 /** Why a section can't be laid on road in this state, in the builder's words; null when it can. */
-export const sectionFault = (id: SectionId, state: RoadState) => placementFault(SECTIONS[id].piece, state)
+export const sectionFault = (id: SectionId, state: Pick<RoadState, 'bank' | 'grade' | 'air'>) => placementFault(SECTIONS[id].piece, state)
 
 /** How the state a section starts out in changes it, for its row in the list; a piece that sets that state itself doesn't ride it. */
-export function rideTag(id: SectionId, { bank, grade }: RoadState) {
+export function rideTag(id: SectionId, { bank, grade, halfWidth }: Pick<RoadState, 'bank' | 'grade' | 'halfWidth'>) {
     const { type } = SECTIONS[id].piece
     const tilt = bank && type !== 'bank' && type !== 'corkscrew' ? 'BANKED' : ''
     const climb = grade && type !== 'slope' ? (grade > 0 ? 'UP' : 'DOWN') : ''
-    return [tilt, climb].filter(Boolean).join(' ')
+    const width = halfWidth !== ROAD.halfWidth && type !== 'width' ? (halfWidth < ROAD.halfWidth ? 'NARROW' : 'WIDE') : ''
+    return [tilt, climb, width].filter(Boolean).join(' ')
 }
 
 /** The index of the piece holding walk point `i`. */
@@ -241,14 +264,17 @@ export function draftTrackDef(walk: LayoutWalk, closes: boolean): TrackDef | nul
     const points = walk.pts.map(([x, z]): [number, number] => [x, z])
     const heights = [...walk.ys]
     const ups = [...walk.ups]
+    const halfWidths = [...walk.halfWidths]
     if (!closes) {
         points.push([walk.end.x, walk.end.z])
         heights.push(walk.end.y)
         ups.push(ups[ups.length - 1] ?? [0, 1, 0])
+        halfWidths.push(walk.end.halfWidth)
     }
     if (points.length < 2) return null
     const def: TrackDef = { id: 'draft', name: 'Draft', group: closes ? 'circuits' : 'sprints', points, ...ROAD }
     if (heights.some(y => y !== 0)) def.heights = heights
+    if (halfWidths.some(w => w !== ROAD.halfWidth)) def.halfWidths = halfWidths
     if (ups.some(u => u[0] !== 0 || u[1] !== 1 || u[2] !== 0)) def.ups = ups
     if (walk.rails.length) def.rails = walk.rails
     if (walk.gaps.length) def.gaps = walk.gaps
@@ -266,8 +292,11 @@ export function lastPieceWalk(walk: LayoutWalk): LayoutWalk {
         ys: walk.ys.slice(from),
         lifts: walk.lifts.slice(from),
         ups: walk.ups.slice(from),
+        halfWidths: walk.halfWidths.slice(from),
+        walls: walk.walls.slice(from),
         rails: [],
-        gaps: [],
+        // Kept, so an empty piece's preview reads as empty road, not as deck.
+        gaps: walk.gaps.filter(([, to]) => to > from).map(([a, b]) => [Math.max(0, a - from), b - from]),
         boosts: [],
         lines: [],
         pieceStarts: [0],

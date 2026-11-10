@@ -24,6 +24,10 @@
  * its side, so there `s` is the distance along the road itself and the car is
  * driven by distance and offset instead of by its spot on the plan. Gaps are
  * stretches with no road: a jump's.
+ *
+ * The road's width can change along it; the verge from its edge to the wall stays the same.
+ *
+ * The walls are low: a car in the air above them flies over, and lands on whatever road lies under it, or falls.
  */
 
 export type TrackGroup = 'circuits' | 'sprints'
@@ -35,9 +39,11 @@ export interface TrackDef {
     points: [number, number][]
     /** Road height at each point, in metres above the ground; left out on a flat course. */
     heights?: number[]
+    /** The road's half width, and centreline to the face of the wall, where `halfWidths` doesn't say otherwise. */
     halfWidth: number
-    /** Centreline to the face of the wall. */
     wallOffset: number
+    /** Half the road's width at each point; left out where it never changes. */
+    halfWidths?: number[]
     /** False for a point-to-point sprint; loops are the default. */
     closed?: boolean
     /** Open courses only: from the start barrier to the start line. */
@@ -122,10 +128,14 @@ const DEFAULT_RUN_UP = 30
 const DEFAULT_RUN_OFF = 150
 /** Faster than the car can ever average (its nitro top speed is ~103 m/s), so the server can refuse impossible laps. */
 export const SPEED_CEILING = 110
-/** Below the gap's deck by this much, a car that missed the landing has fallen. */
+/** Below the road it left by this much, with no road under it, a car has fallen. */
 export const FALL_DEPTH = 6
+/** How far below a car's wheels a road may sit and still be the one it comes down on this step. */
+const UNDER_TOLERANCE = 0.05
 /** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
 export const WALL_BASE_HALF = 0.32
+/** The jersey barrier's height: a car in the air higher than its top clears it. */
+export const WALL_HEIGHT = 0.86
 /** Centreline to the walls' outer foot: where the deck ends, and the edge a bank pivots on. */
 export const wallFoot = (wallOffset: number) => wallOffset + WALL_BASE_HALF * 2
 
@@ -173,6 +183,11 @@ export class Track {
     readonly boostPads: readonly BoostPad[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
+    /** Per point: half the road's width, and centreline to the face of the wall. */
+    readonly halfWidths: Float64Array
+    readonly walls: Float64Array
+    /** The furthest any wall stands from the centreline. */
+    readonly maxWall: number
     private readonly scratchFrame = newTrackFrame()
 
     constructor(def: TrackDef) {
@@ -189,6 +204,10 @@ export class Track {
             this.zs[i] = z
             this.ys[i] = def.heights?.[i] ?? 0
         })
+        const verge = def.wallOffset - def.halfWidth
+        this.halfWidths = new Float64Array(n).map((_, i) => def.halfWidths?.[i] ?? def.halfWidth)
+        this.walls = this.halfWidths.map(w => w + verge)
+        this.maxWall = Math.max(...this.walls)
         this.railed = new Uint8Array(n)
         for (const [a, b] of def.rails ?? []) this.railed.fill(1, a, b)
         this.cum = new Float64Array(n + 1)
@@ -203,8 +222,8 @@ export class Track {
         this.boostPads = (def.boosts ?? []).map(({ range: [a, b], lane }) => ({
             from: this.cum[a]!,
             to: this.cum[b]!,
-            latFrom: BOOST_LANES[lane][0] * def.halfWidth,
-            latTo: BOOST_LANES[lane][1] * def.halfWidth
+            latFrom: BOOST_LANES[lane][0] * this.halfWidths[a]!,
+            latTo: BOOST_LANES[lane][1] * this.halfWidths[a]!
         }))
         this.length = this.cum[n]!
         this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
@@ -313,6 +332,11 @@ export class Track {
         return this.gaps.length > 0 && within(this.gaps, this.wrapS(s))
     }
 
+    /** Whether something `lateral` across the road at `s` is over it, out to the walls' outer foot, rather than off to its side. */
+    overRoad(s: number, lateral: number) {
+        return Math.abs(lateral) <= wallFoot(this.wallAt(s))
+    }
+
     /** The road's frame at distance `s`, blended between the points either side. */
     frameAt(s: number, out: TrackFrame = newTrackFrame()): TrackFrame {
         const w = this.wrapS(s)
@@ -356,12 +380,70 @@ export class Track {
         return f.y + f.ry * lateral
     }
 
-    get halfWidth() {
-        return this.def.halfWidth
+    /** Half the road's width at `s`. */
+    halfWidthAt(s: number) {
+        return this.blendAt(this.halfWidths, s)
     }
 
-    get wallOffset() {
-        return this.def.wallOffset
+    /** Centreline to the face of the wall at `s`. */
+    wallAt(s: number) {
+        return this.blendAt(this.walls, s)
+    }
+
+    /** How fast the walls move out from the centreline at `s`, in metres per metre: - where the road narrows. */
+    wallSlopeAt(s: number) {
+        const i = this.segmentAt(s)
+        const len = this.cum[i + 1]! - this.cum[i]!
+        return len > 0 ? (this.walls[(i + 1) % this.n]! - this.walls[i]!) / len : 0
+    }
+
+    private blendAt(arr: Float64Array, s: number) {
+        const w = this.wrapS(s)
+        const i = this.segmentAt(w)
+        const len = this.cum[i + 1]! - this.cum[i]!
+        const t = len > 0 ? Math.min(1, (w - this.cum[i]!) / len) : 0
+        return arr[i]! + (arr[(i + 1) % this.n]! - arr[i]!) * t
+    }
+
+    /**
+     * The highest road right under (x, z) that's no higher than `y`, into `out`: what a falling car comes down on.
+     * The deck runs out to the walls' outer foot; rails and gaps don't count. False when there's no road under it.
+     */
+    roadUnder(x: number, y: number, z: number, out: Projection): boolean {
+        let top = -Infinity
+        for (let i = 0; i < this.segments; i++) {
+            const j = (i + 1) % this.n
+            if (this.railed[i] || this.railed[j]) continue
+            const ax = this.xs[i]!
+            const az = this.zs[i]!
+            const dx = this.xs[j]! - ax
+            const dz = this.zs[j]! - az
+            const len2 = dx * dx + dz * dz || 1
+            const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / len2))
+            const len = Math.sqrt(len2)
+            const tx = dx / len
+            const tz = dz / len
+            const lateral = (x - ax) * -tz + (z - az) * tx
+            // Off the segment's sides only; its ends meet the next one's.
+            const along = (x - ax) * tx + (z - az) * tz
+            if (along < -1e-6 || along > len + 1e-6) continue
+            if (Math.abs(lateral) > wallFoot(this.walls[i]! + (this.walls[j]! - this.walls[i]!) * t)) continue
+            const ry = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
+            // A bank tips the surface away from the centre's height.
+            const surface = ry + (this.right[i * 3 + 1]! + (this.right[j * 3 + 1]! - this.right[i * 3 + 1]!) * t) * lateral
+            if (surface > y + UNDER_TOLERANCE || surface <= top) continue
+            const s = this.cum[i]! + len * t
+            if (this.gapAt(s)) continue
+            top = surface
+            out.seg = i
+            out.s = s
+            out.tx = tx
+            out.tz = tz
+            out.lateral = lateral
+            out.y = ry
+            out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * t
+        }
+        return top > -Infinity
     }
 
     /** Where the timed lap starts. */
@@ -473,7 +555,7 @@ export class Track {
             }
         }
         // A teleport or a bad hint: the windowed answer is only trusted while it's on the track.
-        if (hint < 0 || Math.sqrt(best) > this.def.wallOffset + 4) {
+        if (hint < 0 || Math.sqrt(best) > this.walls[out.seg]! + 4) {
             best = Infinity
             level = Number.isFinite(y)
             for (let i = 0; i <= last; i++) test(i)

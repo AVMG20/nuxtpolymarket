@@ -10,6 +10,20 @@ import { newTrackFrame, type Track } from '#shared/utils/nitro-rush/track'
  * laid over a jump's gap.
  */
 
+/** The road's width where an offset is taken: its half width and centreline to the wall's face. */
+export interface RoadWidth {
+    hw: number
+    wall: number
+}
+/** An offset across the road: fixed, or measured from its edges, which can move along it. */
+export type Lat = number | ((w: RoadWidth) => number)
+const latAt = (lat: Lat, w: RoadWidth) => typeof lat === 'number' ? lat : lat(w)
+/** The road's edges and the walls' faces, wherever along the road they're measured. */
+export const roadLeft = (w: RoadWidth) => -w.hw
+export const roadRight = (w: RoadWidth) => w.hw
+export const wallLeft = (w: RoadWidth) => -w.wall
+export const wallRight = (w: RoadWidth) => w.wall
+
 /** The elevated road's slab, below the surface. */
 export const DECK_DEPTH = 0.8
 /** Over this stretch the wet mirror fades out where the road leaves the ground. */
@@ -21,14 +35,14 @@ const MIRROR_FADE = 18
  * across, `v` is distance divided by `vScale`, so textures tile at a fixed
  * world scale. `y` lifts it off the road surface.
  */
-export function ribbon(track: Track, from: number, to: number, latA: number, latB: number, y: number, vScale: number) {
-    const samples: { s: number, x: number, y: number, z: number, r: Vec, u: Vec }[] = []
+export function ribbon(track: Track, from: number, to: number, latA: Lat, latB: Lat, y: number, vScale: number) {
+    const samples: { s: number, x: number, y: number, z: number, r: Vec, u: Vec, w: RoadWidth }[] = []
     const push = (s: number, i?: number) => {
         if (i === undefined) {
             const f = track.frameAt(s, newTrackFrame())
-            samples.push({ s, x: f.x, y: f.y, z: f.z, r: [f.rx, f.ry, f.rz], u: [f.ux, f.uy, f.uz] })
+            samples.push({ s, x: f.x, y: f.y, z: f.z, r: [f.rx, f.ry, f.rz], u: [f.ux, f.uy, f.uz], w: { hw: track.halfWidthAt(s), wall: track.wallAt(s) } })
         } else {
-            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, r: vecAt(track.right, i), u: vecAt(track.up, i) })
+            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, r: vecAt(track.right, i), u: vecAt(track.up, i), w: widthAt(track, i) })
         }
     }
     push(from)
@@ -45,7 +59,7 @@ export function ribbon(track: Track, from: number, to: number, latA: number, lat
     const uv: number[] = []
     const index: number[] = []
     samples.forEach((p, i) => {
-        pos.push(...offset(p, p.r, p.u, latA, y), ...offset(p, p.r, p.u, latB, y))
+        pos.push(...offset(p, p.r, p.u, latAt(latA, p.w), y), ...offset(p, p.r, p.u, latAt(latB, p.w), y))
         uv.push(0, p.s / vScale, 1, p.s / vScale)
         if (i > 0 && !track.gapAt((samples[i - 1]!.s + p.s) / 2)) {
             const a = (i - 1) * 2
@@ -60,8 +74,8 @@ export function ribbon(track: Track, from: number, to: number, latA: number, lat
     return g
 }
 
-/** A profile swept down the whole course, `profile` as [toward-the-track, height] pairs from the outer foot. */
-export function sweep(track: Track, side: number, from: number, profile: [number, number][]) {
+/** A profile swept down the whole course, `profile` as [toward-the-track, height] pairs from the outer foot `from` out. */
+export function sweep(track: Track, side: number, from: Lat, profile: [number, number][]) {
     const pos: number[] = []
     const uv: number[] = []
     const index: number[] = []
@@ -79,7 +93,8 @@ export function sweep(track: Track, side: number, from: number, profile: [number
             const p = { x: track.xs[k]!, y: track.ys[k]!, z: track.zs[k]! }
             const r = vecAt(track.right, k)
             const u = vecAt(track.up, k)
-            for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, r, u, side * (from - a), y))
+            const foot = latAt(from, widthAt(track, k))
+            for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, r, u, side * (foot - a), y))
             uv.push(u0, s / 4, u0 + edge, s / 4)
             if (i > 0 && !track.gapAt(s - 0.5)) {
                 const b = start + (i - 1) * 2
@@ -100,7 +115,7 @@ export function sweep(track: Track, side: number, from: number, profile: [number
  * The wet mirror's strip: the road where it lies on the ground, since a planar
  * mirror can't follow a climb. Its `fade` attribute dims it toward each ramp.
  */
-export function mirrorStrip(track: Track, hw: number) {
+export function mirrorStrip(track: Track, hw: Lat) {
     const L = track.length
     // A planar mirror only fits road lying flat on the ground: not a bank, a looping or a gap.
     const level = (k: number) => track.ys[k]! < 0.01 && track.plainAt(k)
@@ -126,7 +141,7 @@ export function mirrorStrip(track: Track, hw: number) {
         if (open >= 0) runs.push([sAtIndex(track, open), sAtIndex(track, begin + track.segments)])
     }
     const geos = runs.filter(([a, b]) => b - a > 1).map(([from, to]) => {
-        const g = ribbon(track, from, to, -hw, hw, 0, ROAD_TILE_LENGTH)
+        const g = ribbon(track, from, to, w => -latAt(hw, w), hw, 0, ROAD_TILE_LENGTH)
         const uv = g.getAttribute('uv')
         const fade = new Float32Array(uv.count)
         // Only an end that meets a ramp fades; an open course's ends and a flat loop stay bright.
@@ -140,7 +155,7 @@ export function mirrorStrip(track: Track, hw: number) {
         return g
     })
     if (!geos.length) {
-        const g = ribbon(track, 0, L, -hw, hw, 0, ROAD_TILE_LENGTH)
+        const g = ribbon(track, 0, L, w => -latAt(hw, w), hw, 0, ROAD_TILE_LENGTH)
         g.setAttribute('fade', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('uv').count), 1))
         return g
     }
@@ -151,6 +166,7 @@ export function mirrorStrip(track: Track, hw: number) {
 
 type Vec = [number, number, number]
 const vecAt = (arr: Float64Array, i: number): Vec => [arr[i * 3]!, arr[i * 3 + 1]!, arr[i * 3 + 2]!]
+const widthAt = (track: Track, i: number): RoadWidth => ({ hw: track.halfWidths[i]!, wall: track.walls[i]! })
 /** The point `lat` across and `lift` up from a spot on the centreline, in the road's own frame. */
 const offset = (p: { x: number, y: number, z: number }, r: Vec, u: Vec, lat: number, lift: number): Vec =>
     [p.x + r[0] * lat + u[0] * lift, p.y + r[1] * lat + u[1] * lift, p.z + r[2] * lat + u[2] * lift]
@@ -160,24 +176,26 @@ function sAtIndex(track: Track, k: number) {
     return track.cum[k % track.n]! + Math.floor(k / track.n) * track.length
 }
 
-/** True when another stretch of road below `top` covers ground within `radius` of (x, z). */
-export function roadBelow(track: Track, x: number, z: number, radius: number, top: number) {
+/** True when another stretch of road below `top` covers ground within `pad` of its walls from (x, z). */
+export function roadBelow(track: Track, x: number, z: number, pad: number, top: number) {
     for (let k = 0; k < track.n; k++) {
         if (track.ys[k]! >= top) continue
         const dx = track.xs[k]! - x
         const dz = track.zs[k]! - z
+        const radius = track.walls[k]! + pad
         if (dx * dx + dz * dz < radius * radius) return true
     }
     return false
 }
 
-/** True when road lies above (x, y, z), between `low` and `high` metres up, within `radius` across. */
-export function roadAbove(track: Track, x: number, y: number, z: number, radius: number, low: number, high: number) {
+/** True when road lies above (x, y, z), between `low` and `high` metres up, within `pad` of its walls across. */
+export function roadAbove(track: Track, x: number, y: number, z: number, pad: number, low: number, high: number) {
     for (let k = 0; k < track.n; k++) {
         const up = track.ys[k]! - y
         if (up < low || up > high) continue
         const dx = track.xs[k]! - x
         const dz = track.zs[k]! - z
+        const radius = track.walls[k]! + pad
         if (dx * dx + dz * dz < radius * radius) return true
     }
     return false

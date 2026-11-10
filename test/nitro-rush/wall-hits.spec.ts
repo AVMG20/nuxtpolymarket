@@ -97,7 +97,7 @@ describe('an angled wall hit', () => {
         for (const speed of SPEEDS) {
             const car = approach(45, speed)
             toHit(car)
-            expect(after(car, GAS).thrown, `${speed} m/s`).toBeLessThan(track.halfWidth)
+            expect(after(car, GAS).thrown, `${speed} m/s`).toBeLessThan(track.halfWidthAt(car.proj.s))
         }
     })
 

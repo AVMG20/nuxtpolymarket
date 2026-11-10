@@ -8,7 +8,6 @@ import { BOOST_LANES, type BoostLane } from '#shared/utils/nitro-rush/track'
 const props = defineProps<{
     walk: LayoutWalk
     closed: boolean
-    halfWidth: number
     selected: number | null
     /** The piece about to be built. */
     ghost: LayoutWalk | null
@@ -31,6 +30,7 @@ const PINK = '#ff2bd6'
 const BOOST = '#2bff5a'
 const GHOST = 'rgba(61, 242, 255, 0.5)'
 const GHOST_BLOCKED = 'rgba(255, 59, 82, 0.6)'
+const SELECTED_FILL = 'rgba(255, 43, 214, 0.3)'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
 /** Grid steps in metres, the finest whose cells are at least this many CSS px wide. */
 const GRID_STEPS = [10, 50, 250, 1000]
@@ -40,8 +40,12 @@ interface Segment {
     a: readonly [number, number]
     b: readonly [number, number]
     y: number
+    /** Half the road's width along the segment. */
+    hw: number
     piece: number
     layer: number
+    /** Over a jump's empty road, which has no deck to draw. */
+    empty: boolean
 }
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -51,7 +55,7 @@ let view = { scale: 1, ox: 0, oy: 0, dpr: 1 }
 
 /** The centreline as segments, the last one running on to where the course ends. */
 const segments = computed(() => {
-    const { pts, ys, pieceStarts, end } = props.walk
+    const { pts, ys, halfWidths, pieceStarts, gaps, end } = props.walk
     const out: Segment[] = []
     let piece = 0
     for (let i = 0; i < pts.length; i++) {
@@ -59,7 +63,9 @@ const segments = computed(() => {
         const last = i === pts.length - 1
         const b: [number, number] = last ? [end.x, end.z] : pts[i + 1]!
         const y = (ys[i]! + (last ? end.y : ys[i + 1]!)) / 2
-        out.push({ a: pts[i]!, b, y, piece, layer: Math.round(y / LAYER) })
+        const hw = (halfWidths[i]! + (last ? end.halfWidth : halfWidths[i + 1]!)) / 2
+        const empty = gaps.some(([from, to]) => i >= from && i < to)
+        out.push({ a: pts[i]!, b, y, hw, piece, layer: Math.round(y / LAYER), empty })
     }
     return out
 })
@@ -91,7 +97,7 @@ function draw() {
     const h = el.height
     const dpr = w / Math.max(1, el.clientWidth)
     const { pts, end, lines, boosts } = props.walk
-    const hw = props.halfWidth
+    const hw = Math.max(end.halfWidth, ...props.walk.halfWidths)
     const ghost = props.ghost
     const ghostPath: readonly (readonly [number, number])[] = ghost ? [...ghost.pts, [ghost.end.x, ghost.end.z]] : []
 
@@ -136,37 +142,73 @@ function draw() {
     ctx.stroke()
 
     // Road, lowest band first, each with a dark outline beneath so a bridge reads as crossing.
-    const road = Math.max(MIN_ROAD_PX * dpr, hw * 2 * scale)
+    const roadPx = (half: number) => Math.max(MIN_ROAD_PX * dpr, half * 2 * scale)
+    // Empty road has no deck: a dashed outline round where it would be, as the 3D view draws it.
+    const emptyOutline = (path: readonly (readonly [number, number])[], halves: readonly number[], colour: string, fill: string | null) => {
+        const edge = (side: number) => path.map(([x, z], k) => {
+            const [ax, az] = path[Math.max(0, k - 1)]!
+            const [bx, bz] = path[Math.min(path.length - 1, k + 1)]!
+            const len = Math.hypot(bx - ax, bz - az) || 1
+            const half = roadPx(halves[k]!) / 2 / scale * side
+            return [sx(x - (bz - az) / len * half), sy(z + (bx - ax) / len * half)] as const
+        })
+        ctx.beginPath()
+        for (const [px, py] of [...edge(-1), ...edge(1).reverse()]) ctx.lineTo(px, py)
+        ctx.closePath()
+        if (fill) {
+            ctx.fillStyle = fill
+            ctx.fill()
+        }
+        ctx.setLineDash([4 * dpr, 3 * dpr])
+        ctx.lineWidth = 1.5 * dpr
+        ctx.strokeStyle = colour
+        ctx.stroke()
+        ctx.setLineDash([])
+    }
     const segs = segments.value
     const layers = [...new Set(segs.map(s => s.layer))].sort((a, b) => a - b)
     ctx.lineJoin = 'round'
     for (const layer of layers) {
         // Butt caps, so a band's outline doesn't nick the road where it joins the band below.
         ctx.strokeStyle = OUTLINE
-        ctx.lineWidth = road + OUTLINE_PX * 2 * dpr
         ctx.lineCap = 'butt'
-        ctx.beginPath()
+        // One path per run of the same width, so the outline only breaks where the width changes.
         let prev: Segment | null = null
         for (const s of segs) {
-            if (s.layer !== layer) {
+            const joins = prev && s.layer === layer && s.hw === prev.hw && !s.empty
+            if (prev && !joins) ctx.stroke()
+            if (s.layer !== layer || s.empty) {
                 prev = null
                 continue
             }
-            if (!prev) ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
+            if (!joins) {
+                ctx.lineWidth = roadPx(s.hw) + OUTLINE_PX * 2 * dpr
+                ctx.beginPath()
+                ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
+            }
             ctx.lineTo(sx(s.b[0]), sy(s.b[1]))
             prev = s
         }
-        ctx.stroke()
+        if (prev) ctx.stroke()
 
-        ctx.lineWidth = road
         ctx.lineCap = 'round'
         for (const s of segs) {
-            if (s.layer !== layer) continue
+            if (s.layer !== layer || s.empty) continue
+            ctx.lineWidth = roadPx(s.hw)
             ctx.strokeStyle = s.piece === props.selected ? PINK : roadColor(s.y)
             ctx.beginPath()
             ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
             ctx.lineTo(sx(s.b[0]), sy(s.b[1]))
             ctx.stroke()
+        }
+        // Each piece's run of empty road in this band.
+        for (let i = 0; i < segs.length; i++) {
+            const s = segs[i]!
+            if (s.layer !== layer || !s.empty) continue
+            const run = [s]
+            while (i + 1 < segs.length && segs[i + 1]!.empty && segs[i + 1]!.layer === layer && segs[i + 1]!.piece === s.piece) run.push(segs[++i]!)
+            const picked = s.piece === props.selected
+            emptyOutline([...run.map(r => r.a), run[run.length - 1]!.b], [...run.map(r => r.hw), run[run.length - 1]!.hw], picked ? PINK : roadColor(s.y), picked ? SELECTED_FILL : null)
         }
 
         // A bar across the road at point `at`, over `lane` of its width.
@@ -177,7 +219,7 @@ function draw() {
             const dx = s.b[0] - s.a[0]
             const dz = s.b[1] - s.a[1]
             const len = Math.hypot(dx, dz) || 1
-            const reach = road / 2 + dpr
+            const reach = roadPx(s.hw) / 2 + dpr
             const nx = -dz / len * reach
             const ny = dx / len * reach
             ctx.strokeStyle = color
@@ -198,7 +240,7 @@ function draw() {
         for (const line of lines) crossBar(line.at, cssColor(LINE_COLORS[line.type]))
     }
 
-    const marker = Math.max(9 * dpr, hw * 1.4 * scale)
+    const marker = Math.max(9 * dpr, end.halfWidth * 1.4 * scale)
     // Loops: the ghost of where the road has to come back to.
     if (props.closed) {
         chevron(ctx, sx(0), sy(0), 0, marker)
@@ -219,11 +261,17 @@ function draw() {
     if (ghost) {
         const colour = props.ghostBlocked ? GHOST_BLOCKED : GHOST
         ctx.strokeStyle = colour
-        ctx.lineWidth = road
         ctx.lineCap = 'butt'
-        ctx.beginPath()
-        ghostPath.forEach(([x, z], i) => i ? ctx.lineTo(sx(x), sy(z)) : ctx.moveTo(sx(x), sy(z)))
-        ctx.stroke()
+        const ghostWidths = [...ghost.halfWidths, ghost.end.halfWidth]
+        for (let i = 1; i < ghostPath.length; i++) {
+            if (ghost.gaps.some(([from, to]) => i - 1 >= from && i - 1 < to)) continue
+            ctx.lineWidth = roadPx((ghostWidths[i - 1]! + ghostWidths[i]!) / 2)
+            ctx.beginPath()
+            ctx.moveTo(sx(ghostPath[i - 1]![0]), sy(ghostPath[i - 1]![1]))
+            ctx.lineTo(sx(ghostPath[i]![0]), sy(ghostPath[i]![1]))
+            ctx.stroke()
+        }
+        for (const [from, to] of ghost.gaps) emptyOutline(ghostPath.slice(from, to + 1), ghostWidths.slice(from, to + 1), colour, null)
         chevron(ctx, sx(ghost.end.x), sy(ghost.end.z), ghost.end.heading, marker)
         ctx.fillStyle = colour
         ctx.fill()
@@ -252,14 +300,14 @@ function distance(p: readonly [number, number], a: readonly [number, number], b:
 function onClick(e: MouseEvent) {
     const { scale, ox, oy, dpr } = view
     const p = [(e.offsetX * dpr - ox) / scale, (e.offsetY * dpr - oy) / scale] as const
-    const reach = Math.max(props.halfWidth * 2, (MIN_ROAD_PX + 6) * dpr / scale)
+    const near = (MIN_ROAD_PX + 6) * dpr / scale
     let best: Segment | null = null
     let bestD = Infinity
     for (const s of segments.value) {
         const d = distance(p, s.a, s.b)
-        if (d > reach) continue
-        const onRoad = d <= props.halfWidth
-        const bestOnRoad = bestD <= props.halfWidth
+        if (d > Math.max(s.hw * 2, near)) continue
+        const onRoad = d <= s.hw
+        const bestOnRoad = !!best && bestD <= best.hw
         if (onRoad && bestOnRoad ? s.layer > best!.layer || (s.layer === best!.layer && d < bestD) : d < bestD) {
             best = s
             bestD = d
@@ -268,7 +316,7 @@ function onClick(e: MouseEvent) {
     if (best) emit('pick', best.piece)
 }
 
-watch(() => [props.walk, props.closed, props.halfWidth, props.selected, props.ghost, props.ghostBlocked], draw)
+watch(() => [props.walk, props.closed, props.selected, props.ghost, props.ghostBlocked], draw)
 
 onMounted(() => {
     resize()

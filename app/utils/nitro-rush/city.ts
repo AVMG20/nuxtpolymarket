@@ -36,7 +36,6 @@ function buildingParts(w: number, h: number, d: number) {
 
 /** City blocks on a loose grid, clear of the circuit; returns the rooftop beacons' material. */
 export function buildCity({ track, own, add, instanced }: WorldKit) {
-    const wall = track.wallOffset
     const kinds: FacadeKind[] = ['office', 'glass', 'residential', 'brick']
     const facadeMats = kinds.map((kind) => {
         const t = facadeTextures(kind)
@@ -58,7 +57,7 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
             const x = gx * CELL + (Math.random() - 0.5) * 10
             const z = gz * CELL + (Math.random() - 0.5) * 10
             const away = Math.abs(track.project(x, z, -1, proj).lateral)
-            if (away < wall + 42 || away > 340) continue
+            if (away < track.wallAt(proj.s) + 42 || away > 340) continue
             const w = 14 + Math.random() * 14
             const d = 14 + Math.random() * 14
             const h = 12 + Math.random() * Math.random() * 110

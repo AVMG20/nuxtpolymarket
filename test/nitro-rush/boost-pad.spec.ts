@@ -29,7 +29,7 @@ function runOver(t: Track, car: CarState, input = COAST) {
 
 describe('boost pad road', () => {
     it('covers the whole road, or the half it says', () => {
-        const hw = trackOf(false, sprint('boost-pad')).halfWidth
+        const hw = trackOf(false, sprint('boost-pad')).halfWidthAt(0)
         expect(padOf(trackOf(false, sprint('boost-pad')))).toMatchObject({ latFrom: -hw, latTo: hw })
         expect(padOf(trackOf(false, sprint('boost-pad-left')))).toMatchObject({ latFrom: -hw, latTo: 0 })
         expect(padOf(trackOf(false, sprint('boost-pad-right')))).toMatchObject({ latFrom: 0, latTo: hw })

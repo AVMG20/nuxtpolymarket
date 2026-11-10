@@ -12,7 +12,7 @@ import { LapTimer } from '../shared/utils/nitro-rush/timing'
 import { headingOf, Track, wrapAngle } from '../shared/utils/nitro-rush/track'
 import { ROAD, TRACKS } from '../shared/utils/nitro-rush/tracks'
 import { BRAKE_DECEL, DRIFT_ALIGN, DRIFT_SLIP_IN, DRIFT_SLIP_MID, DRIFT_SLIP_WIDE, ENGINE_TOP_SPEED, KMH_PER_SPEED, PHYSICS_HZ } from '../app/utils/nitro-rush/config'
-import { botInput, createCar, slipAngle, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
+import { botInput, createCar, crossesLines, slipAngle, stepCar, type CarInput, type CarState } from '../app/utils/nitro-rush/physics'
 
 const DT = 1 / PHYSICS_HZ
 const GRID = -14
@@ -47,7 +47,7 @@ function botDrive(track: Track) {
     let lastY = car.proj.y
     for (let i = 0; i < PHYSICS_HZ * 150 && timer.lap < 2 && !timer.finished; i++) {
         if (stepCar(car, botInput(car, track), track, DT).wallImpact > 0) hits++
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
+        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
             if (e.type === 'lap') laps.push(e.time)
             else splits++
         }

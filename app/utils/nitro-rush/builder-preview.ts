@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { buildStage, CourseMaterials, endMarker, layCourse, type PreviewCourse } from './builder-course'
+import { buildStage, CourseMaterials, DASH, DASH_GAP, emptyOutlines, endMarker, layCourse, type PreviewCourse } from './builder-course'
 import { NEON_PINK } from './config'
 import { AdaptiveResolution } from './resolution'
-import { ribbon } from './road-geometry'
+import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { ROAD_TILE_LENGTH } from './textures'
 import { worldKit } from './world-kit'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -29,12 +29,16 @@ export class BuilderPreview {
     private readonly mats = new CourseMaterials()
     private readonly selectMat = new THREE.MeshBasicMaterial({ color: NEON_PINK, transparent: true, opacity: 0.75, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false })
     private readonly ghostMat = new THREE.MeshBasicMaterial({ color: GHOST_COLOR, transparent: true, opacity: 0.45, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false })
+    private readonly selectEmptyMat = new THREE.LineDashedMaterial({ color: NEON_PINK, dashSize: DASH, gapSize: DASH_GAP })
+    private readonly ghostEmptyMat = new THREE.LineDashedMaterial({ color: GHOST_COLOR, dashSize: DASH, gapSize: DASH_GAP })
     private readonly raycaster = new THREE.Raycaster()
     private course = new THREE.Group()
     private courseParts: { dispose(): void }[] = []
     private deck: THREE.Mesh | null = null
     private selection: THREE.Mesh | null = null
-    private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh } | null = null
+    /** The selection's empty road, which has no deck to highlight. */
+    private selectionOutlines: THREE.LineLoop[] = []
+    private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh, outlines: THREE.LineLoop[] } | null = null
     private track: Track | null = null
     /** Until the player turns the view themselves, it reframes as the course grows. */
     private userMoved = false
@@ -87,25 +91,31 @@ export class BuilderPreview {
             this.selection.geometry.dispose()
             this.selection = null
         }
+        removeLines(this.course, this.selectionOutlines)
+        this.selectionOutlines = []
         const track = this.track
         if (!track || !range) return
         const from = track.cum[Math.min(range[0], track.n)]!
         const to = track.cum[Math.min(range[1], track.n)]!
         if (to - from < 0.5) return
-        this.selection = new THREE.Mesh(ribbon(track, from, to, -track.halfWidth, track.halfWidth, 0.04, ROAD_TILE_LENGTH), this.selectMat)
-        this.course.add(this.selection)
+        this.selection = new THREE.Mesh(ribbon(track, from, to, roadLeft, roadRight, 0.04, ROAD_TILE_LENGTH), this.selectMat)
+        this.selectionOutlines = dashedLines(emptyOutlines(track, from, to), this.selectEmptyMat)
+        this.course.add(this.selection, ...this.selectionOutlines)
     }
 
     /** Shows the piece about to be built, or nothing; it isn't part of the road, so it survives the road's rebuilds. */
     setGhost(ghost: { def: TrackDef, end: NonNullable<PreviewCourse['end']>, blocked: boolean } | null) {
         this.clearGhost()
         if (ghost) {
-            this.ghostMat.color.setHex(ghost.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR)
+            const colour = ghost.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR
+            this.ghostMat.color.setHex(colour)
+            this.ghostEmptyMat.color.setHex(colour)
             const track = new Track(ghost.def)
-            const deck = new THREE.Mesh(ribbon(track, 0, track.length, -track.wallOffset, track.wallOffset, GHOST_LIFT, ROAD_TILE_LENGTH), this.ghostMat)
+            const deck = new THREE.Mesh(ribbon(track, 0, track.length, wallLeft, wallRight, GHOST_LIFT, ROAD_TILE_LENGTH), this.ghostMat)
             const marker = endMarker(ghost.end, this.mats.markerGeo, this.ghostMat)
-            this.scene.add(deck, marker)
-            this.ghost = { track, deck, marker }
+            const outlines = dashedLines(emptyOutlines(track), this.ghostEmptyMat)
+            this.scene.add(deck, marker, ...outlines)
+            this.ghost = { track, deck, marker, outlines }
         }
         if (!this.userMoved) this.frameCourse()
     }
@@ -138,6 +148,8 @@ export class BuilderPreview {
         this.mats.dispose()
         this.selectMat.dispose()
         this.ghostMat.dispose()
+        this.selectEmptyMat.dispose()
+        this.ghostEmptyMat.dispose()
         // Each switch to 3D makes a context; browsers cap them, so free this one now rather than at GC.
         this.renderer.forceContextLoss()
         this.renderer.dispose()
@@ -159,6 +171,7 @@ export class BuilderPreview {
         if (!this.ghost) return
         this.scene.remove(this.ghost.deck, this.ghost.marker)
         this.ghost.deck.geometry.dispose()
+        removeLines(this.scene, this.ghost.outlines)
         this.ghost = null
     }
 
@@ -196,5 +209,16 @@ export class BuilderPreview {
         if (this.resolution.sample(dt, now / 1000)) this.resize()
         this.controls.update(dt)
         this.renderer.render(this.scene, this.camera)
+    }
+}
+
+/** Dashed loops of `geometries`, each owning its geometry. */
+const dashedLines = (geometries: THREE.BufferGeometry[], material: THREE.LineDashedMaterial) => geometries.map(g => new THREE.LineLoop(g, material).computeLineDistances())
+
+/** Takes `lines` out of `parent` and frees their geometry; their material is shared. */
+function removeLines(parent: THREE.Object3D, lines: THREE.LineLoop[]) {
+    for (const line of lines) {
+        parent.remove(line)
+        line.geometry.dispose()
     }
 }

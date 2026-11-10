@@ -28,7 +28,6 @@ const LIGHTS_Z = ARCH_TUBE + 0.1
 
 /** Floodlights on the walls, arms out over the track; returns their lens and pool materials and head positions. */
 export function buildLamps({ track, own, instanced }: WorldKit) {
-    const wall = track.wallOffset
     const L = track.length
     const heads: THREE.Vector3[] = []
     const lampCount = Math.floor(L / LAMP_SPACING)
@@ -53,11 +52,11 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
         for (const side of [-1, 1]) {
             const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
             const p = track.pointAt(s)
-            const lat = side * (wall + WALL_BASE_HALF)
+            const lat = side * (track.wallAt(s) + WALL_BASE_HALF)
             // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank or over a gap.
             if (!track.plainRoadAt(s)) continue
             // Under another level the pole would run through its deck.
-            if (track.elevated && roadAbove(track, p.x, p.y, p.z, wall + 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
+            if (track.elevated && roadAbove(track, p.x, p.y, p.z, 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
             // Local -x is the arm; turn it to point across the track.
             const inX = p.tz * side
             const inZ = -p.tx * side
@@ -80,12 +79,19 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
 
 /** A low arch over each line, from foot to foot outside the walls, with a banner under its crown; the start one carries the five lights, which it returns. */
 export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Material) {
-    const span = track.wallOffset + 1.2
     const startLights: THREE.MeshStandardMaterial[] = []
-    const archAt = (t: number) => new THREE.Vector3(Math.cos(t) * span, Math.sin(t) * ARCH_HEIGHT, 0)
-    const curve = new THREE.CatmullRomCurve3(Array.from({ length: 25 }, (_, i) => archAt(Math.PI * i / 24)))
-    const archGeo = own(new THREE.TubeGeometry(curve, 64, ARCH_TUBE, 10))
-    const neonGeo = own(new THREE.TubeGeometry(curve, 64, 0.07, 6))
+    // One arch per road width a line sits on; lines on the same width share it.
+    const arches = new Map<number, { span: number, archGeo: THREE.TubeGeometry, neonGeo: THREE.TubeGeometry }>()
+    const archFor = (wall: number) => {
+        const span = Math.round((wall + 1.2) * 100) / 100
+        let arch = arches.get(span)
+        if (!arch) {
+            const curve = new THREE.CatmullRomCurve3(Array.from({ length: 25 }, (_, i) => new THREE.Vector3(Math.cos(Math.PI * i / 24) * span, Math.sin(Math.PI * i / 24) * ARCH_HEIGHT, 0)))
+            arch = { span, archGeo: own(new THREE.TubeGeometry(curve, 64, ARCH_TUBE, 10)), neonGeo: own(new THREE.TubeGeometry(curve, 64, 0.07, 6)) }
+            arches.set(span, arch)
+        }
+        return arch
+    }
     const legGeo = own(new THREE.CylinderGeometry(ARCH_TUBE, ARCH_TUBE, 1, 10))
     const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
@@ -96,6 +102,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const name = track.def.name.toUpperCase()
     const buildGantry = (at: number, sub: string, lights: boolean) => {
         const p = track.pointAt(at)
+        const { span, archGeo, neonGeo } = archFor(track.wallAt(at))
         const g = new THREE.Group()
         g.position.set(p.x, p.y, p.z)
         g.rotation.y = headingOf(p.tx, p.tz)
@@ -148,7 +155,6 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
 
 /** Billboards round the infield, facing the track. */
 export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Material) {
-    const wall = track.wallOffset
     const L = track.length
     const boardMats = BILLBOARD_ADS.map((_, i) => {
         const t = own(billboardTexture(i))
@@ -160,11 +166,13 @@ export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Ma
         const s = (i + 0.25) / 8 * L
         const p = track.pointAt(s)
         if (!track.plainRoadAt(s)) continue
+        const wall = track.wallAt(s)
         const lat = -(wall + 14)
         const bx = p.x - p.tz * lat
         const bz = p.z + p.tx * lat
         // Not where another stretch of road runs close by, or over it.
-        if (track.elevated && Math.abs(track.project(bx, bz).lateral) < wall + 9) continue
+        const near = track.elevated && track.project(bx, bz)
+        if (near && Math.abs(near.lateral) < track.wallAt(near.s) + 9) continue
         const g = new THREE.Group()
         g.position.set(bx, 0, bz)
         // Face the oncoming cars, angled a little toward the track.

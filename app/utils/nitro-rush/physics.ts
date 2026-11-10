@@ -4,7 +4,7 @@ import {
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_TOUCH_KEEP, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
-import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
+import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -18,8 +18,9 @@ import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, wra
  * On a looping or corkscrew the car rides on rails: the road's plan overlaps
  * itself there, so the car moves by distance along the road (`proj.s`) and
  * offset across it (`proj.lateral`), steering by `rel`, its angle to the road.
- * Off a jump's kicker the car flies: `y` and `vy` carry it until it lands, or
- * it drops into the gap and `fell` tells the engine to put it back.
+ * Off a jump's kicker the car flies: `y` and `vy` carry it until it lands, on
+ * any road under it, or it falls and `fell` tells the engine to put it back.
+ * The walls are low: a car in the air above them clears them.
  */
 export interface CarState {
     x: number
@@ -51,6 +52,9 @@ export interface CarState {
     /** Climb rate, metres per second. */
     vy: number
     airborne: boolean
+    /** Where along the road, and how high, the car last left it; a fall puts it back there. */
+    leftS: number
+    leftY: number
     /** On a looping or corkscrew. */
     onRail: boolean
     /** On rails: the angle from the road's direction to the car's, + to the left. */
@@ -102,6 +106,7 @@ const RAIL_WALL_BOUNCE = 0.3
 const RAIL_WALL_FRICTION = 0.6
 const railFrame = newTrackFrame()
 const railEntry = newTrackPoint()
+const under = newProjection()
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
@@ -114,7 +119,7 @@ export function createCar(track: Track, s: number, lateral = 0): CarState {
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroOn: false, boostTime: 0, onBoostPad: false,
-        proj: newProjection(), y: p.y, vy: 0, airborne: false, onRail: false, rel: 0, wallPress: 0
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.project(x, z, track.segmentAt(s), car.proj)
@@ -165,7 +170,7 @@ function bodyAngle(car: CarState) {
 export function wallLimit(track: Track, car: CarState) {
     const angle = bodyAngle(car)
     const reach = CAR_HALF_WIDTH * Math.abs(Math.cos(angle)) + CAR_HALF_LENGTH * Math.abs(Math.sin(angle))
-    return track.wallOffset - reach
+    return track.wallAt(car.proj.s) - reach
 }
 
 /** Under nitro or a pad's boost: the engine pulls harder, and the car shows it. */
@@ -262,10 +267,12 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     // ── Walls ──
     const p = track.project(car.x, car.z, car.proj.seg, car.proj, car.y)
     const limit = wallLimit(track, car)
-    if (Math.abs(p.lateral) > limit) {
+    if (Math.abs(p.lateral) > limit && meetsWall(car, track)) {
         const side = Math.sign(p.lateral)
-        // Inward normal: away from the wall, toward the centreline.
-        hitBarrier(car, ev, p.tz * side, -p.tx * side, Math.abs(p.lateral) - limit)
+        // Inward normal: away from the wall, toward the centreline, tipped back where the road narrows so its walls close in on the car.
+        const slope = track.wallSlopeAt(p.s)
+        const tilt = Math.sqrt(1 + slope * slope)
+        hitBarrier(car, ev, (p.tz * side + p.tx * slope) / tilt, (-p.tx * side + p.tz * slope) / tilt, (Math.abs(p.lateral) - limit) / tilt)
         p.lateral = side * limit
     }
     scrapeWall(car, ev, Math.abs(p.lateral), limit, dt)
@@ -294,6 +301,18 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     return ev
 }
 
+/** Whether the car's move can cross a lap line: on the road, or flying over it rather than off to its side. */
+export const crossesLines = (car: CarState, track: Track) => !car.airborne || track.overRoad(car.proj.s, car.proj.lateral)
+
+/** Whether the wall beside the car is in its way: not over a gap, which has none, nor in the air above it or past it. */
+function meetsWall(car: CarState, track: Track) {
+    const p = car.proj
+    if (!car.airborne) return true
+    if (track.gapAt(p.s)) return false
+    const wall = track.wallAt(p.s)
+    return Math.abs(p.lateral) <= wallFoot(wall) && car.y < track.surfaceAt(p.s, Math.sign(p.lateral) * wall) + WALL_HEIGHT
+}
+
 /** Only a car driving the right way over a pad gets anything from it. */
 function stepBoostPad(car: CarState, track: Track, ev: StepEvents) {
     const p = car.proj
@@ -318,32 +337,37 @@ function gripTurn(speed: number, left: number) {
 }
 
 /**
- * The car's height: held to the road, except off the lip of a gap, where it flies
- * until the road comes back up under it. Crests never throw it, so the courses
- * from before jumps drive as they always did.
+ * The car's height: held to the road, except off the lip of a gap, where it flies until it
+ * comes down on road, the road it left or any other under it. Crests never throw it, so the
+ * courses from before jumps drive as they always did.
  */
 function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
     const p = car.proj
-    const gap = track.gapAt(p.s)
     if (!car.airborne) {
-        if (!gap) {
+        if (!track.gapAt(p.s)) {
             car.vy = (p.y - car.y) / dt
             car.y = p.y
             return
         }
         car.airborne = true
+        car.leftS = p.s
+        car.leftY = car.y
         ev.tookOff = true
         if (car.drifting) endDrift(car, ev, true)
     }
+    const before = car.y
     car.vy -= GRAVITY * dt
     car.y += car.vy * dt
-    // A bank tips the surface under the car away from the centre's height; on the road, y goes back to the centre's, which project picks a level by.
-    if (!gap && car.y <= track.surfaceAt(p.s, p.lateral)) {
+    if (track.roadUnder(car.x, before, car.z, under)) {
+        // A bank tips the surface under the car away from the centre's height; on the road, y goes back to the centre's, which project picks a level by.
+        if (car.y > track.surfaceAt(under.s, under.lateral)) return
+        Object.assign(p, under)
         ev.landed = Math.max(0, -car.vy)
         car.y = p.y
         car.vy = 0
         car.airborne = false
-    } else if (gap && car.y < p.y - FALL_DEPTH) {
+    } else if (car.y < 0 || car.y < car.leftY - FALL_DEPTH) {
+        // Down on the ground, or well below where it left with no road to come down on.
         ev.fell = true
     }
 }
@@ -358,7 +382,7 @@ function stepRail(car: CarState, left: number, track: Track, dt: number, ev: Ste
     // + rel turns the nose left, which is toward - lateral.
     let lateral = p.lateral - car.speed * Math.sin(car.rel) * dt
     const reach = CAR_HALF_WIDTH * Math.abs(Math.cos(car.rel)) + CAR_HALF_LENGTH * Math.abs(Math.sin(car.rel))
-    const limit = track.wallOffset - reach
+    const limit = track.wallAt(s) - reach
     if (Math.abs(lateral) > limit) {
         const into = Math.abs(car.speed * Math.sin(car.rel))
         ev.wallImpact = Math.max(ev.wallImpact, into)

@@ -2,7 +2,7 @@ import { cheapestPath, type PathStep } from './cheapest-path'
 import { BENDS, SLOPE_STEPS, STRAIGHTS, STRAIGHT_LENGTHS, targetOf, type BendSize, type Curve } from './construct'
 import { compileCustomTrack, MAX_SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
 import { BANK_LENGTH, GRID, onAxis, SLOPE_LENGTH, type LayoutWalk } from './layout'
-import { clearanceFault, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP } from './road-checks'
+import { clearanceFault, clearanceReach, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP } from './road-checks'
 import { Track } from './track'
 import { ROAD } from './tracks'
 
@@ -132,17 +132,20 @@ const RASTER_CELL = SAMPLE_SPACING
 const RASTER_SLACK = RASTER_CELL * Math.SQRT1_2
 
 /** Whether new road at height `level` would come too close to the road already laid; a raster, since the search asks millions of times. */
-function roadCheck({ pts, ys, lifts }: LayoutWalk, level: number, bounds: Bounds) {
-    const { reach, apart } = clearanceSpan(ROAD.wallOffset)
+function roadCheck({ pts, ys, lifts, walls }: LayoutWalk, level: number, bounds: Bounds) {
+    const { apart } = clearanceSpan(ROAD.wallOffset)
     const sameStretch = apart * STEP
     const n = pts.length
     const width = Math.ceil((bounds.maxX - bounds.minX) / RASTER_CELL) + 1
     const height = Math.ceil((bounds.maxZ - bounds.minZ) / RASTER_CELL) + 1
     const taken = new Uint8Array(width * height)
     const nearJoin = new Uint8Array(width * height)
-    const span = Math.ceil((reach + RASTER_SLACK) / RASTER_CELL)
-    const limit = (reach + RASTER_SLACK) ** 2
-    const paint = (raster: Uint8Array, [x, z]: [number, number]) => {
+    // The road back is laid at the normal width, whatever the road it passes.
+    const reachOf = (i: number) => clearanceReach(walls[i]!, ROAD.wallOffset)
+    const paint = (raster: Uint8Array, i: number) => {
+        const [x, z] = pts[i]!
+        const span = Math.ceil((reachOf(i) + RASTER_SLACK) / RASTER_CELL)
+        const limit = (reachOf(i) + RASTER_SLACK) ** 2
         const cx = Math.round((x - bounds.minX) / RASTER_CELL)
         const cz = Math.round((z - bounds.minZ) / RASTER_CELL)
         for (let gz = Math.max(0, cz - span); gz <= cz + span && gz < height; gz++) {
@@ -159,9 +162,9 @@ function roadCheck({ pts, ys, lifts }: LayoutWalk, level: number, bounds: Bounds
         if (Math.max(0, Math.abs(ys[i]! - level) - lifts[i]!) >= MIN_CLEARANCE) continue
         if ((n - i) * STEP < sameStretch || i * STEP < sameStretch) {
             joins.push(i)
-            paint(nearJoin, pts[i]!)
+            paint(nearJoin, i)
         } else {
-            paint(taken, pts[i]!)
+            paint(taken, i)
         }
     }
     /** `run` is how far along the new road this point is. */
@@ -176,7 +179,7 @@ function roadCheck({ pts, ys, lifts }: LayoutWalk, level: number, bounds: Bounds
         const home = z >= 0 ? Math.hypot(x, z) : Infinity
         return joins.some((i) => {
             const [px, pz] = pts[i]!
-            if ((px - x) * (px - x) + (pz - z) * (pz - z) >= reach * reach) return false
+            if ((px - x) * (px - x) + (pz - z) * (pz - z) >= reachOf(i) ** 2) return false
             return (n - i) * STEP + run >= sameStretch && i * STEP + home >= sameStretch
         })
     }
@@ -316,12 +319,14 @@ function finishAfter(t: CustomTrack, lead: SectionId[], searches: { left: number
 /** The sections to lay after the last one so that a loop closes, or why there are none: what's already wrong with the road, or no way back round it. */
 export function finishLoop(t: CustomTrack): FinishedLoop {
     const walk = walkCustomTrack(t)
-    const fault = layoutFault(walk, true) ?? clearanceFault(walk, true, ROAD.wallOffset)
+    const fault = layoutFault(walk, true) ?? clearanceFault(walk, true)
     if (fault) return { sections: null, error: fault }
     const searches = { left: MAX_ROUTE_SEARCHES }
     let tooMany = false
+    // A jump in the air lands first, then the road goes back to the start's width, which the loop closes at.
+    const rewiden: SectionId[] = [...walk.end.air ? ['landing-ramp' as const] : [], ...walk.end.halfWidth === ROAD.halfWidth ? [] : ['width-normal' as const]]
     for (const lead of LEAD_INS) {
-        const tried = finishAfter(t, lead, searches)
+        const tried = finishAfter(t, [...rewiden, ...lead], searches)
         if (tried.best) return { sections: tried.best.sections, error: null }
         tooMany ||= tried.tooMany
     }

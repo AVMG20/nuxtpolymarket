@@ -1,5 +1,5 @@
 import { PHYSICS_HZ } from './config'
-import { botInput, createCar, stepCar } from './physics'
+import { botInput, createCar, crossesLines, stepCar } from './physics'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -69,7 +69,7 @@ export function botLapTime(track: Track): number | null {
     const steps = PHYSICS_HZ * (30 + track.lapLength * (lap + 1) / STUCK_SPEED)
     for (let i = 0; i < steps; i++) {
         if (stepCar(car, botInput(car, track), track, DT).fell) return null
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT)) {
+        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
             if (e.type === 'lap' && e.lap === lap) return e.time
         }
     }
