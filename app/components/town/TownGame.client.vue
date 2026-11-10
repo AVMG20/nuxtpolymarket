@@ -26,6 +26,9 @@ import type { TownDraftSpot, TownRedesignDraft } from '#shared/utils/gamelogic/t
 const town = useTown()
 const sound = useTownSound()
 const motion = useTownMotion()
+const theme = useTownTheme()
+const THEME_TIPS = { system: 'Day & night follow your system', day: 'Always day', night: 'Always night' } as const
+const THEME_ICONS = { system: 'i-lucide-sun-moon', day: 'i-lucide-sun', night: 'i-lucide-moon' } as const
 const fx = useTownFx()
 const toast = useToast()
 const { user } = useAuth()
@@ -2132,6 +2135,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :move-issue="moveIssue"
             :drag-valid="dragValid"
             :reduced-motion="motion.reduced.value"
+            :night="theme.night.value"
             :boosts="town.boosts.value"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
@@ -2378,6 +2382,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </button>
                 <button class="g-icon" :data-tip-below="sound.enabled.value ? 'Mute' : 'Unmute'" @click="toggleSound">
                     <UIcon :name="sound.enabled.value ? 'i-lucide-volume-2' : 'i-lucide-volume-off'" />
+                </button>
+                <button class="g-icon" :class="theme.mode.value !== 'system' ? 'is-on' : ''" :data-tip-below="THEME_TIPS[theme.mode.value]" @click="theme.cycle()">
+                    <UIcon :name="THEME_ICONS[theme.mode.value]" />
                 </button>
                 <button class="g-icon" :class="motion.reduced.value ? 'is-on' : ''" :data-tip-below="motion.reduced.value ? 'Reduced motion on — flat view, no camera glide, snap turns' : 'Reduce motion'" @click="motion.toggle()">
                     <UIcon :name="motion.reduced.value ? 'i-lucide-accessibility' : 'i-lucide-wind'" />
