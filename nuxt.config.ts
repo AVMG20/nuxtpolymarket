@@ -14,7 +14,14 @@ export default defineNuxtConfig({
         enabled: true
     },
 
-    css: ['~/assets/css/main.css'],
+    // Fonts are self-hosted from @fontsource (see fonts.css). Nuxt UI's
+    // @nuxt/fonts integration is off because it fetched every font family
+    // from remote providers at build time, and a timeout failed the deploy.
+    css: ['~/assets/css/fonts.css', '~/assets/css/main.css'],
+
+    ui: {
+        fonts: false
+    },
 
     icon: {
         // Without SSR Nuxt Icon defaults to the public Iconify API; keep
