@@ -120,7 +120,7 @@ function panelSlot(j: number, u: number): Slot {
 const v3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 
 /** Loose triangles, each wound to face its hint; slivers are dropped. */
-class Tris {
+export class Tris {
     private readonly pos: number[] = []
     private readonly e1 = new THREE.Vector3()
     private readonly e2 = new THREE.Vector3()
@@ -148,21 +148,21 @@ class Tris {
     }
 
     /** Smooth across shallow bends, sharp across creases. */
-    build(creased = true) {
+    build(creased = true, angle = CREASE) {
         const g = new THREE.BufferGeometry()
         g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
         if (!creased) {
             g.computeVertexNormals()
             return g
         }
-        const out = toCreasedNormals(g, CREASE)
+        const out = toCreasedNormals(g, angle)
         g.dispose()
         return out
     }
 }
 
 /** Outward across a section's panel j on the given side, ignoring the slope along the car. */
-function panelOut(sec: Pt[], j: number, side: number, out = new THREE.Vector3()) {
+export function panelOut(sec: Pt[], j: number, side: number, out = new THREE.Vector3()) {
     const dx = sec[j + 1]![0] - sec[j]![0]
     const dy = sec[j + 1]![1] - sec[j]![1]
     return out.set(-dy * side, dx, 0).normalize()

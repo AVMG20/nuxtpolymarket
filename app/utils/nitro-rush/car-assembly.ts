@@ -11,8 +11,8 @@ export interface CarParts {
     paint: THREE.MeshPhysicalMaterial
     /** Slots this car wears its own material in, instead of the shared one. */
     materials?: Partial<Record<Slot, THREE.Material>>
-    /** `parts` replaces the kit's wheel altogether. */
-    wheel: { r: number, w: number, halfTrack: number, axles: readonly number[], parts?: () => THREE.Object3D[] }
+    /** `parts` replaces the kit's wheel altogether; `fixed` goes with it for what stays put while the wheel turns, such as a caliper. */
+    wheel: { r: number, w: number, halfTrack: number, axles: readonly number[], parts?: () => THREE.Object3D[], fixed?: () => THREE.Object3D[] }
     /** Where each exhaust's nitro flame starts, in the car's local space. */
     flames: readonly THREE.Vector3[]
     /** For exhausts narrower than the kit's flame. */
@@ -62,7 +62,7 @@ export function assembleCar(p: CarParts): PlayerCar {
         body.add(mesh)
     }
 
-    const { r, w: width, halfTrack, axles, parts } = p.wheel
+    const { r, w: width, halfTrack, axles, parts, fixed } = p.wheel
     const wheels: THREE.Object3D[] = []
     for (const u of axles) {
         for (const side of SIDES) {
@@ -73,6 +73,7 @@ export function assembleCar(p: CarParts): PlayerCar {
             w.add(spin)
             if (parts) {
                 spin.add(...parts())
+                if (fixed) w.add(...fixed())
             } else {
                 const wheelSet = wheelGeos(r, width)
                 spin.add(new THREE.Mesh(wheelSet.tire, s.slots.rubber), new THREE.Mesh(wheelSet.rim, s.slots.rim), new THREE.Mesh(wheelSet.lip, s.slots.chrome), new THREE.Mesh(wheelSet.disc, s.slots.disc), new THREE.Mesh(wheelSet.letters, s.slots.decal))
