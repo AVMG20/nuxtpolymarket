@@ -14,6 +14,19 @@ export default defineNuxtConfig({
         enabled: true
     },
 
+    // `nuxt build` loads the `$production` overrides. Devtools never ships in
+    // the bundle, but its module setup still cost ~11s of every deploy build.
+    $production: {
+        devtools: { enabled: false }
+    },
+
+    // Game folders keep their engine and helper .ts files next to the
+    // components. Only .vue files are components; otherwise every helper
+    // registers as one too and `riftborn-codex.ts` collides with RiftbornCodex.vue.
+    components: [
+        { path: '~/components', extensions: ['vue'] }
+    ],
+
     // Fonts are self-hosted from @fontsource (see fonts.css). Nuxt UI's
     // @nuxt/fonts integration is off because it fetched every font family
     // from remote providers at build time, and a timeout failed the deploy.
