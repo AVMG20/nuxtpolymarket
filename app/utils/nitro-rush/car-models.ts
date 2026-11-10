@@ -3,6 +3,7 @@ import type { CarId } from '#shared/utils/nitro-rush/cars'
 import { buildKestrel } from './car-kestrel'
 import { buildOg } from './car-og'
 import { buildRoadster } from './car-roadster'
+import { buildSpectre } from './car-spectre'
 
 /** What every car model hands the view; a model only changes the look, so physics never sees which one is picked. */
 export interface PlayerCar {
@@ -23,7 +24,8 @@ export interface PlayerCar {
 const MODELS: Record<CarId, (color: number) => PlayerCar> = {
     kestrel: buildKestrel,
     og: buildOg,
-    roadster: buildRoadster
+    roadster: buildRoadster,
+    spectre: buildSpectre
 }
 
 export const buildCar = (id: CarId, color: number) => MODELS[id](color)
