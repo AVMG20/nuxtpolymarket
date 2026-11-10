@@ -12,11 +12,13 @@ const emit = defineEmits<{ select: [id: CarId], paint: [id: PaintId], open: [ope
 const paintLabel = computed(() => findPaint(props.paint).label)
 
 const stages = new Map<CarId, HTMLCanvasElement>()
+/** Cars the gallery has built and compiled; the rest show a placeholder. */
+const ready = reactive(new Set<CarId>())
 let gallery: CarGallery | null = null
 
 onMounted(() => {
     emit('open', true)
-    gallery = new CarGallery(findPaint(props.paint).color)
+    gallery = new CarGallery(findPaint(props.paint).color, id => ready.add(id))
     for (const c of CARS) {
         const stage = stages.get(c.id)
         if (stage) gallery.add(c.id, stage)
@@ -65,7 +67,7 @@ onBeforeUnmount(() => {
           :aria-pressed="car === c.id"
           @click="$emit('select', c.id)"
         >
-          <canvas :ref="el => { if (el) stages.set(c.id, el as HTMLCanvasElement) }" class="nr-car-stage" aria-hidden="true" />
+          <canvas :ref="el => { if (el) stages.set(c.id, el as HTMLCanvasElement) }" class="nr-car-stage" :class="{ 'is-loading': !ready.has(c.id) }" aria-hidden="true" />
           <span class="nr-track-name">{{ c.label }}</span>
         </button>
       </div>

@@ -360,6 +360,8 @@
     background: radial-gradient(ellipse 70% 55% at 50% 62%, rgb(255 43 214 / 0.24), rgb(0 0 0 / 0.35));
 }
 
+.nr-root .nr-car-stage.is-loading { animation: nr-stage-pulse 1.2s ease-in-out infinite alternate; }
+
 .nr-root .nr-track-thumb {
     position: relative;
     display: flex;
@@ -748,6 +750,11 @@
 @keyframes nr-float {
     0%, 100% { transform: translateY(0) rotate(-2deg); }
     50% { transform: translateY(-6px) rotate(-1deg); }
+}
+
+@keyframes nr-stage-pulse {
+    from { opacity: 0.45; }
+    to { opacity: 1; }
 }
 
 @keyframes nr-card-in {
