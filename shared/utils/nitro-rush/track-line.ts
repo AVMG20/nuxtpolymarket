@@ -208,10 +208,14 @@ export class TrackLine {
     readonly maxWall: number
     /** Stretches with a side's wall left out; set by the course once its branches are known. */
     open: readonly OpenSide[] = []
+    /** Every line of its course, by branch, so a shared deck can find its partner; set by the course. */
+    peers: readonly TrackLine[] = []
     /** Whether a barrier closes each end; a branch's end that meets other road has none. */
     barrierStart: boolean
     barrierEnd: boolean
     private readonly scratchFrame = newTrackFrame()
+    private readonly scratchPoint = newTrackPoint()
+    private readonly scratchProjection = newProjection()
 
     constructor(def: LineDef, branch = 0) {
         this.def = def
@@ -429,6 +433,29 @@ export class TrackLine {
         if (!this.open.length) return undefined
         const at = this.wrapS(s)
         return this.open.find(o => o.side === side && at >= o.from && at < o.to)
+    }
+
+    /**
+     * How far across to `side` this road's deck runs at `s` before its partner's takes over, where the two share one;
+     * Infinity elsewhere. The seam lies as far from each road's wall, so it meets the nose where the walls do.
+     */
+    deckEdge(s: number, side: -1 | 1): number {
+        const o = this.openAt(s, side)
+        const partner = o && this.peers[o.partner]
+        if (!partner) return Infinity
+        const p = this.pointAt(s, this.scratchPoint)
+        const q = this.scratchProjection
+        const hint = partner.segmentAt(o.partnerFrom + (s - o.from) * (o.partnerTo - o.partnerFrom) / (o.to - o.from || 1))
+        const wall = this.wallAt(s)
+        // From the partner's wall face over towards this road, `t` across from its centre.
+        const beyond = (t: number) => {
+            partner.projectNear(p.x - p.tz * side * t, p.z + p.tx * side * t, hint, q)
+            return -side * q.lateral - partner.wallAt(q.s)
+        }
+        // Both distances change by about a metre per metre across, so half the mismatch closes most of it each step.
+        let t = (beyond(0) + wall) / 2
+        for (let k = 0; k < 3; k++) t -= (t - wall - beyond(t)) / 2
+        return t
     }
 
     /** How fast the walls move out from the centreline at `s`, in metres per metre: - where the road narrows. */

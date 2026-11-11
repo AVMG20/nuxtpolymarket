@@ -1,13 +1,11 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { ROAD_TILE_LENGTH } from './textures'
-import { newTrackFrame, type Track } from '#shared/utils/nitro-rush/track'
+import { newProjection, newTrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
- * Strips, sweeps and clearance checks built from the track's centreline. Offsets
- * run along each point's right and up, so they follow banks, loopings and
- * corkscrews; on plain road that's the plan's right and straight up. Nothing is
- * laid over a jump's gap.
+ * Strips, sweeps and clearance checks built from a line's centreline, offset along each point's own right and up so they follow banks and loopings.
+ * Nothing is laid over a jump's gap or where a side is open, and on a shared deck each road's strips stop at the seam.
  */
 
 /** The road's width where an offset is taken: its half width and centreline to the wall's face. */
@@ -28,42 +26,79 @@ export const wallRight = (w: RoadWidth) => w.wall
 export const DECK_DEPTH = 0.8
 /** Over this stretch the wet mirror fades out where the road leaves the ground. */
 const MIRROR_FADE = 18
+/** How far before an open stretch's ends a station is doubled, so a strip's width and a wall can change right there. */
+const CUT = 1e-4
 
-/**
- * A strip laid flat along the track between two lateral offsets (+ is right
- * of the driving direction), from distance `from` to `to`. `u` runs 0 to 1
- * across, `v` is distance divided by `vScale`, so textures tile at a fixed
- * world scale. `y` lifts it off the road surface.
- */
-export function ribbon(track: Track, from: number, to: number, latA: Lat, latB: Lat, y: number, vScale: number) {
-    const samples: { s: number, x: number, y: number, z: number, r: Vec, u: Vec, w: RoadWidth }[] = []
-    const push = (s: number, i?: number) => {
-        if (i === undefined) {
-            const f = track.frameAt(s, newTrackFrame())
-            samples.push({ s, x: f.x, y: f.y, z: f.z, r: [f.rx, f.ry, f.rz], u: [f.ux, f.uy, f.uz], w: { hw: track.halfWidthAt(s), wall: track.wallAt(s) } })
-        } else {
-            samples.push({ s, x: track.xs[i]!, y: track.ys[i]!, z: track.zs[i]!, r: vecAt(track.right, i), u: vecAt(track.up, i), w: widthAt(track, i) })
+type Vec = [number, number, number]
+
+/** A spot along a line that strips and sweeps are built through, with how far its deck runs to each side. */
+interface Station {
+    s: number
+    x: number
+    y: number
+    z: number
+    r: Vec
+    u: Vec
+    w: RoadWidth
+    left: number
+    right: number
+}
+
+/** Every point of the line from `from` to `to`, the two ends, and both sides of each open stretch's ends. */
+function stations(line: TrackLine, from: number, to: number): Station[] {
+    const at: { s: number, i?: number }[] = [{ s: from }]
+    const closed = line.closed
+    const base = closed ? from - line.wrapS(from) : 0
+    for (let k = line.segmentAt(from) + 1; closed || k < line.n; k++) {
+        const i = k % line.n
+        const s = base + line.cum[i]! + (closed ? Math.floor(k / line.n) * line.length : 0)
+        if (s >= to - 1e-6) break
+        if (s > from + 1e-6) at.push({ s, i })
+    }
+    at.push({ s: to })
+    const laps = closed ? [-1, 0, 1, 2] : [0]
+    for (const o of line.open) {
+        for (const lap of laps) {
+            for (const end of [o.from, o.to]) {
+                const c = end + lap * line.length + base
+                if (c - CUT > from && c < to) at.push({ s: c - CUT }, { s: c })
+            }
         }
     }
-    push(from)
-    const closed = track.closed
-    const base = closed ? from - track.wrapS(from) : 0
-    for (let k = track.segmentAt(from) + 1; closed || k < track.n; k++) {
-        const i = k % track.n
-        const s = base + track.cum[i]! + (closed ? Math.floor(k / track.n) * track.length : 0)
-        if (s >= to - 1e-6) break
-        if (s > from + 1e-6) push(s, i)
-    }
-    push(to)
+    at.sort((a, b) => a.s - b.s)
+    const f = newTrackFrame()
+    return at.map(({ s, i }) => {
+        const left = line.deckEdge(s, -1)
+        const right = line.deckEdge(s, 1)
+        if (i === undefined) {
+            line.frameAt(s, f)
+            return { s, x: f.x, y: f.y, z: f.z, r: [f.rx, f.ry, f.rz], u: [f.ux, f.uy, f.uz], w: { hw: line.halfWidthAt(s), wall: line.wallAt(s) }, left, right }
+        }
+        return { s, x: line.xs[i]!, y: line.ys[i]!, z: line.zs[i]!, r: vecAt(line.right, i), u: vecAt(line.up, i), w: widthAt(line, i), left, right }
+    })
+}
+
+/**
+ * A strip along the line between two lateral offsets (+ right), lifted `y` off the road, its texture tiled every `vScale` metres.
+ * Over a shared deck it stops at the seam, its texture cut off there rather than squeezed.
+ */
+export function ribbon(line: TrackLine, from: number, to: number, latA: Lat, latB: Lat, y: number, vScale: number) {
+    const samples = stations(line, from, to)
     const pos: number[] = []
     const uv: number[] = []
     const index: number[] = []
     samples.forEach((p, i) => {
-        pos.push(...offset(p, p.r, p.u, latAt(latA, p.w), y), ...offset(p, p.r, p.u, latAt(latB, p.w), y))
-        uv.push(0, p.s / vScale, 1, p.s / vScale)
-        if (i > 0 && !track.gapAt((samples[i - 1]!.s + p.s) / 2)) {
-            const a = (i - 1) * 2
-            index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
+        const a = latAt(latA, p.w)
+        const b = latAt(latB, p.w)
+        const clamp = (lat: number) => Math.min(p.right, Math.max(-p.left, lat))
+        const ca = clamp(a)
+        const cb = clamp(b)
+        const u = (lat: number) => b === a ? 0 : (lat - a) / (b - a)
+        pos.push(...offset(p, p.r, p.u, ca, y), ...offset(p, p.r, p.u, cb, y))
+        uv.push(u(ca), p.s / vScale, u(cb), p.s / vScale)
+        if (i > 0 && !line.gapAt((samples[i - 1]!.s + p.s) / 2)) {
+            const k = (i - 1) * 2
+            index.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
         }
     })
     const g = new THREE.BufferGeometry()
@@ -74,33 +109,28 @@ export function ribbon(track: Track, from: number, to: number, latA: Lat, latB: 
     return g
 }
 
-/** A profile swept down the whole course, `profile` as [toward-the-track, height] pairs from the outer foot `from` out. */
-export function sweep(track: Track, side: number, from: Lat, profile: [number, number][]) {
+/** A profile swept down the whole line on `side`, `profile` as [toward-the-track, height] pairs from the outer foot `from` out; left out where that side is open. */
+export function sweep(line: TrackLine, side: -1 | 1, from: Lat, profile: [number, number][]) {
+    const samples = stations(line, 0, line.length)
     const pos: number[] = []
     const uv: number[] = []
     const index: number[] = []
-    const n = track.n
     let u0 = 0
     for (let e = 0; e < profile.length - 1; e++) {
         const [a0, y0] = profile[e]!
         const [a1, y1] = profile[e + 1]!
         const edge = Math.hypot(a1 - a0, y1 - y0)
         const start = pos.length / 3
-        // A loop's last vertex repeats the first so the seam closes; an open course stops at its last point.
-        for (let i = 0; i <= (track.closed ? n : n - 1); i++) {
-            const k = i % n
-            const s = i === n ? track.length : track.cum[k]!
-            const p = { x: track.xs[k]!, y: track.ys[k]!, z: track.zs[k]! }
-            const r = vecAt(track.right, k)
-            const u = vecAt(track.up, k)
-            const foot = latAt(from, widthAt(track, k))
-            for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, r, u, side * (foot - a), y))
-            uv.push(u0, s / 4, u0 + edge, s / 4)
-            if (i > 0 && !track.gapAt(s - 0.5)) {
+        samples.forEach((p, i) => {
+            const foot = latAt(from, p.w)
+            for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, p.r, p.u, side * (foot - a), y))
+            uv.push(u0, p.s / 4, u0 + edge, p.s / 4)
+            const mid = i > 0 ? (samples[i - 1]!.s + p.s) / 2 : 0
+            if (i > 0 && !line.gapAt(mid) && !line.openAt(mid, side)) {
                 const b = start + (i - 1) * 2
                 index.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
             }
-        }
+        })
         u0 += edge
     }
     const g = new THREE.BufferGeometry()
@@ -112,10 +142,24 @@ export function sweep(track: Track, side: number, from: Lat, profile: [number, n
 }
 
 /**
- * The wet mirror's strip: the road where it lies on the ground, since a planar
- * mirror can't follow a climb. Its `fade` attribute dims it toward each ramp.
+ * The wet mirror's strip: every line's road on the ground, as a planar mirror can't follow a climb, faded toward each ramp.
+ * One strip for the lot, since each mirror renders the scene again.
  */
-export function mirrorStrip(track: Track, hw: Lat) {
+export function mirrorStrip(lines: readonly TrackLine[], hw: Lat) {
+    const geos = lines.flatMap(line => flatRuns(line, hw))
+    if (!geos.length) {
+        const line = lines[0]!
+        const g = ribbon(line, 0, line.length, w => -latAt(hw, w), hw, 0, ROAD_TILE_LENGTH)
+        g.setAttribute('fade', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('uv').count), 1))
+        return g
+    }
+    const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos)!
+    if (geos.length > 1) for (const g of geos) g.dispose()
+    return merged
+}
+
+/** The line's road lying flat on the ground, a strip per run, each faded toward the ramps it meets. */
+function flatRuns(track: TrackLine, hw: Lat): THREE.BufferGeometry[] {
     const L = track.length
     // A planar mirror only fits road lying flat on the ground: not a bank, a looping or a gap.
     const level = (k: number) => track.ys[k]! < 0.01 && track.plainAt(k)
@@ -140,7 +184,7 @@ export function mirrorStrip(track: Track, hw: Lat) {
         }
         if (open >= 0) runs.push([sAtIndex(track, open), sAtIndex(track, begin + track.segments)])
     }
-    const geos = runs.filter(([a, b]) => b - a > 1).map(([from, to]) => {
+    return runs.filter(([a, b]) => b - a > 1).map(([from, to]) => {
         const g = ribbon(track, from, to, w => -latAt(hw, w), hw, 0, ROAD_TILE_LENGTH)
         const uv = g.getAttribute('uv')
         const fade = new Float32Array(uv.count)
@@ -154,49 +198,58 @@ export function mirrorStrip(track: Track, hw: Lat) {
         g.setAttribute('fade', new THREE.Float32BufferAttribute(fade, 1))
         return g
     })
-    if (!geos.length) {
-        const g = ribbon(track, 0, L, w => -latAt(hw, w), hw, 0, ROAD_TILE_LENGTH)
-        g.setAttribute('fade', new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute('uv').count), 1))
-        return g
-    }
-    const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos)!
-    if (geos.length > 1) for (const g of geos) g.dispose()
-    return merged
 }
 
-type Vec = [number, number, number]
 const vecAt = (arr: Float64Array, i: number): Vec => [arr[i * 3]!, arr[i * 3 + 1]!, arr[i * 3 + 2]!]
-const widthAt = (track: Track, i: number): RoadWidth => ({ hw: track.halfWidths[i]!, wall: track.walls[i]! })
+const widthAt = (line: TrackLine, i: number): RoadWidth => ({ hw: line.halfWidths[i]!, wall: line.walls[i]! })
 /** The point `lat` across and `lift` up from a spot on the centreline, in the road's own frame. */
 const offset = (p: { x: number, y: number, z: number }, r: Vec, u: Vec, lat: number, lift: number): Vec =>
     [p.x + r[0] * lat + u[0] * lift, p.y + r[1] * lat + u[1] * lift, p.z + r[2] * lat + u[2] * lift]
 
 /** Distance along the line at point index `k`, counting on past the seam of a loop. */
-function sAtIndex(track: Track, k: number) {
-    return track.cum[k % track.n]! + Math.floor(k / track.n) * track.length
+function sAtIndex(line: TrackLine, k: number) {
+    return line.cum[k % line.n]! + Math.floor(k / line.n) * line.length
 }
 
-/** True when another stretch of road below `top` covers ground within `pad` of its walls from (x, z). */
-export function roadBelow(track: Track, x: number, z: number, pad: number, top: number) {
-    for (let k = 0; k < track.n; k++) {
-        if (track.ys[k]! >= top) continue
-        const dx = track.xs[k]! - x
-        const dz = track.zs[k]! - z
-        const radius = track.walls[k]! + pad
-        if (dx * dx + dz * dz < radius * radius) return true
+/** True when any of `lines` covers ground within `pad` of its walls from (x, z) at a height `level` accepts. */
+function roadNear(lines: readonly TrackLine[], x: number, z: number, pad: number, level: (y: number) => boolean) {
+    for (const line of lines) {
+        for (let k = 0; k < line.n; k++) {
+            if (!level(line.ys[k]!)) continue
+            const dx = line.xs[k]! - x
+            const dz = line.zs[k]! - z
+            const radius = line.walls[k]! + pad
+            if (dx * dx + dz * dz < radius * radius) return true
+        }
     }
     return false
+}
+
+/** True when road below `top` covers ground within `pad` of its walls from (x, z). */
+export function roadBelow(lines: readonly TrackLine[], x: number, z: number, pad: number, top: number) {
+    return roadNear(lines, x, z, pad, y => y < top)
 }
 
 /** True when road lies above (x, y, z), between `low` and `high` metres up, within `pad` of its walls across. */
-export function roadAbove(track: Track, x: number, y: number, z: number, pad: number, low: number, high: number) {
-    for (let k = 0; k < track.n; k++) {
-        const up = track.ys[k]! - y
-        if (up < low || up > high) continue
-        const dx = track.xs[k]! - x
-        const dz = track.zs[k]! - z
-        const radius = track.walls[k]! + pad
-        if (dx * dx + dz * dz < radius * radius) return true
+export function roadAbove(lines: readonly TrackLine[], x: number, y: number, z: number, pad: number, low: number, high: number) {
+    return roadNear(lines, x, z, pad, ry => ry - y >= low && ry - y <= high)
+}
+
+/** True when road within `depth` of height `y` covers ground within `pad` of its walls from (x, z): another road's deck right there. */
+export function roadLevelWith(lines: readonly TrackLine[], x: number, y: number, z: number, pad: number, depth: number) {
+    return roadNear(lines, x, z, pad, ry => Math.abs(ry - y) < depth)
+}
+
+const clearanceScratch = newProjection()
+
+/** Metres on the ground from (x, z) out past the nearest road's wall; an open line stops at its ends rather than running on past them. */
+export function roadClearance(lines: readonly TrackLine[], x: number, z: number) {
+    const p = clearanceScratch
+    let least = Infinity
+    for (const line of lines) {
+        line.projectAll(x, z, p)
+        const past = line.closed ? 0 : Math.max(0, -p.s, p.s - line.length)
+        least = Math.min(least, Math.hypot(p.lateral, past) - line.wallAt(Math.min(Math.max(p.s, 0), line.length)))
     }
-    return false
+    return least
 }

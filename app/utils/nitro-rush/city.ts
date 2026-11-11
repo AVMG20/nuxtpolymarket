@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { FACADE_TILE, facadeTextures, type FacadeKind } from './textures'
+import { roadClearance } from './road-geometry'
 import type { WorldKit } from './world-kit'
-import { newProjection } from '#shared/utils/nitro-rush/track'
 
 /** A building's walls (facade texture tiled at a fixed scale) and its roof, as separate geometries for merging. */
 function buildingParts(w: number, h: number, d: number) {
@@ -50,14 +50,13 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
     const wallsByKind: THREE.BufferGeometry[][] = kinds.map(() => [])
     const roofs: THREE.BufferGeometry[] = []
     const beaconSpots: THREE.Vector3[] = []
-    const proj = newProjection()
     const CELL = 36
     for (let gx = -12; gx <= 12; gx++) {
         for (let gz = -16; gz <= 16; gz++) {
             const x = gx * CELL + (Math.random() - 0.5) * 10
             const z = gz * CELL + (Math.random() - 0.5) * 10
-            const away = Math.abs(track.project(x, z, -1, proj).lateral)
-            if (away < track.wallAt(proj.s) + 42 || away > 340) continue
+            const clear = roadClearance(track.branches, x, z)
+            if (clear < 42 || clear > 330) continue
             const w = 14 + Math.random() * 14
             const d = 14 + Math.random() * 14
             const h = 12 + Math.random() * Math.random() * 110

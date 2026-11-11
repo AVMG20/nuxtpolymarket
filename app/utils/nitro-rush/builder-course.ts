@@ -5,17 +5,27 @@ import { boostPadTexture, concreteTexture, gridTexture, ROAD_TILE_LENGTH } from 
 import { addBoostPads, boostPadMaterial, buildBarriers } from './world-road'
 import type { WorldKit } from './world-kit'
 import type { LineBlock } from '#shared/utils/nitro-rush/layout'
-import { newTrackFrame, type Track, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { newTrackFrame, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
 
-/** The road as the builder has it, to draw in a 3D view. */
+/** Where a road ends, heading as layouts give it. */
+export interface RoadEnd {
+    x: number
+    y: number
+    z: number
+    heading: number
+}
+
+/** The road as the builder has it, to draw in a 3D view: one line, or a whole forked course. */
 export interface PreviewCourse {
     def: TrackDef
-    /** Each line block and the point its line crosses. */
-    lines: readonly { type: LineBlock, at: number }[]
-    /** Where the next section attaches, unless the loop is closed; heading as layouts give it. */
-    end: { x: number, y: number, z: number, heading: number } | null
+    /** Each line block, the point its line crosses, and on a forked course the line it's on. */
+    lines: readonly { type: LineBlock, at: number, branch?: number }[]
+    /** Where the next section attaches on each line still open. */
+    ends: readonly RoadEnd[]
     /** The height of the start a loop still open has to come back to; null when there's nothing to show. */
     originY: number | null
+    /** A line drawn without the road it leaves from, which has no wall across its start. */
+    openStart?: boolean
 }
 
 /** How far the end marker floats above the road. */
@@ -50,7 +60,7 @@ export class CourseMaterials {
 }
 
 /** A marker over where a road ends. */
-export function endMarker(end: NonNullable<PreviewCourse['end']>, geometry: THREE.BufferGeometry, material: THREE.Material) {
+export function endMarker(end: RoadEnd, geometry: THREE.BufferGeometry, material: THREE.Material) {
     const marker = new THREE.Mesh(geometry, material)
     marker.position.set(end.x, end.y + MARKER_LIFT, end.z)
     // Layout headings turn right with +; three's y rotation turns left.
@@ -59,7 +69,7 @@ export function endMarker(end: NonNullable<PreviewCourse['end']>, geometry: THRE
 }
 
 /** Each stretch of empty road between `start` and `stop` as a dashed loop round where its deck would be, so a jump's gap still reads as part of the course. */
-export function emptyOutlines(track: Track, start = 0, stop = track.length): THREE.BufferGeometry[] {
+export function emptyOutlines(track: TrackLine, start = 0, stop = track.length): THREE.BufferGeometry[] {
     const f = newTrackFrame()
     const within = track.gaps.map(([a, b]) => [Math.max(a, start), Math.min(b, stop)] as const).filter(([a, b]) => b > a)
     return within.map(([from, to]) => {
@@ -75,25 +85,28 @@ export function emptyOutlines(track: Track, start = 0, stop = track.length): THR
     })
 }
 
-/** The road with its real walls, deck and pillars, its lines and markers; returns the deck, which is what picking hits. */
-export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'end' | 'originY'>, mats: CourseMaterials, { endWalls = true } = {}) {
+/** The road with its real walls, deck and pillars, its lines and markers; returns each line's deck, which is what picking hits. */
+export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | 'ends' | 'originY'>, mats: CourseMaterials, { endWalls = true } = {}) {
     const { track, group } = kit
     // Wall to wall: the game fills the run-off between road and walls with aprons.
-    const deck = kit.add(ribbon(track, 0, track.length, wallLeft, wallRight, 0, ROAD_TILE_LENGTH), mats.deck)
+    const decks = track.branches.map(line => kit.add(ribbon(line, 0, line.length, wallLeft, wallRight, 0, ROAD_TILE_LENGTH), mats.deck))
     buildBarriers(kit, mats.concrete, { endWalls })
     addBoostPads(kit, mats.boostPad)
-    for (const geo of emptyOutlines(track)) group.add(new THREE.LineLoop(kit.own(geo), mats.empty).computeLineDistances())
-    for (const line of course.lines) {
-        const s = track.cum[Math.min(line.at, track.n - 1)]!
-        kit.add(ribbon(track, s - 1.2, s + 1.2, roadLeft, roadRight, 0.02, 2.4), mats.lines[line.type])
+    for (const line of track.branches) {
+        for (const geo of emptyOutlines(line)) group.add(new THREE.LineLoop(kit.own(geo), mats.empty).computeLineDistances())
     }
-    if (course.end) group.add(endMarker(course.end, mats.markerGeo, mats.marker))
+    for (const block of course.lines) {
+        const line = track.branches[block.branch ?? 0]!
+        const s = line.cum[Math.min(block.at, line.n - 1)]!
+        kit.add(ribbon(line, s - 1.2, s + 1.2, roadLeft, roadRight, 0.02, 2.4), mats.lines[block.type])
+    }
+    for (const end of course.ends) group.add(endMarker(end, mats.markerGeo, mats.marker))
     if (course.originY !== null) {
         const origin = new THREE.Mesh(mats.markerGeo, mats.origin)
         origin.position.set(0, course.originY + MARKER_LIFT, 0)
         group.add(origin)
     }
-    return deck
+    return decks
 }
 
 /** The backdrop every builder view shares: night sky colour, lights and the grid ground. */

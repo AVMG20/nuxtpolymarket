@@ -15,7 +15,8 @@ import { newProjection, newTrackPoint, type OpenSide, type TrackLine } from './t
 export const MAX_ROUTES = 16
 /** Metres between a branch's end and the road it meets, and the radians their headings may differ by. */
 const ATTACH_TOLERANCE = 0.05
-const ATTACH_ANGLE = 0.02
+// A sampled bend's end chord is half a step's turn off its tangent: 0.033 rad on a 30 m hairpin.
+const ATTACH_ANGLE = 0.06
 /** Metres a fork's roads may differ in height over the deck they share. */
 const DECK_LEVEL = 0.3
 /** Metres a fork's roads are followed to find where they part. */
@@ -67,6 +68,9 @@ export interface Cushion {
     x: number
     y: number
     z: number
+    /** Unit direction from the point in between the two walls. */
+    tx: number
+    tz: number
 }
 
 interface Vertex {
@@ -364,7 +368,12 @@ function shareDeck(
     const [yFrom, yTo] = span(ys, sy)
     open[xb]!.push({ side: side as 1 | -1, from: xFrom, to: xTo, partner: yb, partnerFrom: yFrom, partnerTo: yTo })
     open[yb]!.push({ side: -side as 1 | -1, from: yFrom, to: yTo, partner: xb, partnerFrom: xFrom, partnerTo: xTo })
-    if (nose) cushions.push({ x: nose.x, y: nose.y, z: nose.z })
+    if (nose) {
+        const a = X.pointAt(nose.sx)
+        const b = Y.pointAt(nose.sy)
+        const len = Math.hypot(a.tx + b.tx, a.tz + b.tz) || 1
+        cushions.push({ x: nose.x, y: nose.y, z: nose.z, tx: dir * (a.tx + b.tx) / len, tz: dir * (a.tz + b.tz) / len })
+    }
 }
 
 /** Progress at `s` along line `b`: rising from 0 at the start to 1 at a finish, spread evenly along each edge. */

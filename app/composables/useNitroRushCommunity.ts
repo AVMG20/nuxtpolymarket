@@ -1,8 +1,8 @@
-import { ownTrackEntries } from '~/utils/nitro-rush/community'
+import { knowsSections, ownTrackEntries, publishedCourse } from '~/utils/nitro-rush/community'
 import type { CommunityTrackEntry } from '~/utils/nitro-rush/types'
 import type { NrPublishedTrack, NrVote } from '#server/utils/nitro-rush-tracks'
 import type { NrGhost, NrTrackSummary } from '#server/utils/nitro-rush'
-import { compileCustomTrack, isSectionId, type CompiledCustomTrack, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, type CompiledCustomTrack, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
 /** What this needs of the player's own courses. */
@@ -30,7 +30,7 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         let def = defs.get(t.id)
         if (def === undefined) {
             // Sections this version of the game doesn't know yet can't be driven.
-            def = t.sections.every(isSectionId) ? compileCustomTrack({ id: t.id, name: t.name, closed: t.closed, sections: t.sections }).def : null
+            def = knowsSections(t) ? compileCustomTrack(publishedCourse(t)).def : null
         } else if (def && def.name !== t.name) {
             // Renamed: same road, same id.
             def = { ...def, name: t.name }

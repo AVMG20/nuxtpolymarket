@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { PALETTE_SECTIONS, SECTION_CATEGORIES, sectionFault, type SectionCategory, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { forkShape, PALETTE_SECTIONS, SECTION_CATEGORIES, sectionFault, type SectionCategory, type SectionId } from '#shared/utils/nitro-rush/custom'
 import type { RoadState } from '#shared/utils/nitro-rush/layout'
 
 /** The pre-built sections as pictures, by category; picking one lays it after the cursor, or says what the road there lacks for it. */
 const props = defineProps<{
     disabled: boolean
+    /** False once the course has as many branches as it may, which rules out another split. */
+    canFork: boolean
     /** The road's state where a new section would go in. */
     state: RoadState
 }>()
@@ -15,7 +17,7 @@ const shown = computed(() => PALETTE_SECTIONS.filter(([, s]) => s.category === c
 const thumbs = useNitroRushSectionThumbs(() => shown.value.map(([id]) => id))
 const strip = ref<HTMLElement | null>(null)
 
-const faultOf = (id: SectionId) => sectionFault(id, props.state)
+const faultOf = (id: SectionId) => !props.canFork && forkShape(id, 'split') ? 'That\'s the most branches a track can have' : sectionFault(id, props.state)
 /** The section last refused; its note goes by itself once the road suits it. */
 const refused = ref<SectionId | null>(null)
 const notice = computed(() => refused.value && faultOf(refused.value))

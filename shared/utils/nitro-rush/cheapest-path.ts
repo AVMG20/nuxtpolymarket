@@ -13,6 +13,8 @@ export interface PathSearch<S, L> {
     estimate: (s: S) => number
     /** How many states to open before giving up. */
     limit: number
+    /** States left to open over several searches; each one opened here comes off it. */
+    budget?: { left: number }
 }
 
 interface PathNode<S, L> {
@@ -52,7 +54,7 @@ function pop<S, L>(heap: PathNode<S, L>[]) {
 }
 
 /** The steps and what they cost, or null if none get there within the search's limit. */
-export function cheapestPath<S, L>(start: S, { key, steps, done, estimate, limit }: PathSearch<S, L>): { labels: L[], cost: number } | null {
+export function cheapestPath<S, L>(start: S, { key, steps, done, estimate, limit, budget }: PathSearch<S, L>): { labels: L[], cost: number } | null {
     const best = new Map<string | number, number>([[key(start), 0]])
     const heap: PathNode<S, L>[] = [{ state: start, cost: 0, score: estimate(start), from: null, label: null }]
     let opened = 0
@@ -64,7 +66,7 @@ export function cheapestPath<S, L>(start: S, { key, steps, done, estimate, limit
             for (let n: PathNode<S, L> | null = node; n?.from; n = n.from) labels.push(n.label!)
             return { labels: labels.reverse(), cost: node.cost }
         }
-        if (++opened > limit) return null
+        if (++opened > limit || (budget && --budget.left < 0)) return null
         for (const { to, cost, label } of steps(node.state)) {
             const total = node.cost + cost
             const k = key(to)

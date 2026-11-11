@@ -1,0 +1,1 @@
+ALTER TABLE "nitro_rush_tracks" ADD COLUMN "branches" jsonb;

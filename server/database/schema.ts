@@ -20,7 +20,7 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
-import type { SectionId } from '#shared/utils/nitro-rush/custom'
+import type { CustomBranch, SectionId } from '#shared/utils/nitro-rush/custom'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2787,6 +2787,8 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   name: text('name').notNull(),
   closed: boolean('closed').notNull(),
   sections: jsonb('sections').$type<SectionId[]>().notNull(),
+  // Null on a course that never forks, which is every course published before forks.
+  branches: jsonb('branches').$type<CustomBranch[]>(),
   publishedAt: timestamp('published_at').defaultNow().notNull()
 }, t => [
   uniqueIndex('nitro_rush_tracks_author_source_idx').on(t.authorId, t.sourceId),

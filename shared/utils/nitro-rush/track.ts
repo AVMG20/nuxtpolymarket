@@ -102,6 +102,7 @@ export class Track extends TrackLine {
         this.checkpointIds = lines.map(line => line.checkpoints.map(() => next++))
         this.checkpointCount = next
         this.graph = compileGraph(lines, links, this.checkpointIds)
+        for (const line of lines) line.peers = lines
         this.lapLines = this.findLapLines()
     }
 
@@ -120,6 +121,11 @@ export class Track extends TrackLine {
 
     get forked() {
         return this.branches.length > 1
+    }
+
+    /** True when any line of the course leaves the ground. */
+    get anyElevated() {
+        return this.branches.some(l => l.elevated)
     }
 
     /** How far through the lap (branch, s) is, 0 at the start to 1 at a finish; for respawns, ranking and the ghost check, not laps. */
@@ -167,7 +173,7 @@ export class Track extends TrackLine {
             line = this.branches[next]!
             d = line.projectNear(x, z, line.segmentAt(at), out)
         }
-        if (!line.trusts(d, out)) return this.locateAll(x, z, out, y)
+        if (!line.trusts(d, out)) return this.nearest(x, z, out, y)
         const open = line.openAt(out.s, out.lateral < 0 ? -1 : 1)
         if (open) {
             const partner = this.branches[open.partner]!
@@ -180,7 +186,7 @@ export class Track extends TrackLine {
     }
 
     /** The nearest road on any line, `y` picking between stacked ones. */
-    private locateAll(x: number, z: number, out: Projection, y: number) {
+    nearest(x: number, z: number, out: Projection = newProjection(), y = Number.NaN) {
         let best = Infinity
         for (const line of this.branches) {
             const score = line.projectAll(x, z, this.scratch, y)

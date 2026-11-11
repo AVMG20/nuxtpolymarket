@@ -1,6 +1,6 @@
 /** The course's plan scaled into the HUD minimap's square view box, north up as the camera sees it from above. */
 
-import type { Track } from '#shared/utils/nitro-rush/track'
+import type { Track, TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** The minimap's view box side, in its own units. */
 export const MINIMAP_VIEW = 100
@@ -25,24 +25,26 @@ export interface MinimapLine {
 
 export interface MinimapPlan {
     fit: MinimapFit
-    /** The centreline as an SVG path, broken over jump gaps. */
+    /** Every line's centreline as one SVG path, broken over jump gaps. */
     road: string
     start: MinimapLine
-    /** Left out on a loop, where the finish is the start. */
-    finish: MinimapLine | null
+    /** Every finish; none on a loop, where the finish is the start. */
+    finishes: MinimapLine[]
 }
 
-/** Fits points into the view box with their aspect kept, centred. */
-export function fitPlan(xs: ArrayLike<number>, zs: ArrayLike<number>, view = MINIMAP_VIEW, pad = PAD): MinimapFit {
+/** Fits the points of every set into the view box with their aspect kept, centred. */
+export function fitPlan(plans: readonly { xs: ArrayLike<number>, zs: ArrayLike<number> }[], view = MINIMAP_VIEW, pad = PAD): MinimapFit {
     let minX = Infinity
     let maxX = -Infinity
     let minZ = Infinity
     let maxZ = -Infinity
-    for (let i = 0; i < xs.length; i++) {
-        minX = Math.min(minX, xs[i]!)
-        maxX = Math.max(maxX, xs[i]!)
-        minZ = Math.min(minZ, zs[i]!)
-        maxZ = Math.max(maxZ, zs[i]!)
+    for (const { xs, zs } of plans) {
+        for (let i = 0; i < xs.length; i++) {
+            minX = Math.min(minX, xs[i]!)
+            maxX = Math.max(maxX, xs[i]!)
+            minZ = Math.min(minZ, zs[i]!)
+            maxZ = Math.max(maxZ, zs[i]!)
+        }
     }
     const span = Math.max(maxX - minX, maxZ - minZ) || 1
     return { scale: (view - pad * 2) / span, cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2 }
@@ -58,8 +60,8 @@ export const markerRotation = (heading: number) => -heading * 180 / Math.PI
 
 const num = (v: number) => Math.round(v * 100) / 100
 
-function lineAcross(track: Track, fit: MinimapFit, s: number): MinimapLine {
-    const p = track.pointAt(s)
+function lineAcross(line: TrackLine, fit: MinimapFit, s: number): MinimapLine {
+    const p = line.pointAt(s)
     const len = Math.hypot(p.tx, p.tz) || 1
     const [x, y] = toMap(fit, p.x, p.z)
     // The road's right in view units: the tangent turned a quarter.
@@ -69,28 +71,33 @@ function lineAcross(track: Track, fit: MinimapFit, s: number): MinimapLine {
 }
 
 export function minimapPlan(track: Track): MinimapPlan {
-    const fit = fitPlan(track.xs, track.zs)
+    const fit = fitPlan(track.branches)
+    return {
+        fit,
+        road: track.branches.map(line => linePath(line, fit)).join(''),
+        start: lineAcross(track, fit, track.startS),
+        finishes: track.lapLines.filter(l => l.kind === 'finish').map(l => lineAcross(track.branches[l.branch]!, fit, l.s))
+    }
+}
+
+/** One line's centreline as SVG path commands, broken over jump gaps; a loop with no gap closes. */
+function linePath(line: TrackLine, fit: MinimapFit) {
     const parts: string[] = []
     let drawing = false
-    for (let i = 0; i < track.segments; i++) {
-        const j = (i + 1) % track.n
-        if (track.gapAt((track.cum[i]! + track.cum[i + 1]!) / 2)) {
+    for (let i = 0; i < line.segments; i++) {
+        const j = (i + 1) % line.n
+        if (line.gapAt((line.cum[i]! + line.cum[i + 1]!) / 2)) {
             drawing = false
             continue
         }
         if (!drawing) {
-            const [x, y] = toMap(fit, track.xs[i]!, track.zs[i]!)
+            const [x, y] = toMap(fit, line.xs[i]!, line.zs[i]!)
             parts.push(`M${num(x)} ${num(y)}`)
             drawing = true
         }
-        const [x, y] = toMap(fit, track.xs[j]!, track.zs[j]!)
+        const [x, y] = toMap(fit, line.xs[j]!, line.zs[j]!)
         parts.push(`L${num(x)} ${num(y)}`)
     }
-    if (track.closed && !track.gaps.length) parts.push('Z')
-    return {
-        fit,
-        road: parts.join(''),
-        start: lineAcross(track, fit, track.startS),
-        finish: track.closed ? null : lineAcross(track, fit, track.finishS)
-    }
+    if (line.closed && !line.gaps.length) parts.push('Z')
+    return parts.join('')
 }

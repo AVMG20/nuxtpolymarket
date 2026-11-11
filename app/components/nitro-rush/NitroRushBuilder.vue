@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { checkpointRoles } from '~/utils/nitro-rush/builder-forks'
 import { isTyping } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { MAX_NAME_LENGTH, MAX_SECTIONS, rideTag, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { MAX_NAME_LENGTH, MAX_SECTIONS, raisedTo, rideTag, sectionCount, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { Track } from '#shared/utils/nitro-rush/track'
 
 /** The track builder: lay sections one at a time, or from the drawer, until the course is drivable. */
 const props = defineProps<{
@@ -18,7 +20,10 @@ const emit = defineEmits<{
     delete: [id: string]
 }>()
 
-const { draft, closed, cursor, walk, compiled, gap, full, length, canUndo, loopError, walkUpTo, insert, removeAt, moveTo, closeLoop, setClosed, setName, select, undo } = useNitroRushTrackDraft(toRef(props, 'track'))
+const {
+    draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
+    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, setClosed, setName, select, selectLine, undo
+} = useNitroRushTrackDraft(toRef(props, 'track'))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
 const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
@@ -31,20 +36,50 @@ const drawerOpened = ref(false)
 watch(drawerOpen, () => {
     drawerOpened.value = true
 })
-const { choice, state, next, shownWalk, ghost, blocked, fault, pick, build } = useNitroRushConstruction({ cursor, walk, closed, full, walkUpTo, insert })
+const { choice, state, next, shownWalk, ghost, blocked, fault, pick, build } = useNitroRushConstruction({ cursor, walk, closed: lineClosed, full, walkUpTo, insert })
 
-const tags = computed(() => draft.value.sections.map((id, i) => rideTag(id, walk.value.states[i]!)))
+/** Every line as shown: a ghost that digs in lifts the whole course, not just the line it's on. */
+const shownLines = computed(() => {
+    const lift = shownWalk.value.rise - walk.value.rise
+    return lines.value.map((w, l) => l === line.value ? shownWalk.value : lift ? raisedTo(w, w.rise + lift) : w)
+})
 /** A loop whose road already meets its start line. */
 const closes = computed(() => draft.value.closed && !!compiled.value.def)
+/** Per line, whether its end needs no marker: a branch on the road it joins, or a loop that closes. */
+const ended = computed(() => [closes.value, ...endings.value.map(e => e.kind === 'joins')])
+const ending = computed(() => line.value ? endings.value[line.value - 1] ?? null : null)
+
+/** The finished course, when it forks: which checkpoints every route drives and how many a lap needs. */
+const forked = computed(() => compiled.value.def?.branches ? new Track(compiled.value.def) : null)
+const roles = computed(() => forked.value && checkpointRoles(forked.value, walk.value, line.value))
+const ROLE_TAGS = { required: 'EVERY ROUTE', optional: 'OPTIONAL' } as const
+const tags = computed(() => lineSections.value.map((id, i) => {
+    const role = roles.value?.get(i)
+    return [rideTag(id, walk.value.states[i]!), role && ROLE_TAGS[role]].filter(Boolean).join(' ')
+}))
 
 const dirty = computed(() => draft.value !== props.track)
 const { armed, tap } = useNitroRushConfirmTap()
 
+/** What's still wrong with a branch's end, or null when it ends somewhere. */
+function branchStatus(l: number) {
+    const e = endings.value[l - 1]
+    if (e?.kind === 'open') return `Branch ${l} needs ${draft.value.closed ? 'a join' : 'a join or a finish line'}`
+    if (e?.kind === 'short') return `Branch ${l} is ${Math.round(e.metres)} m from its join`
+    if (e?.kind === 'askew') return `Branch ${l} ${e.why}`
+    return null
+}
+
 const status = computed(() => {
-    if (compiled.value.def) return { ok: true, text: 'Ready to race' }
-    if (loopError.value) return { ok: false, text: friendly(`can't finish the loop: ${loopError.value}`) }
+    if (compiled.value.def) {
+        const k = forked.value?.k ?? 0
+        return { ok: true, text: k ? `Ready to race: ${k} of ${forked.value!.checkpointCount} checkpoints per lap` : 'Ready to race' }
+    }
+    if (finishError.value) return { ok: false, text: friendly(`can't finish the ${line.value ? 'branch' : 'loop'}: ${finishError.value}`) }
+    const own = line.value ? branchStatus(line.value) : null
+    if (own) return { ok: false, text: own }
     const g = gap.value
-    if (g && !walk.value.misplaced && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0 || g.width !== 0 || g.air !== 0)) {
+    if (g && !lines.value[0]!.misplaced && (g.distance > 0.5 || g.turn !== 0 || Math.abs(g.climb) > 0.01 || g.bank !== 0 || g.grade !== 0 || g.width !== 0 || g.air !== 0)) {
         const parts = [`${Math.round(g.distance)} m to go`]
         if (g.turn) parts.push(`turn ${Math.abs(g.turn)}° ${g.turn > 0 ? 'right' : 'left'}`)
         if (Math.abs(g.climb) > 0.01) parts.push(`${Math.round(Math.abs(g.climb))} m ${g.climb > 0 ? 'down' : 'up'}`)
@@ -54,7 +89,16 @@ const status = computed(() => {
         if (g.air !== 0) parts.push('land the jump')
         return { ok: false, text: `Join the road back up to the start: ${parts.join(', ')}` }
     }
+    const other = endings.value.map((_, i) => branchStatus(i + 1)).find(t => t)
+    if (other) return { ok: false, text: other }
     return { ok: false, text: friendly(compiled.value.error ?? '') }
+})
+
+/** The road laid onto its end: the main road back to the start line, or a branch onto the road it joins. */
+const finishAction = computed(() => {
+    if (compiled.value.def) return null
+    if (!line.value) return draft.value.closed && gap.value && gap.value.distance > 0.5 ? { label: 'FINISH THE LOOP', title: 'Lay the road back to the start line' } : null
+    return ending.value?.kind === 'short' || ending.value?.kind === 'askew' ? { label: 'FINISH THE BRANCH', title: 'Lay road into the join' } : null
 })
 
 /** A layout error as a player reads it: no map coordinates, a capital letter. */
@@ -121,9 +165,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <NitroRushBuilderPreview
             v-if="view === '3d'"
             class="absolute inset-0"
-            :walk="shownWalk"
+            :track="draft"
+            :forks="forks"
+            :lines="shownLines"
+            :line="line"
             :closes="closes"
             :loop="draft.closed"
+            :ended="ended"
             :selected="cursor >= 0 ? cursor : null"
             :ghost="ghost"
             :ghost-blocked="blocked"
@@ -132,9 +180,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <NitroRushBuilderMap
             v-else
             class="absolute inset-0"
-            :walk="shownWalk"
+            :lines="shownLines"
+            :line="line"
             :closed="draft.closed"
             :selected="cursor >= 0 ? cursor : null"
+            :ended="ended"
+            :joins="forks.joins"
             :ghost="ghost"
             :ghost-blocked="blocked"
             @pick="select"
@@ -148,13 +199,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <UIcon :name="status.ok ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'" class="size-4 shrink-0" />
           <span class="min-w-0 flex-1">{{ status.text }}</span>
           <button
-            v-if="draft.closed && !compiled.def"
+            v-if="finishAction"
             class="nr-ghost nr-small is-locked"
-            :disabled="full || !!loopError"
-            :title="full ? 'That\'s the most sections a track can have' : 'Lay the road back to the start line'"
-            @click="closeLoop"
+            :disabled="full || !!finishError"
+            :title="full ? 'That\'s the most sections a track can have' : finishAction.title"
+            @click="finishLine"
           >
-            FINISH THE LOOP
+            {{ finishAction.label }}
           </button>
         </div>
       </div>
@@ -166,7 +217,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
             <UIcon :name="drawerOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="size-3.5" />
           </button>
         </NitroRushBuilderConstruct>
-        <NitroRushBuilderPalette v-if="drawerOpened" v-show="drawerOpen" class="nr-drawer" :disabled="full" :state="state" @add="insert" />
+        <NitroRushBuilderPalette v-if="drawerOpened" v-show="drawerOpen" class="nr-drawer" :disabled="full" :can-fork="canFork" :state="state" @add="insert" />
       </div>
 
       <div class="nr-card nr-card-tight flex flex-col gap-3 text-left lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:min-h-0">
@@ -175,15 +226,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <button role="radio" :aria-checked="!draft.closed" :class="{ 'is-active': !draft.closed }" @click="setClosed(false)">SPRINT</button>
         </div>
         <p class="text-[11px] font-semibold text-white/55 [font-family:system-ui,sans-serif]">
-          {{ draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
+          {{ line ? (draft.closed ? 'End the branch at a join.' : 'End the branch at a join or a finish line.') : draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
           New sections go in after the highlighted one; drag a section's grip to move it.
         </p>
+        <NitroRushBuilderRoads
+          v-if="draft.branches?.length"
+          :endings="endings"
+          :line="line"
+          :joins="forks.joins"
+          :joinable="joinable"
+          @select="selectLine"
+          @join="joinAt"
+          @remove="removeLine"
+        />
         <div class="max-h-64 min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-          <NitroRushBuilderPieces :sections="draft.sections" :tags="tags" :cursor="cursor" @select="select" @move="moveTo" @remove="removeAt" />
+          <NitroRushBuilderPieces :sections="lineSections" :tags="tags" :cursor="cursor" :start-label="line ? 'Fork' : 'Start of the road'" @select="select" @move="moveTo" @remove="removeAt" />
         </div>
         <div class="flex items-baseline justify-between text-[11px] text-white/60 tabular-nums">
           <span>{{ (length / 1000).toFixed(2) }} KM</span>
-          <span>{{ draft.sections.length }} / {{ MAX_SECTIONS }} SECTIONS</span>
+          <span>{{ sectionCount(draft) }} / {{ MAX_SECTIONS }} SECTIONS</span>
         </div>
         <button class="nr-play self-stretch !px-6 !py-2.5 !text-xl" :disabled="!compiled.def" @click="drive">
           <UIcon name="i-lucide-flag" class="size-5" />
