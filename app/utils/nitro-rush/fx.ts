@@ -1,5 +1,17 @@
 import * as THREE from 'three'
 
+/** Smoke between the camera and the car, within about 3 m of it on screen, thins to 30% so a drift never hides the car. */
+const WINDOW_GLSL = /* glsl */`
+                    vec4 focus = viewMatrix * vec4(uFocus, 1.0);
+                    float carDepth = max(0.1, -focus.z);
+                    float depth = max(0.1, -mv.z);
+                    // Screen distance less half the puff's radius, so a big puff over the car thins as well.
+                    float off = length(mv.xy / depth - focus.xy / carDepth) - aSize * 0.25 / depth;
+                    float reach = 3.0 / carDepth;
+                    float over = 1.0 - smoothstep(reach, reach * 1.7, off);
+                    float nearer = smoothstep(-0.5, 1.0, carDepth - depth);
+                    vAlpha *= 1.0 - 0.7 * clamp(uWindow, 0.0, 1.0) * over * nearer;`
+
 /** Particle field: one draw call for every spark, or every puff of tyre smoke. */
 export class Particles {
     readonly points: THREE.Points
@@ -42,13 +54,15 @@ export class Particles {
             transparent: true,
             depthWrite: false,
             blending: mode === 'smoke' ? THREE.NormalBlending : THREE.AdditiveBlending,
-            uniforms: { uScale: { value: 400 }, uPixelRatio: { value: 1 } },
+            uniforms: { uScale: { value: 400 }, uPixelRatio: { value: 1 }, uFocus: { value: new THREE.Vector3() }, uWindow: { value: 0 } },
             vertexShader: /* glsl */`
                 attribute float aSize;
                 attribute float aAlpha;
                 attribute vec3 color;
                 uniform float uScale;
                 uniform float uPixelRatio;
+                uniform vec3 uFocus;
+                uniform float uWindow;
                 varying vec3 vColor;
                 varying float vAlpha;
                 void main() {
@@ -59,6 +73,7 @@ export class Particles {
                     float grown = max(px, floorPx);
                     float keep = px / grown;
                     vAlpha = aAlpha * keep * keep;
+                    ${mode === 'smoke' ? WINDOW_GLSL : ''}
                     vColor = color;
                     gl_PointSize = grown;
                     gl_Position = projectionMatrix * mv;
@@ -69,7 +84,7 @@ export class Particles {
                 void main() {
                     vec2 d = gl_PointCoord - 0.5;
                     float r = clamp(1.0 - dot(d, d) * 4.0, 0.0, 1.0);
-                    ${mode === 'smoke' ? 'gl_FragColor = vec4(vColor, vAlpha * r * r * 0.6);' : 'gl_FragColor = vec4(vColor * vAlpha * r * r, 1.0);'}
+                    ${mode === 'smoke' ? 'gl_FragColor = vec4(vColor, vAlpha * r * r * 0.46);' : 'gl_FragColor = vec4(vColor * vAlpha * r * r, 1.0);'}
                 }`
         })
         this.points = new THREE.Points(geo, this.material)
@@ -82,9 +97,15 @@ export class Particles {
         this.material.uniforms.uPixelRatio!.value = pixelRatio
     }
 
+    /** Smoke only: thins the puffs between the camera and the point at (x, y, z), by `strength` 0 to 1. */
+    setWindow(x: number, y: number, z: number, strength: number) {
+        this.material.uniforms.uFocus!.value.set(x, y, z)
+        this.material.uniforms.uWindow!.value = strength
+    }
+
     emit(
         x: number, y: number, z: number, count: number,
-        o: { color: THREE.Color, speed: number, up?: number, spread?: number, life?: number, size?: number, gravity?: number, drag?: number, vz?: number, jitter?: number, grow?: number, vx?: number }
+        o: { color: THREE.Color, speed: number, up?: number, spread?: number, life?: number, size?: number, gravity?: number, drag?: number, vx?: number, vy?: number, vz?: number, jitter?: number, grow?: number }
     ) {
         const spread = o.spread ?? 0.2
         for (let n = 0; n < count; n++) {
@@ -97,7 +118,7 @@ export class Particles {
             this.pos[i * 3 + 1] = y + (Math.random() - 0.5) * spread
             this.pos[i * 3 + 2] = z + (Math.random() - 0.5) * spread
             this.vel[i * 3] = Math.sin(phi) * Math.cos(theta) * sp + (o.vx ?? 0)
-            this.vel[i * 3 + 1] = Math.abs(Math.cos(phi)) * sp * 0.6 + (o.up ?? 0)
+            this.vel[i * 3 + 1] = Math.abs(Math.cos(phi)) * sp * 0.6 + (o.up ?? 0) + (o.vy ?? 0)
             this.vel[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * sp + (o.vz ?? 0)
             const j = o.jitter ?? 0.15
             this.col[i * 3] = o.color.r * (1 - j + Math.random() * j * 2)

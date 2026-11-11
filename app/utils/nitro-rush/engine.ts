@@ -431,7 +431,7 @@ export class NitroRushEngine {
         // Off the plan (rails) or off the ground, there's no tarmac to leave marks on.
         const slide = s.onRail || s.airborne ? 0 : tyreSlide(s, this.playerInput(), racing)
         this.audio.skid(racing || this.phase === 'finished' ? slide * Math.min(1, Math.abs(s.speed) / 12) : 0)
-        this.fx.tyres(dt, s, slide)
+        this.fx.tyres(dt, s, slide, this.track)
 
         this.world.update(dt, this.cam.camera)
         const lampDist = this.world.nearestLamp(s.x, s.proj.y, s.z, this.lampPos)
@@ -525,7 +525,7 @@ export class NitroRushEngine {
         const blend = this.cam.blend
         this.fx.frame(dt, {
             camera: this.cam.camera, height: this.height, pixelRatio: this.resolution.ratio, yaw: this.cam.yaw, blend,
-            roadY: y, speed: s.speed, speedK, nitroK, nitro: surge, tails: this.car.tailLights(this.tails)
+            roadY: y, speed: s.speed, speedK, nitroK, nitro: surge, tails: this.car.tailLights(this.tails), car: m.pos
         })
 
         this.ghosts.draw({
