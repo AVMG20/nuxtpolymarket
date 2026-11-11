@@ -11,7 +11,7 @@ export type Medal = 'gold' | 'silver' | 'bronze'
 export const MEDALS: readonly Medal[] = ['gold', 'silver', 'bronze']
 
 /** Each medal's time as a share of the bot's lap. */
-export const MEDAL_FACTORS: Readonly<Record<Medal, number>> = { gold: 0.87, silver: 0.95, bronze: 1.1 }
+export const MEDAL_FACTORS: Readonly<Record<Medal, number>> = { gold: 0.95, silver: 1.03, bronze: 1.2 }
 /** A circuit refills the tank at the line, which a sprint's one tank at GO doesn't match (scripts/nitro-rush-medals.ts). */
 export const CIRCUIT_FACTOR = 0.96
 

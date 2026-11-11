@@ -32,6 +32,8 @@
  * Where branches share a deck at a fork or a join, a side's wall is open over a stretch.
  */
 
+import { racingLine, type RacingLine } from './racing-line'
+
 export type TrackGroup = 'circuits' | 'sprints'
 
 /** One line of road: a whole single-line course, or one branch of a forked one. */
@@ -216,6 +218,7 @@ export class TrackLine {
     private readonly scratchFrame = newTrackFrame()
     private readonly scratchPoint = newTrackPoint()
     private readonly scratchProjection = newProjection()
+    private ownRacing: RacingLine | null = null
 
     constructor(def: LineDef, branch = 0) {
         this.def = def
@@ -325,6 +328,34 @@ export class TrackLine {
         this.right.set([rx, ry, rz], k)
         this.up.set([ry * tz - rz * ty, rz * tx - rx * tz, rx * ty - ry * tx], k)
         if (this.railed[i]) this.grades[i] = ty / Math.max(0.05, Math.hypot(tx, tz))
+    }
+
+    /** The racing line along this line alone; worked out on first use, as only the bot needs it. */
+    get racing(): RacingLine {
+        const { n, closed, xs, zs, txs, tzs, railed } = this
+        const reach = (side: -1 | 1) => Float64Array.from({ length: n }, (_, i) => this.reachAt(i, side))
+        this.ownRacing ??= racingLine({ n, closed, xs, zs, txs, tzs, railed, left: reach(-1), right: reach(1) })
+        return this.ownRacing
+    }
+
+    /**
+     * How far the road reaches to `side` of point `i`: half its width, or on a deck shared with a road not in `onto`
+     * the seam, past which the car would count as on that road and flick back and forth between the two.
+     */
+    reachAt(i: number, side: -1 | 1, onto: readonly number[] = []) {
+        const w = this.halfWidths[i]!
+        const open = this.openAt(this.cum[i]!, side)
+        return open && !onto.includes(open.partner) ? Math.min(w, this.deckEdge(this.cum[i]!, side)) : w
+    }
+
+    /** Per point: how sharply the racing line turns there, in radians per metre. */
+    get racingCurvature(): Float64Array {
+        return this.racing.curvature
+    }
+
+    /** The racing line's offset from the centreline at `s`, + right; `racing` is this line's stretch of a route's. */
+    racingOffsetAt(s: number, racing = this.racing) {
+        return this.blendAt(racing.offsets, s)
     }
 
     /** True on a looping or corkscrew. */

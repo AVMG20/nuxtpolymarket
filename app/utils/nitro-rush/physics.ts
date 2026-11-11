@@ -531,18 +531,14 @@ function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
     car.driftTime = 0
 }
 
-/**
- * A tidy grip driver for the menu's demo laps, the medals and the tests: it chases a point down
- * the centreline and brakes for the tightest bend ahead. On a forked course it follows `route`,
- * the main one when it's left out.
- */
+/** A tidy grip driver for the demo laps, the medals and the tests; on a forked course it follows `route`, the main one when left out. */
 export function botInput(car: CarState, track: Track, pace = 1, route: Route | null = null): CarInput {
     // On rails it floors it and holds the middle of the road.
     if (car.onRail) return { throttle: 1, brake: 0, steer: Math.max(-1, Math.min(1, car.rel * 3 - car.proj.lateral * 0.15)), drift: false }
     const v = Math.max(0, car.speed)
     const way = route ?? track.routes[0] ?? null
     const here = track.onRoute(way, car.proj, car.x, car.z)
-    const spot = track.ahead(way, here.branch, here.s, 8 + v * 0.45)
+    const spot = track.ahead(way, here.branch, here.s, 8 + v * 0.25)
     const line = spot.line
     const aheadS = spot.s
     // A looping's plan doubles back, so past a rail's entry it aims straight on along the entry.
@@ -551,6 +547,10 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     if (rail) {
         ahead.x += ahead.tx * (aheadS - rail[0])
         ahead.z += ahead.tz * (aheadS - rail[0])
+    } else {
+        const across = line.racingOffsetAt(aheadS, track.racingOn(way, line.branch))
+        ahead.x -= ahead.tz * across
+        ahead.z += ahead.tx * across
     }
     const want = headingOf(ahead.x - car.x, ahead.z - car.z)
     const err = wrapAngle(want - car.travel)
@@ -560,7 +560,7 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     const look = 20 + v * v / (BRAKE_DECEL * 1.4)
     for (let d = 0; d <= look; d += 4) {
         const at = track.ahead(way, here.branch, here.s, d)
-        const k = at.line.curvature[at.line.segmentAt(at.s)]!
+        const k = track.racingOn(way, at.line.branch).curvature[at.line.segmentAt(at.s)]!
         if (k < 1e-4) continue
         const corner = Math.sqrt(GRIP_LATERAL * 0.9 / k) * pace
         allowed = Math.min(allowed, Math.sqrt(corner * corner + 2 * BRAKE_DECEL * 0.7 * d))

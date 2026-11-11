@@ -37,7 +37,7 @@ function cornerLimit(car: CarState, track: Track) {
     let allowed = Infinity
     const look = 20 + v * v / (BRAKE_DECEL * 1.4)
     for (let d = 0; d <= look; d += 4) {
-        const k = track.curvature[track.segmentAt(car.proj.s + d)]!
+        const k = track.racingCurvature[track.segmentAt(car.proj.s + d)]!
         if (k < 1e-4) continue
         const corner = Math.sqrt(GRIP_LATERAL * 0.9 / k)
         allowed = Math.min(allowed, Math.sqrt(corner * corner + 2 * BRAKE_DECEL * 0.7 * d))

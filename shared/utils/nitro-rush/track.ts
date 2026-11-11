@@ -1,4 +1,5 @@
 import { compileGraph, progressOn, type BranchEnd, type BranchLink, type CourseGraph, type Cushion, type Route, type RouteLeg } from './track-graph'
+import { racingLine, type RacingLine } from './racing-line'
 import { KICKER_GRADE, newProjection, SPEED_CEILING, TrackLine, wallFoot, type LineDef, type Projection, type TrackGroup } from './track-line'
 
 export * from './track-line'
@@ -85,6 +86,7 @@ export class Track extends TrackLine {
     readonly lapLines: readonly LapLine[]
     private readonly scratch = newProjection()
     private readonly spot: RoadSpot = { line: this, s: 0 }
+    private readonly racingRoutes = new Map<Route, RacingLine[]>()
     private minLap: number | null = null
 
     constructor(def: TrackDef) {
@@ -204,6 +206,66 @@ export class Track extends TrackLine {
         let top = -Infinity
         for (const line of this.branches) for (let i = 0; i < line.segments; i++) top = line.underSegment(i, x, y, z, top, out)
         return top > -Infinity
+    }
+
+    /**
+     * The racing line on `branch` as `route` drives it: worked out along the whole route, so it sets up for the
+     * branch it takes at a fork. Without a route, or on a course without forks, the line's own.
+     */
+    racingOn(route: Route | null, branch: number): RacingLine {
+        const line = this.branches[branch]!
+        if (!route || !this.forked) return line.racing
+        let lines = this.racingRoutes.get(route)
+        if (!lines) {
+            lines = this.racingAlong(route)
+            this.racingRoutes.set(route, lines)
+        }
+        return lines[branch]!
+    }
+
+    /** The racing line along `route`, cut back into each line's points; a sprint's runs past its start and finish lines included. */
+    private racingAlong(route: Route): RacingLine[] {
+        const { legs } = route
+        // Each point, and the roads either side of its leg, which the car crosses onto once on its way.
+        const points: [TrackLine, number, number[]][] = []
+        legs.forEach((leg, k) => {
+            const line = this.branches[leg.branch]!
+            const from = k === 0 && !this.closed ? 0 : leg.from
+            const to = k === legs.length - 1 && !this.closed ? line.length : leg.to
+            const at = (j: number) => legs[this.closed ? (j + legs.length) % legs.length : j]?.branch
+            const onto = [at(k - 1), at(k + 1)].filter(b => b !== undefined)
+            for (let i = 0; i < line.n; i++) {
+                if (line.cum[i]! < from - 1e-6 || line.cum[i]! > to + 1e-6) continue
+                // Where one leg hands over to the next, both lines have a point on the same spot.
+                const last = points[points.length - 1]
+                if (last && Math.hypot(last[0].xs[last[1]]! - line.xs[i]!, last[0].zs[last[1]]! - line.zs[i]!) < 0.5) continue
+                points.push([line, i, onto])
+            }
+        })
+        if (this.closed && points.length > 1) {
+            const [a, i] = points[0]!
+            const [b, j] = points[points.length - 1]!
+            if (Math.hypot(a.xs[i]! - b.xs[j]!, a.zs[i]! - b.zs[j]!) < 0.5) points.pop()
+        }
+        const pick = (f: (line: TrackLine, i: number, onto: number[]) => number) => Float64Array.from(points, ([line, i, onto]) => f(line, i, onto))
+        const along = racingLine({
+            n: points.length,
+            closed: this.closed,
+            xs: pick((l, i) => l.xs[i]!),
+            zs: pick((l, i) => l.zs[i]!),
+            txs: pick((l, i) => l.txs[i]!),
+            tzs: pick((l, i) => l.tzs[i]!),
+            left: pick((l, i, onto) => l.reachAt(i, -1, onto)),
+            right: pick((l, i, onto) => l.reachAt(i, 1, onto)),
+            railed: pick((l, i) => l.railed[i]!)
+        })
+        // Off the route the bot only strays for a moment, so the road's own centreline does there.
+        const lines = this.branches.map(l => ({ offsets: new Float64Array(l.n), curvature: l.curvature.slice() }))
+        points.forEach(([line, i], k) => {
+            lines[line.branch]!.offsets[i] = along.offsets[k]!
+            lines[line.branch]!.curvature[i] = along.curvature[k]!
+        })
+        return lines
     }
 
     /**
