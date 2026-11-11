@@ -1,13 +1,12 @@
 import { GHOST_POSE, type Ghost } from './ghost'
-import { KICKER_GRADE } from './layout'
 import { LapTimer } from './timing'
-import { FALL_DEPTH, newProjection, SPEED_CEILING, wallFoot, type Track } from './track'
+import { FALL_DEPTH, KICKER_GRADE, newProjection, SPEED_CEILING, wallFoot, type LapLine, type Track, type TrackLine } from './track'
 
 /**
- * Whether a ghost really drove a course. Without jumps every pose is on the road, moving through it in order
- * from start to finish. With them a car can fly over the walls onto other road, so poses have to stay in reach
- * along the road while on it, take off only at a gap, fly no faster or higher than a kicker throws the car, and
- * cross every line in order along the road.
+ * Whether a ghost really drove a course. Without jumps or forks every pose is on the road, moving through it in
+ * order from start to finish. With jumps a car can fly over the walls onto other road, and with forks it can take
+ * any branch, so poses have to stay in reach along the road while on it, take off only at a gap, fly no faster or
+ * higher than a kicker throws the car, and cross lines the way the lap timer counts them.
  */
 
 /** Past the walls by more than this, a pose has left the road; loose enough for railed and banked road. */
@@ -101,7 +100,7 @@ const under = newProjection()
 
 /** True when the ghost drove the course from start to finish, as far as its poses can show it. */
 export function ghostDrivesTrack(track: Track, ghost: Ghost): boolean {
-    return track.gaps.length ? ghostFliesTrack(track, ghost) : ghostFollowsRoad(track, ghost)
+    return track.forked || track.gaps.length ? ghostFliesTrack(track, ghost) : ghostFollowsRoad(track, ghost)
 }
 
 /** True when every pose is on the road and no further along it than the car could go since the last, from start to finish. */
@@ -123,6 +122,8 @@ function ghostFollowsRoad(track: Track, ghost: Ghost): boolean {
 }
 
 interface RoadHit {
+    /** The line it's on or over, and how far along it. */
+    branch: number
     s: number
     /** On the road there, not flying over it or off it. */
     on: boolean
@@ -130,16 +131,22 @@ interface RoadHit {
     over: boolean
 }
 
+interface RoadSearch {
+    best: number
+    bestOver: number
+    hit: RoadHit
+    overHit: RoadHit | null
+}
+
+const newSearch = (): RoadSearch => ({ best: Infinity, bestOver: Infinity, hit: { branch: 0, s: 0, on: false, over: false }, overHit: null })
+
 /**
- * The road a pose is on or over among `count` segments from `from`: the nearest stretch, counting height against stacked roads;
- * only the stretches it's over count when there are any, so a flight high above isn't put on road it already passed. Rails are matched in 3D.
+ * The road a pose is on or over among `count` segments of `line` from `from`, into `found`: the nearest stretch, counting
+ * height against stacked roads; only the stretches it's over count when there are any, so a flight high above isn't put
+ * on road it already passed. Rails are matched in 3D.
  */
-function roadAt(track: Track, x: number, y: number, z: number, from = 0, count = track.segments): RoadHit {
-    const { xs, ys, zs, cum, segments, n, railed, walls, right } = track
-    let best = Infinity
-    let bestOver = Infinity
-    let hit: RoadHit = { s: 0, on: false, over: false }
-    let overHit: RoadHit | null = null
+function searchLine(line: TrackLine, x: number, y: number, z: number, found: RoadSearch, from = 0, count = line.segments) {
+    const { xs, ys, zs, cum, segments, n, railed, walls, right } = line
     for (let k = 0; k < count; k++) {
         const i = (from + k) % segments
         const j = (i + 1) % n
@@ -168,33 +175,48 @@ function roadAt(track: Track, x: number, y: number, z: number, from = 0, count =
             const above = y - (ay + dy * t + tilt * across)
             score = off * off + above * above * LEVEL_WEIGHT * LEVEL_WEIGHT
             over = off <= reach + 1
-            on = over && above <= ON_ROAD_ABOVE && above >= -ON_ROAD_BELOW && !track.gapAt(s)
+            on = over && above <= ON_ROAD_ABOVE && above >= -ON_ROAD_BELOW && !line.gapAt(s)
         }
-        if (over && score < bestOver) {
-            bestOver = score
-            overHit = { s, on, over }
+        if (over && score < found.bestOver) {
+            found.bestOver = score
+            found.overHit = { branch: line.branch, s, on, over }
         }
-        if (score < best) {
-            best = score
-            hit = { s, on, over }
+        if (score < found.best) {
+            found.best = score
+            found.hit = { branch: line.branch, s, on, over }
         }
     }
-    return overHit ?? hit
+    return found
+}
+
+/** The road a pose is on or over anywhere on the course. */
+function roadAt(track: Track, x: number, y: number, z: number): RoadHit {
+    const found = newSearch()
+    for (const line of track.branches) searchLine(line, x, y, z, found)
+    return found.overHit ?? found.hit
 }
 
 /** The road a pose is on, searched `span` metres either side of the road the pose before was on; the whole course after a flight, or when it left that road. */
 function roadNear(track: Track, x: number, y: number, z: number, before: RoadHit, span: number): RoadHit {
-    if (before.on && (!track.closed || 2 * span < track.length)) {
-        const from = track.segmentAt(before.s - span)
-        const to = track.segmentAt(before.s + span)
-        const count = track.closed ? (to - from + track.segments) % track.segments + 1 : to - from + 1
-        const hit = roadAt(track, x, y, z, from, count)
+    const line = track.branches[before.branch]!
+    if (before.on && (!line.closed || 2 * span < line.length)) {
+        const from = line.segmentAt(before.s - span)
+        const to = line.segmentAt(before.s + span)
+        const count = line.closed ? (to - from + line.segments) % line.segments + 1 : to - from + 1
+        const found = searchLine(line, x, y, z, newSearch(), from, count)
+        const hit = found.overHit ?? found.hit
         if (hit.on) return hit
     }
     return roadAt(track, x, y, z)
 }
 
-/** A course with jumps: every pose a step the car could make, on the road in reach of the last or in a flight off a kicker no higher than it throws, and every line crossed in order along the road. */
+/** Metres a pose may climb or drop from the one before as it moves from one road onto another, both on the road. */
+const CHANGE_CLIMB = 3
+
+/**
+ * A course with jumps or forks: every pose a step the car could make, on the road in reach of the last or in a flight off
+ * a kicker no higher than it throws, and the lap closed by the lap timer's own rules: K checkpoints, then the line.
+ */
 function ghostFliesTrack(track: Track, ghost: Ghost): boolean {
     const count = ghost.data.length / GHOST_POSE
     if (count < 2) return false
@@ -202,26 +224,36 @@ function ghostFliesTrack(track: Track, ghost: Ghost): boolean {
     const reach = 2 * SPEED_CEILING * dt + STEP_SLACK
     const flightStep = SPEED_CEILING * dt + FLIGHT_STEP_SLACK
     const climb = SPEED_CEILING * KICKER_GRADE
-    const L = track.lapLength
-    // Signed distance along the road from `a` to `b`, the short way round on a loop.
-    const along = (a: number, b: number) => {
-        const d = b - a
-        return track.closed ? d - Math.round(d / track.length) * track.length : d
+    // Signed distance along line `b` from `a` to `c`, the short way round on a loop.
+    const along = (b: number, a: number, c: number) => {
+        const line = track.branches[b]!
+        const d = c - a
+        return line.closed ? d - Math.round(d / line.length) * line.length : d
     }
-    // Distances as the lap timer reads them: from the start line, half a lap either side on a loop.
-    const fromStart = (s: number) => along(track.startS, s)
-    const timerS = (s: number) => track.closed ? track.wrapS(s - track.startS) : s - track.startS
     // A car only takes off where the road runs out under it: a kicker's lip, or a landing ramp's foot backing off it.
-    const nearLip = (s: number) => track.gaps.some(([a, b]) => {
-        const toLip = along(s, a)
-        const fromEnd = along(b, s)
+    const nearLip = (hit: RoadHit) => track.branches[hit.branch]!.gaps.some(([a, b]) => {
+        const toLip = along(hit.branch, hit.s, a)
+        const fromEnd = along(hit.branch, b, hit.s)
         return (toLip >= -LIP_SLACK && toLip <= flightStep + LIP_SLACK) || (fromEnd >= -LIP_SLACK && fromEnd <= flightStep + LIP_SLACK)
     })
+    const ending = track.lapLines.filter(l => track.closed ? l.kind === 'start' : l.kind === 'finish')
+    /** The line that ends the lap on the pose's road, and how far ahead along it it lies. */
+    const endAhead = (hit: RoadHit): { line: LapLine, d: number } | null => {
+        let best: { line: LapLine, d: number } | null = null
+        for (const line of ending) {
+            if (line.branch !== hit.branch) continue
+            const d = along(hit.branch, hit.s, line.s)
+            if (!best || Math.abs(d) < Math.abs(best.d)) best = { line, d }
+        }
+        return best
+    }
     const pose = (k: number) => [ghost.data[k * GHOST_POSE]!, ghost.data[k * GHOST_POSE + 1]!, ghost.data[k * GHOST_POSE + 2]!] as const
     const [x0, y0, z0] = pose(0)
     const first = roadAt(track, x0, y0, z0)
-    if (!first.on || Math.abs(fromStart(first.s)) > START_SLACK) return false
-    const timer = new LapTimer(L, track.closed, fromStart(first.s), track.checkpointDistances)
+    const fromStart = first.branch === 0 ? along(0, track.startS, first.s) : Infinity
+    if (!first.on || Math.abs(fromStart) > START_SLACK) return false
+    // Behind the line by the timer's own test owes a crossing first: the grid, or a flying lap a hair short of it.
+    const timer = new LapTimer(track, x0, y0, z0)
     let last = first
     // The last pose on the road before the latest flight's lip, and the last pose in the air.
     let launch: { k: number, y: number } | null = null
@@ -233,24 +265,31 @@ function ghostFliesTrack(track: Track, ghost: Ghost): boolean {
         if (moved > reach || y < -ON_ROAD_BELOW) return false
         const hit = roadNear(track, x, y, z, last, reach)
         if (hit.on) {
-            if (last.on && Math.abs(along(last.s, hit.s)) > reach) return false
+            if (last.on && hit.branch === last.branch && Math.abs(along(hit.branch, last.s, hit.s)) > reach) return false
+            // From one road onto another on the ground only where they meet, not up to a road stacked above.
+            if (last.on && hit.branch !== last.branch && Math.abs(y - py) > CHANGE_CLIMB) return false
         } else {
             // A brief skim over road that drops away under the car is still the same flight.
-            if (last.on) launch = nearLip(last.s) ? { k: k - 1, y: py } : (k - airK) * dt <= SKIM_SECONDS ? launch : null
+            if (last.on) launch = nearLip(last) ? { k: k - 1, y: py } : (k - airK) * dt <= SKIM_SECONDS ? launch : null
             if (!launch) return false
             airK = k
             const t = (k - launch.k) * dt
             // As the physics has it: a car falls well below where it took off only onto road under it.
-            const fell = y < launch.y - FALL_DEPTH - BELOW_ROAD_SLACK && !track.roadUnder(x, y + ON_ROAD_BELOW, z, under)
+            const fell = y < launch.y - FALL_DEPTH - BELOW_ROAD_SLACK && !track.landing(x, y + ON_ROAD_BELOW, z, under)
             if (moved > flightStep || fell || y > launch.y + climb * t - GRAVITY * t * t / 2 + FLIGHT_SLACK) return false
         }
         last = hit
-        if (timer.update(timerS(hit.s), dt, hit.over).some(e => e.type === 'lap')) {
-            return k >= count - 2 && Math.abs(fromStart(hit.s) - (track.closed ? 0 : L)) <= FINISH_SLACK
+        if (timer.update(x, y, z, dt, hit.over).some(e => e.type === 'lap')) {
+            const end = endAhead(hit)
+            return k >= count - 2 && !!end && Math.abs(end.d) <= FINISH_SLACK
         }
     }
     // The last pose can sit a hair short of the line, as the no-gap check allows: carry it over.
-    const short = (track.closed ? 0 : L) - fromStart(last.s)
-    if (!(short > 0 && short <= FINISH_SLACK)) return false
-    return timer.update(timerS(last.s + short), short / SPEED_CEILING, last.over).some(e => e.type === 'lap')
+    const end = endAhead(last)
+    if (!end || !(end.d > 0 && end.d <= FINISH_SLACK)) return false
+    // Straight on along the road, keeping its place across it: a carry to the line's centre is a sideways jump the timer won't count.
+    const { line } = end
+    const [x, y, z] = pose(count - 1)
+    const carry = end.d + 0.01
+    return timer.update(x + line.tx * carry, y, z + line.tz * carry, end.d / SPEED_CEILING, last.over).some(e => e.type === 'lap')
 }

@@ -505,6 +505,13 @@
       "when": 1793809424956,
       "tag": "0071_wipe_nitro_rush_laps",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794391006748,
+      "tag": "0072_nitro_rush_branches",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { LightTrail, Particles, Shockwaves, SkidMarks, SpeedLines } from './fx'
-import { slipAngle, type CarInput, type CarState } from './physics'
+import { railFrameOf, slipAngle, type CarInput, type CarState } from './physics'
+import type { Track } from '#shared/utils/nitro-rush/track'
 
 /** Rear wheels in the car's local space (nose toward -z); close enough for every car, as they all fill one hitbox. */
 const REAR_WHEELS = [new THREE.Vector2(-0.77, 1.27), new THREE.Vector2(0.77, 1.27)]
@@ -39,6 +40,8 @@ export interface FxFrame {
     nitroK: number
     nitro: boolean
     tails: readonly THREE.Vector3[]
+    /** The car as drawn, at its wheels' height. */
+    car: THREE.Vector3
 }
 
 /** Everything the car leaves behind: skid marks, smoke, sparks, shockwaves, light trails and speed lines. */
@@ -75,23 +78,35 @@ export class CarEffects {
     }
 
     /** Skid marks and smoke off the rear tyres while they slide. */
-    tyres(dt: number, s: CarState, amount: number) {
+    tyres(dt: number, s: CarState, amount: number, track: Track) {
+        if (amount <= 0) {
+            for (let i = 0; i < REAR_WHEELS.length; i++) this.skids.lift(i)
+            return
+        }
         const cos = Math.cos(s.heading)
         const sin = Math.sin(s.heading)
+        const f = railFrameOf(s, track)
+        // Height gained over a step on the plan, up the grade and across a bank, so smoke rides the surface the car is drawn on.
+        const bank = f.ry / Math.max(1e-6, f.rx * f.rx + f.rz * f.rz)
+        const rise = (dx: number, dz: number) => s.proj.grade * (dx * s.proj.tx + dz * s.proj.tz) + bank * (dx * f.rx + dz * f.rz)
+        // Where the car is drawn: on a bank `poseCar` lays `lateral` along the tilted road, not across the plan.
+        const banked = Math.abs(f.ry) > 1e-4
+        const L = s.proj.lateral
+        const bx = banked ? f.x + f.rx * L : s.x
+        const by = banked ? f.y + f.ry * L : s.proj.y
+        const bz = banked ? f.z + f.rz * L : s.z
+        const vx = -Math.sin(s.travel) * s.speed * 0.25
+        const vz = -Math.cos(s.travel) * s.speed * 0.25
         REAR_WHEELS.forEach((w, i) => {
-            if (amount <= 0) {
-                this.skids.lift(i)
-                return
-            }
             // The model's local frame turned by the heading.
-            const x = s.x + w.x * cos + w.y * sin
-            const z = s.z - w.x * sin + w.y * cos
-            const y = s.proj.y + s.proj.grade * ((x - s.x) * s.proj.tx + (z - s.z) * s.proj.tz)
+            const x = bx + w.x * cos + w.y * sin
+            const z = bz - w.x * sin + w.y * cos
+            const y = by + rise(x - bx, z - bz)
             this.skids.add(i, this.tmpV.set(x, y, z), 0.35 + amount * 0.65)
             if (Math.random() < amount * dt * 60) {
                 this.smoke.emit(x, y + 0.35, z, 1 + Math.round(amount * 2), {
                     color: TYRE_SMOKE, speed: 1.2, up: 1.2, spread: 0.5, life: 1.6, size: 0.9, gravity: -0.8, drag: 1.4, grow: 3.2, jitter: 0.08,
-                    vx: -Math.sin(s.travel) * s.speed * 0.25, vz: -Math.cos(s.travel) * s.speed * 0.25
+                    vx, vy: rise(vx, vz), vz
                 })
             }
         })
@@ -126,6 +141,7 @@ export class CarEffects {
         const { camera, height } = f
         this.sparks.setScale(height, f.pixelRatio, camera.fov)
         this.smoke.setScale(height, f.pixelRatio, camera.fov)
+        this.smoke.setWindow(f.car.x, f.car.y + 0.6, f.car.z, f.blend)
 
         // Tail-light ribbons: a faint wake at speed, bright on nitro.
         for (let i = 0; i < 2; i++) {

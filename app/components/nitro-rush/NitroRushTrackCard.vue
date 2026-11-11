@@ -25,7 +25,7 @@ defineEmits<{ select: [] }>()
 <template>
   <button class="nr-track" :class="{ 'is-active': active }" :aria-pressed="active" @click="$emit('select')">
     <span class="nr-track-thumb">
-      <NitroRushTrackPreview class="nr-track-preview" :points="track.points" :heights="track.heights" :closed="track.closed !== false" :color="active ? '#ff2bd6' : '#3df2ff'" />
+      <NitroRushTrackPreview class="nr-track-preview" :points="track.points" :heights="track.heights" :closed="track.closed !== false" :branches="track.branches" :color="active ? '#ff2bd6' : '#3df2ff'" />
       <NitroRushMedal class="nr-track-medal" :medal="medal ?? null" />
     </span>
     <div class="min-w-0 flex-1">

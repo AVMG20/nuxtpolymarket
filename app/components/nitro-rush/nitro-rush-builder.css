@@ -141,6 +141,11 @@
     color: var(--nr-pink);
 }
 
+/* A branch that already ends somewhere needs nothing more, so its tag steps back. */
+.nr-root .nr-piece-tag.is-done {
+    color: rgb(255 255 255 / 0.5);
+}
+
 .nr-root .nr-piece-grip {
     display: grid;
     place-items: center;

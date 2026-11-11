@@ -1,4 +1,5 @@
 import type { LayoutWalk, RoadState, TrackPiece } from './layout'
+import { wallFoot, type Track, type TrackLine } from './track'
 
 /** What rules a walked road in or out as a course, for `buildTrack` and for anything asking about a road still being laid. */
 
@@ -8,11 +9,11 @@ export const CLOSE_TOLERANCE = 0.01
 /** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between; a half spiral climbs it. */
 export const MIN_CLEARANCE = 6
 
-type RoadPoints = Pick<LayoutWalk, 'pts' | 'ys' | 'lifts' | 'walls'> & Partial<Pick<LayoutWalk, 'gaps'>>
+export type RoadPoints = Pick<LayoutWalk, 'pts' | 'ys' | 'lifts' | 'walls'> & Partial<Pick<LayoutWalk, 'gaps'>>
 
 /** What each piece that a bank or slope can't carry is called: a level arch or a flight doesn't fit a tilted road. */
 const NEEDS_LEVEL_ROAD: Partial<Record<TrackPiece['type'], string>> = {
-    jump: 'a jump', kicker: 'a jump ramp', looping: 'a looping', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint'
+    jump: 'a jump', kicker: 'a jump ramp', looping: 'a looping', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint', split: 'a split', join: 'a join'
 }
 
 /** Why `piece` can't be laid on road in this state, in the builder's words; null when it can. */
@@ -54,40 +55,54 @@ export function layoutFault({ misplaced, lines }: Pick<LayoutWalk, 'misplaced' |
     return null
 }
 
-/** The first two stretches far apart along the road that cover the same ground without room to drive under, leaving out pairs `excused` says don't count. */
-function firstClash({ pts, ys, lifts, walls, gaps = [] }: RoadPoints, excused: (i: number, j: number) => boolean): string | null {
-    const n = pts.length
+/**
+ * The first two stretches that cover the same ground without room to drive under: on one line, only those far apart
+ * along it; across lines, any pair. `excused` leaves out pairs that don't count, by line and point.
+ */
+function firstClash(lines: readonly RoadPoints[], excused: (a: number, i: number, b: number, j: number) => boolean): string | null {
     // Empty road has no deck to hit: a jump may fly over road or onto it, but needs room under road above it.
-    const empty = new Uint8Array(n)
-    for (const [a, b] of gaps) empty.fill(1, a, b)
-    const { reach, apart } = widestSpan(walls)
+    const empty = lines.map(({ pts, gaps = [] }) => {
+        const e = new Uint8Array(pts.length)
+        for (const [a, b] of gaps) e.fill(1, a, b)
+        return e
+    })
+    const { reach, apart } = widestSpan(lines.flatMap(l => l.walls))
     // Points bucketed in cells `reach` wide, so each one is only checked against its own cell and the eight round it.
-    const cellOf = (i: number) => [Math.floor(pts[i]![0] / reach), Math.floor(pts[i]![1] / reach)] as const
-    const cells = new Map<string, number[]>()
-    for (let i = 0; i < n; i++) {
-        const [cx, cz] = cellOf(i)
-        const key = `${cx},${cz}`
-        const cell = cells.get(key)
-        if (cell) cell.push(i)
-        else cells.set(key, [i])
-    }
-    for (let i = 0; i < n; i++) {
-        const [cx, cz] = cellOf(i)
-        const near: number[] = []
-        for (let ox = -1; ox <= 1; ox++) {
-            for (let oz = -1; oz <= 1; oz++) near.push(...cells.get(`${cx + ox},${cz + oz}`) ?? [])
+    const cellOf = (l: number, i: number) => [Math.floor(lines[l]!.pts[i]![0] / reach), Math.floor(lines[l]!.pts[i]![1] / reach)] as const
+    const cells = new Map<string, [number, number][]>()
+    lines.forEach((line, l) => {
+        for (let i = 0; i < line.pts.length; i++) {
+            const [cx, cz] = cellOf(l, i)
+            const key = `${cx},${cz}`
+            const cell = cells.get(key)
+            if (cell) cell.push([l, i])
+            else cells.set(key, [[l, i]])
         }
-        near.sort((a, b) => a - b)
-        for (const j of near) {
-            if (j < i + apart || (empty[i] && empty[j]) || excused(i, j)) continue
-            if (empty[i] ? ys[j]! <= ys[i]! : empty[j] && ys[i]! <= ys[j]!) continue
-            const dx = pts[i]![0] - pts[j]![0]
-            const dz = pts[i]![1] - pts[j]![1]
-            const near = clearanceReach(walls[i]!, walls[j]!)
-            if (dx * dx + dz * dz >= near * near) continue
-            // A bank's raised edge comes that much closer than its centre.
-            const dy = Math.max(0, Math.abs(ys[i]! - ys[j]!) - lifts[i]! - lifts[j]!)
-            if (dy < MIN_CLEARANCE - CLOSE_TOLERANCE) return `the road at (${pts[i]![0].toFixed(0)}, ${pts[i]![1].toFixed(0)}) passes ${dy.toFixed(1)} m from another stretch; it needs ${MIN_CLEARANCE} m`
+    })
+    for (let a = 0; a < lines.length; a++) {
+        const A = lines[a]!
+        for (let i = 0; i < A.pts.length; i++) {
+            const [cx, cz] = cellOf(a, i)
+            const near: [number, number][] = []
+            for (let ox = -1; ox <= 1; ox++) {
+                for (let oz = -1; oz <= 1; oz++) near.push(...cells.get(`${cx + ox},${cz + oz}`) ?? [])
+            }
+            near.sort((p, q) => p[0] - q[0] || p[1] - q[1])
+            for (const [b, j] of near) {
+                if (b < a || (b === a && j < i + apart)) continue
+                const B = lines[b]!
+                const ei = empty[a]![i]
+                const ej = empty[b]![j]
+                if ((ei && ej) || excused(a, i, b, j)) continue
+                if (ei ? B.ys[j]! <= A.ys[i]! : ej && A.ys[i]! <= B.ys[j]!) continue
+                const dx = A.pts[i]![0] - B.pts[j]![0]
+                const dz = A.pts[i]![1] - B.pts[j]![1]
+                const close = clearanceReach(A.walls[i]!, B.walls[j]!)
+                if (dx * dx + dz * dz >= close * close) continue
+                // A bank's raised edge comes that much closer than its centre.
+                const dy = Math.max(0, Math.abs(A.ys[i]! - B.ys[j]!) - A.lifts[i]! - B.lifts[j]!)
+                if (dy < MIN_CLEARANCE - CLOSE_TOLERANCE) return `the road at (${A.pts[i]![0].toFixed(0)}, ${A.pts[i]![1].toFixed(0)}) passes ${dy.toFixed(1)} m from another stretch; it needs ${MIN_CLEARANCE} m`
+            }
         }
     }
     return null
@@ -97,7 +112,75 @@ function firstClash({ pts, ys, lifts, walls, gaps = [] }: RoadPoints, excused: (
 export function clearanceFault(road: RoadPoints, closed: boolean): string | null {
     const n = road.pts.length
     const { apart } = widestSpan(road.walls)
-    return firstClash(road, (i, j) => closed && n - (j - i) < apart)
+    return firstClash([road], (_, i, __, j) => closed && n - (j - i) < apart)
+}
+
+/**
+ * Where two lines meet: point `ai` of line `a` and point `bi` of line `b`, which part going forward at a fork (`dir` 1)
+ * or meet coming in to a join (-1). Their shared deck ends at `aNose` and `bNose`, where the walls between them start.
+ */
+export interface RoadMeet {
+    a: number
+    ai: number
+    aNose: number
+    b: number
+    bi: number
+    bNose: number
+    dir: 1 | -1
+}
+
+/** Points past a nose two roads have to be a clearance apart by: walls that meet at a nose only need to part a couple of metres more. */
+const PARTING = 30
+
+/**
+ * Like `clearanceFault`, for a forked course: each line on its own, and every line against every other, except
+ * where two lines meet, which share a deck and then run close until they're a clearance apart. `lines[0]` is the main line.
+ */
+export function courseClearanceFault(lines: readonly RoadPoints[], closed: boolean, meets: readonly RoadMeet[]): string | null {
+    for (const [l, line] of lines.entries()) {
+        const fault = clearanceFault(line, closed && l === 0)
+        if (fault) return fault
+    }
+    if (lines.length < 2) return null
+    const { apart } = widestSpan(lines.flatMap(l => l.walls))
+    const zones = meets.map(m => ({
+        a: m.a,
+        b: m.b,
+        onA: meetZone(lines, m.a, m.ai, m.aNose, m.b, m.dir, apart, closed),
+        onB: meetZone(lines, m.b, m.bi, m.bNose, m.a, m.dir, apart, closed)
+    }))
+    // Each line's own stretches were checked above, with a loop's seam allowed for.
+    return firstClash(lines, (a, i, b, j) => a === b || zones.some(z => (z.a === a && z.b === b && z.onA[i] && z.onB[j]) || (z.a === b && z.b === a && z.onA[j] && z.onB[i])))
+}
+
+/** Line `l`'s points from `apart` behind its meet at `at` to where, walking `dir`, it first runs a clearance clear of line `other`, `PARTING` past the nose at the most. */
+function meetZone(lines: readonly RoadPoints[], l: number, at: number, nose: number, other: number, dir: 1 | -1, apart: number, closed: boolean) {
+    const line = lines[l]!
+    const far = lines[other]!
+    const n = line.pts.length
+    const wraps = closed && l === 0
+    const zone = new Uint8Array(n)
+    const index = (k: number) => wraps ? ((k % n) + n) % n : k
+    const deck = wraps ? index((nose - at) * dir) : (nose - at) * dir
+    for (let k = -apart; k <= deck + PARTING; k++) {
+        const i = index(at + dir * k)
+        if (i < 0 || i >= n) {
+            if (k > 0) break
+            continue
+        }
+        zone[i] = 1
+        if (k <= 0) continue
+        const [x, z] = line.pts[i]!
+        let clear = true
+        for (let j = 0; j < far.pts.length && clear; j++) {
+            const dx = far.pts[j]![0] - x
+            const dz = far.pts[j]![1] - z
+            const reach = clearanceReach(line.walls[i]!, far.walls[j]!)
+            clear = dx * dx + dz * dz >= reach * reach
+        }
+        if (clear) break
+    }
+    return zone
 }
 
 /** Whether a road still being laid clashes on its last piece; an older clash isn't this piece's fault, and only a run in from behind the line (+z) is a loop's join. */
@@ -105,5 +188,45 @@ export function lastPieceClashes(road: RoadPoints & Pick<LayoutWalk, 'pieceStart
     const n = road.pts.length
     const from = road.pieceStarts[road.pieceStarts.length - 1]!
     const { apart } = widestSpan(road.walls)
-    return firstClash(road, (i, j) => j < from || (closed && n - (j - i) < apart && road.pts[j]![1] >= 0)) !== null
+    return firstClash([road], (_, i, __, j) => j < from || (closed && n - (j - i) < apart && road.pts[j]![1] >= 0)) !== null
+}
+
+/** A built course's clearance across all its lines, measured from the lines themselves: what a forked layout is checked by. */
+export function trackClearanceFault(track: Track): string | null {
+    const nearestPoint = (line: TrackLine, s: number) => {
+        const i = line.segmentAt(s)
+        const j = s - line.cum[i]! > line.cum[i + 1]! - s ? i + 1 : i
+        return j % line.n
+    }
+    const meets: RoadMeet[] = []
+    const { edges, vertexCount } = track.graph
+    for (let v = 0; v < vertexCount; v++) {
+        for (const [list, dir] of [[edges.filter(e => e.from === v), 1], [edges.filter(e => e.to === v), -1]] as const) {
+            const [p, q] = list
+            if (!p || !q) continue
+            const sp = dir > 0 ? p.s0 : p.s1
+            const sq = dir > 0 ? q.s0 : q.s1
+            const lp = track.branches[p.branch]!
+            const lq = track.branches[q.branch]!
+            // The shared deck's far end, on each line: its nose at a fork, its tail at a join.
+            const noseOf = (line: TrackLine, s: number, partner: number) => {
+                const o = line.open.find(o => o.partner === partner && Math.abs((dir > 0 ? o.from : o.to) - s) < 1e-3)
+                return nearestPoint(line, o ? (dir > 0 ? o.to : o.from) : s)
+            }
+            meets.push({
+                a: p.branch, ai: nearestPoint(lp, sp), aNose: noseOf(lp, sp, q.branch),
+                b: q.branch, bi: nearestPoint(lq, sq), bNose: noseOf(lq, sq, p.branch),
+                dir
+            })
+        }
+    }
+    const lines = track.branches.map(line => ({
+        pts: line.def.points,
+        ys: Array.from(line.ys),
+        // As a layout has it: how far a bank raises the deck's edge above its centre.
+        lifts: Array.from(line.walls, (w, i) => wallFoot(w) * Math.abs(line.right[i * 3 + 1]!)),
+        walls: Array.from(line.walls),
+        gaps: line.def.gaps
+    }))
+    return courseClearanceFault(lines, track.closed, meets)
 }

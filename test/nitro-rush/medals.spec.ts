@@ -7,7 +7,7 @@ const SPRINT = ['straight-20', 'start', 'straight-100', 'right-tight', 'straight
 
 describe('medal times', () => {
     it('sets gold, silver and bronze as shares of the bot lap', () => {
-        expect(medalTimesFor(100, false)).toEqual({ gold: 87, silver: 95, bronze: 110 })
+        expect(medalTimesFor(100, false)).toEqual({ gold: 95, silver: 103, bronze: 120 })
         expect(MEDAL_FACTORS.gold).toBeLessThan(MEDAL_FACTORS.silver)
         expect(MEDAL_FACTORS.silver).toBeLessThan(MEDAL_FACTORS.bronze)
     })

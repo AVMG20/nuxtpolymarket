@@ -21,7 +21,7 @@ const ghosts = computed(() => props.ghosts.map(g => ({ at: toMap(plan.value.fit,
     <path class="nr-minimap-edge" :d="plan.road" />
     <path class="nr-minimap-road" :d="plan.road" />
     <line class="nr-minimap-line" v-bind="plan.start" />
-    <line v-if="plan.finish" class="nr-minimap-line is-finish" v-bind="plan.finish" />
+    <line v-for="(f, i) in plan.finishes" :key="`f${i}`" class="nr-minimap-line is-finish" v-bind="f" />
     <circle v-for="(g, i) in ghosts" :key="i" class="nr-minimap-ghost" :cx="g.at[0]" :cy="g.at[1]" r="2.6" :fill="g.fill" />
     <path class="nr-minimap-car" d="M0 -5 L3.8 4 L0 2.2 L-3.8 4 Z" :transform="`translate(${car[0]} ${car[1]}) rotate(${markerRotation(props.car.heading)})`" />
   </svg>

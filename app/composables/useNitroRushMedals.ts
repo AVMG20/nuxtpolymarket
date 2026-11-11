@@ -1,42 +1,83 @@
-import { cachedMedalTimes, markNoMedals, medalFor, medalKey, medalTimes, type Medal, type MedalTimes } from '~/utils/nitro-rush/medals'
+import { cachedMedalTimes, cacheMedalTimes, markNoMedals, medalFor, medalJob, medalKey, type Medal, type MedalTimes } from '~/utils/nitro-rush/medals'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
 /** Bumped as each course's times come in, so whatever read them renders again. */
 const settled = ref(0)
-/** Courses waiting for their bot lap, by cache key. */
+/** Courses waiting for their bot laps, by cache key. */
 const queue = new Map<string, TrackDef>()
+/** The course about to be raced, which goes first and still runs while a race holds the rest back. */
+let priority: string | null = null
+type Job = Generator<void, MedalTimes | null>
+let current: { key: string, def: TrackDef, job: Job, first: boolean } | null = null
+/** Jobs put back part done, which carry on from where they stopped when their course comes round again. */
+const parked = new Map<string, Job>()
 let running = false
 let held = false
 
-type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }
+/** Milliseconds of bot laps per slot where the browser can't say how much idle time it has. */
+const FALLBACK_SLICE = 6
 
-function later(cb: () => void) {
+interface Deadline {
+    timeRemaining(): number
+}
+
+type IdleWindow = Window & { requestIdleCallback?: (cb: (deadline: Deadline) => void, opts?: { timeout: number }) => number }
+
+function later(cb: (deadline: Deadline | null) => void) {
     const w = window as IdleWindow
     // Safari has no idle callback.
     if (w.requestIdleCallback) w.requestIdleCallback(cb, { timeout: 500 })
-    else setTimeout(cb, 50)
+    else setTimeout(() => cb(null), 50)
 }
 
-/** One bot lap per idle slot: a long course takes tens of milliseconds, too much to run a list of them in one frame. */
-function runNext() {
-    const next = queue.entries().next()
-    if (next.done) {
-        running = false
-        return
-    }
-    // A race has no idle frames to spare, and Safari's fallback can't tell; the menu's list waits for it to end.
-    if (held) return later(runNext)
-    const [key, def] = next.value
+/** The next course to work on: the priority one first, and while a race runs nothing else. */
+function nextJob(): typeof current {
+    const key = priority !== null && queue.has(priority) ? priority : held ? undefined : queue.keys().next().value
+    if (key === undefined) return null
+    const def = queue.get(key)!
     queue.delete(key)
-    try {
-        if (cachedMedalTimes(def) === undefined) medalTimes(def)
-    } catch {
-        // A course the bot can't even load has no medals, and mustn't stop the rest of the list.
-        markNoMedals(def)
-    } finally {
+    const first = key === priority
+    if (first) priority = null
+    const job = parked.get(key)
+    parked.delete(key)
+    if (cachedMedalTimes(def) !== undefined) return nextJob()
+    return { key, def, job: job ?? medalJob(def), first }
+}
+
+/** Puts a list course's job back when a race holds the list or the race's course is waiting behind it. */
+function yieldToRace() {
+    if (!current || current.first || !(held || (priority !== null && queue.has(priority)))) return
+    queue.set(current.key, current.def)
+    parked.set(current.key, current.job)
+    current = null
+}
+
+/** Bot laps a slice at a time in idle slots: a forked course takes several, too much for one frame. */
+function work(deadline: Deadline | null) {
+    const started = performance.now()
+    const left = () => deadline ? deadline.timeRemaining() : FALLBACK_SLICE - (performance.now() - started)
+    do {
+        yieldToRace()
+        current ??= nextJob()
+        if (!current) {
+            // A race has no idle frames to spare, and Safari's fallback can't tell; the menu's list waits for it to end.
+            if (queue.size) return later(work)
+            running = false
+            return
+        }
+        const { def, job } = current
+        try {
+            const step = job.next()
+            if (!step.done) continue
+            cacheMedalTimes(def, step.value)
+        } catch {
+            // A course the bot can't even load has no medals, and mustn't stop the rest of the list.
+            markNoMedals(def)
+        }
+        current = null
         settled.value++
-        later(runNext)
-    }
+    } while (left() > 1)
+    later(work)
 }
 
 /** Holds the list's bot laps back while a race runs. */
@@ -44,14 +85,16 @@ export function holdMedalWork(on: boolean) {
     held = on
 }
 
-function schedule(def: TrackDef) {
-    queue.set(medalKey(def), def)
+function schedule(def: TrackDef, first = false) {
+    const key = medalKey(def)
+    queue.set(key, def)
+    if (first) priority = key
     if (running) return
     running = true
-    later(runNext)
+    later(work)
 }
 
-/** Medal times for the menu and the race, worked out lazily and shared by every component. */
+/** Medal times for the menu and the race, worked out lazily in idle time and shared by every component. */
 export function useNitroRushMedals() {
     /** The course's medal times: null when the bot can't drive it, undefined while they're still being worked out. */
     function times(def: TrackDef | null): MedalTimes | null | undefined {
@@ -67,13 +110,12 @@ export function useNitroRushMedals() {
         return time === null ? null : medalFor(time, times(def) ?? null)
     }
 
-    /** The course's medal times now, for a course about to be raced. */
+    /** The course's medal times if known, else null with the course sent to the front of the queue; `times` updates once they're in. */
     function ensure(def: TrackDef): MedalTimes | null {
         const cached = cachedMedalTimes(def)
         if (cached !== undefined) return cached
-        const t = medalTimes(def)
-        settled.value++
-        return t
+        schedule(def, true)
+        return null
     }
 
     return { times, medalOf, ensure }

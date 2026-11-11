@@ -6,7 +6,7 @@ import { botInput, createCar, crossesLines, stepCar, type CarInput, type CarStat
 import { compileCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { decodeGhost, encodeGhost, type Ghost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
-import { Track } from '#shared/utils/nitro-rush/track'
+import { Track, type Route } from '#shared/utils/nitro-rush/track'
 
 /** Real laps for the specs: the demo bot driving a course from the grid, recorded the way the engine records a ghost. */
 
@@ -24,9 +24,9 @@ export function trackOf(closed: boolean, sections: SectionId[]) {
     return new Track(def)
 }
 
-/** The demo bot's lap from the grid, recorded as the engine does; on a loop `lap` 1 is the first flying lap. */
-export function drive(track: Track, lap = 0): Ghost {
-    return recordRun(track, createCar(track, track.startS + GRID_OFFSET), car => botInput(car, track), lap)
+/** The demo bot's lap from the grid along `route`, recorded as the engine does; on a loop `lap` 1 is the first flying lap. */
+export function drive(track: Track, lap = 0, route: Route | null = null): Ghost {
+    return recordRun(track, createCar(track, track.startS + GRID_OFFSET), car => botInput(car, track, 1, route), lap)
 }
 
 /** A run down a straight course held at `speed` on the ground with nitro lit, `lateral` off the centreline: flights off jumps follow the real physics. */
@@ -41,19 +41,19 @@ export function driveFlatOut(track: Track, speed: number, lateral = 0): Ghost {
 }
 
 function recordRun(track: Track, car: CarState, input: (car: CarState) => CarInput, lap = 0): Ghost {
-    const timer = new LapTimer(track.lapLength, track.closed, GRID_OFFSET, track.checkpointDistances)
+    const timer = new LapTimer(track, car.x, car.y, car.z)
     const recorder = new GhostRecorder()
     const pos = new THREE.Vector3()
     const quat = new THREE.Quaternion()
     const record = () => {
-        poseCar(track, { x: car.x, z: car.z, y: car.y, along: car.proj.s, lateral: car.proj.lateral, heading: car.heading, rel: car.rel, vy: car.vy, speed: car.speed, onRail: car.onRail, airborne: car.airborne }, pos, quat)
+        poseCar(track, { x: car.x, z: car.z, y: car.y, along: car.proj.s, branch: car.proj.branch, lateral: car.proj.lateral, heading: car.heading, rel: car.rel, vy: car.vy, speed: car.speed, onRail: car.onRail, airborne: car.airborne }, pos, quat)
         recorder.add(timer.lapTime, { x: pos.x, y: pos.y, z: pos.z, qx: quat.x, qy: quat.y, qz: quat.z, qw: quat.w })
     }
     record()
     for (let i = 0; i < PHYSICS_HZ * 240; i++) {
         const ev = stepCar(car, input(car), track, DT)
         if (ev.fell) throw new Error('the bot fell')
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
+        for (const e of timer.update(car.x, car.y, car.z, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             const ghost = recorder.lap(e.time)
             if (e.lap === lap) {

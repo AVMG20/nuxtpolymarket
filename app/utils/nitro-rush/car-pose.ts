@@ -7,8 +7,9 @@ export interface PoseSample {
     z: number
     /** The wheels' height. */
     y: number
-    /** Distance along the course. */
+    /** Distance along the course's line `branch`; the main line when it's left out. */
     along: number
+    branch?: number
     lateral: number
     heading: number
     /** On rails: the car's angle to the road, + to the left. */
@@ -31,7 +32,7 @@ const basis = new THREE.Matrix4()
  * looping. In the air its nose follows its flight.
  */
 export function poseCar(track: Track, c: PoseSample, pos: THREE.Vector3, quat: THREE.Quaternion) {
-    const f = track.frameAt(c.along, frame)
+    const f = (track.branches[c.branch ?? 0] ?? track).frameAt(c.along, frame)
     if (c.airborne) {
         const pitch = Math.atan2(c.vy, Math.max(4, Math.abs(c.speed)))
         fwd.set(-Math.sin(c.heading) * Math.cos(pitch), Math.sin(pitch), -Math.cos(c.heading) * Math.cos(pitch))

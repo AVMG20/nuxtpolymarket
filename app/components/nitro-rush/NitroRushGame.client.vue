@@ -88,6 +88,8 @@ const trackMedals = computed(() => medals.times(trackDef.value) ?? null)
 const heldMedal = computed(() => medalFor(viewerBest.value, trackMedals.value))
 const medalTarget = computed(() => nextMedal(heldMedal.value, trackMedals.value))
 watch(viewerBest, b => engine?.setMedals(trackMedals.value, b))
+// The bot laps run in idle time, so a course's times can land after it's on the engine.
+watch(trackMedals, t => engine?.setMedals(t, viewerBest.value))
 
 function pushPopup(p: Popup) {
     const id = ++popupId
@@ -134,7 +136,7 @@ function syncTrack(def: TrackDef) {
     trackId.value = def.id
     trackName.value = def.name
     engine?.setRecord(record.value)
-    // Worked out now, while the menu is up, so a lap never waits on the bot.
+    // Sent to the front of the bot's queue, so they're in while the menu is up.
     engine?.setMedals(medals.ensure(def), viewerBest.value)
 }
 

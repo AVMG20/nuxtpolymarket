@@ -49,7 +49,8 @@ export interface MapGhost {
 /** The best lap on a track and its sector splits (lap time last), for live deltas. */
 export interface TrackRecord {
     bestLap: number | null
-    bestSplits: number[] | null
+    /** Each checkpoint's split by id, null where that lap missed it, then the lap time. */
+    bestSplits: (number | null)[] | null
     /** The ghost to race, kept in this browser only: the fastest lap driven here (on a loop, flying); records from before ghosts have none. */
     ghost?: StoredGhost
     /** The ghost is a loop's standing first lap, kept only until a flying lap is driven. */

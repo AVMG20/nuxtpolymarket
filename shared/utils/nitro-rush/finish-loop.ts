@@ -1,12 +1,14 @@
 import { cheapestPath, type PathStep } from './cheapest-path'
 import { BENDS, SLOPE_STEPS, STRAIGHTS, STRAIGHT_LENGTHS, targetOf, type BendSize, type Curve } from './construct'
-import { compileCustomTrack, MAX_SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
+import { compileMainRoad, mapWalkHeights, MAX_SECTIONS, SECTIONS, sectionCount, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
+import { draftForkedDef, walkCustomLines, walkForks, type JoinInlet } from './custom-forks'
+import { mergeFrom } from './fork-pieces'
 import { BANK_LENGTH, GRID, onAxis, SLOPE_LENGTH, type LayoutWalk } from './layout'
-import { clearanceFault, clearanceReach, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP } from './road-checks'
+import { clearanceFault, clearanceReach, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP, trackClearanceFault } from './road-checks'
 import { Track } from './track'
 import { ROAD } from './tracks'
 
-/** Finishing a loop: the sections that take an open road, from wherever it ends, back to its start line. */
+/** Finishing a loop or a branch: the sections that take an open road, from wherever it ends, back to its start line or onto the road it joins. */
 
 export type FinishedLoop = { sections: SectionId[], error: null } | { sections: null, error: string }
 
@@ -131,21 +133,44 @@ const RASTER_CELL = SAMPLE_SPACING
 /** A cell counts as taken if any point in it could be: its centre to its corner. */
 const RASTER_SLACK = RASTER_CELL * Math.SQRT1_2
 
+/** Road already laid that new road keeps clear of, except by where the new road sets off and by the spot it heads for. */
+interface Laid {
+    walk: Pick<LayoutWalk, 'pts' | 'ys' | 'lifts' | 'walls'>
+    /** The new road sets off from where this one ends. */
+    setsOff: boolean
+    /** The point the new road heads for, when it's on this road. */
+    target: number | null
+}
+
+/** A map spot. */
+interface At {
+    x: number
+    z: number
+}
+
+/** Where new road is headed: a point on the grid and the way it faces there. */
+interface Goal {
+    x: number
+    z: number
+    k: number
+}
+
+/** Map offset of one step along quarter turn `k`: heading 0 runs up the screen, -z. */
+const AHEAD = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const
+
 /** Whether new road at height `level` would come too close to the road already laid; a raster, since the search asks millions of times. */
-function roadCheck({ pts, ys, lifts, walls }: LayoutWalk, level: number, bounds: Bounds) {
+function roadCheck(laid: readonly Laid[], level: number, bounds: Bounds, from: At, goal: Goal) {
     const { apart } = clearanceSpan(ROAD.wallOffset)
     const sameStretch = apart * STEP
-    const n = pts.length
     const width = Math.ceil((bounds.maxX - bounds.minX) / RASTER_CELL) + 1
     const height = Math.ceil((bounds.maxZ - bounds.minZ) / RASTER_CELL) + 1
     const taken = new Uint8Array(width * height)
     const nearJoin = new Uint8Array(width * height)
     // The road back is laid at the normal width, whatever the road it passes.
-    const reachOf = (i: number) => clearanceReach(walls[i]!, ROAD.wallOffset)
-    const paint = (raster: Uint8Array, i: number) => {
-        const [x, z] = pts[i]!
-        const span = Math.ceil((reachOf(i) + RASTER_SLACK) / RASTER_CELL)
-        const limit = (reachOf(i) + RASTER_SLACK) ** 2
+    const reachOf = (wall: number) => clearanceReach(wall, ROAD.wallOffset)
+    const paint = (raster: Uint8Array, x: number, z: number, reach: number) => {
+        const span = Math.ceil((reach + RASTER_SLACK) / RASTER_CELL)
+        const limit = (reach + RASTER_SLACK) ** 2
         const cx = Math.round((x - bounds.minX) / RASTER_CELL)
         const cz = Math.round((z - bounds.minZ) / RASTER_CELL)
         for (let gz = Math.max(0, cz - span); gz <= cz + span && gz < height; gz++) {
@@ -157,16 +182,25 @@ function roadCheck({ pts, ys, lifts, walls }: LayoutWalk, level: number, bounds:
         }
     }
     // Road by either end of the new stretch can count as the same road, depending on how far along the new one is.
-    const joins: number[] = []
-    for (let i = 0; i < n; i++) {
-        if (Math.max(0, Math.abs(ys[i]! - level) - lifts[i]!) >= MIN_CLEARANCE) continue
-        if ((n - i) * STEP < sameStretch || i * STEP < sameStretch) {
-            joins.push(i)
-            paint(nearJoin, i)
-        } else {
-            paint(taken, i)
+    const joins: { x: number, z: number, reach: number, fromEnd: number, fromTarget: number, behind: boolean }[] = []
+    for (const { walk: { pts, ys, lifts, walls }, setsOff, target } of laid) {
+        const n = pts.length
+        for (let i = 0; i < n; i++) {
+            if (Math.max(0, Math.abs(ys[i]! - level) - lifts[i]!) >= MIN_CLEARANCE) continue
+            const [x, z] = pts[i]!
+            const reach = reachOf(walls[i]!)
+            // On other road, straight-line distance stands in for distance along it: a branch by the start or the goal is the same road there.
+            const fromEnd = setsOff ? (n - i) * STEP : Math.hypot(x - from.x, z - from.z)
+            const fromTarget = target === null ? Math.hypot(x - goal.x, z - goal.z) : Math.abs(i - target) * STEP
+            if (fromEnd < sameStretch || fromTarget < sameStretch) {
+                joins.push({ x, z, reach, fromEnd, fromTarget, behind: target !== null && i < target })
+                paint(nearJoin, x, z, reach)
+            } else {
+                paint(taken, x, z, reach)
+            }
         }
     }
+    const [ax, az] = AHEAD[goal.k]!
     /** `run` is how far along the new road this point is. */
     return (x: number, z: number, run: number) => {
         const cx = Math.round((x - bounds.minX) / RASTER_CELL)
@@ -175,12 +209,13 @@ function roadCheck({ pts, ys, lifts, walls }: LayoutWalk, level: number, bounds:
         const cell = cz * width + cx
         if (taken[cell]) return true
         if (!nearJoin[cell]) return false
-        // The new road only ever reaches the line from behind it, so ground ahead of the line is a long way round from it.
-        const home = z >= 0 ? Math.hypot(x, z) : Infinity
-        return joins.some((i) => {
-            const [px, pz] = pts[i]!
-            if ((px - x) * (px - x) + (pz - z) * (pz - z) >= reachOf(i) ** 2) return false
-            return (n - i) * STEP + run >= sameStretch && i * STEP + home >= sameStretch
+        // The new road only ever reaches the goal from behind it, so ground ahead of it is a long way round from it.
+        const home = (x - goal.x) * ax + (z - goal.z) * az <= 0 ? Math.hypot(x - goal.x, z - goal.z) : Infinity
+        return joins.some((j) => {
+            if ((j.x - x) * (j.x - x) + (j.z - z) * (j.z - z) >= j.reach ** 2) return false
+            // Road behind a join is where the new road curves in alongside it, so only how near the goal both are counts.
+            const nearGoal = j.behind ? home < sameStretch : j.fromTarget + home < sameStretch
+            return j.fromEnd + run >= sameStretch && !nearGoal
         })
     }
 }
@@ -196,28 +231,32 @@ interface Spot {
 /** A touch greedy: the road back comes out barely longer, and it's found far sooner. */
 const ROUTE_HASTE = 1.3
 
-/** Level road on the grid from where `walk` ends to `runIn` metres behind the start line, heading for it. */
-function routeHome(walk: LayoutWalk, runIn: number) {
-    const { end, pts } = walk
+/** Level road on the grid from where `walk` ends to `runIn` metres behind `goal`, heading its way, clear of `laid`. */
+function routeTo(walk: LayoutWalk, laid: readonly Laid[], goal: Goal, runIn: number, budget?: { left: number }) {
+    const { end } = walk
     const x = Math.round(end.x / GRID) * GRID
     const z = Math.round(end.z / GRID) * GRID
     if (Math.abs(x - end.x) > 0.01 || Math.abs(z - end.z) > 0.01) return null
     const k = ((Math.round(end.heading * 2 / Math.PI) % 4) + 4) % 4
-    const xs = pts.map(p => p[0])
-    const zs = pts.map(p => p[1])
+    const [ax, az] = AHEAD[goal.k]!
+    const px = goal.x - ax * runIn
+    const pz = goal.z - az * runIn
+    const xs = [goal.x, px, ...laid.flatMap(l => l.walk.pts.map(p => p[0]))]
+    const zs = [goal.z, pz, ...laid.flatMap(l => l.walk.pts.map(p => p[1]))]
     const bounds = {
-        minX: Math.min(0, ...xs) - ROUTE_MARGIN,
-        maxX: Math.max(0, ...xs) + ROUTE_MARGIN,
-        minZ: Math.min(0, ...zs) - ROUTE_MARGIN,
-        maxZ: Math.max(runIn, ...zs) + ROUTE_MARGIN
+        minX: Math.min(...xs) - ROUTE_MARGIN,
+        maxX: Math.max(...xs) + ROUTE_MARGIN,
+        minZ: Math.min(...zs) - ROUTE_MARGIN,
+        maxZ: Math.max(...zs) + ROUTE_MARGIN
     }
-    const blocked = roadCheck(walk, end.y, bounds)
+    const blocked = roadCheck(laid, end.y, bounds, end, goal)
     return found(cheapestPath<Spot, SectionId>({ x, z, k, run: 0 }, {
         limit: SEARCH_LIMIT,
+        budget,
         // Offset to keep it positive; a course never reaches 20 km out.
         key: s => ((s.x / GRID + 2000) * 4000 + s.z / GRID + 2000) * 4 + s.k,
-        done: s => s.x === 0 && s.z === runIn && s.k === 0,
-        estimate: s => Math.hypot(s.x, s.z - runIn) * ROUTE_HASTE,
+        done: s => s.x === px && s.z === pz && s.k === goal.k,
+        estimate: s => Math.hypot(s.x - px, s.z - pz) * ROUTE_HASTE,
         steps(s) {
             const steps: Step<Spot>[] = []
             for (const m of MOVES[s.k]!) {
@@ -287,6 +326,20 @@ function descents(t: CustomTrack) {
 const LEAD_INS: SectionId[][] = [[], ...ROUTE_CURVES.map(c => [BENDS[c].tight])]
 /** A dead end is the slowest thing to search, so a click only gets so many tries. */
 const MAX_ROUTE_SEARCHES = 12
+/** A join has several spots to come onto its diagonal from, each its own search. */
+const MAX_JOIN_SEARCHES = 24
+/** States a join's searches open between them: room for a few dead ends before one that gets there. */
+const JOIN_SEARCH_BUDGET = 55_000
+
+/** A forked course's branches, as road the main road's way home keeps clear of, on the main road's ground. */
+function branchRoads(t: CustomTrack, main: LayoutWalk): Laid[] {
+    if (!t.branches?.length) return []
+    const lines = walkCustomLines(t)
+    const by = main.rise - lines[0]!.rise
+    return lines.slice(1).map(w => ({ walk: mapWalkHeights(w, y => y + by), setsOff: false, target: null }))
+}
+
+const HOME: Goal = { x: 0, z: 0, k: 0 }
 
 /** The shortest finish after `lead`, counting off the route searches it uses from `searches`. */
 function finishAfter(t: CustomTrack, lead: SectionId[], searches: { left: number }) {
@@ -298,14 +351,16 @@ function finishAfter(t: CustomTrack, lead: SectionId[], searches: { left: number
         const turns = onAxis(walkCustomTrack({ ...t, sections: settled }).end.heading) ? [[]] : OFF_DIAGONAL
         for (const turn of turns) {
             if (searches.left-- <= 0) break
-            const route = routeHome(walkCustomTrack({ ...t, sections: [...settled, ...turn] }), after.cost)
+            const walk = walkCustomTrack({ ...t, sections: [...settled, ...turn] })
+            const route = routeTo(walk, [{ walk, setsOff: true, target: 0 }, ...branchRoads(t, walk)], HOME, after.cost)
             if (!route) continue
             const sections = compact([...lead, ...before.sections, ...turn, ...route.sections, ...after.sections])
-            if (t.sections.length + sections.length > MAX_SECTIONS) {
+            if (sectionCount(t) + sections.length > MAX_SECTIONS) {
                 tooMany = true
                 continue
             }
-            const { def } = compileCustomTrack({ ...t, sections: [...t.sections, ...sections] })
+            // The main road on its own: a branch still open mustn't hold up the loop.
+            const { def } = compileMainRoad({ ...t, sections: [...t.sections, ...sections] })
             if (!def) continue
             const metres = new Track(def).length
             if (!best || metres < best.metres) best = { sections, metres }
@@ -331,4 +386,108 @@ export function finishLoop(t: CustomTrack): FinishedLoop {
         tooMany ||= tried.tooMany
     }
     return { sections: null, error: tooMany ? 'that takes more sections than a track can have' : 'there\'s no way back round the road from here' }
+}
+
+/** Line `line` of `t` with `sections` laid on its end. */
+function extended(t: CustomTrack, line: number, sections: readonly SectionId[]): CustomTrack {
+    return { ...t, branches: t.branches!.map((b, i) => i === line - 1 ? { ...b, sections: [...b.sections, ...sections] } : b) }
+}
+
+/** The eighths a route can end on to come onto a join's diagonal, with which way they turn and how wide. */
+const ONTO_DIAGONAL = (['left-45', 'right-45'] as const).flatMap(c => Object.values(BENDS[c]).flatMap((id) => {
+    const piece = SECTIONS[id].piece
+    return piece.type === 'corner' ? [{ id: id as SectionId | null, side: c === 'left-45' ? -1 : 1, radius: piece.radius }] : []
+}))
+/** How far round a join a route may come onto its way in, and how many spots on each way to try. */
+const APPROACH_REACH = 200
+const APPROACH_TRIES = 3
+
+/** A spot a route heads for and the eighth, if any, that takes it from there onto the road into a join. */
+interface Approach {
+    goal: Goal
+    last: SectionId | null
+}
+
+/**
+ * Grid spots heading along the grid from which road bends into `inlet`'s join, the shortest way from `start` first:
+ * straight on when it comes in along the grid, else through an eighth onto its diagonal.
+ */
+function approaches(inlet: JoinInlet, start: At): Approach[] {
+    const { x, z, heading } = inlet
+    const right = [Math.cos(heading), Math.sin(heading)] as const
+    const leads = onAxis(heading) ? [{ id: null, side: 0, radius: 0 }] : ONTO_DIAGONAL
+    const found: (Approach & { metres: number })[] = []
+    for (const { id, side, radius } of leads) {
+        const from = heading - side * Math.PI / 4
+        const quarter = Math.round(from * 2 / Math.PI)
+        if (Math.abs(from - quarter * Math.PI / 2) > 1e-6) continue
+        // Where the eighth comes out, from where it starts: radius * side * (right(from) - right(heading)).
+        const ox = radius * side * (Math.cos(from) - right[0])
+        const oz = radius * side * (Math.sin(from) - right[1])
+        const spots: (Approach & { metres: number })[] = []
+        for (let gx = Math.round((x - APPROACH_REACH) / GRID) * GRID; gx <= x + APPROACH_REACH; gx += GRID) {
+            for (let gz = Math.round((z - APPROACH_REACH) / GRID) * GRID; gz <= z + APPROACH_REACH; gz += GRID) {
+                const merge = mergeFrom({ x: gx + ox, z: gz + oz, heading }, inlet)
+                // As the crow flies to the spot, then the run in: a guess at the road it takes.
+                if (merge) spots.push({ goal: { x: gx, z: gz, k: ((quarter % 4) + 4) % 4 }, last: id, metres: Math.hypot(gx - start.x, gz - start.z) + merge.runIn })
+            }
+        }
+        found.push(...spots.sort((a, b) => a.metres - b.metres).slice(0, APPROACH_TRIES))
+    }
+    return found.sort((a, b) => a.metres - b.metres)
+}
+
+/** Whether branch `line` comes into its join clear of other road: across the whole course once every branch fits, else on its own. */
+function joinsClear(t: CustomTrack, line: number, closes: boolean) {
+    const forks = walkForks(t)
+    if (!forks.merged[line - 1]) return false
+    // The route is checked as it's searched, but not the eighth onto the diagonal and the run in after it.
+    const draft = draftForkedDef(t, forks, closes)
+    return !(draft ? trackClearanceFault(new Track(draft.def)) : clearanceFault(forks.walks[line]!, false))
+}
+
+/** The sections to lay on the end of branch `line` so it comes into its join, or why there are none. */
+export function finishJoin(t: CustomTrack, line: number): FinishedLoop {
+    const branch = t.branches?.[line - 1]
+    if (!branch?.to) return { sections: null, error: 'pick a join first' }
+    const to = branch.to
+    const { walks: lines, joins } = walkForks(t)
+    const walk = lines[line]!
+    if (walk.misplaced) return { sections: null, error: walk.misplaced }
+    const inlet = joins.find(j => j.branch === line)
+    if (!inlet) return { sections: null, error: 'no way into that join from here' }
+    // Heights as the main road's start has them, which every line shares.
+    const ground = -lines[0]!.rise
+    const goalY = Math.round(inlet.y + ground)
+    const heightOf = (w: LayoutWalk): Height => ({ y: Math.round(w.end.y - w.end.lift + ground), tenths: Math.round(w.end.grade * 10), banked: Math.abs(w.end.bank) > 1e-6 })
+    const arrived = (h: Height) => h.y === goalY && isLevel(h)
+    const rewiden: SectionId[] = [...walk.end.air ? ['landing-ramp' as const] : [], ...walk.end.halfWidth === ROAD.halfWidth ? [] : ['width-normal' as const]]
+    let searches = MAX_JOIN_SEARCHES
+    const budget = { left: JOIN_SEARCH_BUDGET }
+    const closes = t.closed !== false && !!compileMainRoad(t).def
+    let tooMany = false
+    for (const lead of LEAD_INS) {
+        if (searches <= 0 || budget.left <= 0) break
+        const led = [...rewiden, ...lead]
+        const levelled = settle(ground, heightOf(walkCustomLines(extended(t, line, led))[line]!), arrived)
+        if (!levelled) continue
+        const settled = [...led, ...levelled.sections]
+        const turns = onAxis(walkCustomLines(extended(t, line, settled))[line]!.end.heading) ? [[]] : OFF_DIAGONAL
+        for (const turn of turns) {
+            const laidOut = walkCustomLines(extended(t, line, [...settled, ...turn]))
+            const laid = laidOut.map((w, l): Laid => ({ walk: w, setsOff: l === line, target: l === to.branch ? inlet.point : null }))
+            for (const { goal, last } of approaches(inlet, laidOut[line]!.end)) {
+                if (searches-- <= 0 || budget.left <= 0) break
+                const route = routeTo(laidOut[line]!, laid, goal, 0, budget)
+                if (!route) continue
+                const sections = compact([...settled, ...turn, ...route.sections, ...last ? [last] : []])
+                if (sectionCount(t) + sections.length > MAX_SECTIONS) {
+                    tooMany = true
+                    continue
+                }
+                if (joinsClear(extended(t, line, sections), line, closes)) return { sections, error: null }
+            }
+        }
+    }
+    return { sections: null, error: tooMany ? 'that takes more sections than a track can have' : 'no way into that join from here' }
 }

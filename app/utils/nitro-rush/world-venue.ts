@@ -3,10 +3,10 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { BILLBOARD_ADS, bannerTexture, billboardTexture } from './signs'
 import { NEON_PINK } from './config'
 import { radialTexture } from './textures'
-import { DECK_DEPTH, roadAbove } from './road-geometry'
+import { DECK_DEPTH, roadAbove, roadClearance, roadLevelWith } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
-import { headingOf, WALL_BASE_HALF } from '#shared/utils/nitro-rush/track'
+import { headingOf, WALL_BASE_HALF, type LapLine } from '#shared/utils/nitro-rush/track'
 
 /** The race venue round the road: floodlights, the arches over the lines and billboards. */
 
@@ -28,10 +28,10 @@ const LIGHTS_Z = ARCH_TUBE + 0.1
 
 /** Floodlights on the walls, arms out over the track; returns their lens and pool materials and head positions. */
 export function buildLamps({ track, own, instanced }: WorldKit) {
-    const L = track.length
     const heads: THREE.Vector3[] = []
-    const lampCount = Math.floor(L / LAMP_SPACING)
-    const n = lampCount * 2
+    const lines = track.branches
+    const elevated = track.anyElevated
+    const n = lines.reduce((sum, line) => sum + Math.floor(line.length / LAMP_SPACING) * 2, 0)
     const metal = own(new THREE.MeshStandardMaterial({ color: 0x5a5e66, roughness: 0.45, metalness: 0.8 }))
     const lens = own(new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd2a0, emissiveIntensity: 4 }))
     const poolMat = own(new THREE.MeshBasicMaterial({
@@ -48,29 +48,36 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
     pool.renderOrder = 1
     const dummy = new THREE.Object3D()
     let li = 0
-    for (let k = 0; k < lampCount; k++) {
-        for (const side of [-1, 1]) {
-            const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
-            const p = track.pointAt(s)
-            const lat = side * (track.wallAt(s) + WALL_BASE_HALF)
-            // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank or over a gap.
-            if (!track.plainRoadAt(s)) continue
-            // Under another level the pole would run through its deck.
-            if (track.elevated && roadAbove(track, p.x, p.y, p.z, 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
-            // Local -x is the arm; turn it to point across the track.
-            const inX = p.tz * side
-            const inZ = -p.tx * side
-            dummy.position.set(p.x - p.tz * lat, p.y + 0.86, p.z + p.tx * lat)
-            dummy.rotation.set(0, Math.atan2(inZ, -inX), 0)
-            dummy.updateMatrix()
-            for (const m of lamps) m.setMatrixAt(li, dummy.matrix)
-            heads.push(new THREE.Vector3(dummy.position.x + inX * 3, p.y + LAMP_HEIGHT, dummy.position.z + inZ * 3))
-            // The light pool lies on the road, tipped to its slope.
-            dummy.position.y = p.y
-            dummy.rotation.set(Math.atan(side * p.grade), Math.atan2(inZ, -inX), 0, 'YXZ')
-            dummy.updateMatrix()
-            pool.setMatrixAt(li, dummy.matrix)
-            li++
+    for (const line of lines) {
+        const others = lines.filter(l => l !== line)
+        for (let k = 0; k < Math.floor(line.length / LAMP_SPACING); k++) {
+            for (const side of [-1, 1] as const) {
+                const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
+                const p = line.pointAt(s)
+                const lat = side * (line.wallAt(s) + WALL_BASE_HALF)
+                // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank, over a gap or where the side is open onto another road.
+                if (!line.plainRoadAt(s) || line.openAt(s, side)) continue
+                // Under another level the pole would run through its deck.
+                if (elevated && roadAbove(lines, p.x, p.y, p.z, 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
+                const px = p.x - p.tz * lat
+                const pz = p.z + p.tx * lat
+                // Where two walls run together past a nose, the pole would stand on the other road.
+                if (roadLevelWith(others, px, p.y, pz, 0, MIN_CLEARANCE / 2)) continue
+                // Local -x is the arm; turn it to point across the track.
+                const inX = p.tz * side
+                const inZ = -p.tx * side
+                dummy.position.set(px, p.y + 0.86, pz)
+                dummy.rotation.set(0, Math.atan2(inZ, -inX), 0)
+                dummy.updateMatrix()
+                for (const m of lamps) m.setMatrixAt(li, dummy.matrix)
+                heads.push(new THREE.Vector3(dummy.position.x + inX * 3, p.y + LAMP_HEIGHT, dummy.position.z + inZ * 3))
+                // The light pool lies on the road, tipped to its slope.
+                dummy.position.y = p.y
+                dummy.rotation.set(Math.atan(side * p.grade), Math.atan2(inZ, -inX), 0, 'YXZ')
+                dummy.updateMatrix()
+                pool.setMatrixAt(li, dummy.matrix)
+                li++
+            }
         }
     }
     for (const m of [...lamps, pool]) m.count = li
@@ -100,9 +107,10 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const panelGeo = own(new THREE.BoxGeometry(START_LIGHTS * LIGHT_SPACING + 0.3, 0.8, 0.2))
     const panelMat = own(new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.6, metalness: 0.4 }))
     const name = track.def.name.toUpperCase()
-    const buildGantry = (at: number, sub: string, lights: boolean) => {
-        const p = track.pointAt(at)
-        const { span, archGeo, neonGeo } = archFor(track.wallAt(at))
+    const buildGantry = ({ branch, s }: LapLine, sub: string, lights: boolean) => {
+        const line = track.branches[branch]!
+        const p = line.pointAt(s)
+        const { span, archGeo, neonGeo } = archFor(line.wallAt(s))
         const g = new THREE.Group()
         g.position.set(p.x, p.y, p.z)
         g.rotation.y = headingOf(p.tx, p.tz)
@@ -147,44 +155,46 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
         }
         group.add(g)
     }
-    buildGantry(track.startS, track.closed ? 'START / FINISH' : 'START', true)
-    if (!track.closed) buildGantry(track.finishS, 'FINISH', false)
-    for (const at of track.checkpoints) buildGantry(at, 'CHECKPOINT', false)
+    const SUBS = { start: track.closed ? 'START / FINISH' : 'START', finish: 'FINISH', checkpoint: 'CHECKPOINT' }
+    for (const l of track.lapLines) buildGantry(l, SUBS[l.kind], l.kind === 'start')
     return startLights
 }
 
-/** Billboards round the infield, facing the track. */
+/** Billboards round the infield, facing the track, about every eighth of the main line along each line. */
 export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Material) {
-    const L = track.length
     const boardMats = BILLBOARD_ADS.map((_, i) => {
         const t = own(billboardTexture(i))
         return own(new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 1.5, roughness: 0.5 }))
     })
     const boardGeo = own(new THREE.PlaneGeometry(16, 8))
     const legGeo = own(new THREE.BoxGeometry(0.3, 6, 0.3).translate(0, 3, 0))
-    for (let i = 0; i < 8; i++) {
-        const s = (i + 0.25) / 8 * L
-        const p = track.pointAt(s)
-        if (!track.plainRoadAt(s)) continue
-        const wall = track.wallAt(s)
-        const lat = -(wall + 14)
-        const bx = p.x - p.tz * lat
-        const bz = p.z + p.tx * lat
-        // Not where another stretch of road runs close by, or over it.
-        const near = track.elevated && track.project(bx, bz)
-        if (near && Math.abs(near.lateral) < track.wallAt(near.s) + 9) continue
-        const g = new THREE.Group()
-        g.position.set(bx, 0, bz)
-        // Face the oncoming cars, angled a little toward the track.
-        g.rotation.y = headingOf(p.tx, p.tz) + 0.5
-        const b = new THREE.Mesh(boardGeo, boardMats[i % boardMats.length]!)
-        b.position.y = 9
-        g.add(b)
-        for (const x of [-5, 5]) {
-            const leg = new THREE.Mesh(legGeo, steel)
-            leg.position.x = x
-            g.add(leg)
+    const spacing = track.length / 8
+    // On a flat single road nothing else runs close by; forks and stacked levels can.
+    const crowded = track.forked || track.elevated
+    let i = 0
+    for (const line of track.branches) {
+        for (let k = 0; k < Math.max(1, Math.round(line.length / spacing)); k++, i++) {
+            const s = (k + 0.25) * spacing
+            if (s >= line.length || !line.plainRoadAt(s)) continue
+            const p = line.pointAt(s)
+            const lat = -(line.wallAt(s) + 14)
+            const bx = p.x - p.tz * lat
+            const bz = p.z + p.tx * lat
+            // Not where another stretch of road runs close by, or over it.
+            if (crowded && roadClearance(track.branches, bx, bz) < 9) continue
+            const g = new THREE.Group()
+            g.position.set(bx, 0, bz)
+            // Face the oncoming cars, angled a little toward the track.
+            g.rotation.y = headingOf(p.tx, p.tz) + 0.5
+            const b = new THREE.Mesh(boardGeo, boardMats[i % boardMats.length]!)
+            b.position.y = 9
+            g.add(b)
+            for (const x of [-5, 5]) {
+                const leg = new THREE.Mesh(legGeo, steel)
+                leg.position.x = x
+                g.add(leg)
+            }
+            group.add(g)
         }
-        group.add(g)
     }
 }

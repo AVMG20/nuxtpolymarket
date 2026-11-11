@@ -12,7 +12,7 @@ const RECTANGLE: SectionId[] = ['start', 'straight-100', 'right-tight', 'right-t
 
 describe('custom track sections', () => {
     /** Small courses that between them lay every section in the catalogue. */
-    const courses = [
+    const courses: CustomTrack[] = [
         loop(RECTANGLE),
         loop(['start', 'straight-10', 'straight-10', 'right-tight', 'right-tight', 'straight-20', 'straight-20', 'right-tight', 'right-tight']),
         loop(['start', 'straight-100', 'right-hairpin', 'straight-100', 'straight-20', 'right-hairpin']),
@@ -31,11 +31,22 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'boost-pad', 'boost-pad-left', 'boost-pad-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'jump-ramp', 'empty-10', 'empty-20', 'landing-ramp', 'straight-100', 'jump-ramp-big', 'empty-60', 'empty-100', 'empty-200', 'landing-ramp', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'width-narrow', 'left-tight', 'width-normal', 'straight-60', 'width-wide', 'right-hairpin', 'width-very-wide', 'looping-left', 'width-normal', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200'])
+        sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200']),
+        {
+            ...sprint(['straight-20', 'start', 'split-y', 'right-eighth', 'straight-200', 'join-y', 'straight-100', 'finish', 'straight-200']),
+            branches: [{ sections: ['left-eighth', 'straight-100', 'straight-60', 'straight-20', 'left-tight'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 5 } }]
+        },
+        {
+            ...sprint(['straight-20', 'start', 'split-right', 'straight-200', 'join-right', 'straight-100', 'split-left', 'straight-200', 'join-left', 'straight-100', 'finish', 'straight-200']),
+            branches: [
+                { sections: ['left-eighth', 'straight-100', 'straight-10', 'left-eighth'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 4 } },
+                { sections: ['right-eighth', 'straight-100', 'straight-10', 'right-eighth'], from: { branch: 0, at: 6 }, to: { branch: 0, at: 8 } }
+            ]
+        }
     ]
 
     it('can each be laid in a course that compiles', () => {
-        const used = new Set(courses.flatMap(c => c.sections))
+        const used = new Set(courses.flatMap(c => [...c.sections, ...(c.branches ?? []).flatMap(b => b.sections)]))
         expect(Object.keys(SECTIONS).filter(id => !used.has(id as SectionId))).toEqual([])
         for (const c of courses) {
             const { def, error } = compileCustomTrack(c)

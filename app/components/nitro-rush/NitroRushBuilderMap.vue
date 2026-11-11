@@ -1,19 +1,28 @@
 <script setup lang="ts">
 import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
+import { inletStub, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 import { STEP } from '#shared/utils/nitro-rush/road-checks'
 import { BOOST_LANES, type BoostLane } from '#shared/utils/nitro-rush/track'
 
-/** The track builder's top-down map: the course as laid so far, where the next section attaches and where a loop has to close. */
+/** The track builder's top-down map: every line laid so far, where the next section attaches, where a loop has to close and where branches fork and join. */
 const props = defineProps<{
-    walk: LayoutWalk
+    /** The main road first, then each branch. */
+    lines: readonly LayoutWalk[]
+    /** The line being built on. */
+    line: number
     closed: boolean
+    /** The highlighted section, on the line being built on. */
     selected: number | null
+    /** Lines whose end already meets the road they join, which need no marker for where to go on. */
+    ended: readonly boolean[]
+    /** Every join section, with where a road comes into it. */
+    joins: readonly JoinInlet[]
     /** The piece about to be built. */
     ghost: LayoutWalk | null
     ghostBlocked: boolean
 }>()
-const emit = defineEmits<{ pick: [index: number] }>()
+const emit = defineEmits<{ pick: [index: number, line: number] }>()
 
 const PAD_PX = 14
 const MIN_ROAD_PX = 3
@@ -32,6 +41,7 @@ const GHOST = 'rgba(61, 242, 255, 0.5)'
 const GHOST_BLOCKED = 'rgba(255, 59, 82, 0.6)'
 const SELECTED_FILL = 'rgba(255, 43, 214, 0.3)'
 const OUTLINE = 'rgba(4, 6, 18, 0.92)'
+const OTHER_END = 'rgba(255, 255, 255, 0.85)'
 /** Grid steps in metres, the finest whose cells are at least this many CSS px wide. */
 const GRID_STEPS = [10, 50, 250, 1000]
 const GRID_MIN_PX = 14
@@ -43,6 +53,7 @@ interface Segment {
     /** Half the road's width along the segment. */
     hw: number
     piece: number
+    line: number
     layer: number
     /** Over a jump's empty road, which has no deck to draw. */
     empty: boolean
@@ -53,9 +64,8 @@ let observer: ResizeObserver | null = null
 /** The last draw's world-to-canvas transform, in backing-store pixels, for clicks. */
 let view = { scale: 1, ox: 0, oy: 0, dpr: 1 }
 
-/** The centreline as segments, the last one running on to where the course ends. */
-const segments = computed(() => {
-    const { pts, ys, halfWidths, pieceStarts, gaps, end } = props.walk
+/** Each line's centreline as segments, the last one running on to where the line ends. */
+const segments = computed(() => props.lines.map(({ pts, ys, halfWidths, pieceStarts, gaps, end }, line) => {
     const out: Segment[] = []
     let piece = 0
     for (let i = 0; i < pts.length; i++) {
@@ -65,10 +75,13 @@ const segments = computed(() => {
         const y = (ys[i]! + (last ? end.y : ys[i + 1]!)) / 2
         const hw = (halfWidths[i]! + (last ? end.halfWidth : halfWidths[i + 1]!)) / 2
         const empty = gaps.some(([from, to]) => i >= from && i < to)
-        out.push({ a: pts[i]!, b, y, hw, piece, layer: Math.round(y / LAYER), empty })
+        out.push({ a: pts[i]!, b, y, hw, piece, line, layer: Math.round(y / LAYER), empty })
     }
     return out
-})
+}))
+
+/** The way into each join no branch has come into yet, which a branch has to get onto. */
+const inlets = computed(() => props.joins.filter(j => j.branch === null || !props.ended[j.branch]).map(j => ({ path: inletStub(j), j })))
 
 function roadColor(y: number) {
     const t = Math.min(1, Math.max(0, y / TOP))
@@ -96,17 +109,17 @@ function draw() {
     const w = el.width
     const h = el.height
     const dpr = w / Math.max(1, el.clientWidth)
-    const { pts, end, lines, boosts } = props.walk
-    const hw = Math.max(end.halfWidth, ...props.walk.halfWidths)
+    const walks = props.lines
+    const hw = Math.max(...walks.flatMap(w => [w.end.halfWidth, ...w.halfWidths]))
     const ghost = props.ghost
     const ghostPath: readonly (readonly [number, number])[] = ghost ? [...ghost.pts, [ghost.end.x, ghost.end.z]] : []
 
-    // Fit the course, the origin and the end, keeping the aspect ratio.
-    let minX = Math.min(0, end.x)
-    let maxX = Math.max(0, end.x)
-    let minZ = Math.min(0, end.z)
-    let maxZ = Math.max(0, end.z)
-    for (const [x, z] of [...pts, ...ghostPath]) {
+    // Fit the course, the origin and every end, keeping the aspect ratio.
+    let minX = 0
+    let maxX = 0
+    let minZ = 0
+    let maxZ = 0
+    for (const [x, z] of [...walks.flatMap(w => [...w.pts, [w.end.x, w.end.z] as const]), ...ghostPath, ...inlets.value.flatMap(i => i.path)]) {
         minX = Math.min(minX, x)
         maxX = Math.max(maxX, x)
         minZ = Math.min(minZ, z)
@@ -165,82 +178,91 @@ function draw() {
         ctx.stroke()
         ctx.setLineDash([])
     }
-    const segs = segments.value
-    const layers = [...new Set(segs.map(s => s.layer))].sort((a, b) => a - b)
+    const lineSegs = segments.value
+    const layers = [...new Set(lineSegs.flat().map(s => s.layer))].sort((a, b) => a - b)
+    const picked = (s: Segment) => s.line === props.line && s.piece === props.selected
     ctx.lineJoin = 'round'
     for (const layer of layers) {
         // Butt caps, so a band's outline doesn't nick the road where it joins the band below.
         ctx.strokeStyle = OUTLINE
         ctx.lineCap = 'butt'
-        // One path per run of the same width, so the outline only breaks where the width changes.
-        let prev: Segment | null = null
-        for (const s of segs) {
-            const joins = prev && s.layer === layer && s.hw === prev.hw && !s.empty
-            if (prev && !joins) ctx.stroke()
-            if (s.layer !== layer || s.empty) {
-                prev = null
-                continue
+        for (const segs of lineSegs) {
+            // One path per run of the same width, so the outline only breaks where the width changes.
+            let prev: Segment | null = null
+            for (const s of segs) {
+                const joins = prev && s.layer === layer && s.hw === prev.hw && !s.empty
+                if (prev && !joins) ctx.stroke()
+                if (s.layer !== layer || s.empty) {
+                    prev = null
+                    continue
+                }
+                if (!joins) {
+                    ctx.lineWidth = roadPx(s.hw) + OUTLINE_PX * 2 * dpr
+                    ctx.beginPath()
+                    ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
+                }
+                ctx.lineTo(sx(s.b[0]), sy(s.b[1]))
+                prev = s
             }
-            if (!joins) {
-                ctx.lineWidth = roadPx(s.hw) + OUTLINE_PX * 2 * dpr
-                ctx.beginPath()
-                ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
-            }
-            ctx.lineTo(sx(s.b[0]), sy(s.b[1]))
-            prev = s
+            if (prev) ctx.stroke()
         }
-        if (prev) ctx.stroke()
 
         ctx.lineCap = 'round'
-        for (const s of segs) {
+        for (const s of lineSegs.flat()) {
             if (s.layer !== layer || s.empty) continue
             ctx.lineWidth = roadPx(s.hw)
-            ctx.strokeStyle = s.piece === props.selected ? PINK : roadColor(s.y)
+            ctx.strokeStyle = picked(s) ? PINK : roadColor(s.y)
             ctx.beginPath()
             ctx.moveTo(sx(s.a[0]), sy(s.a[1]))
             ctx.lineTo(sx(s.b[0]), sy(s.b[1]))
             ctx.stroke()
         }
         // Each piece's run of empty road in this band.
-        for (let i = 0; i < segs.length; i++) {
-            const s = segs[i]!
-            if (s.layer !== layer || !s.empty) continue
-            const run = [s]
-            while (i + 1 < segs.length && segs[i + 1]!.empty && segs[i + 1]!.layer === layer && segs[i + 1]!.piece === s.piece) run.push(segs[++i]!)
-            const picked = s.piece === props.selected
-            emptyOutline([...run.map(r => r.a), run[run.length - 1]!.b], [...run.map(r => r.hw), run[run.length - 1]!.hw], picked ? PINK : roadColor(s.y), picked ? SELECTED_FILL : null)
+        for (const segs of lineSegs) {
+            for (let i = 0; i < segs.length; i++) {
+                const s = segs[i]!
+                if (s.layer !== layer || !s.empty) continue
+                const run = [s]
+                while (i + 1 < segs.length && segs[i + 1]!.empty && segs[i + 1]!.layer === layer && segs[i + 1]!.piece === s.piece) run.push(segs[++i]!)
+                const on = picked(s)
+                emptyOutline([...run.map(r => r.a), run[run.length - 1]!.b], [...run.map(r => r.hw), run[run.length - 1]!.hw], on ? PINK : roadColor(s.y), on ? SELECTED_FILL : null)
+            }
         }
 
-        // A bar across the road at point `at`, over `lane` of its width.
-        const crossBar = (at: number, color: string, lane: BoostLane = 'full') => {
-            const s = segs[Math.min(at, segs.length - 1)]
-            if (!s || s.layer !== layer) return
-            const [px, pz] = at < pts.length ? pts[at]! : [end.x, end.z]
-            const dx = s.b[0] - s.a[0]
-            const dz = s.b[1] - s.a[1]
-            const len = Math.hypot(dx, dz) || 1
-            const reach = roadPx(s.hw) / 2 + dpr
-            const nx = -dz / len * reach
-            const ny = dx / len * reach
-            ctx.strokeStyle = color
-            ctx.beginPath()
-            const [a, b] = BOOST_LANES[lane]
-            ctx.moveTo(sx(px) + nx * a, sy(pz) + ny * a)
-            ctx.lineTo(sx(px) + nx * b, sy(pz) + ny * b)
-            ctx.stroke()
-        }
-        ctx.lineCap = 'butt'
-        // Boost pads as thick as they're long, and no thinner than a line block.
-        for (const { range: [from, to], lane } of boosts) {
-            ctx.lineWidth = Math.max(3 * dpr, (to - from) * STEP * scale)
-            crossBar(Math.floor((from + to) / 2), BOOST, lane)
-        }
-        // Line blocks: where each line crosses.
-        ctx.lineWidth = Math.max(2 * dpr, 2 * scale)
-        for (const line of lines) crossBar(line.at, cssColor(LINE_COLORS[line.type]))
+        walks.forEach(({ pts, end, lines, boosts }, l) => {
+            const segs = lineSegs[l]!
+            // A bar across the road at point `at`, over `lane` of its width.
+            const crossBar = (at: number, color: string, lane: BoostLane = 'full') => {
+                const s = segs[Math.min(at, segs.length - 1)]
+                if (!s || s.layer !== layer) return
+                const [px, pz] = at < pts.length ? pts[at]! : [end.x, end.z]
+                const dx = s.b[0] - s.a[0]
+                const dz = s.b[1] - s.a[1]
+                const len = Math.hypot(dx, dz) || 1
+                const reach = roadPx(s.hw) / 2 + dpr
+                const nx = -dz / len * reach
+                const ny = dx / len * reach
+                ctx.strokeStyle = color
+                ctx.beginPath()
+                const [a, b] = BOOST_LANES[lane]
+                ctx.moveTo(sx(px) + nx * a, sy(pz) + ny * a)
+                ctx.lineTo(sx(px) + nx * b, sy(pz) + ny * b)
+                ctx.stroke()
+            }
+            ctx.lineCap = 'butt'
+            // Boost pads as thick as they're long, and no thinner than a line block.
+            for (const { range: [from, to], lane } of boosts) {
+                ctx.lineWidth = Math.max(3 * dpr, (to - from) * STEP * scale)
+                crossBar(Math.floor((from + to) / 2), BOOST, lane)
+            }
+            // Line blocks: where each line crosses.
+            ctx.lineWidth = Math.max(2 * dpr, 2 * scale)
+            for (const line of lines) crossBar(line.at, cssColor(LINE_COLORS[line.type]))
+        })
     }
 
-    const marker = Math.max(9 * dpr, end.halfWidth * 1.4 * scale)
+    const active = walks[props.line]!.end
+    const marker = Math.max(9 * dpr, active.halfWidth * 1.4 * scale)
     // Loops: the ghost of where the road has to come back to.
     if (props.closed) {
         chevron(ctx, sx(0), sy(0), 0, marker)
@@ -250,13 +272,37 @@ function draw() {
         ctx.stroke()
         ctx.setLineDash([])
     }
-    // Where the next section attaches.
-    chevron(ctx, sx(end.x), sy(end.z), end.heading, marker)
-    ctx.fillStyle = PINK
-    ctx.fill()
-    ctx.lineWidth = dpr
-    ctx.strokeStyle = OUTLINE
-    ctx.stroke()
+    // Where each branch forks off.
+    walks.forEach((w, l) => {
+        if (!l) return
+        const [x, z] = w.pts[0] ?? [w.end.x, w.end.z]
+        ctx.beginPath()
+        ctx.arc(sx(x), sy(z), Math.max(3 * dpr, marker * 0.35), 0, Math.PI * 2)
+        ctx.fillStyle = l === props.line ? PINK : OTHER_END
+        ctx.fill()
+        ctx.lineWidth = dpr
+        ctx.strokeStyle = OUTLINE
+        ctx.stroke()
+    })
+    // Where the next section attaches on each line still going somewhere; the line being built on stands out.
+    walks.forEach(({ end }, l) => {
+        if (props.ended[l] && l !== props.line) return
+        chevron(ctx, sx(end.x), sy(end.z), end.heading, l === props.line ? marker : marker * 0.7)
+        ctx.fillStyle = l === props.line ? PINK : OTHER_END
+        ctx.fill()
+        ctx.lineWidth = dpr
+        ctx.strokeStyle = OUTLINE
+        ctx.stroke()
+    })
+    // Each join's inlet as empty road for a branch to reach, the one the branch being built on heads for in pink.
+    for (const { path, j } of inlets.value) {
+        const mine = !!props.line && j.branch === props.line
+        emptyOutline(path, path.map(() => j.halfWidth), mine ? PINK : OTHER_END, null)
+        const [x, z] = path[0]!
+        chevron(ctx, sx(x), sy(z), j.heading, marker * 0.7)
+        ctx.fillStyle = mine ? PINK : OTHER_END
+        ctx.fill()
+    }
 
     if (ghost) {
         const colour = props.ghostBlocked ? GHOST_BLOCKED : GHOST
@@ -296,14 +342,14 @@ function distance(p: readonly [number, number], a: readonly [number, number], b:
     return Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dz * t)
 }
 
-/** On the road, the topmost piece wins (it's the one drawn there); off it, the nearest within reach. */
+/** On the road the topmost piece wins (it's the one drawn there), and off it the nearest within reach. */
 function onClick(e: MouseEvent) {
     const { scale, ox, oy, dpr } = view
     const p = [(e.offsetX * dpr - ox) / scale, (e.offsetY * dpr - oy) / scale] as const
     const near = (MIN_ROAD_PX + 6) * dpr / scale
     let best: Segment | null = null
     let bestD = Infinity
-    for (const s of segments.value) {
+    for (const s of segments.value.flat()) {
         const d = distance(p, s.a, s.b)
         if (d > Math.max(s.hw * 2, near)) continue
         const onRoad = d <= s.hw
@@ -313,10 +359,10 @@ function onClick(e: MouseEvent) {
             bestD = d
         }
     }
-    if (best) emit('pick', best.piece)
+    if (best) emit('pick', best.piece, best.line)
 }
 
-watch(() => [props.walk, props.closed, props.selected, props.ghost, props.ghostBlocked], draw)
+watch(() => [props.lines, props.line, props.closed, props.selected, props.ended, props.joins, props.ghost, props.ghostBlocked], draw)
 
 onMounted(() => {
     resize()

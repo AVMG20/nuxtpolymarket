@@ -10,7 +10,8 @@ import { finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { GHOST_POSE, type Ghost } from '#shared/utils/nitro-rush/ghost'
 import { clearanceFault } from '#shared/utils/nitro-rush/road-checks'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
-import { wallFoot, type Track } from '#shared/utils/nitro-rush/track'
+import { SPEED_CEILING, Track, wallFoot } from '#shared/utils/nitro-rush/track'
+import { at, Path, rectangleLoop, sAt, straightSprint } from './fork-courses'
 
 const DT = 1 / PHYSICS_HZ
 const COAST = { throttle: 0, brake: 0, steer: 0, drift: false }
@@ -179,79 +180,100 @@ describe('flying over the walls', () => {
 
 describe('mandatory checkpoints', () => {
     const L = 1000
+    /** Where the car is `s` metres on from the start line. */
+    const spot = (track: Track, s: number) => at(track, track.wrapS(track.startS + s))
     /** Drives from `from` to `to` in steps of `ds` metres, 0.1 s apart. */
-    const drive = (timer: LapTimer, from: number, to: number, ds = 10) => {
+    const drive = (track: Track, timer: LapTimer, from: number, to: number, ds = 10) => {
         const events = []
-        for (let s = from + ds; s <= to; s += ds) events.push(...timer.update(((s % L) + L) % L, 0.1))
+        for (let s = from + ds; s <= to; s += ds) events.push(...timer.update(...spot(track, s), 0.1))
         return events
+    }
+    const timerAt = (track: Track, s: number) => new LapTimer(track, ...spot(track, s))
+    /** A respawn `by` metres back along the road from `from`, as the engine puts it: whatever the car crossed since `since` is taken back. */
+    const respawn = (track: Track, timer: LapTimer, from: number, by: number, since = timer.clock) => {
+        const to = track.back(0, track.wrapS(track.startS + from), by)
+        timer.rewind(since, to.legs, ...at(track, to.s))
     }
 
     it('leaves a lap open when a flight skips a checkpoint, until the car drives across it', () => {
-        const timer = new LapTimer(L, true, 0, [500])
-        drive(timer, 0, 300)
+        const track = rectangleLoop([500])
+        const timer = timerAt(track, 0)
+        drive(track, timer, 0, 300)
         // Landing past the checkpoint crosses nothing.
-        expect(timer.update(700, 0.1, false)).toEqual([])
-        expect(drive(timer, 700, 1000)).toEqual([])
+        expect(timer.update(...spot(track, 700), 0.1, false)).toEqual([])
+        expect(drive(track, timer, 700, 1000)).toEqual([])
         expect(timer.lap).toBe(0)
         // Round again, through the checkpoint this time.
-        expect(drive(timer, 0, 1000).map(e => e.type)).toEqual(['split', 'lap'])
+        expect(drive(track, timer, 0, 1000).map(e => e.type)).toEqual(['split', 'lap'])
     })
 
     it('counts a flight that skips no line', () => {
-        const timer = new LapTimer(L, true, 0, [800])
-        drive(timer, 0, 300)
-        timer.update(600, 0.1, false)
-        expect(drive(timer, 600, 1000).map(e => e.type)).toEqual(['split', 'lap'])
+        const track = rectangleLoop([800])
+        const timer = timerAt(track, 0)
+        drive(track, timer, 0, 300)
+        timer.update(...spot(track, 600), 0.1, false)
+        expect(drive(track, timer, 600, 1000).map(e => e.type)).toEqual(['split', 'lap'])
     })
 
     it('ends a sprint only through every checkpoint', () => {
-        const timer = new LapTimer(620, false, -14, [200, 400])
-        drive(timer, -14, 250)
-        timer.update(450, 0.1, false)
-        expect(drive(timer, 450, 700)).toEqual([])
+        const track = straightSprint(620, [200, 400])
+        const timer = timerAt(track, -14)
+        drive(track, timer, -14, 250)
+        timer.update(...spot(track, 450), 0.1, false)
+        expect(drive(track, timer, 450, 700)).toEqual([])
         expect(timer.finished).toBe(false)
     })
 
     it('takes back a checkpoint the car backs over, so a U-turn over the line is no lap', () => {
-        const timer = new LapTimer(L, true, -14, [200])
-        expect(drive(timer, -14, 216, 2).map(e => e.type)).toEqual(['split'])
+        const track = rectangleLoop([200])
+        const timer = timerAt(track, -14)
+        expect(drive(track, timer, -14, 216, 2).map(e => e.type)).toEqual(['split'])
         const events = []
-        for (let s = 216; s > -24; s -= 2) events.push(...timer.update(((s % L) + L) % L, 0.05))
-        events.push(...drive(timer, -24, 10, 2))
+        for (let s = 216; s > -24; s -= 2) events.push(...timer.update(...spot(track, s), 0.05))
+        events.push(...drive(track, timer, -24, 10, 2))
         expect(events).toEqual([])
-        expect(drive(timer, 10, 1000).map(e => e.type)).toEqual(['split', 'lap'])
+        expect(drive(track, timer, 10, 1000).map(e => e.type)).toEqual(['split', 'lap'])
     })
 
     it('takes back a checkpoint a respawn puts the car behind, and counts it again', () => {
-        const timer = new LapTimer(L, true, 0, [500])
-        expect(drive(timer, 0, 520).map(e => e.type)).toEqual(['split'])
-        timer.rewind(520, 120)
-        expect(timer.splits).toEqual([])
-        expect(drive(timer, 400, 1000).map(e => e.type)).toEqual(['split', 'lap'])
+        const track = rectangleLoop([500])
+        const timer = timerAt(track, 0)
+        expect(drive(track, timer, 0, 520).map(e => e.type)).toEqual(['split'])
+        respawn(track, timer, 520, 120)
+        expect(timer.touched).toEqual([])
+        expect(drive(track, timer, 400, 1000).map(e => e.type)).toEqual(['split', 'lap'])
     })
 
     it('owes the line again when a flight over it ends in a fall', () => {
-        const timer = new LapTimer(L, true, -14)
-        drive(timer, -14, 900)
+        const track = rectangleLoop()
+        const timer = timerAt(track, -14)
+        drive(track, timer, -14, 980)
         // Off the lip at 980, over the line in the air, then down off the road at 1030.
-        expect(drive(timer, 900, 1030).map(e => e.type)).toEqual(['lap'])
-        timer.rewind(980, 120)
-        expect(drive(timer, 860, 1100)).toEqual([])
-        expect(drive(timer, 1100, 2000).map(e => e.type)).toEqual(['lap'])
+        const tookOff = timer.clock
+        expect(drive(track, timer, 980, 1030).map(e => e.type)).toEqual(['lap'])
+        respawn(track, timer, 980, 120, tookOff)
+        expect(drive(track, timer, 860, 1100)).toEqual([])
+        expect(drive(track, timer, 1100, 2000).map(e => e.type)).toEqual(['lap'])
     })
 
     it('counts nothing on a jump to other road, even over it', () => {
-        const timer = new LapTimer(L, true, 0, [500])
-        drive(timer, 0, 300)
-        expect(timer.update(700, 0.1, true)).toEqual([])
-        expect(drive(timer, 700, 1000)).toEqual([])
+        const track = rectangleLoop([500])
+        const timer = timerAt(track, 0)
+        drive(track, timer, 0, 300)
+        expect(timer.update(...spot(track, 700), 0.1, true)).toEqual([])
+        expect(drive(track, timer, 700, 1000)).toEqual([])
     })
 
     it('owes the line again after a respawn puts the car back over it', () => {
-        const timer = new LapTimer(L, true, 0)
-        drive(timer, 0, 30)
-        timer.rewind(30, 120)
-        expect(drive(timer, 910, 1100).filter(e => e.type === 'lap')).toEqual([])
+        const track = rectangleLoop()
+        const timer = timerAt(track, 0)
+        drive(track, timer, 0, 30)
+        respawn(track, timer, 30, 120)
+        expect(drive(track, timer, 910, 1100).filter(e => e.type === 'lap')).toEqual([])
+    })
+
+    it('runs on rectangle laps of exactly L', () => {
+        expect(rectangleLoop().length).toBeCloseTo(L, 9)
     })
 })
 
@@ -333,6 +355,30 @@ describe('the server check on a course with jumps', () => {
         const [bx, by, bz] = at(track, b)
         const across = Array.from({ length: 7 }, (_, k) => [ax + (bx - ax) * (k + 1) / 8, by, az + (bz - az) * (k + 1) / 8] as const)
         expect(ghostDrivesTrack(track, ghostOf([...before, ...across, ...after]))).toBe(false)
+    })
+
+    it('floors a loop with a jump at its best real skip, not a flight back over the start line', () => {
+        const sections: SectionId[] = ['start', 'straight-200', 'jump-ramp', 'empty-20', 'landing-ramp', 'straight-100']
+        const track = trackOf(true, [...sections, ...finishLoop(course(true, sections)).sections!])
+        // Flying back off the landing ramp over the line priced it at 580 m; the best real way is a hop off the lip onto the road coming back 60 m across.
+        const [lip] = track.gaps[0]!
+        const foot = wallFoot(track.walls[0]!)
+        const hop = lip + Math.hypot(60, foot) - foot + track.length - track.project(-60, track.pointAt(lip).z + foot).s
+        expect(track.minLapSeconds * SPEED_CEILING).toBeGreaterThan(hop - 1)
+        expect(track.minLapSeconds * SPEED_CEILING).toBeLessThan(hop + 3)
+        expect(botLapTime(track)!).toBeGreaterThan(track.minLapSeconds)
+    })
+
+    it('floors a sprint at a skip onto road ahead of the lip, though the checkpoint it then drives over is behind it', () => {
+        // Off the lip 130 m up, a U-turn brings the road back down beside it, over a checkpoint and to the finish.
+        const { pts } = new Path(0, 0).straight(230).arc(1, 40, Math.PI).straight(550)
+        const track = new Track({ id: 'u-turn', name: 'U-turn', group: 'sprints', points: pts, halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 30, runOff: 150, gaps: [[65, 75]], checkpoints: [sAt(pts, 80, 50)] })
+        // 100 m to the lip, a flight onto the near edge of the road back just ahead of it, then 120 m from the checkpoint to the finish.
+        const foot = wallFoot(10.6)
+        const skip = 100 + Math.hypot(80, foot) - foot + 50 + 130 - foot + 120
+        expect(track.minLapSeconds * SPEED_CEILING).toBeGreaterThan(skip - 1)
+        expect(track.minLapSeconds * SPEED_CEILING).toBeLessThan(skip + 3)
+        expect(track.minLapSeconds * SPEED_CEILING).toBeLessThan(track.lapLength - 200)
     })
 
     it('checks a long lap without scanning the whole course for every pose', () => {

@@ -415,3 +415,31 @@ export function checkerTexture() {
     }
     return finish(c)
 }
+
+/** Yellow and black diagonal stripes a metre square, tiled, for crash cushions. */
+export function chevronTexture() {
+    const [c, ctx] = canvas(64, 64)
+    ctx.fillStyle = '#ffd23d'
+    ctx.fillRect(0, 0, 64, 64)
+    ctx.fillStyle = '#16161a'
+    // Two bands per tile, drawn across the corners too, so the tiling seams line up.
+    for (const o of [-64, 0, 64]) {
+        ctx.beginPath()
+        ctx.moveTo(o, 64)
+        ctx.lineTo(o + 16, 64)
+        ctx.lineTo(o + 80, 0)
+        ctx.lineTo(o + 64, 0)
+        ctx.closePath()
+        ctx.fill()
+        ctx.beginPath()
+        ctx.moveTo(o + 32, 64)
+        ctx.lineTo(o + 48, 64)
+        ctx.lineTo(o + 112, 0)
+        ctx.lineTo(o + 96, 0)
+        ctx.closePath()
+        ctx.fill()
+    }
+    const t = finish(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    return t
+}

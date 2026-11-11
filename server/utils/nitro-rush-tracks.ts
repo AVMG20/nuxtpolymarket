@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushGhosts, nitroRushLaps, nitroRushTrackVotes, nitroRushTracks, user } from '#server/database/schema'
 import { nrTrackSummaries, validGhost, type NrGhost, type NrTrackSummary } from '#server/utils/nitro-rush'
-import { compileCustomTrack, isPublishedTrackId, MAX_CUSTOM_TRACKS, newPublishedTrackId, sameRoad, sanitizeCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, isPublishedTrackId, MAX_CUSTOM_TRACKS, newPublishedTrackId, sameRoad, sanitizeCustomTrack, type CustomBranch, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -36,6 +36,8 @@ export interface NrPublishedTrack {
     name: string
     closed: boolean
     sections: SectionId[]
+    /** Null on a course that never forks. */
+    branches: CustomBranch[] | null
     author: string
     summary: NrTrackSummary
     votes: NrTrackVotes
@@ -51,12 +53,12 @@ export async function nrTrackDef(trackId: unknown): Promise<TrackDef | null> {
     if (typeof trackId !== 'string') return null
     const builtIn = findTrack(trackId)
     if (builtIn || !isPublishedTrackId(trackId)) return builtIn
-    const [row] = await db.select({ name: nitroRushTracks.name, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections })
+    const [row] = await db.select({ name: nitroRushTracks.name, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections, branches: nitroRushTracks.branches })
         .from(nitroRushTracks).where(eq(nitroRushTracks.id, trackId))
     if (!row) return null
     const cached = defs.get(trackId)
     if (cached) return cached
-    const { def } = compileCustomTrack({ id: trackId, ...row })
+    const { def } = compileCustomTrack({ id: trackId, ...row, branches: row.branches ?? undefined })
     if (!def) return null
     if (defs.size >= DEF_CACHE_LIMIT) defs.clear()
     defs.set(trackId, def)
@@ -100,7 +102,7 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         // For update, which a vote's key share waits on: no vote lands on the old road while its votes move.
         const [old] = await tx.select().from(nitroRushTracks)
             .where(and(eq(nitroRushTracks.authorId, userId), eq(nitroRushTracks.sourceId, track.id))).for('update')
-        if (old && sameRoad({ ...old, id: old.sourceId }, track)) {
+        if (old && sameRoad({ ...old, id: old.sourceId, branches: old.branches ?? undefined }, track)) {
             await tx.update(nitroRushTracks).set({ name }).where(eq(nitroRushTracks.id, old.id))
             return old.id
         }
@@ -120,7 +122,7 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         if (old) await removeTrack(tx, old.id)
         const now = new Date()
         const lapMs = driven.ghost.end
-        await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections })
+        await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections, branches: track.branches ?? null })
         for (let i = 0; i < votes.length; i += VOTE_MOVE_CHUNK) {
             await tx.insert(nitroRushTrackVotes).values(votes.slice(i, i + VOTE_MOVE_CHUNK).map(v => ({ ...v, trackId: id })))
         }
@@ -189,6 +191,7 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
         name: nitroRushTracks.name,
         closed: nitroRushTracks.closed,
         sections: nitroRushTracks.sections,
+        branches: nitroRushTracks.branches,
         author: user.name,
         publishedAt: nitroRushTracks.publishedAt
     }

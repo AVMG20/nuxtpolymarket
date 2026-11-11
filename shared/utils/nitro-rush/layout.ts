@@ -1,5 +1,5 @@
-import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP } from './road-checks'
-import { Track, wallFoot, type BoostLane, type BoostPadDef, type TrackDef, type TrackGroup } from './track'
+import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP, trackClearanceFault } from './road-checks'
+import { KICKER_GRADE, Track, TrackLine, wallFoot, type BoostLane, type BoostPadDef, type BranchDef, type BranchEnd, type LineDef, type TrackDef, type TrackGroup } from './track'
 
 export { MIN_CLEARANCE } from './road-checks'
 
@@ -42,7 +42,7 @@ export type LineBlock = 'start' | 'finish' | 'checkpoint'
 
 export type TrackPiece =
     | { type: 'straight', length: number }
-    | { type: 'corner', turn: 'left' | 'right', radius: number, angle: number, bank?: number }
+    | { type: 'corner', turn: 'left' | 'right', radius: number, angle: number, bank?: number, exact?: true }
     | { type: 'bank', to: number, length: number }
     | { type: 'slope', to: number, length: number }
     | { type: 'width', to: number, length: number }
@@ -55,7 +55,12 @@ export type TrackPiece =
     | { type: 'looping', side: 'left' | 'right', radius: number }
     | { type: 'corkscrew', turn: 'left' | 'right', length: number }
     | { type: 'boost', lane: BoostLane }
+    | { type: 'split', shape: ForkShape }
+    | { type: 'join', shape: ForkShape }
     | { type: LineBlock }
+
+/** Where a split's second arm goes, or a join's second road comes in from: both sides of a Y, or one side of road that runs on straight. */
+export type ForkShape = 'y' | 'left' | 'right'
 
 export interface TrackLayout {
     id: string
@@ -69,7 +74,26 @@ export interface TrackLayout {
     /** Where the first piece begins. Heading 0 runs up the screen (-z); + turns right. */
     origin: { x: number, z: number, heading: number }
     pieces: TrackPiece[]
+    /** Where the road forks: lines 1 up, each leaving an earlier line. */
+    branches?: LayoutBranch[]
 }
+
+/** A spot between pieces: line `branch` (0 the main line) after its first `at` pieces. */
+export interface PieceSpot {
+    branch: number
+    at: number
+}
+
+/** A forked layout's branch: pieces laid from where it leaves its road. */
+export interface LayoutBranch {
+    pieces: TrackPiece[]
+    /** Always an earlier line, so every road it hangs off is laid first. */
+    from: PieceSpot
+    /** The road it joins; null runs on to a finish line of its own. */
+    to: PieceSpot | null
+}
+
+export type Pose = TrackLayout['origin']
 
 /** Start, finish and checkpoint blocks are short straights with their line across the middle. */
 export const LINE_BLOCK_LENGTH = 20
@@ -80,8 +104,6 @@ const MIN_RUN_OFF = 60
 const EASE_LENGTH = 30
 /** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
 export const GRID = 10
-/** Steepest grade of a jump's kicker, at its lip; the kicker is as long as that takes, in whole grid steps. */
-export const KICKER_GRADE = 0.15
 export const LANDING_LENGTH = 60
 /** How far a looping comes out to the side of where it went in: clear of its own entry. */
 export const LOOPING_SHIFT = 30
@@ -105,6 +127,11 @@ export const MAX_HALF_WIDTH = 18
 /** A boost piece's length, a grid multiple so a loop can still close, and the pad in the middle of it. */
 const BOOST_PIECE_LENGTH = 20
 const BOOST_PAD_LENGTH = 12
+/** The bend a split's arms peel off on, and a join's roads swing in on. */
+export const FORK_RADIUS = 60
+/** How far the road runs straight through a split, or a join, that sends its other road off to one side or takes it in. */
+export const SPLIT_LENGTH = 40
+export const JOIN_LENGTH = 50
 const RADIANS = Math.PI / 180
 
 export const straight = (length: number): TrackPiece => ({ type: 'straight', length })
@@ -215,7 +242,7 @@ export interface LayoutWalk {
  * doesn't care whether the course closes, so a builder can draw it half done.
  * `from` is for drawing a piece on its own: a course starts level.
  */
-export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): LayoutWalk {
+export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, at: Pose = layout.origin): LayoutWalk {
     const fail = (why: string): never => {
         throw new TrackLayoutError(layout.id, why)
     }
@@ -229,7 +256,8 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     const gaps: [number, number][] = []
     const boosts: BoostPadDef[] = []
     const lines: { type: LineBlock, at: number }[] = []
-    let { x, z, heading: h } = layout.origin
+    // Bends still snap to the grid round the layout's origin, so a branch lands on the same grid as its road.
+    let { x, z, heading: h } = at
     // Measured from where the road sets off until the walk's done, when the lowest point goes on the ground.
     let y = 0
     // The bank the road is on, in radians: + low on the right.
@@ -417,7 +445,9 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
         } else if (piece.type === 'corner') {
             if (!(piece.radius > hw + verge)) fail('a corner must be wider than the track')
             if (piece.bank !== undefined && !(Math.abs(piece.bank) < 60)) fail('a bank tilts less than 60°')
-            bend(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), 0, piece.bank ?? 0)
+            // An exact corner skips the padding back onto the grid: a merge has to end right where its join does.
+            if (piece.exact) turn(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), 0, piece.bank ?? 0)
+            else bend(piece.turn === 'right' ? 1 : -1, piece.radius, eighthsOf(piece.angle), 0, piece.bank ?? 0)
         } else if (piece.type === 'bank') {
             if (!(piece.length > 0)) fail('a bank needs a positive length')
             if (!(Math.abs(piece.to) < 60)) fail('a bank tilts less than 60°')
@@ -455,6 +485,12 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
         } else if (piece.type === 'corkscrew') {
             if (!(piece.length >= 100)) fail('a corkscrew needs at least 100 m')
             screw(piece.turn === 'right' ? 1 : -1, piece.length)
+        } else if (piece.type === 'split') {
+            if (piece.shape === 'y') bend(-1, FORK_RADIUS, 1)
+            else run(SPLIT_LENGTH)
+        } else if (piece.type === 'join') {
+            if (piece.shape === 'y') bend(-1, FORK_RADIUS, 1)
+            else run(JOIN_LENGTH)
         } else if (piece.type === 'boost') {
             const margin = (BOOST_PIECE_LENGTH - BOOST_PAD_LENGTH) / 2
             run(margin)
@@ -477,12 +513,77 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}): 
     }
 }
 
-export function buildTrack(layout: TrackLayout): TrackDef {
+/** The same walk with every height passed through `f`. */
+export function mapWalkHeights(walk: LayoutWalk, f: (y: number) => number): LayoutWalk {
+    return { ...walk, ys: walk.ys.map(f), end: { ...walk.end, y: f(walk.end.y) } }
+}
+
+/** The same road raised to stand `rise` above where it set off, so roads lifted by different amounts share one ground. */
+export function raisedTo(walk: LayoutWalk, rise: number): LayoutWalk {
+    const by = rise - walk.rise
+    return by ? { ...mapWalkHeights(walk, y => y + by), rise } : walk
+}
+
+/** Where a line of a forked layout sets off: its pose, the state it rides, and its height above the main line's start. */
+interface LineStart {
+    pose: Pose
+    from: Partial<RoadState>
+    base: number
+}
+
+/**
+ * Every line walked from where it leaves its road, the main line first, all on one ground: each walk's
+ * `rise` is the height its line sets off at. Throws only for a branch hung off a line not laid before it.
+ */
+export function walkLines(layout: TrackLayout): LayoutWalk[] {
+    const branches = layout.branches ?? []
+    const piecesOf = (b: number) => b ? branches[b - 1]!.pieces : layout.pieces
+    const starts: LineStart[] = [{ pose: layout.origin, from: {}, base: 0 }]
+    const raw = [walkLayout(layout)]
+    branches.forEach((branch, i) => {
+        const { branch: parent, at } = branch.from
+        if (!Number.isInteger(parent) || parent < 0 || parent > i) throw new TrackLayoutError(layout.id, 'a branch must fork off a road laid before it')
+        const up = starts[parent]!
+        const { end } = walkLayout({ ...layout, pieces: piecesOf(parent).slice(0, Math.max(0, at)) }, up.from, up.pose)
+        const start = { pose: { x: end.x, z: end.z, heading: end.heading }, from: { bank: end.bank, grade: end.grade, halfWidth: end.halfWidth, air: end.air }, base: up.base + end.aboveStart }
+        starts.push(start)
+        raw.push(walkLayout({ ...layout, pieces: branch.pieces }, start.from, start.pose))
+    })
+    // The lowest point of any line goes on the ground.
+    let low = 0
+    raw.forEach((w, l) => {
+        low = Math.min(low, starts[l]!.base + Math.min(w.end.aboveStart, ...w.ys.map((v, k) => v - w.rise - w.lifts[k]!)))
+    })
+    const rise = low < -CLOSE_TOLERANCE ? -low : 0
+    return raw.map((w, l) => raisedTo(w, starts[l]!.base + rise))
+}
+
+type Fail = (why: string) => never
+
+/** A line's heights, widths and ups, rounded, each left out where it never changes. */
+function lineShape(layout: TrackLayout, w: Pick<LayoutWalk, 'ys' | 'halfWidths' | 'ups'>, order: <T>(a: T[]) => T[]) {
+    const road: Pick<LineDef, 'heights' | 'halfWidths' | 'ups'> = {}
+    const heights = order(w.ys)
+    if (heights.some(v => v !== 0)) road.heights = heights.map(v => Math.max(0, Math.round(v * 1000) / 1000))
+    if (w.halfWidths.some(hw => hw !== layout.halfWidth)) road.halfWidths = order(w.halfWidths).map(hw => Math.round(hw * 1000) / 1000)
+    if (w.ups.some(u => u !== UP)) road.ups = order(w.ups).map(u => u.map(c => Math.round(c * 1e4) / 1e4) as Vec3)
+    return road
+}
+
+/** Runs an open line on to where its last piece ends. */
+function pushEnd(layout: TrackLayout, w: LayoutWalk) {
+    w.pts.push([w.end.x, w.end.z])
+    w.ys.push(w.end.y)
+    w.lifts.push(0)
+    w.ups.push(UP)
+    w.halfWidths.push(w.end.halfWidth)
+    w.walls.push(w.end.halfWidth + layout.wallOffset - layout.halfWidth)
+}
+
+/** The main line's course, and the distance along it of each walk point. */
+function mainLine(layout: TrackLayout, walk: LayoutWalk, fail: Fail) {
     const closed = layout.closed !== false
-    const fail = (why: string): never => {
-        throw new TrackLayoutError(layout.id, why)
-    }
-    const { pts, ys, lifts, ups, halfWidths, walls, rails, gaps, boosts, lines, misplaced, end: { x, z, heading: h, y, aboveStart, bank, grade, halfWidth, air } } = walkLayout(layout)
+    const { pts, ys, lifts, walls, rails, gaps, boosts, lines, misplaced, end: { x, z, heading: h, aboveStart, bank, grade, halfWidth, air } } = walk
     const fault = layoutFault({ misplaced, lines }, closed)
     if (fault) fail(fault)
     if (closed) {
@@ -494,14 +595,7 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     }
     if (air) fail('land the jump before the road ends')
     if (bank || grade) fail('the road has to level out before it ends')
-    if (!closed) {
-        pts.push([x, z])
-        ys.push(y)
-        lifts.push(0)
-        ups.push(UP)
-        halfWidths.push(halfWidth)
-        walls.push(halfWidth + layout.wallOffset - layout.halfWidth)
-    }
+    if (!closed) pushEnd(layout, walk)
     const startAt = lines.find(l => l.type === 'start')!.at
     const clash = clearanceFault({ pts, ys, lifts, walls, gaps }, closed)
     if (clash) fail(clash)
@@ -515,11 +609,8 @@ export function buildTrack(layout: TrackLayout): TrackDef {
         const at = (from - shift + n) % n
         return [at, at + to - from]
     }
-    const heights = rotate(ys)
-    const def: TrackDef = { id: layout.id, name: layout.name, group: layout.group, points: rotate(pts), halfWidth: layout.halfWidth, wallOffset: layout.wallOffset }
-    if (heights.some(v => v !== 0)) def.heights = heights.map(v => Math.max(0, Math.round(v * 1000) / 1000))
-    if (halfWidths.some(w => w !== layout.halfWidth)) def.halfWidths = rotate(halfWidths).map(w => Math.round(w * 1000) / 1000)
-    if (ups.some(u => u !== UP)) def.ups = rotate(ups).map(u => u.map(c => Math.round(c * 1e4) / 1e4) as Vec3)
+    // Key order is the medal cache's road hash, so it stays as it always was.
+    const def: TrackDef = { id: layout.id, name: layout.name, group: layout.group, points: rotate(pts), halfWidth: layout.halfWidth, wallOffset: layout.wallOffset, ...lineShape(layout, walk, rotate) }
     if (rails.length) def.rails = rails.map(reindex)
     if (gaps.length) def.gaps = gaps.map(reindex)
     if (boosts.length) def.boosts = boosts.map(b => ({ ...b, range: reindex(b.range) }))
@@ -541,5 +632,55 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const checkpoints = lines.filter(l => l.type === 'checkpoint').map(l => sAt(l.at)).sort((a, b) => a - b)
     if (checkpoints.some(s => s <= startS || s >= finishS)) fail('every checkpoint must lie between the start and the finish')
     if (checkpoints.length) def.checkpoints = checkpoints
-    return def
+    return { def, sAt: (at: number) => closed ? sAt(at % n) : cum[Math.min(at, n - 1)]! }
+}
+
+/** A branch's road, and the distance along it of each walk point; its ends are placed once every line is laid. */
+function branchLine(layout: TrackLayout, branch: LayoutBranch, walk: LayoutWalk, fail: Fail) {
+    const { lines, misplaced, end, rails, gaps, boosts } = walk
+    if (misplaced) fail(misplaced)
+    if (lines.some(l => l.type === 'start')) fail('put the start line on the main road')
+    const finishes = lines.filter(l => l.type === 'finish')
+    if (branch.to && finishes.length) fail('a branch that joins can\'t have a finish line')
+    if (!branch.to && layout.closed !== false) fail('on a loop, every branch must join back')
+    if (!branch.to && finishes.length !== 1) fail('give the branch a finish line or a join')
+    if (end.air) fail('land the jump before the road ends')
+    if (end.bank || end.grade) fail('the road has to level out before it ends')
+    pushEnd(layout, walk)
+    const road: Omit<BranchDef, 'from' | 'to'> = { points: walk.pts, ...lineShape(layout, walk, a => a) }
+    if (rails.length) road.rails = rails
+    if (gaps.length) road.gaps = gaps
+    if (boosts.length) road.boosts = boosts
+    const { cum, length } = new TrackLine({ ...road, halfWidth: layout.halfWidth, wallOffset: layout.wallOffset, closed: false, runUp: 0, runOff: 0 })
+    const sAt = (at: number) => cum[Math.min(at, cum.length - 1)]!
+    const finishS = finishes.length ? sAt(finishes[0]!.at) : length
+    if (finishes.length) {
+        if (length - finishS < MIN_RUN_OFF) fail(`needs at least ${MIN_RUN_OFF} m after the finish line`)
+        road.runOff = length - finishS
+    }
+    const checkpoints = lines.filter(l => l.type === 'checkpoint').map(l => sAt(l.at)).sort((a, b) => a - b)
+    if (checkpoints.some(s => s >= finishS)) fail('checkpoints go before the finish')
+    if (checkpoints.length) road.checkpoints = checkpoints
+    return { road, sAt }
+}
+
+export function buildTrack(layout: TrackLayout): TrackDef {
+    const fail = (why: string): never => {
+        throw new TrackLayoutError(layout.id, why)
+    }
+    const walks = walkLines(layout)
+    const main = mainLine(layout, walks[0]!, fail)
+    const branches = layout.branches ?? []
+    if (!branches.length) return main.def
+    const built = branches.map((b, i) => branchLine(layout, b, walks[i + 1]!, (why: string) => fail(`branch ${i + 1}: ${why}`)))
+    const lineS = [main.sAt, ...built.map(b => b.sAt)]
+    const place = ({ branch, at }: PieceSpot): BranchEnd => {
+        const w = walks[branch]
+        if (!w || !Number.isInteger(at) || at < 0 || at > w.pieceStarts.length) return fail('the branch\'s fork or join is missing')
+        return { branch, at: lineS[branch]!(w.pieceStarts[at] ?? w.pts.length) }
+    }
+    main.def.branches = branches.map((b, i) => ({ ...built[i]!.road, from: place(b.from), to: b.to ? place(b.to) : 'finish' }))
+    const clash = trackClearanceFault(new Track(main.def))
+    if (clash) fail(clash)
+    return main.def
 }

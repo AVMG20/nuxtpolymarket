@@ -1,13 +1,18 @@
 <script setup lang="ts">
-/** A course's centreline as a single-colour line, turning slowly on a tilted turntable. */
+/** A course's centreline, branches and all, as a single-colour line turning slowly on a tilted turntable. */
 const props = defineProps<{
     points: readonly [number, number][]
     heights?: readonly number[]
     closed: boolean
+    /** A forked course's branches, laid on the same ground as the main line. */
+    branches?: readonly { points: readonly [number, number][], heights?: readonly number[] }[]
     color: string
 }>()
 
+/** Points across the whole course, shared out by length. */
 const SAMPLES = 160
+/** The fewest points a short branch gets, so its bends still read. */
+const MIN_LINE_SAMPLES = 12
 const TILT = 0.95
 /** Camera distance in track radii: enough perspective to read as 3D without warping the shape. */
 const CAMERA = 3.2
@@ -24,17 +29,30 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 let frame = 0
 let observer: ResizeObserver | null = null
 
-/** Evenly spaced points, centred and scaled into the unit circle, with their heights on the same scale. */
-const shape = computed(() => {
-    const pts = props.points
-    const hs = props.heights
+type Point3 = [number, number, number]
+
+interface PreviewLine {
+    points: readonly [number, number][]
+    heights?: readonly number[]
+    closed: boolean
+}
+
+/** A line's length along the ground, and where along it each point lies. */
+function measure({ points: pts, closed }: PreviewLine) {
     const cum = [0]
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + Math.hypot(pts[i]![0] - pts[i - 1]![0], pts[i]![1] - pts[i - 1]![1]))
-    const total = cum[cum.length - 1]! + (props.closed ? Math.hypot(pts[0]![0] - pts[pts.length - 1]![0], pts[0]![1] - pts[pts.length - 1]![1]) : 0)
-    const out: [number, number, number][] = []
+    const total = cum[cum.length - 1]! + (closed ? Math.hypot(pts[0]![0] - pts[pts.length - 1]![0], pts[0]![1] - pts[pts.length - 1]![1]) : 0)
+    return { cum, total }
+}
+
+/** `count` evenly spaced points along a line, with their heights. */
+function resample(line: PreviewLine, count: number): Point3[] {
+    const { points: pts, heights: hs, closed } = line
+    const { cum, total } = measure(line)
+    const out: Point3[] = []
     let j = 0
-    for (let k = 0; k < SAMPLES; k++) {
-        const s = total * k / (props.closed ? SAMPLES : SAMPLES - 1)
+    for (let k = 0; k < count; k++) {
+        const s = total * k / (closed ? count : count - 1)
         while (j < pts.length - 1 && cum[j + 1]! < s) j++
         const a = pts[j]!
         const b = pts[(j + 1) % pts.length]!
@@ -44,16 +62,29 @@ const shape = computed(() => {
         const hb = hs?.[(j + 1) % pts.length] ?? 0
         out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, ha + (hb - ha) * f])
     }
-    const xs = out.map(p => p[0])
-    const zs = out.map(p => p[1])
+    return out
+}
+
+/** Every line, main line first, as evenly spaced points centred and scaled into the unit circle together. */
+const shape = computed(() => {
+    const lines: PreviewLine[] = [
+        { points: props.points, heights: props.heights, closed: props.closed },
+        ...(props.branches ?? []).filter(b => b.points.length > 1).map(b => ({ ...b, closed: false }))
+    ]
+    const lengths = lines.map(l => measure(l).total)
+    const sum = lengths.reduce((a, b) => a + b, 0) || 1
+    const sampled = lines.map((l, i) => ({ closed: l.closed, pts: resample(l, Math.max(MIN_LINE_SAMPLES, Math.round(SAMPLES * lengths[i]! / sum))) }))
+    const all = sampled.flatMap(l => l.pts)
+    const xs = all.map(p => p[0])
+    const zs = all.map(p => p[1])
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2
     const cz = (Math.min(...zs) + Math.max(...zs)) / 2
-    const r = Math.max(...out.map(([x, z]) => Math.hypot(x - cx, z - cz))) || 1
-    return out.map(([x, z, h]) => [(x - cx) / r, (z - cz) / r, h / r * HEIGHT_SCALE] as [number, number, number])
+    const r = Math.max(...all.map(([x, z]) => Math.hypot(x - cx, z - cz))) || 1
+    return sampled.map(l => ({ closed: l.closed, pts: l.pts.map(([x, z, h]): Point3 => [(x - cx) / r, (z - cz) / r, h / r * HEIGHT_SCALE]) }))
 })
 
 /** Where a point lands at turntable angle `angle`, before scaling to the canvas. */
-function place(p: readonly [number, number, number], ca: number, sa: number) {
+function place(p: Readonly<Point3>, ca: number, sa: number) {
     const sin = Math.sin(TILT)
     const cos = Math.cos(TILT)
     const rx = p[0] * ca - p[1] * sa
@@ -73,7 +104,7 @@ const bounds = computed(() => {
         const a = k / FIT_ANGLES * Math.PI * 2
         const ca = Math.cos(a)
         const sa = Math.sin(a)
-        for (const p of shape.value) {
+        for (const p of shape.value.flatMap(l => l.pts)) {
             const q = place(p, ca, sa)
             minX = Math.min(minX, q.x)
             maxX = Math.max(maxX, q.x)
@@ -99,24 +130,26 @@ function draw(angle: number) {
     const oy = h / 2 - scale * (b.minY + b.maxY) / 2
     const ca = Math.cos(angle)
     const sa = Math.sin(angle)
-    const proj = shape.value.map((p) => {
-        const q = place(p, ca, sa)
-        return { x: w / 2 + q.x * scale, y: oy + q.y * scale, depth: q.depth }
-    })
     ctx.clearRect(0, 0, w, h)
     ctx.strokeStyle = props.color
     ctx.lineWidth = LINE_PX * dpr
     ctx.lineCap = 'round'
-    const n = props.closed ? proj.length : proj.length - 1
-    for (let i = 0; i < n; i++) {
-        const a = proj[i]!
-        const b = proj[(i + 1) % proj.length]!
-        // The far side fades, which is what makes a flat line read as turning in space.
-        ctx.globalAlpha = 0.6 + 0.4 * ((a.depth + b.depth) / 2 + 1) / 2
-        ctx.beginPath()
-        ctx.moveTo(a.x, a.y)
-        ctx.lineTo(b.x, b.y)
-        ctx.stroke()
+    for (const line of shape.value) {
+        const proj = line.pts.map((p) => {
+            const q = place(p, ca, sa)
+            return { x: w / 2 + q.x * scale, y: oy + q.y * scale, depth: q.depth }
+        })
+        const n = line.closed ? proj.length : proj.length - 1
+        for (let i = 0; i < n; i++) {
+            const a = proj[i]!
+            const b = proj[(i + 1) % proj.length]!
+            // The far side fades, which is what makes a flat line read as turning in space.
+            ctx.globalAlpha = 0.6 + 0.4 * ((a.depth + b.depth) / 2 + 1) / 2
+            ctx.beginPath()
+            ctx.moveTo(a.x, a.y)
+            ctx.lineTo(b.x, b.y)
+            ctx.stroke()
+        }
     }
     ctx.globalAlpha = 1
 }

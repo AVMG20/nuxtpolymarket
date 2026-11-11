@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { buildStage, CourseMaterials, layCourse, MARKER_LIFT } from './builder-course'
 import { worldKit } from './world-kit'
 import { draftTrackDef, mapWalkHeights, sectionWalk, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { sectionPartner } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
 
@@ -92,9 +93,19 @@ export class SectionThumbPainter {
         const group = new THREE.Group()
         const parts: { dispose(): void }[] = []
         // No end walls: on a card they'd read as a dead end, not a piece that joins on.
-        layCourse(worldKit(track, group, parts), { lines: walk.lines, end: walk.end, originY: null }, this.mats, { endWalls: false })
+        layCourse(worldKit(track, group, parts), { lines: walk.lines, ends: [walk.end], originY: null }, this.mats, { endWalls: false })
+        const extent = cardExtent(track, walk.end)
+        // A split's arm, or a join's road in, laid as a course of its own beside it; flat, so no stretch.
+        const partner = sectionPartner(id)
+        if (partner) {
+            const other = new Track(draftTrackDef(partner, false)!)
+            // A join's road in ends where the section does, which already has its marker.
+            const meets = Math.hypot(partner.end.x - walk.end.x, partner.end.z - walk.end.z) < 0.5
+            layCourse(worldKit(other, group, parts), { lines: [], ends: meets ? [] : [partner.end], originY: null }, this.mats, { endWalls: false })
+            extent.push(...cardExtent(other, partner.end))
+        }
         this.scene.add(group)
-        this.aim(fitView(cardExtent(track, walk.end), VIEW_DIR, WIDTH / HEIGHT))
+        this.aim(fitView(extent, VIEW_DIR, WIDTH / HEIGHT))
         this.renderer.render(this.scene, this.camera)
         // Read before the frame ends: the drawing buffer isn't kept after that.
         const url = this.renderer.domElement.toDataURL('image/png')

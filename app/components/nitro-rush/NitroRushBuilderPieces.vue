@@ -7,6 +7,8 @@ const props = defineProps<{
     /** Per section: how the bank or slope it's laid on changes it, or nothing. */
     tags: string[]
     cursor: number
+    /** What the row before the first section stands for: where the road starts, or where a branch forks off. */
+    startLabel: string
 }>()
 const emit = defineEmits<{ select: [i: number], move: [from: number, to: number], remove: [i: number] }>()
 
@@ -76,7 +78,7 @@ const dropAfterLast = (i: number) => !!drag.value && i === props.sections.length
     <li>
       <button class="nr-piece" :class="{ 'is-active': cursor === -1 }" @click="$emit('select', -1)">
         <span class="nr-piece-index">·</span>
-        <span class="truncate text-white/60">Start of the road</span>
+        <span class="truncate text-white/60">{{ startLabel }}</span>
       </button>
     </li>
     <li

@@ -1,12 +1,18 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { buildStage, CourseMaterials, DASH, DASH_GAP, emptyOutlines, endMarker, layCourse, type PreviewCourse } from './builder-course'
+import { buildStage, CourseMaterials, DASH, DASH_GAP, emptyOutlines, endMarker, layCourse, type PreviewCourse, type RoadEnd } from './builder-course'
 import { NEON_PINK } from './config'
 import { AdaptiveResolution } from './resolution'
 import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { ROAD_TILE_LENGTH } from './textures'
 import { worldKit } from './world-kit'
-import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { Track, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
+
+/** Some of the road on one line, by walk points: the highlighted section. */
+export interface PreviewSelection {
+    line: number
+    range: readonly [number, number]
+}
 
 const FOV = 50
 /** Courses smaller than this still frame as if they were this wide, so one section isn't blown up. */
@@ -34,12 +40,12 @@ export class BuilderPreview {
     private readonly raycaster = new THREE.Raycaster()
     private course = new THREE.Group()
     private courseParts: { dispose(): void }[] = []
-    private deck: THREE.Mesh | null = null
+    /** Each line of the course, and the deck picking hits on it, by line number; null for a line with no road yet. */
+    private lines: ({ line: TrackLine, deck: THREE.Mesh } | null)[] = []
     private selection: THREE.Mesh | null = null
     /** The selection's empty road, which has no deck to highlight. */
     private selectionOutlines: THREE.LineLoop[] = []
     private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh, outlines: THREE.LineLoop[] } | null = null
-    private track: Track | null = null
     /** Until the player turns the view themselves, it reframes as the course grows. */
     private userMoved = false
     private raf = 0
@@ -73,19 +79,25 @@ export class BuilderPreview {
         this.raf = requestAnimationFrame(this.frame)
     }
 
-    /** Rebuilds the road; null clears it. */
-    setCourse(course: PreviewCourse | null, selected: readonly [number, number] | null) {
+    /** Rebuilds the road: one forked course, or a course per line, null for a line with no road yet; none clears it. */
+    setCourse(courses: readonly (PreviewCourse | null)[], selected: PreviewSelection | null) {
         this.clearCourse()
-        if (!course) return
-        const track = new Track(course.def)
-        this.track = track
-        this.deck = layCourse(worldKit(track, this.course, this.courseParts), course, this.mats)
+        for (const course of courses) {
+            if (!course) {
+                this.lines.push(null)
+                continue
+            }
+            const track = new Track(course.def)
+            if (course.openStart) track.barrierStart = false
+            const decks = layCourse(worldKit(track, this.course, this.courseParts), course, this.mats)
+            track.branches.forEach((line, i) => this.lines.push({ line, deck: decks[i]! }))
+        }
         this.setSelected(selected)
         if (!this.userMoved) this.frameCourse()
     }
 
-    /** Highlights the road between two walk points, or nothing. */
-    setSelected(range: readonly [number, number] | null) {
+    /** Highlights some of one line's road, or nothing. */
+    setSelected(selected: PreviewSelection | null) {
         if (this.selection) {
             this.course.remove(this.selection)
             this.selection.geometry.dispose()
@@ -93,8 +105,9 @@ export class BuilderPreview {
         }
         removeLines(this.course, this.selectionOutlines)
         this.selectionOutlines = []
-        const track = this.track
-        if (!track || !range) return
+        const track = selected && this.lines[selected.line]?.line
+        if (!track) return
+        const { range } = selected
         const from = track.cum[Math.min(range[0], track.n)]!
         const to = track.cum[Math.min(range[1], track.n)]!
         if (to - from < 0.5) return
@@ -104,7 +117,7 @@ export class BuilderPreview {
     }
 
     /** Shows the piece about to be built, or nothing; it isn't part of the road, so it survives the road's rebuilds. */
-    setGhost(ghost: { def: TrackDef, end: NonNullable<PreviewCourse['end']>, blocked: boolean } | null) {
+    setGhost(ghost: { def: TrackDef, end: RoadEnd, blocked: boolean } | null) {
         this.clearGhost()
         if (ghost) {
             const colour = ghost.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR
@@ -120,16 +133,16 @@ export class BuilderPreview {
         if (!this.userMoved) this.frameCourse()
     }
 
-    /** The walk point under a spot on screen, if it's on the road. */
-    pick(clientX: number, clientY: number): number | null {
-        const track = this.track
-        if (!track || !this.deck) return null
+    /** The line and walk point under a spot on screen, if it's on the road. */
+    pick(clientX: number, clientY: number): { line: number, point: number } | null {
+        if (!this.lines.length) return null
         const rect = this.renderer.domElement.getBoundingClientRect()
         const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1)
         this.raycaster.setFromCamera(ndc, this.camera)
-        const hit = this.raycaster.intersectObject(this.deck)[0]
-        if (!hit) return null
-        return track.project(hit.point.x, hit.point.z, -1, undefined, hit.point.y).seg
+        const hit = this.raycaster.intersectObjects(this.lines.flatMap(l => l ? [l.deck] : []))[0]
+        const line = hit ? this.lines.findIndex(l => l?.deck === hit.object) : -1
+        if (!hit || line < 0) return null
+        return { line, point: this.lines[line]!.line.project(hit.point.x, hit.point.z, -1, undefined, hit.point.y).seg }
     }
 
     /** Frames the whole course again and lets it follow the course's growth. */
@@ -163,8 +176,7 @@ export class BuilderPreview {
         this.courseParts = []
         this.course = new THREE.Group()
         this.scene.add(this.course)
-        this.deck = null
-        this.track = null
+        this.lines = []
     }
 
     private clearGhost() {
@@ -177,7 +189,7 @@ export class BuilderPreview {
 
     private frameCourse() {
         const box = new THREE.Box3()
-        const tracks = [this.track, this.ghost?.track].filter(t => !!t)
+        const tracks = [...this.lines.map(l => l?.line), this.ghost?.track].filter(t => !!t)
         for (const track of tracks) {
             for (let i = 0; i < track.n; i++) box.expandByPoint(new THREE.Vector3(track.xs[i], track.ys[i], track.zs[i]))
         }

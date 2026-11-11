@@ -4,7 +4,7 @@ import {
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_TOUCH_KEEP, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
-import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type Projection, type Track, type TrackFrame } from '#shared/utils/nitro-rush/track'
+import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type Projection, type Route, type Track, type TrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -21,6 +21,10 @@ import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WAL
  * Off a jump's kicker the car flies: `y` and `vy` carry it until it lands, on
  * any road under it, or it falls and `fell` tells the engine to put it back.
  * The walls are low: a car in the air above them clears them.
+ *
+ * On a forked course `proj.branch` is the line the car is on, and every lookup goes to that line.
+ * Where two branches share a deck the wall between them is open; the nose where their walls
+ * meet is a crash cushion.
  */
 export interface CarState {
     x: number
@@ -52,7 +56,8 @@ export interface CarState {
     /** Climb rate, metres per second. */
     vy: number
     airborne: boolean
-    /** Where along the road, and how high, the car last left it; a fall puts it back there. */
+    /** Where along the road (its branch and distance), and how high, the car last left it; a fall puts it back there. */
+    leftBranch: number
     leftS: number
     leftY: number
     /** On a looping or corkscrew. */
@@ -107,33 +112,40 @@ const RAIL_WALL_FRICTION = 0.6
 const railFrame = newTrackFrame()
 const railEntry = newTrackPoint()
 const under = newProjection()
+/** Radius of the crash cushion at a fork's nose or a join's tail. */
+const CUSHION_RADIUS = 0.5
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
 
-export function createCar(track: Track, s: number, lateral = 0): CarState {
-    const p = track.pointAt(s)
+/** The line the car is on. */
+const lineOf = (car: CarState, track: Track): TrackLine => track.branches[car.proj.branch] ?? track
+
+export function createCar(track: Track, s: number, lateral = 0, branch = 0): CarState {
+    const line = track.branches[branch] ?? track
+    const p = line.pointAt(s)
     const heading = headingOf(p.tx, p.tz)
     const x = p.x - p.tz * lateral
     const z = p.z + p.tx * lateral
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroOn: false, boostTime: 0, onBoostPad: false,
-        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftBranch: line.branch, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
-    track.project(x, z, track.segmentAt(s), car.proj)
-    if (track.railAt(s)) {
+    track.locate(x, z, line.branch, line.segmentAt(s), car.proj)
+    if (line.railAt(s)) {
         car.onRail = true
-        placeOnRail(car, track, s, lateral)
+        placeOnRail(car, line, s, lateral)
     }
     return car
 }
 
 /** Puts a car on rails at distance `s` and offset `lateral`, from the road's own frame. */
-function placeOnRail(car: CarState, track: Track, s: number, lateral: number) {
+function placeOnRail(car: CarState, track: TrackLine, s: number, lateral: number) {
     const f = track.frameAt(s, railFrame)
     const p = car.proj
+    p.branch = track.branch
     p.s = track.wrapS(s)
     p.seg = track.segmentAt(p.s)
     p.lateral = lateral
@@ -154,7 +166,7 @@ function placeOnRail(car: CarState, track: Track, s: number, lateral: number) {
 
 /** The road's frame under a car on rails; valid until the next physics step. */
 export function railFrameOf(car: CarState, track: Track): TrackFrame {
-    return track.frameAt(car.proj.s, railFrame)
+    return lineOf(car, track).frameAt(car.proj.s, railFrame)
 }
 
 export function slipAngle(car: CarState) {
@@ -166,11 +178,11 @@ function bodyAngle(car: CarState) {
     return wrapAngle(car.heading - headingOf(car.proj.tx, car.proj.tz))
 }
 
-/** The widest the car can sit off the centreline before its corner touches the wall; angled bodies reach further. */
+/** The widest the car can sit off the centreline, on the side it's on, before its corner touches the wall; angled bodies reach further. */
 export function wallLimit(track: Track, car: CarState) {
     const angle = bodyAngle(car)
     const reach = CAR_HALF_WIDTH * Math.abs(Math.cos(angle)) + CAR_HALF_LENGTH * Math.abs(Math.sin(angle))
-    return track.wallAt(car.proj.s) - reach
+    return lineOf(car, track).wallOn(car.proj.s, car.proj.lateral < 0 ? -1 : 1) - reach
 }
 
 /** Under nitro or a pad's boost: the engine pulls harder, and the car shows it. */
@@ -220,7 +232,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     car.speed = moveTowards(v + drive * dt, 0, resist * dt)
 
     if (car.onRail) {
-        stepRail(car, left, track, dt, ev)
+        stepRail(car, left, track, lineOf(car, track), dt, ev)
         if (!input.drift) car.driftSpent = false
         return ev
     }
@@ -265,36 +277,37 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     car.z += car.speed * -Math.cos(car.travel) * dt
 
     // ── Walls ──
-    const p = track.project(car.x, car.z, car.proj.seg, car.proj, car.y)
+    const p = track.locate(car.x, car.z, car.proj.branch, car.proj.seg, car.proj, car.y)
+    const line = lineOf(car, track)
     const limit = wallLimit(track, car)
-    if (Math.abs(p.lateral) > limit && meetsWall(car, track)) {
+    if (Math.abs(p.lateral) > limit && meetsWall(car, line)) {
         const side = Math.sign(p.lateral)
         // Inward normal: away from the wall, toward the centreline, tipped back where the road narrows so its walls close in on the car.
-        const slope = track.wallSlopeAt(p.s)
+        const slope = line.wallSlopeAt(p.s)
         const tilt = Math.sqrt(1 + slope * slope)
         hitBarrier(car, ev, (p.tz * side + p.tx * slope) / tilt, (-p.tx * side + p.tz * slope) / tilt, (Math.abs(p.lateral) - limit) / tilt)
         p.lateral = side * limit
     }
     scrapeWall(car, ev, Math.abs(p.lateral), limit, dt)
-    // ── End barriers across an open course ──
-    if (!track.closed) {
-        const reach = endReach(car)
-        if (p.s < reach) {
-            hitBarrier(car, ev, p.tx, p.tz, reach - p.s)
-            p.s = reach
-        } else if (p.s > track.length - reach) {
-            hitBarrier(car, ev, -p.tx, -p.tz, p.s - (track.length - reach))
-            p.s = track.length - reach
-        }
+    // ── End barriers across an open course; a branch's end that meets other road has none ──
+    const reach = endReach(car)
+    if (line.barrierStart && p.s < reach) {
+        hitBarrier(car, ev, p.tx, p.tz, reach - p.s)
+        p.s = reach
+    } else if (line.barrierEnd && p.s > line.length - reach) {
+        hitBarrier(car, ev, -p.tx, -p.tz, p.s - (line.length - reach))
+        p.s = line.length - reach
     }
+    hitCushions(car, track, ev)
     stepHeight(car, track, dt, ev)
-    stepBoostPad(car, track, ev)
+    const now = lineOf(car, track)
+    stepBoostPad(car, now, ev)
     // Onto a looping or corkscrew: the rails take over from here.
-    if (!car.airborne && track.railAt(p.s)) {
+    if (!car.airborne && now.railAt(p.s)) {
         if (car.drifting) endDrift(car, ev, true)
         car.onRail = true
         car.rel = wrapAngle(car.travel - headingOf(p.tx, p.tz))
-        placeOnRail(car, track, p.s, p.lateral)
+        placeOnRail(car, now, p.s, p.lateral)
     }
     // Cleared last, after any drift this step ended, so a one-step release is enough to drift again.
     if (!input.drift) car.driftSpent = false
@@ -302,10 +315,48 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
 }
 
 /** Whether the car's move can cross a lap line: on the road, or flying over it rather than off to its side. */
-export const crossesLines = (car: CarState, track: Track) => !car.airborne || track.overRoad(car.proj.s, car.proj.lateral)
+export const crossesLines = (car: CarState, track: Track) => !car.airborne || lineOf(car, track).overRoad(car.proj.s, car.proj.lateral)
+
+/**
+ * The crash cushions at the noses and tails where branches' walls meet, hit like a wall by the
+ * car's body; head on, the push goes out the nearest face. A car in the air above them clears them.
+ */
+function hitCushions(car: CarState, track: Track, ev: StepEvents) {
+    for (const c of track.cushions) {
+        const dx = c.x - car.x
+        const dz = c.z - car.z
+        if (dx * dx + dz * dz > 36 || (car.airborne && car.y > c.y + WALL_HEIGHT)) continue
+        const fx = -Math.sin(car.heading)
+        const fz = -Math.cos(car.heading)
+        // The cushion in the car's frame: along its nose, and to its right.
+        const a = dx * fx + dz * fz
+        const b = dx * -fz + dz * fx
+        const ca = Math.max(-CAR_HALF_LENGTH, Math.min(CAR_HALF_LENGTH, a))
+        const cb = Math.max(-CAR_HALF_WIDTH, Math.min(CAR_HALF_WIDTH, b))
+        let na: number
+        let nb: number
+        let push: number
+        if (ca !== a || cb !== b) {
+            const d = Math.hypot(a - ca, b - cb)
+            if (d >= CUSHION_RADIUS) continue
+            na = (ca - a) / d
+            nb = (cb - b) / d
+            push = CUSHION_RADIUS - d
+        } else if (CAR_HALF_LENGTH - Math.abs(a) < CAR_HALF_WIDTH - Math.abs(b)) {
+            na = a < 0 ? 1 : -1
+            nb = 0
+            push = CAR_HALF_LENGTH - Math.abs(a) + CUSHION_RADIUS
+        } else {
+            na = 0
+            nb = b < 0 ? 1 : -1
+            push = CAR_HALF_WIDTH - Math.abs(b) + CUSHION_RADIUS
+        }
+        hitBarrier(car, ev, na * fx + nb * -fz, na * fz + nb * fx, push)
+    }
+}
 
 /** Whether the wall beside the car is in its way: not over a gap, which has none, nor in the air above it or past it. */
-function meetsWall(car: CarState, track: Track) {
+function meetsWall(car: CarState, track: TrackLine) {
     const p = car.proj
     if (!car.airborne) return true
     if (track.gapAt(p.s)) return false
@@ -314,7 +365,7 @@ function meetsWall(car: CarState, track: Track) {
 }
 
 /** Only a car driving the right way over a pad gets anything from it. */
-function stepBoostPad(car: CarState, track: Track, ev: StepEvents) {
+function stepBoostPad(car: CarState, track: TrackLine, ev: StepEvents) {
     const p = car.proj
     const on = !car.airborne && car.speed > 0 && Math.cos(wrapAngle(car.travel - headingOf(p.tx, p.tz))) > 0 && track.boostAt(p.s, p.lateral)
     if (on) {
@@ -344,12 +395,13 @@ function gripTurn(speed: number, left: number) {
 function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
     const p = car.proj
     if (!car.airborne) {
-        if (!track.gapAt(p.s)) {
+        if (!lineOf(car, track).gapAt(p.s)) {
             car.vy = (p.y - car.y) / dt
             car.y = p.y
             return
         }
         car.airborne = true
+        car.leftBranch = p.branch
         car.leftS = p.s
         car.leftY = car.y
         ev.tookOff = true
@@ -358,9 +410,9 @@ function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
     const before = car.y
     car.vy -= GRAVITY * dt
     car.y += car.vy * dt
-    if (track.roadUnder(car.x, before, car.z, under)) {
+    if (track.landing(car.x, before, car.z, under)) {
         // A bank tips the surface under the car away from the centre's height; on the road, y goes back to the centre's, which project picks a level by.
-        if (car.y > track.surfaceAt(under.s, under.lateral)) return
+        if (car.y > track.branches[under.branch]!.surfaceAt(under.s, under.lateral)) return
         Object.assign(p, under)
         ev.landed = Math.max(0, -car.vy)
         car.y = p.y
@@ -373,7 +425,7 @@ function stepHeight(car: CarState, track: Track, dt: number, ev: StepEvents) {
 }
 
 /** A step on rails: the car moves along and across the road itself, held inside its walls. */
-function stepRail(car: CarState, left: number, track: Track, dt: number, ev: StepEvents) {
+function stepRail(car: CarState, left: number, course: Track, track: TrackLine, dt: number, ev: StepEvents) {
     const p = car.proj
     // Rails charge no touch, but a press from before them still runs out, so it can't excuse a touch long after.
     car.wallPress = Math.max(0, car.wallPress - dt)
@@ -399,7 +451,7 @@ function stepRail(car: CarState, left: number, track: Track, dt: number, ev: Ste
     const across = Math.hypot(railFrame.rx, railFrame.rz)
     car.x = railFrame.x + railFrame.rx / across * lateral
     car.z = railFrame.z + railFrame.rz / across * lateral
-    track.project(car.x, car.z, track.segmentAt(p.s), p, car.y)
+    course.locate(car.x, car.z, track.branch, track.segmentAt(p.s), p, car.y)
 }
 
 /** Sine of the road's slope along the direction of travel: + climbing. */
@@ -479,21 +531,26 @@ function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
     car.driftTime = 0
 }
 
-/**
- * A tidy grip driver for the menu's demo laps and the tests: it chases a
- * point down the centreline and brakes for the tightest bend ahead.
- */
-export function botInput(car: CarState, track: Track, pace = 1): CarInput {
+/** A tidy grip driver for the demo laps, the medals and the tests; on a forked course it follows `route`, the main one when left out. */
+export function botInput(car: CarState, track: Track, pace = 1, route: Route | null = null): CarInput {
     // On rails it floors it and holds the middle of the road.
     if (car.onRail) return { throttle: 1, brake: 0, steer: Math.max(-1, Math.min(1, car.rel * 3 - car.proj.lateral * 0.15)), drift: false }
     const v = Math.max(0, car.speed)
-    const aheadS = car.proj.s + 8 + v * 0.45
+    const way = route ?? track.routes[0] ?? null
+    const here = track.onRoute(way, car.proj, car.x, car.z)
+    const spot = track.ahead(way, here.branch, here.s, 8 + v * 0.25)
+    const line = spot.line
+    const aheadS = spot.s
     // A looping's plan doubles back, so past a rail's entry it aims straight on along the entry.
-    const rail = track.rails.find(([a, b]) => aheadS >= a && aheadS < b && car.proj.s < a)
-    const ahead = track.pointAt(rail ? rail[0] : aheadS)
+    const rail = line.branch === here.branch ? line.rails.find(([a, b]) => aheadS >= a && aheadS < b && here.s < a) : undefined
+    const ahead = line.pointAt(rail ? rail[0] : aheadS)
     if (rail) {
         ahead.x += ahead.tx * (aheadS - rail[0])
         ahead.z += ahead.tz * (aheadS - rail[0])
+    } else {
+        const across = line.racingOffsetAt(aheadS, track.racingOn(way, line.branch))
+        ahead.x -= ahead.tz * across
+        ahead.z += ahead.tx * across
     }
     const want = headingOf(ahead.x - car.x, ahead.z - car.z)
     const err = wrapAngle(want - car.travel)
@@ -502,13 +559,15 @@ export function botInput(car: CarState, track: Track, pace = 1): CarInput {
     let allowed = Infinity
     const look = 20 + v * v / (BRAKE_DECEL * 1.4)
     for (let d = 0; d <= look; d += 4) {
-        const k = track.curvature[track.segmentAt(car.proj.s + d)]!
+        const at = track.ahead(way, here.branch, here.s, d)
+        const k = track.racingOn(way, at.line.branch).curvature[at.line.segmentAt(at.s)]!
         if (k < 1e-4) continue
         const corner = Math.sqrt(GRIP_LATERAL * 0.9 / k) * pace
         allowed = Math.min(allowed, Math.sqrt(corner * corner + 2 * BRAKE_DECEL * 0.7 * d))
     }
-    // On an open course it pulls up before the end barrier.
-    if (!track.closed) allowed = Math.min(allowed, Math.sqrt(2 * BRAKE_DECEL * 0.7 * Math.max(0, track.length - 12 - car.proj.s)))
+    // It pulls up before an end barrier.
+    const own = lineOf(car, track)
+    if (own.barrierEnd) allowed = Math.min(allowed, Math.sqrt(2 * BRAKE_DECEL * 0.7 * Math.max(0, own.length - 12 - car.proj.s)))
     allowed = Math.min(allowed, ENGINE_TOP_SPEED * pace)
     return {
         throttle: v < allowed ? 1 : 0,
