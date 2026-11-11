@@ -1,4 +1,4 @@
-import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, kicker, landing, LINE_BLOCK_LENGTH, looping, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, widthTo, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, kicker, landing, LINE_BLOCK_LENGTH, looping, MIN_HALF_WIDTH, ramp, spiral, start, straight, widthTo, type TrackLayout, type TrackPiece } from './layout'
 import type { TrackDef, TrackGroup } from './track'
 
 /** Menu categories, in menu order. */
@@ -114,6 +114,7 @@ export const ZIGZAG_SPRINT: TrackLayout = {
 }
 
 const splitY: TrackPiece = { type: 'split', shape: 'y' }
+const splitLeft: TrackPiece = { type: 'split', shape: 'left' }
 const joinY: TrackPiece = { type: 'join', shape: 'y' }
 const splitRight: TrackPiece = { type: 'split', shape: 'right' }
 const joinRight: TrackPiece = { type: 'join', shape: 'right' }
@@ -184,33 +185,43 @@ export const DOUBLE_FORK: TrackLayout = {
     ]
 }
 
-/** A fast oval on wide road with banked bowls at both ends, and a narrow bypass with a boost pad down the back straight. */
-export const SPEEDBOWL: TrackLayout = {
-    id: 'speedbowl',
-    name: 'Speedbowl',
+/** A figure eight: up over a bridge across its own road, a looping after a boost pad, then a chicane or a narrow shortcut past it. */
+export const CROSSOVER: TrackLayout = {
+    id: 'crossover',
+    name: 'Crossover',
     group: 'circuits',
     ...ROAD,
     origin: { x: 0, z: 0, heading: 0 },
     pieces: [
         start,
-        widthTo(WIDE),
+        ramp(150, 12),
+        corner('right', 80, 45),
         straight(200),
+        corner('left', 80, 45),
         boostPad('full'),
-        straight(200),
+        looping('left', 22),
+        straight(120),
         bankTo(-BANK),
         corner('left', 80),
         corner('left', 80),
         bankTo(0),
-        widthTo(ROAD.halfWidth),
+        ramp(150, -12),
+        corner('left', 80, 45),
+        straight(200),
+        corner('right', 80, 45),
         splitRight,
-        straight(300),
+        straight(20),
+        corner('left', 40, 45),
+        corner('right', 40, 45),
+        corner('right', 40, 45),
+        corner('left', 40, 45),
+        straight(60),
+        corner('right', 40),
+        straight(20),
         joinRight,
-        checkpoint,
-        straight(30),
-        bankTo(-BANK),
-        corner('left', 80),
-        corner('left', 80),
-        bankTo(0)
+        straight(40),
+        corner('right', 40),
+        straight(100)
     ],
     branches: [
         {
@@ -218,49 +229,57 @@ export const SPEEDBOWL: TrackLayout = {
                 corner('right', 60, 45),
                 corner('left', 60, 45),
                 widthTo(MIN_HALF_WIDTH),
-                boostPad('full'),
-                straight(70),
+                straight(20),
                 widthTo(ROAD.halfWidth),
-                corner('left', 60, 45),
-                straight(40 * Math.SQRT2 - 50),
-                mergeBend('right', 50 * Math.SQRT2 - 10)
+                corner('right', 60, 45),
+                straight(10 * Math.SQRT2),
+                mergeBend('right', 60)
             ],
-            from: { branch: 0, at: 10 },
-            to: { branch: 0, at: 13 }
+            from: { branch: 0, at: 16 },
+            to: { branch: 0, at: 26 }
         }
     ]
 }
 
-/** A clockwise stunt loop: a looping, a corkscrew between banks, a climb and a spiral back down to the ground. */
-export const CORKSCREW_HILL: TrackLayout = {
-    id: 'corkscrew-hill',
-    name: 'Corkscrew Hill',
+/** Hairpins up a hill to a corkscrew between banks, a big jump off the top, and a dive back down over the start straight. */
+export const SWITCHBACK: TrackLayout = {
+    id: 'switchback',
+    name: 'Switchback',
     group: 'circuits',
     ...ROAD,
     origin: { x: 0, z: 0, heading: 0 },
     pieces: [
         start,
-        straight(100),
-        looping('right', 22),
-        straight(100),
-        corner('right', 60),
-        bankTo(BANK),
-        corkscrew('right', 200),
-        bankTo(0),
-        corner('right', 60),
-        slopeTo(0.1),
-        straight(80),
-        slopeTo(0),
         straight(60),
-        spiral('right', 40, 360, -12),
+        ramp(80, 12),
+        corner('left', 30, 180),
+        ramp(80, 12),
+        corner('right', 60, 180),
+        straight(60),
+        bankTo(BANK),
         corner('right', 60),
-        checkpoint,
-        straight(330),
-        corner('right', 60)
+        corkscrew('right', 200),
+        corner('right', 60),
+        bankTo(0),
+        boostPad('full'),
+        kicker(BIG_KICKER),
+        gap(140),
+        landing,
+        corner('right', 60),
+        ramp(80, -12),
+        ramp(80, -12),
+        corner('left', 30, 180),
+        straight(20),
+        corner('left', 60),
+        straight(20),
+        kicker(KICKER),
+        gap(60),
+        landing,
+        straight(20)
     ]
 }
 
-/** A point-to-point sprint over two jumps: one on the ground, a bigger one off a raised road after a boost pad. */
+/** A nearly straight sprint over three jumps that grow, the last off a raised road, each sized to land on its ramp at full speed. */
 export const LONG_JUMP_SPRINT: TrackLayout = {
     id: 'long-jump-sprint',
     name: 'Long Jump Sprint',
@@ -271,31 +290,41 @@ export const LONG_JUMP_SPRINT: TrackLayout = {
     pieces: [
         straight(20),
         start,
-        straight(100),
+        straight(200),
+        boostPad('full'),
         kicker(KICKER),
-        gap(60),
+        gap(130),
         landing,
         straight(100),
-        corner('right', 60),
+        corner('right', 80, 45),
+        straight(100),
+        corner('left', 80, 45),
+        checkpoint,
+        straight(100),
+        boostPad('full'),
+        kicker(BIG_KICKER),
+        gap(160),
+        landing,
+        straight(100),
+        corner('left', 80, 45),
+        straight(60),
+        corner('right', 80, 45),
         checkpoint,
         ramp(150, 12),
-        corner('left', 60),
         boostPad('full'),
         straight(60),
+        boostPad('full'),
         kicker(BIG_KICKER),
-        gap(60),
+        gap(180),
         landing,
-        straight(160),
-        corner('left', 60),
-        ramp(80, -12),
-        corner('right', 60),
-        straight(60),
+        ramp(150, -12),
+        straight(100),
         finish,
         straight(200)
     ]
 }
 
-/** A sprint that splits for good: a narrow road over a hill to one finish, or a wide straight with a boost pad to another. */
+/** A sprint that splits for good into three finishes: a narrow road over a jump, a wide road with boost pads, or a hill over both. */
 export const SPLIT_FINISH: TrackLayout = {
     id: 'split-finish',
     name: 'The Split Finish',
@@ -308,18 +337,19 @@ export const SPLIT_FINISH: TrackLayout = {
         start,
         straight(100),
         corner('right', 60),
+        splitLeft,
         straight(60),
         corner('left', 60),
         checkpoint,
-        straight(60),
-        corner('right', 60),
-        straight(60),
+        straight(20),
         splitY,
-        widthTo(MIN_HALF_WIDTH),
         corner('right', 60, 45),
+        widthTo(MIN_HALF_WIDTH),
+        straight(160),
         boostPad('full'),
-        ramp(80, 12),
-        ramp(80, -12),
+        kicker(KICKER),
+        gap(140),
+        landing,
         checkpoint,
         widthTo(ROAD.halfWidth),
         straight(60),
@@ -329,17 +359,42 @@ export const SPLIT_FINISH: TrackLayout = {
     branches: [
         {
             pieces: [
+                corner('left', 60, 45),
+                corner('left', 60, 45),
+                straight(60),
+                ramp(150, 12),
+                corner('right', 60, 45),
+                straight(60),
+                ramp(150, 12),
+                straight(100),
+                corner('left', 60, 45),
+                checkpoint,
+                ramp(80, -12),
+                straight(20),
+                ramp(80, -12),
+                straight(100),
+                finish,
+                straight(170)
+            ],
+            from: { branch: 0, at: 4 },
+            to: null
+        },
+        {
+            pieces: [
                 corner('right', 60, 45),
                 corner('left', 60, 45),
                 widthTo(WIDE),
                 boostPad('full'),
-                straight(200),
+                straight(300),
                 checkpoint,
-                straight(60),
+                corner('right', 80, 45),
+                corner('left', 80, 45),
+                boostPad('full'),
+                straight(200),
                 finish,
                 straight(170)
             ],
-            from: { branch: 0, at: 10 },
+            from: { branch: 0, at: 9 },
             to: null
         }
     ]
@@ -349,8 +404,8 @@ export const SPLIT_FINISH: TrackLayout = {
 export const TRACKS: readonly TrackDef[] = [
     buildTrack(POLYTOWN_OVAL),
     buildTrack(TWIN_HELIX),
-    buildTrack(SPEEDBOWL),
-    buildTrack(CORKSCREW_HILL),
+    buildTrack(CROSSOVER),
+    buildTrack(SWITCHBACK),
     buildTrack(S_BEND_SPRINT),
     buildTrack(ZIGZAG_SPRINT),
     buildTrack(DOUBLE_FORK),
