@@ -1,565 +1,439 @@
+import { compileGraph, progressOn, type BranchEnd, type BranchLink, type CourseGraph, type Cushion, type Route, type RouteLeg } from './track-graph'
+import { KICKER_GRADE, newProjection, SPEED_CEILING, TrackLine, wallFoot, type LineDef, type Projection, type TrackGroup } from './track-line'
+
+export * from './track-line'
+export { MAX_ROUTES, TrackGraphError, type BranchEnd, type Cushion, type Route, type RouteLeg } from './track-graph'
+
 /**
- * Course geometry. Pure maths, no three.js, so the physics, the bot, the
- * server's leaderboard checks and the tests all share it.
+ * A course: its main line, and where the road forks, a line per branch. Loops and sprints
+ * both fork; every branch leaves other road and either joins road again or, on a sprint,
+ * runs to a finish of its own. A course with no branches is the one line it always was,
+ * and every method here falls straight through to it.
  *
- * A course is a centreline sampled every couple of metres, in driving order.
- * Everything else (the road ribbon, walls, kerbs, where the car is) is
- * measured from it as a distance along the line (`s`) and a signed offset
- * across it (`lateral`, + is right).
- *
- * A loop closes back on its first point, with the start line there. An open
- * course (a sprint) runs from its first point to its last: barriers close
- * both ends, the start line sits `runUp` in and the finish `runOff` short of
- * the far end, so the car has room to stop.
- *
- * Courses are laid out from blocks in `layout.ts` and registered in
- * `tracks.ts`; this file only sees the sampled line they compile to.
- *
- * The road can climb: each point has a height, measured at the centreline.
- * `s` stays a distance over the ground plan, which the gentle grades keep
- * within a fraction of a percent of the distance driven.
- *
- * Stunt pieces add a full frame per point: banks tip the road's up, and on
- * rails (loopings, corkscrews) the plan overlaps itself or the road turns on
- * its side, so there `s` is the distance along the road itself and the car is
- * driven by distance and offset instead of by its spot on the plan. Gaps are
- * stretches with no road: a jump's.
- *
- * The road's width can change along it; the verge from its edge to the wall stays the same.
- *
- * The walls are low: a car in the air above them flies over, and lands on whatever road lies under it, or falls.
+ * The course is its main line too (`branches[0] === this`), so everything that only knows
+ * about one line (the meshes, the builder) keeps working on the main line.
  */
 
-export type TrackGroup = 'circuits' | 'sprints'
+/** A branch of a forked course: its own line, which leaves `from` and ends at `to`. */
+export interface BranchDef {
+    points: [number, number][]
+    heights?: number[]
+    halfWidths?: number[]
+    ups?: [number, number, number][]
+    rails?: [number, number][]
+    gaps?: [number, number][]
+    boosts?: LineDef['boosts']
+    /** Distance along the branch of each checkpoint. */
+    checkpoints?: number[]
+    from: BranchEnd
+    /** The road it joins, or `'finish'` for a sprint's other finish, `runOff` short of its far end. */
+    to: BranchEnd | 'finish'
+    runOff?: number
+}
 
-export interface TrackDef {
+export interface TrackDef extends LineDef {
     id: string
     name: string
     group: TrackGroup
-    points: [number, number][]
-    /** Road height at each point, in metres above the ground; left out on a flat course. */
-    heights?: number[]
-    /** The road's half width, and centreline to the face of the wall, where `halfWidths` doesn't say otherwise. */
-    halfWidth: number
-    wallOffset: number
-    /** Half the road's width at each point; left out where it never changes. */
-    halfWidths?: number[]
-    /** False for a point-to-point sprint; loops are the default. */
-    closed?: boolean
-    /** Open courses only: from the start barrier to the start line. */
-    runUp?: number
-    /** Open courses only: from the finish line to the end barrier. */
-    runOff?: number
-    /** Distance along the line of each checkpoint, in driving order; each one closes a sector. */
-    checkpoints?: number[]
-    /** The road's up at each point, where any of it isn't straight up: banks, loopings, corkscrews. */
-    ups?: [number, number, number][]
-    /** Point ranges, [from, to), driven on rails. */
-    rails?: [number, number][]
-    /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
-    gaps?: [number, number][]
-    boosts?: BoostPadDef[]
+    /** Left out on a course that never forks. */
+    branches?: BranchDef[]
 }
 
-/** Which part of the road's width a boost pad covers. */
-export type BoostLane = 'full' | 'left' | 'right'
-
-export interface BoostPadDef {
-    /** Point range, [from, to). */
-    range: [number, number]
-    lane: BoostLane
-}
-
-/** A boost pad on the road: distances along it and offsets across it, + to the right. */
-export interface BoostPad {
-    from: number
-    to: number
-    latFrom: number
-    latTo: number
-}
-
-/** A lane's edges, as shares of the road's half width. */
-export const BOOST_LANES: Readonly<Record<BoostLane, readonly [number, number]>> = { full: [-1, 1], left: [-1, 0], right: [0, 1] }
-
-export interface Projection {
-    seg: number
+/** A line the lap timer counts the car across. */
+export interface LapLine {
+    kind: 'start' | 'finish' | 'checkpoint'
+    /** The checkpoint's id; -1 for a start or finish. */
+    id: number
+    branch: number
     s: number
-    lateral: number
-    /** Unit tangent of the segment, in driving direction. */
-    tx: number
-    tz: number
-    /** Road height at the projected point. */
-    y: number
-    /** Rise per metre in the driving direction. */
-    grade: number
-}
-
-/** The road at a distance: its centre, and the unit tangent, right and up of its surface. */
-export interface TrackFrame {
     x: number
     y: number
     z: number
-    tx: number
-    ty: number
-    tz: number
-    rx: number
-    ry: number
-    rz: number
-    ux: number
-    uy: number
-    uz: number
-}
-
-export interface TrackPoint {
-    x: number
-    z: number
+    /** The road's direction across the line: crossing along it is forward. */
     tx: number
     tz: number
-    y: number
-    grade: number
+    /** From the centre out to either end of the line: the walls' outer foot. */
+    reach: number
 }
 
-const TAU = Math.PI * 2
-/** Segments either side of the hint that a projection checks before falling back to a full scan. */
-const SEARCH_WINDOW = 10
-/** How much a metre of height counts against a metre across when a full scan picks between stacked roads. */
-const LEVEL_WEIGHT = 4
-const DEFAULT_RUN_UP = 30
-const DEFAULT_RUN_OFF = 150
-/** Faster than the car can ever average (its nitro top speed is ~103 m/s), so the server can refuse impossible laps. */
-export const SPEED_CEILING = 110
-/** Below the road it left by this much, with no road under it, a car has fallen. */
-export const FALL_DEPTH = 6
-/** How far below a car's wheels a road may sit and still be the one it comes down on this step. */
-const UNDER_TOLERANCE = 0.05
-/** Half the jersey barrier's base; its road-side face sits on the track's wall offset. */
-export const WALL_BASE_HALF = 0.32
-/** The jersey barrier's height: a car in the air higher than its top clears it. */
-export const WALL_HEIGHT = 0.86
-/** Centreline to the walls' outer foot: where the deck ends, and the edge a bank pivots on. */
-export const wallFoot = (wallOffset: number) => wallOffset + WALL_BASE_HALF * 2
+/** A place on the road: its line and the distance along it. */
+export interface RoadSpot {
+    line: TrackLine
+    s: number
+}
 
-export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU)
+/** Metres nearer the other road a car on a shared deck has to be before it counts as on it, so it doesn't flicker between them. */
+const DECK_HYSTERESIS = 1.5
+/** Past this many checkpoints the minimum lap stops tracking which were touched, which only makes it more lenient. */
+const MIN_LAP_CHECKPOINTS = 12
+/** As the physics has it, for how far a kicker can throw the car. */
+const GRAVITY = 9.81
+/** Metres of height a flight's reach allows for: pose rounding, and a car landing a touch above the road. */
+const LANDING_SLACK = 1
 
-/** The heading that faces along (dx, dz); heading 0 faces -z. */
-export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
-
-export const newProjection = (): Projection => ({ seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 })
-export const newTrackPoint = (): TrackPoint => ({ x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 })
-export const newTrackFrame = (): TrackFrame => ({ x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: -1, rx: 1, ry: 0, rz: 0, ux: 0, uy: 1, uz: 0 })
-
-/** Ranges in point indices to ranges in distance. */
-const toDistance = (cum: Float64Array, ranges: readonly [number, number][] | undefined) => (ranges ?? []).map(([a, b]) => [cum[a]!, cum[b]!] as const)
-const within = (ranges: readonly (readonly [number, number])[], s: number) => ranges.some(([a, b]) => s >= a && s < b)
-
-export class Track {
-    readonly def: TrackDef
-    readonly closed: boolean
-    readonly n: number
-    /** Segments: one per point on a loop, one fewer on an open course. */
-    readonly segments: number
-    readonly length: number
-    readonly xs: Float64Array
-    readonly zs: Float64Array
-    readonly ys: Float64Array
-    /** Per point: rise per metre in the driving direction. */
-    readonly grades: Float64Array
-    /** Distance along the line at each point; `cum[n]` is the full length either way. */
-    readonly cum: Float64Array
-    /** Per point: the unit tangent averaged over its two segments, so offsets mitre cleanly. */
-    readonly txs: Float64Array
-    readonly tzs: Float64Array
-    /** Per point: how sharply the line turns there, in radians per metre. */
-    readonly curvature: Float64Array
-    /** Where each checkpoint line sits along the line, in driving order. */
-    readonly checkpoints: readonly number[]
-    /** Per point: the road's unit tangent in 3D, and the right and up of its surface. */
-    readonly t3: Float64Array
-    readonly right: Float64Array
-    readonly up: Float64Array
-    /** Distance ranges driven on rails, and with no road. */
-    readonly rails: readonly (readonly [number, number])[]
-    readonly gaps: readonly (readonly [number, number])[]
-    readonly boostPads: readonly BoostPad[]
-    /** Per point: true on rails. */
-    readonly railed: Uint8Array
-    /** Per point: half the road's width, and centreline to the face of the wall. */
-    readonly halfWidths: Float64Array
-    readonly walls: Float64Array
-    /** The furthest any wall stands from the centreline. */
-    readonly maxWall: number
-    private readonly scratchFrame = newTrackFrame()
+export class Track extends TrackLine {
+    declare readonly def: TrackDef
+    /** Every line of the course, by branch; the main line first. */
+    readonly branches: readonly TrackLine[]
+    /** Where each branch leaves and goes; undefined for the main line. */
+    readonly links: readonly (BranchLink | undefined)[]
+    /** Each line's checkpoints' ids: the main line's first, in order, then each branch's. */
+    readonly checkpointIds: readonly (readonly number[])[]
+    readonly checkpointCount: number
+    readonly graph: CourseGraph
+    /** Every line the lap timer counts. */
+    readonly lapLines: readonly LapLine[]
+    private readonly scratch = newProjection()
+    private readonly spot: RoadSpot = { line: this, s: 0 }
+    private minLap: number | null = null
 
     constructor(def: TrackDef) {
-        this.def = def
-        this.closed = def.closed !== false
-        const n = def.points.length
-        this.n = n
-        this.segments = this.closed ? n : n - 1
-        this.xs = new Float64Array(n)
-        this.zs = new Float64Array(n)
-        this.ys = new Float64Array(n)
-        def.points.forEach(([x, z], i) => {
-            this.xs[i] = x
-            this.zs[i] = z
-            this.ys[i] = def.heights?.[i] ?? 0
+        super(def, 0)
+        const lines: TrackLine[] = [this]
+        const links: (BranchLink | undefined)[] = [undefined]
+        for (const b of def.branches ?? []) {
+            const { from, to, ...road } = b
+            lines.push(new TrackLine({ ...road, halfWidth: def.halfWidth, wallOffset: def.wallOffset, closed: false, runUp: 0, runOff: to === 'finish' ? b.runOff : 0 }, lines.length))
+            links.push({ from, to })
+        }
+        this.branches = lines
+        this.links = links
+        let next = 0
+        this.checkpointIds = lines.map(line => line.checkpoints.map(() => next++))
+        this.checkpointCount = next
+        this.graph = compileGraph(lines, links, this.checkpointIds)
+        this.lapLines = this.findLapLines()
+    }
+
+    /** The fewest checkpoints on any route: a lap counts once the car has touched this many. */
+    get k() {
+        return this.graph.k
+    }
+
+    get routes(): readonly Route[] {
+        return this.graph.routes
+    }
+
+    get cushions(): readonly Cushion[] {
+        return this.graph.cushions
+    }
+
+    get forked() {
+        return this.branches.length > 1
+    }
+
+    /** How far through the lap (branch, s) is, 0 at the start to 1 at a finish; for respawns, ranking and the ghost check, not laps. */
+    progressAt(branch: number, s: number) {
+        return progressOn(this.graph, branch, s)
+    }
+
+    /** The line at (branch, s): a finish there, or the checkpoint with that id. */
+    private findLapLines(): LapLine[] {
+        const out: LapLine[] = []
+        const add = (kind: LapLine['kind'], id: number, line: TrackLine, s: number) => {
+            const p = line.pointAt(s)
+            out.push({ kind, id, branch: line.branch, s, x: p.x, y: p.y, z: p.z, tx: p.tx, tz: p.tz, reach: wallFoot(line.wallAt(s)) })
+        }
+        add('start', -1, this, this.startS)
+        if (!this.closed) add('finish', -1, this, this.finishS)
+        this.branches.forEach((line, b) => {
+            line.checkpoints.forEach((s, i) => add('checkpoint', this.checkpointIds[b]![i]!, line, s))
+            if (b > 0 && this.links[b]!.to === 'finish') add('finish', -1, line, line.finishS)
         })
-        const verge = def.wallOffset - def.halfWidth
-        this.halfWidths = new Float64Array(n).map((_, i) => def.halfWidths?.[i] ?? def.halfWidth)
-        this.walls = this.halfWidths.map(w => w + verge)
-        this.maxWall = Math.max(...this.walls)
-        this.railed = new Uint8Array(n)
-        for (const [a, b] of def.rails ?? []) this.railed.fill(1, a, b)
-        this.cum = new Float64Array(n + 1)
-        for (let i = 0; i < n; i++) {
-            const j = (i + 1) % n
-            const dy = this.railed[i] ? this.ys[j]! - this.ys[i]! : 0
-            const seg = i < this.segments ? Math.hypot(this.xs[j]! - this.xs[i]!, this.zs[j]! - this.zs[i]!, dy) : 0
-            this.cum[i + 1] = this.cum[i]! + seg
-        }
-        this.rails = toDistance(this.cum, def.rails)
-        this.gaps = toDistance(this.cum, def.gaps)
-        this.boostPads = (def.boosts ?? []).map(({ range: [a, b], lane }) => ({
-            from: this.cum[a]!,
-            to: this.cum[b]!,
-            latFrom: BOOST_LANES[lane][0] * this.halfWidths[a]!,
-            latTo: BOOST_LANES[lane][1] * this.halfWidths[a]!
-        }))
-        this.length = this.cum[n]!
-        this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
-        this.txs = new Float64Array(n)
-        this.tzs = new Float64Array(n)
-        this.curvature = new Float64Array(n)
-        this.grades = new Float64Array(n)
-        for (let i = 0; i < n; i++) {
-            // An open course's end points only have the one segment.
-            const p = this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)
-            const j = this.closed ? (i + 1) % n : Math.min(n - 1, i + 1)
-            const ax = this.xs[i]! - this.xs[p]!
-            const az = this.zs[i]! - this.zs[p]!
-            const bx = this.xs[j]! - this.xs[i]!
-            const bz = this.zs[j]! - this.zs[i]!
-            const la = Math.hypot(ax, az)
-            const lb = Math.hypot(bx, bz)
-            const tx = (la ? ax / la : 0) + (lb ? bx / lb : 0)
-            const tz = (la ? az / la : 0) + (lb ? bz / lb : 0)
-            const lt = Math.hypot(tx, tz) || 1
-            this.txs[i] = tx / lt
-            this.tzs[i] = tz / lt
-            const turn = la && lb ? Math.abs(wrapAngle(Math.atan2(bx, bz) - Math.atan2(ax, az))) : 0
-            // On rails the plan doubles back on itself; the road there runs straight in its own frame.
-            this.curvature[i] = this.railed[i] ? 0 : turn / ((la + lb) / 2 || 1)
-            this.grades[i] = (this.ys[j]! - this.ys[p]!) / (la + lb || 1)
-        }
-        this.t3 = new Float64Array(n * 3)
-        this.right = new Float64Array(n * 3)
-        this.up = new Float64Array(n * 3)
-        for (let i = 0; i < n; i++) this.frameOf(i, def.ups?.[i])
-    }
-
-    /** Point `i`'s frame. Plain road keeps the plan's own right and straight up, exactly as before stunts. */
-    private frameOf(i: number, given: readonly number[] | undefined) {
-        const n = this.n
-        const k = i * 3
-        const plain = !this.railed[i] && (!given || (given[0] === 0 && given[1] === 1 && given[2] === 0))
-        if (plain) {
-            const tx = this.txs[i]!
-            const tz = this.tzs[i]!
-            const g = this.grades[i]!
-            const len = Math.sqrt(1 + g * g)
-            this.t3.set([tx / len, g / len, tz / len], k)
-            this.right.set([-tz, 0, tx], k)
-            this.up.set([0, 1, 0], k)
-            return
-        }
-        const p = this.closed ? (i - 1 + n) % n : Math.max(0, i - 1)
-        const j = this.closed ? (i + 1) % n : Math.min(n - 1, i + 1)
-        let tx = this.xs[j]! - this.xs[p]!
-        let ty = this.ys[j]! - this.ys[p]!
-        let tz = this.zs[j]! - this.zs[p]!
-        const tl = Math.hypot(tx, ty, tz) || 1
-        tx /= tl
-        ty /= tl
-        tz /= tl
-        const ux = given?.[0] ?? 0
-        const uy = given?.[1] ?? 1
-        const uz = given?.[2] ?? 0
-        // Right is the tangent crossed with up; up is then squared to both.
-        let rx = ty * uz - tz * uy
-        let ry = tz * ux - tx * uz
-        let rz = tx * uy - ty * ux
-        const rl = Math.hypot(rx, ry, rz) || 1
-        rx /= rl
-        ry /= rl
-        rz /= rl
-        this.t3.set([tx, ty, tz], k)
-        this.right.set([rx, ry, rz], k)
-        this.up.set([ry * tz - rz * ty, rz * tx - rx * tz, rx * ty - ry * tx], k)
-        if (this.railed[i]) this.grades[i] = ty / Math.max(0.05, Math.hypot(tx, tz))
-    }
-
-    /** True on a looping or corkscrew. */
-    railAt(s: number) {
-        return this.rails.length > 0 && within(this.rails, this.wrapS(s))
-    }
-
-    /** Point `i` lies flat across, on the plan: not on rails and not banked. */
-    plainAt(i: number) {
-        return !this.railed[i] && this.right[i * 3 + 1] === 0
-    }
-
-    /** Plain road at `s`: no rails, gap or bank, so scenery can stand beside it as on any other road. */
-    plainRoadAt(s: number) {
-        const i = this.segmentAt(s)
-        return this.plainAt(i) && this.plainAt((i + 1) % this.n) && !this.gapAt(s)
-    }
-
-    /** Road at `s` that stands on pillars when raised: no rails or gap, though it may bank. */
-    solidRoadAt(s: number) {
-        const i = this.segmentAt(s)
-        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s)
-    }
-
-    /** Whether a car `lateral` across the road at `s` is on a boost pad. */
-    boostAt(s: number, lateral: number) {
-        if (!this.boostPads.length) return false
-        const at = this.wrapS(s)
-        return this.boostPads.some(p => at >= p.from && at < p.to && lateral >= p.latFrom && lateral <= p.latTo)
-    }
-
-    /** True over a jump's gap, where there's no road. */
-    gapAt(s: number) {
-        return this.gaps.length > 0 && within(this.gaps, this.wrapS(s))
-    }
-
-    /** Whether something `lateral` across the road at `s` is over it, out to the walls' outer foot, rather than off to its side. */
-    overRoad(s: number, lateral: number) {
-        return Math.abs(lateral) <= wallFoot(this.wallAt(s))
-    }
-
-    /** The road's frame at distance `s`, blended between the points either side. */
-    frameAt(s: number, out: TrackFrame = newTrackFrame()): TrackFrame {
-        const w = this.wrapS(s)
-        const i = this.segmentAt(w)
-        const j = (i + 1) % this.n
-        const len = this.cum[i + 1]! - this.cum[i]!
-        const t = len > 0 ? Math.min(1, (w - this.cum[i]!) / len) : 0
-        out.x = this.xs[i]! + (this.xs[j]! - this.xs[i]!) * t
-        out.y = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
-        out.z = this.zs[i]! + (this.zs[j]! - this.zs[i]!) * t
-        const a = i * 3
-        const b = j * 3
-        const blend = (arr: Float64Array, c: number) => arr[a + c]! + (arr[b + c]! - arr[a + c]!) * t
-        let x = blend(this.t3, 0)
-        let y = blend(this.t3, 1)
-        let z = blend(this.t3, 2)
-        let l = Math.hypot(x, y, z) || 1
-        out.tx = x / l
-        out.ty = y / l
-        out.tz = z / l
-        x = blend(this.right, 0)
-        y = blend(this.right, 1)
-        z = blend(this.right, 2)
-        l = Math.hypot(x, y, z) || 1
-        out.rx = x / l
-        out.ry = y / l
-        out.rz = z / l
-        x = blend(this.up, 0)
-        y = blend(this.up, 1)
-        z = blend(this.up, 2)
-        l = Math.hypot(x, y, z) || 1
-        out.ux = x / l
-        out.uy = y / l
-        out.uz = z / l
         return out
     }
 
-    /** The road's height `lateral` across from the centre at `s`: off it on a bank. */
-    surfaceAt(s: number, lateral: number) {
-        const f = this.frameAt(s, this.scratchFrame)
-        return f.y + f.ry * lateral
-    }
-
-    /** Half the road's width at `s`. */
-    halfWidthAt(s: number) {
-        return this.blendAt(this.halfWidths, s)
-    }
-
-    /** Centreline to the face of the wall at `s`. */
-    wallAt(s: number) {
-        return this.blendAt(this.walls, s)
-    }
-
-    /** How fast the walls move out from the centreline at `s`, in metres per metre: - where the road narrows. */
-    wallSlopeAt(s: number) {
-        const i = this.segmentAt(s)
-        const len = this.cum[i + 1]! - this.cum[i]!
-        return len > 0 ? (this.walls[(i + 1) % this.n]! - this.walls[i]!) / len : 0
-    }
-
-    private blendAt(arr: Float64Array, s: number) {
-        const w = this.wrapS(s)
-        const i = this.segmentAt(w)
-        const len = this.cum[i + 1]! - this.cum[i]!
-        const t = len > 0 ? Math.min(1, (w - this.cum[i]!) / len) : 0
-        return arr[i]! + (arr[(i + 1) % this.n]! - arr[i]!) * t
-    }
-
     /**
-     * The highest road right under (x, z) that's no higher than `y`, into `out`: what a falling car comes down on.
-     * The deck runs out to the walls' outer foot; rails and gaps don't count. False when there's no road under it.
+     * Where (x, z) is on the road, searched from the car's last `branch` and `seg`, into `out`.
+     * Past the end of a branch it carries on onto the road it meets; on a shared deck the car
+     * changes road once it's clearly nearer the other one, or past where its own wall would be.
      */
-    roadUnder(x: number, y: number, z: number, out: Projection): boolean {
-        let top = -Infinity
-        for (let i = 0; i < this.segments; i++) {
-            const j = (i + 1) % this.n
-            if (this.railed[i] || this.railed[j]) continue
-            const ax = this.xs[i]!
-            const az = this.zs[i]!
-            const dx = this.xs[j]! - ax
-            const dz = this.zs[j]! - az
-            const len2 = dx * dx + dz * dz || 1
-            const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / len2))
-            const len = Math.sqrt(len2)
-            const tx = dx / len
-            const tz = dz / len
-            const lateral = (x - ax) * -tz + (z - az) * tx
-            // Off the segment's sides only; its ends meet the next one's.
-            const along = (x - ax) * tx + (z - az) * tz
-            if (along < -1e-6 || along > len + 1e-6) continue
-            if (Math.abs(lateral) > wallFoot(this.walls[i]! + (this.walls[j]! - this.walls[i]!) * t)) continue
-            const ry = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
-            // A bank tips the surface away from the centre's height.
-            const surface = ry + (this.right[i * 3 + 1]! + (this.right[j * 3 + 1]! - this.right[i * 3 + 1]!) * t) * lateral
-            if (surface > y + UNDER_TOLERANCE || surface <= top) continue
-            const s = this.cum[i]! + len * t
-            if (this.gapAt(s)) continue
-            top = surface
-            out.seg = i
-            out.s = s
-            out.tx = tx
-            out.tz = tz
-            out.lateral = lateral
-            out.y = ry
-            out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * t
+    locate(x: number, z: number, branch: number, seg: number, out: Projection = newProjection(), y = Number.NaN): Projection {
+        if (!this.forked) return this.project(x, z, seg, out, y)
+        let line = this.branches[branch] ?? this
+        let d = seg >= 0 ? line.projectNear(x, z, seg, out) : Infinity
+        for (let hop = 0; hop < 2 && Number.isFinite(d); hop++) {
+            const link = this.links[line.branch]
+            if (!link) break
+            let at: number
+            let next: number
+            if (out.s < 0) {
+                next = link.from.branch
+                at = link.from.at + out.s
+            } else if (out.s > line.length && link.to !== 'finish') {
+                next = link.to.branch
+                at = link.to.at + out.s - line.length
+            } else break
+            line = this.branches[next]!
+            d = line.projectNear(x, z, line.segmentAt(at), out)
         }
+        if (!line.trusts(d, out)) return this.locateAll(x, z, out, y)
+        const open = line.openAt(out.s, out.lateral < 0 ? -1 : 1)
+        if (open) {
+            const partner = this.branches[open.partner]!
+            const q = this.scratch
+            const dq = partner.projectNear(x, z, partner.segmentAt(open.partnerFrom + out.s - open.from), q)
+            const past = Math.abs(out.lateral) > line.wallAt(out.s)
+            if (partner.trusts(dq, q) && (past || Math.abs(q.lateral) + DECK_HYSTERESIS < Math.abs(out.lateral))) Object.assign(out, q)
+        }
+        return out
+    }
+
+    /** The nearest road on any line, `y` picking between stacked ones. */
+    private locateAll(x: number, z: number, out: Projection, y: number) {
+        let best = Infinity
+        for (const line of this.branches) {
+            const score = line.projectAll(x, z, this.scratch, y)
+            if (score < best) {
+                best = score
+                Object.assign(out, this.scratch)
+            }
+        }
+        return out
+    }
+
+    /** The highest road on any line under (x, z) and no higher than `y`, into `out`: what a falling car lands on. */
+    landing(x: number, y: number, z: number, out: Projection): boolean {
+        if (!this.forked) return this.roadUnder(x, y, z, out)
+        let top = -Infinity
+        for (const line of this.branches) for (let i = 0; i < line.segments; i++) top = line.underSegment(i, x, y, z, top, out)
         return top > -Infinity
     }
 
-    /** Where the timed lap starts. */
-    get startS() {
-        return this.closed ? 0 : this.def.runUp ?? DEFAULT_RUN_UP
-    }
-
-    /** Where the timed lap ends: back at the start on a loop. */
-    get finishS() {
-        return this.closed ? this.length : this.length - (this.def.runOff ?? DEFAULT_RUN_OFF)
-    }
-
-    get lapLength() {
-        return this.finishS - this.startS
-    }
-
-    /** Each checkpoint's distance from the start line, as the lap timer measures it. */
-    get checkpointDistances() {
-        return this.checkpoints.map(s => s - this.startS)
-    }
-
-    /** No legitimate lap is quicker than this. */
-    get minLapSeconds() {
-        return this.lapLength / SPEED_CEILING
-    }
-
-    /** Wraps any distance onto [0, length) on a loop; clamps onto [0, length] on an open course. */
-    wrapS(s: number) {
-        if (!this.closed) return Math.min(this.length, Math.max(0, s))
-        return ((s % this.length) + this.length) % this.length
-    }
-
-    /** The index of the segment holding distance `s`. */
-    segmentAt(s: number) {
-        const w = this.wrapS(s)
-        let lo = 0
-        let hi = this.segments - 1
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1
-            if (this.cum[mid]! <= w) lo = mid
-            else hi = mid - 1
+    /**
+     * The road `d` metres on from (branch, s), following `route` where the car is on it and
+     * the road's own way on where it isn't. Valid until the next call.
+     */
+    ahead(route: Route | null, branch: number, s: number, d: number): RoadSpot {
+        const out = this.spot
+        if (!this.forked) {
+            out.line = this
+            out.s = s + d
+            return out
         }
-        return lo
-    }
-
-    /** True when any of the road leaves the ground. */
-    get elevated() {
-        return this.ys.some(y => y > 0)
-    }
-
-    pointAt(s: number, out: TrackPoint = newTrackPoint()): TrackPoint {
-        const w = this.wrapS(s)
-        const i = this.segmentAt(w)
-        const j = (i + 1) % this.n
-        const len = this.cum[i + 1]! - this.cum[i]!
-        const t = len > 0 ? (w - this.cum[i]!) / len : 0
-        out.x = this.xs[i]! + (this.xs[j]! - this.xs[i]!) * t
-        out.z = this.zs[i]! + (this.zs[j]! - this.zs[i]!) * t
-        out.tx = (this.xs[j]! - this.xs[i]!) / (len || 1)
-        out.tz = (this.zs[j]! - this.zs[i]!) / (len || 1)
-        out.y = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * t
-        out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * t
+        const legs = route?.legs ?? []
+        let i = legs.findIndex(l => l.branch === branch && s >= l.from - 1e-6 && s <= l.to + 1e-6)
+        let at = s + d
+        if (i < 0) {
+            let line = this.branches[branch] ?? this
+            for (let hop = 0; hop < 4; hop++) {
+                const link = this.links[line.branch]
+                if (!link || link.to === 'finish' || at <= line.length) break
+                at = link.to.at + at - line.length
+                line = this.branches[link.to.branch]!
+            }
+            out.line = line
+            out.s = at
+            return out
+        }
+        for (let hop = 0; hop < legs.length * 2; hop++) {
+            const leg = legs[i]!
+            if (at <= leg.to) break
+            const next = i + 1 < legs.length ? i + 1 : this.closed ? 0 : -1
+            if (next < 0) break
+            at = legs[next]!.from + at - leg.to
+            i = next
+        }
+        out.line = this.branches[legs[i]!.branch]!
+        out.s = at
         return out
+    }
+
+    /** Where a car at `p` (and x, z) is on `route`: on its own line, or across a shared deck on the route's road. */
+    onRoute(route: Route | null, p: Projection, x: number, z: number): { branch: number, s: number } {
+        if (!route || !this.forked) return { branch: p.branch, s: p.s }
+        const on = (b: number, s: number) => route.legs.some(l => l.branch === b && s >= l.from - 1e-6 && s <= l.to + 1e-6)
+        if (on(p.branch, p.s)) return { branch: p.branch, s: p.s }
+        const line = this.branches[p.branch]!
+        for (const side of [-1, 1]) {
+            const open = line.openAt(p.s, side)
+            if (!open) continue
+            const partner = this.branches[open.partner]!
+            partner.projectNear(x, z, partner.segmentAt(open.partnerFrom + p.s - open.from), this.scratch)
+            if (on(open.partner, this.scratch.s)) return { branch: open.partner, s: this.scratch.s }
+        }
+        return { branch: p.branch, s: p.s }
     }
 
     /**
-     * Nearest point on the centreline. Pass the last segment as `hint` to search only around it.
-     * Past either end of an open course `s` runs below 0 or above `length`, so the physics can find the barrier.
-     * Where roads stack (a spiral, a bridge), `y` picks the level a full scan lands on.
+     * The road `by` metres back from (branch, s), and the stretches driven back over to reach it,
+     * each from its later end to its earlier one. Off the start of a branch it carries on back down
+     * the road it left; `floor` stops it on an open main line.
      */
-    project(x: number, z: number, hint = -1, out: Projection = newProjection(), y = Number.NaN): Projection {
-        let best = Infinity
-        const last = this.segments - 1
-        let level = false
-        const test = (i: number) => {
-            const j = (i + 1) % this.n
-            const ax = this.xs[i]!
-            const az = this.zs[i]!
-            const dx = this.xs[j]! - ax
-            const dz = this.zs[j]! - az
-            const len2 = dx * dx + dz * dz || 1
-            const lo = !this.closed && i === 0 ? -Infinity : 0
-            const hi = !this.closed && i === last ? Infinity : 1
-            const t = Math.min(hi, Math.max(lo, ((x - ax) * dx + (z - az) * dz) / len2))
-            const cx = ax + dx * t
-            const cz = az + dz * t
-            const f = Math.min(1, Math.max(0, t))
-            const ry = this.ys[i]! + (this.ys[j]! - this.ys[i]!) * f
-            let d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz)
-            if (level) d2 += (y - ry) * (y - ry) * LEVEL_WEIGHT * LEVEL_WEIGHT
-            if (d2 < best) {
-                best = d2
-                const len = Math.sqrt(len2)
-                out.seg = i
-                out.s = this.cum[i]! + len * t
-                out.tx = dx / len
-                out.tz = dz / len
-                // Right of the driving direction is the tangent turned a quarter clockwise seen from above.
-                out.lateral = (x - ax) * -out.tz + (z - az) * out.tx
-                out.y = ry
-                out.grade = this.grades[i]! + (this.grades[j]! - this.grades[i]!) * f
+    back(branch: number, s: number, by: number, floor = -Infinity): { branch: number, s: number, legs: RouteLeg[] } {
+        const legs: RouteLeg[] = []
+        let b = branch
+        let at = s
+        let left = by
+        for (let hop = 0; hop < this.branches.length + 1; hop++) {
+            const link = this.links[b]
+            if (!link || at - left >= 0) {
+                const to = link ? at - left : Math.max(floor, at - left)
+                legs.push({ branch: b, from: at, to })
+                return { branch: b, s: this.branches[b]!.wrapS(to), legs }
+            }
+            legs.push({ branch: b, from: at, to: 0 })
+            left -= at
+            b = link.from.branch
+            at = link.from.at
+        }
+        return { branch: b, s: at, legs }
+    }
+
+    /**
+     * The least time any lap can take at the speed ceiling: the shortest way round from the start
+     * through at least K checkpoints to a finish, along the road and, off a jump's lip, flying
+     * ahead as far as a kicker throws it. Walls keep a car on the ground on its road, so only a lip lets it leave.
+     */
+    get minLapSeconds() {
+        if (!this.forked && !this.gaps.length) return this.lapLength / SPEED_CEILING
+        this.minLap ??= this.shortestLap() / SPEED_CEILING
+        return this.minLap
+    }
+
+    private shortestLap() {
+        const g = this.graph
+        interface Point { x: number, y: number, z: number, tx: number, tz: number, bit: number }
+        const points: Point[] = []
+        const vertexPoint = new Map<number, number>()
+        const node = (line: TrackLine, s: number, bit = -1) => {
+            const q = line.pointAt(s)
+            return points.push({ x: q.x, y: q.y, z: q.z, tx: q.tx, tz: q.tz, bit }) - 1
+        }
+        const counted = this.checkpointCount <= MIN_LAP_CHECKPOINTS
+        /** Road between neighbouring points on a line, `a` before `b`; a gap's only drives forward. */
+        const stretches: { line: TrackLine, s0: number, s1: number, a: number, b: number, gap: boolean }[] = []
+        // Only a jump's lip: a flight backward off a landing ramp needs a turn round the search can't see, so it priced laps far too short.
+        const lips: { p: number, tx: number, tz: number }[] = []
+        this.branches.forEach((line, b) => {
+            const marks: { s: number, p: number, gap?: number }[] = []
+            g.vertexMarks.forEach((list, v) => {
+                for (const m of list) {
+                    if (m.branch !== b) continue
+                    if (!vertexPoint.has(v)) vertexPoint.set(v, node(line, m.at))
+                    marks.push({ s: m.at, p: vertexPoint.get(v)! })
+                }
+            })
+            line.checkpoints.forEach((s, i) => marks.push({ s, p: node(line, s, counted ? this.checkpointIds[b]![i]! : -1) }))
+            line.gaps.forEach(([a, c], i) => {
+                const pa = node(line, a)
+                const pc = node(line, c)
+                marks.push({ s: a, p: pa, gap: i }, { s: c, p: pc, gap: i })
+                lips.push({ p: pa, tx: points[pa]!.tx, tz: points[pa]!.tz })
+            })
+            marks.sort((p, q) => p.s - q.s)
+            for (let i = 0; i + 1 < marks.length; i++) {
+                const m = marks[i]!
+                const n = marks[i + 1]!
+                stretches.push({ line, s0: m.s, s1: n.s, a: m.p, b: n.p, gap: m.gap !== undefined && m.gap === n.gap })
+            }
+        })
+        const ends = new Set(g.ends.map(v => vertexPoint.get(v)!))
+        const edges: { to: number, d: number }[][] = points.map(() => [])
+        for (const r of stretches) {
+            edges[r.a]!.push({ to: r.b, d: r.s1 - r.s0 })
+            // Driving backward never finishes a lap.
+            if (!r.gap && !ends.has(r.a)) edges[r.b]!.push({ to: r.a, d: r.s1 - r.s0 })
+        }
+        // A flight comes down on road ahead of its lip in a kicker's reach at the speed ceiling, then drives to either end of that stretch.
+        const lift = SPEED_CEILING * KICKER_GRADE
+        for (const lip of lips) {
+            const from = points[lip.p]!
+            const reach = new Map<number, number>()
+            const offer = (p: number, d: number) => {
+                if (p !== lip.p && d < (reach.get(p) ?? Infinity)) reach.set(p, d)
+            }
+            for (const r of stretches) {
+                if (r.gap) continue
+                const land = this.flightLands(r.line, r.s0, r.s1, from, lip.tx, lip.tz, lift)
+                if (!land) continue
+                // Driving backward never finishes a lap, and a flight onto the road before a finish has to be heading over it.
+                if (!ends.has(r.a)) offer(r.a, land.a)
+                if (!ends.has(r.b) || lip.tx * points[r.b]!.tx + lip.tz * points[r.b]!.tz > 0) offer(r.b, land.b)
+            }
+            for (const [to, d] of reach) edges[lip.p]!.push({ to, d })
+        }
+        const start = vertexPoint.get(g.start)!
+        const need = counted ? this.k : 0
+        const masks = counted ? 1 << this.checkpointCount : 1
+        const best = new Float64Array(points.length * masks).fill(Infinity)
+        const bitsOf = (m: number) => {
+            let c = 0
+            for (let v = m; v; v &= v - 1) c++
+            return c
+        }
+        // Dijkstra over (point, checkpoints touched), with a binary heap.
+        const heap: [number, number][] = []
+        const push = (d: number, key: number) => {
+            heap.push([d, key])
+            let i = heap.length - 1
+            while (i > 0) {
+                const up = (i - 1) >> 1
+                if (heap[up]![0] <= heap[i]![0]) break
+                ;[heap[up], heap[i]] = [heap[i]!, heap[up]!]
+                i = up
             }
         }
-        if (hint >= 0) {
-            for (let k = -SEARCH_WINDOW; k <= SEARCH_WINDOW; k++) {
-                const i = hint + k
-                if (this.closed) test((i + this.n) % this.n)
-                else if (i >= 0 && i <= last) test(i)
+        const pop = () => {
+            const top = heap[0]!
+            const last = heap.pop()!
+            if (heap.length) {
+                heap[0] = last
+                let i = 0
+                for (;;) {
+                    const l = i * 2 + 1
+                    const r = l + 1
+                    let m = i
+                    if (l < heap.length && heap[l]![0] < heap[m]![0]) m = l
+                    if (r < heap.length && heap[r]![0] < heap[m]![0]) m = r
+                    if (m === i) break
+                    ;[heap[m], heap[i]] = [heap[i]!, heap[m]!]
+                    i = m
+                }
+            }
+            return top
+        }
+        best[start * masks] = 0
+        push(0, start * masks)
+        while (heap.length) {
+            const [d, key] = pop()
+            if (d > best[key]!) continue
+            const p = Math.floor(key / masks)
+            const mask = key % masks
+            if (ends.has(p) && p !== start && bitsOf(mask) >= need) return d
+            for (const e of edges[p]!) {
+                const bit = points[e.to]!.bit
+                const m = bit >= 0 ? mask | (1 << bit) : mask
+                const k = e.to * masks + m
+                if (d + e.d < best[k]!) {
+                    best[k] = d + e.d
+                    push(d + e.d, k)
+                }
             }
         }
-        // A teleport or a bad hint: the windowed answer is only trusted while it's on the track.
-        if (hint < 0 || Math.sqrt(best) > this.walls[out.seg]! + 4) {
-            best = Infinity
-            level = Number.isFinite(y)
-            for (let i = 0; i <= last; i++) test(i)
+        return 0
+    }
+
+    /** The shortest flight off a lip at `from` heading (tx, tz) onto `line` between `s0` and `s1`, then along the road to each end; null when it can't come down there. */
+    private flightLands(line: TrackLine, s0: number, s1: number, from: { x: number, y: number, z: number }, tx: number, tz: number, lift: number) {
+        const { xs, ys, zs, cum, walls, n } = line
+        let a = Infinity
+        let b = Infinity
+        for (let i = line.segmentAt(s0); i <= line.segments && cum[i]! <= s1; i++) {
+            const s = cum[i]!
+            if (s < s0 || line.gapAt(s)) continue
+            const j = i % n
+            const dx = xs[j]! - from.x
+            const dz = zs[j]! - from.z
+            // The car can come down anywhere out to the walls' foot, so measure to the road's near edge.
+            const foot = wallFoot(walls[j]!)
+            if (dx * tx + dz * tz <= -foot) continue
+            const fall = lift * lift + 2 * GRAVITY * (from.y - ys[j]! + LANDING_SLACK)
+            const flight = Math.max(0, Math.hypot(dx, dz) - foot)
+            if (fall < 0 || flight > SPEED_CEILING * (lift + Math.sqrt(fall)) / GRAVITY) continue
+            a = Math.min(a, flight + s - s0)
+            b = Math.min(b, flight + s1 - s)
         }
-        return out
+        return a < Infinity ? { a, b } : null
     }
 }

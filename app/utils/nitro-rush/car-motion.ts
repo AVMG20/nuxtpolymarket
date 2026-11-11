@@ -5,8 +5,8 @@ import { wrapAngle, type Track } from '#shared/utils/nitro-rush/track'
 
 /** The car as drawn between physics states, and the smoothed accelerations the body and camera lean off. */
 export class CarMotion {
-    private readonly prev = { x: 0, z: 0, y: 0, s: 0, heading: 0, lateral: 0, rel: 0 }
-    readonly drawn: PoseSample = { x: 0, z: 0, y: 0, along: 0, lateral: 0, heading: 0, rel: 0, vy: 0, speed: 0, onRail: false, airborne: false }
+    private readonly prev = { x: 0, z: 0, y: 0, s: 0, branch: 0, heading: 0, lateral: 0, rel: 0 }
+    readonly drawn: PoseSample = { x: 0, z: 0, y: 0, along: 0, branch: 0, lateral: 0, heading: 0, rel: 0, vy: 0, speed: 0, onRail: false, airborne: false }
     readonly pos = new THREE.Vector3()
     readonly quat = new THREE.Quaternion()
     latAcc = 0
@@ -22,6 +22,7 @@ export class CarMotion {
         p.heading = s.heading
         p.y = s.y
         p.s = s.proj.s
+        p.branch = s.proj.branch
         p.lateral = s.proj.lateral
         p.rel = s.rel
     }
@@ -39,12 +40,14 @@ export class CarMotion {
         const p = this.prev
         const d = this.drawn
         let ds = s.proj.s - p.s
-        // A loop's s jumps by its length at the start line.
-        if (track.closed && Math.abs(ds) > track.length / 2) ds -= Math.sign(ds) * track.length
+        // A loop's s jumps by its length at the start line; onto another branch, distances along the old one mean nothing.
+        if (s.proj.branch !== p.branch) ds = 0
+        else if (track.closed && Math.abs(ds) > track.length / 2) ds -= Math.sign(ds) * track.length
         d.x = p.x + (s.x - p.x) * a
         d.z = p.z + (s.z - p.z) * a
         d.y = p.y + (s.y - p.y) * a
-        d.along = p.s + ds * a
+        d.along = s.proj.branch !== p.branch ? s.proj.s : p.s + ds * a
+        d.branch = s.proj.branch
         d.lateral = p.lateral + (s.proj.lateral - p.lateral) * a
         d.heading = p.heading + wrapAngle(s.heading - p.heading) * a
         d.rel = p.rel + wrapAngle(s.rel - p.rel) * a

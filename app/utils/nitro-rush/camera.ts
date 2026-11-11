@@ -11,8 +11,10 @@ export interface CameraSubject {
     x: number
     y: number
     z: number
-    /** Distance along the course, for the road heights behind and ahead. */
+    /** Distance along the car's line, for the road heights behind and ahead. */
     along: number
+    /** The line `along` is measured on; the main line when it's left out. */
+    branch?: number
     /** Across the road, to read a bank's surface at the car's own line. */
     lateral: number
     heading: number
@@ -106,8 +108,9 @@ export class ChaseCamera {
         } else {
             // Heights from the road behind and ahead, so the camera tips up a climb and down a drop; in the air, from the car.
             // Read on the car's own line: off-centre on a bank's raised side, the centre's height would put the camera under the deck.
-            const roadBehind = car.airborne ? y : this.track.surfaceAt(car.along - back, car.lateral)
-            const roadAhead = car.airborne ? y : this.track.surfaceAt(car.along + 9, car.lateral)
+            const line = this.track.branches[car.branch ?? 0] ?? this.track
+            const roadBehind = car.airborne ? y : line.surfaceAt(car.along - back, car.lateral)
+            const roadAhead = car.airborne ? y : line.surfaceAt(car.along + 9, car.lateral)
             chasePos.set(x - fx * back, roadBehind + 2.4 + car.speedK * 0.2, z - fz * back)
             chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
         }

@@ -19,7 +19,8 @@ import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
-import { headingOf, Track, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { headingOf, Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { createSeededRandom } from '#shared/utils/random'
 import { World } from './world'
 import type { NitroAudio } from './audio'
 import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostSource, type LapEntry, type MapGhost, type Phase, type TrackRecord } from './types'
@@ -35,6 +36,8 @@ const RESPAWN_BACK = 120
 const DEMO_PACE = 0.85
 /** Laps the HUD lists. */
 const RECENT_LAPS = 3
+/** Seeds the menu demo's pick of route on a forked course, so it replays the same way each visit. */
+const DEMO_SEED = 7
 
 export class NitroRushEngine {
     private readonly host: HTMLElement
@@ -73,6 +76,10 @@ export class NitroRushEngine {
     private readonly motion = new CarMotion()
     private accumulator = 0
     private timer: LapTimer | null = null
+    /** The lap clock when the car last left the road, so a fall takes back what its flight crossed. */
+    private tookOffAt = 0
+    private readonly demoPicks = createSeededRandom(DEMO_SEED)
+    private demoRoute: Route | null = null
     private record: TrackRecord = { ...EMPTY_RECORD }
     private medals: MedalTimes | null = null
     /** The viewer's best here from any device, so a medal held already doesn't pop up again. */
@@ -283,11 +290,6 @@ export class NitroRushEngine {
         return this.track.startS + GRID_OFFSET
     }
 
-    /** A distance along the road as the lap timer reads it: from the start line on an open course. */
-    private timerS(s = this.state.proj.s) {
-        return this.track.closed ? s : s - this.track.startS
-    }
-
     private resize() {
         const w = Math.max(1, this.host.clientWidth)
         const h = Math.max(1, this.host.clientHeight)
@@ -312,7 +314,8 @@ export class NitroRushEngine {
         // Every run starts with a full tank; the meter already says so, so no NITRO READY over the GO.
         this.state.nitro = 1
         this.accumulator = 0
-        this.timer = new LapTimer(this.track.lapLength, this.track.closed, GRID_OFFSET, this.track.checkpointDistances)
+        this.timer = new LapTimer(this.track, this.state.x, this.state.y, this.state.z)
+        this.tookOffAt = 0
         this.ghosts.restartLap()
         this.nitroReadyAnnounced = true
         this.wrongWayTime = 0
@@ -323,6 +326,7 @@ export class NitroRushEngine {
 
     /** The menu's demo car back on the grid. */
     private lineUpDemo() {
+        this.demoRoute = this.track.forked ? this.demoPicks.randomPick(this.track.routes) : null
         this.state = createCar(this.track, this.gridS)
         this.fx.clearSkids()
         this.placeCar()
@@ -340,11 +344,12 @@ export class NitroRushEngine {
         const s = this.state
         // Never far enough back to read as a lap the wrong way, nor past the start of an open course.
         const back = Math.min(RESPAWN_BACK, this.track.closed ? this.track.length / 2 - 5 : Infinity)
-        const at = this.track.closed ? s.leftS - back : Math.max(this.track.startS - 10, s.leftS - back)
-        this.timer?.rewind(this.timerS(s.leftS), s.leftS - at)
+        // Back along the road it left, which it drove to get there, so a respawn never gains it ground.
+        const to = this.track.back(s.leftBranch, s.leftS, back, this.track.closed ? -Infinity : this.track.startS - 10)
         const nitro = s.nitro
-        this.state = createCar(this.track, this.track.wrapS(at))
+        this.state = createCar(this.track, to.s, 0, to.branch)
         this.state.nitro = nitro
+        this.timer?.rewind(this.tookOffAt, to.legs, this.state.x, this.state.y, this.state.z)
         // A lap with a jump back in it makes no ghost.
         this.ghosts.restartLap()
         this.fx.clearSkids()
@@ -397,14 +402,16 @@ export class NitroRushEngine {
                 this.motion.keep(this.state)
                 const racing = this.phase === 'racing'
                 const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
+                if (ev.tookOff && this.timer) this.tookOffAt = this.timer.clock
                 if (ev.fell) this.respawn()
                 if (racing) this.feedback.step(ev, this.state)
-                if (racing && this.timer) for (const e of this.timer.update(this.timerS(), STEP, crossesLines(this.state, this.track))) this.onLapEvent(e)
+                const car = this.state
+                if (racing && this.timer) for (const e of this.timer.update(car.x, car.y, car.z, STEP, crossesLines(car, this.track))) this.onLapEvent(e)
             }
         }
         if (this.phase === 'finished' && this.time - this.finishedAt > RESTART_DELAY) this.start()
         // The menu's demo car on a sprint lines up again once it has pulled up past the finish.
-        if (this.phase === 'attract' && !this.track.closed && this.state.proj.s > this.track.finishS && this.state.speed < 2) this.lineUpDemo()
+        if (this.phase === 'attract' && !this.track.closed && this.track.progressAt(this.state.proj.branch, this.state.proj.s) >= 1 && this.state.speed < 2) this.lineUpDemo()
 
         const s = this.state
         this.motion.sense(s, dt)
@@ -443,15 +450,16 @@ export class NitroRushEngine {
         if (this.phase === 'racing') return this.playerInput()
         // Past the finish the car pulls itself up; the brake held at a standstill would reverse it.
         if (this.phase === 'finished') return { throttle: 0, brake: this.state.speed > 1 ? 1 : 0, steer: 0, drift: false }
-        return botInput(this.state, this.track, DEMO_PACE)
+        return botInput(this.state, this.track, DEMO_PACE, this.demoRoute)
     }
 
     private onLapEvent(e: LapEvent) {
         const rec = this.record
         if (e.type === 'split') {
             // Splits saved before the course had these checkpoints mark other points on the lap.
-            const best = rec.bestSplits?.length === this.track.checkpoints.length + 1 ? rec.bestSplits[e.sector] : undefined
-            if (best === undefined) return
+            const best = rec.bestSplits?.length === this.track.checkpointCount + 1 ? rec.bestSplits[e.sector] : undefined
+            // Only where the best lap touched the same checkpoint.
+            if (best === undefined || best === null) return
             this.feedback.split(e.time - best, e.sector)
         } else {
             const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
@@ -506,12 +514,12 @@ export class NitroRushEngine {
         const m = this.motion
         m.pose(s, this.track, this.phase === 'countdown' ? 1 : this.accumulator / STEP)
         this.car.place(m.pos, m.quat)
-        const { x, z, along, lateral } = m.drawn
+        const { x, z, along, branch, lateral } = m.drawn
         const y = m.pos.y
         this.car.animate(dt, s, m.latAcc, m.longAcc, racing && this.playerInput().throttle > 0)
 
         this.cam.update(dt, this.time, {
-            x, y, z, along, lateral, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK, latAcc: m.latAcc,
+            x, y, z, along, branch, lateral, heading: s.heading, travel: s.travel, slip: slipAngle(s), speed: s.speed, speedK, nitroK, latAcc: m.latAcc,
             pos: m.pos, quat: m.quat, onRail: s.onRail, airborne: s.airborne
         }, shotFor(this.phase, this.countdown, this.time - this.finishedAt))
         const blend = this.cam.blend

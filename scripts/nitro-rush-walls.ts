@@ -179,14 +179,14 @@ const DRIVERS: Driver[] = [
 /** Up to `count` timed laps, each with how much it touched the walls. */
 function lapsOf(track: Track, driver: Driver, count = 4) {
     const car = createCar(track, track.startS + GRID)
-    const timer = new LapTimer(track.lapLength, track.closed, GRID, track.checkpointDistances)
+    const timer = new LapTimer(track, car.x, car.y, car.z)
     const laps: Lap[] = []
     let lap: Lap = { time: 0, touches: 0, onWall: 0 }
     for (let i = 0; i < PHYSICS_HZ * 150 && !timer.finished && laps.length < count; i++) {
         const ev = stepCar(car, driver(car, track), track, DT)
         if (ev.wallTouched || (car.onRail && ev.wallImpact > 0)) lap.touches++
         if (ev.scraping) lap.onWall += DT
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
+        for (const e of timer.update(car.x, car.y, car.z, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             laps.push({ ...lap, time: e.time })
             lap = { time: 0, touches: 0, onWall: 0 }

@@ -2,12 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { buildTrack, checkpoint, corner, finish, LINE_BLOCK_LENGTH, MIN_CLEARANCE, ramp, spiral, start, straight, TrackLayoutError, type TrackLayout } from '#shared/utils/nitro-rush/layout'
 import { formatLapTime, LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track } from '#shared/utils/nitro-rush/track'
+import { at, rectangleLoop, straightSprint } from './fork-courses'
 import { findTrack, TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
 
 /** Bare layouts for the block tests: a loop, or an open course. */
 const base = { group: 'circuits' as const, halfWidth: 9, wallOffset: 10.6, origin: { x: 0, z: 0, heading: 0 } }
 const loop = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'loop', name: 'Loop', pieces })
 const sprint = (pieces: TrackLayout['pieces']): TrackLayout => ({ ...base, id: 'sprint', name: 'Sprint', closed: false, pieces })
+
+describe('short open road', () => {
+    it('builds a road shorter than its run-up and run-off, as a builder draft is', () => {
+        const draft = new Track({ id: 'draft', name: 'Draft', group: 'sprints', points: [[0, 0], [0, -40]], halfWidth: 9, wallOffset: 10.6, closed: false })
+        expect(draft.routes).toHaveLength(1)
+    })
+
+    it('compiles a sprint shorter than the default run-up and run-off', () => {
+        expect(() => buildTrack(sprint([straight(20), start, straight(10), finish, straight(60)]))).not.toThrow()
+    })
+})
 
 describe('open course', () => {
     const points: [number, number][] = Array.from({ length: 401 }, (_, i) => [0, -i * 2])
@@ -114,21 +126,23 @@ describe('formatLapTime', () => {
 
 describe('LapTimer', () => {
     const L = 1000
-    /** Drives `ds` metres a step from `from`, wrapped onto a loop of L. */
-    const drive = (timer: LapTimer, from: number, ds: number, dt: number, steps: number) => {
+    /** Drives `ds` metres a step from `from`, along the course from its start line. */
+    const drive = (track: Track, timer: LapTimer, from: number, ds: number, dt: number, steps: number) => {
         const events = []
         let s = from
         for (let i = 0; i < steps; i++) {
             s += ds
-            events.push(...timer.update(timer.closed ? ((s % L) + L) % L : s, dt))
+            events.push(...timer.update(...at(track, track.startS + s), dt))
         }
         return events
     }
+    const timerAt = (track: Track, s: number) => new LapTimer(track, ...at(track, track.startS + s))
 
     it('reports splits and laps with interpolated times, and never stops on a loop', () => {
-        const timer = new LapTimer(L, true, -14, [L / 3, L * 2 / 3])
+        const track = rectangleLoop([L / 3, L * 2 / 3])
+        const timer = timerAt(track, -14)
         // 100 m/s: 10 s a lap, and lap 1 also covers the 14 m from the grid (a standing start).
-        const events = drive(timer, -14, 10, 0.1, 1010)
+        const events = drive(track, timer, -14, 10, 0.1, 1010)
         const laps = events.filter(e => e.type === 'lap').map(e => e.time)
         expect(events.filter(e => e.type === 'split')).toHaveLength(20)
         expect(laps).toHaveLength(10)
@@ -139,8 +153,9 @@ describe('LapTimer', () => {
     })
 
     it('ends an open run at the finish line, timed from the start', () => {
-        const timer = new LapTimer(620, false, -14)
-        const events = drive(timer, -14, 10, 0.1, 200)
+        const track = straightSprint(620)
+        const timer = timerAt(track, -14)
+        const events = drive(track, timer, -14, 10, 0.1, 200)
         const laps = events.filter(e => e.type === 'lap').map(e => e.time)
         expect(laps).toHaveLength(1)
         expect(laps[0]).toBeCloseTo(6.34, 6)
@@ -149,25 +164,41 @@ describe('LapTimer', () => {
     })
 
     it('closes a sector at each checkpoint, and has none without them', () => {
-        const timer = new LapTimer(L, true, 0, [250])
-        const events = drive(timer, 0, 10, 0.1, 100)
+        const track = rectangleLoop([250])
+        const events = drive(track, timerAt(track, 0), 0, 10, 0.1, 100)
         expect(events.map(e => e.type)).toEqual(['split', 'lap'])
         expect(events[0]!.time).toBeCloseTo(2.5, 6)
-        expect(drive(new LapTimer(L, true, 0), 0, 10, 0.1, 100).map(e => e.type)).toEqual(['lap'])
+        const bare = rectangleLoop()
+        expect(drive(bare, timerAt(bare, 0), 0, 10, 0.1, 100).map(e => e.type)).toEqual(['lap'])
     })
 
     it('does not close a lap when the car first crosses the line from the grid', () => {
-        const timer = new LapTimer(L, true, -14)
-        const events = drive(timer, -14, 10, 0.1, 5)
+        const track = rectangleLoop()
+        const timer = timerAt(track, -14)
+        const events = drive(track, timer, -14, 10, 0.1, 5)
         expect(events.filter(e => e.type === 'lap')).toHaveLength(0)
         expect(timer.lap).toBe(0)
     })
 
     it('never counts a lap for reversing over the line and back', () => {
-        const timer = new LapTimer(L, true, 5)
-        drive(timer, 5, -1, 0.1, 20)
-        const events = drive(timer, -15, 1, 0.1, 20)
+        const track = rectangleLoop()
+        const timer = timerAt(track, 5)
+        drive(track, timer, 5, -1, 0.1, 20)
+        const events = drive(track, timer, -15, 1, 0.1, 20)
         expect(events).toHaveLength(0)
         expect(timer.lap).toBe(0)
+    })
+
+    it('counts a line only for a car near its height, unless it flies over that line\'s own road', () => {
+        const track = straightSprint(620)
+        const timer = timerAt(track, -14)
+        const [x0, , z0] = at(track, track.startS + 615)
+        const [x1, , z1] = at(track, track.startS + 625)
+        timer.update(x0, -4, z0, 0.1)
+        // Under the road, as if on road below it.
+        expect(timer.update(x1, -4, z1, 0.1)).toEqual([])
+        timer.update(x0, 9, z0, 0.1)
+        // High in the air over its own road, with nothing above.
+        expect(timer.update(x1, 9, z1, 0.1).map(e => e.type)).toEqual(['lap'])
     })
 })

@@ -1,6 +1,6 @@
 import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, jump, kicker, landing, looping, MAX_HALF_WIDTH, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, widthTo, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { placementFault } from './road-checks'
-import { wrapAngle, type TrackDef } from './track'
+import { TrackGraphError, wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
 /**
@@ -312,7 +312,7 @@ export function compileCustomTrack(t: CustomTrack): CompiledCustomTrack {
     try {
         return { def: buildTrack(customLayout(t)), error: null }
     } catch (e) {
-        if (e instanceof TrackLayoutError) return { def: null, error: e.reason }
+        if (e instanceof TrackLayoutError || e instanceof TrackGraphError) return { def: null, error: e.reason }
         throw e
     }
 }

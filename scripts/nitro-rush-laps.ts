@@ -39,7 +39,7 @@ function pace() {
 /** Two laps of a loop or one run of a sprint; a clean drive hits no wall and never changes road level. */
 function botDrive(track: Track) {
     const car = createCar(track, track.startS + GRID)
-    const timer = new LapTimer(track.lapLength, track.closed, GRID, track.checkpointDistances)
+    const timer = new LapTimer(track, car.x, car.y, car.z)
     const laps: number[] = []
     let splits = 0
     let hits = 0
@@ -47,7 +47,7 @@ function botDrive(track: Track) {
     let lastY = car.proj.y
     for (let i = 0; i < PHYSICS_HZ * 150 && timer.lap < 2 && !timer.finished; i++) {
         if (stepCar(car, botInput(car, track), track, DT).wallImpact > 0) hits++
-        for (const e of timer.update(track.closed ? car.proj.s : car.proj.s - track.startS, DT, crossesLines(car, track))) {
+        for (const e of timer.update(car.x, car.y, car.z, DT, crossesLines(car, track))) {
             if (e.type === 'lap') laps.push(e.time)
             else splits++
         }

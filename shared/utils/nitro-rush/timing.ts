@@ -1,4 +1,4 @@
-import { SPEED_CEILING } from './track'
+import { newProjection, SPEED_CEILING, type LapLine, type RouteLeg, type Track } from './track'
 
 /** Lap clock and how times read; shared by the game, the server's leaderboard and the tests. */
 
@@ -17,104 +17,140 @@ export function formatLapTime(seconds: number, signed = false) {
 export const lapTimeOrBlank = (seconds: number | null) => seconds === null ? '-:--.---' : formatLapTime(seconds)
 
 export type LapEvent =
-    | { type: 'split', lap: number, sector: number, time: number }
-    | { type: 'lap', lap: number, time: number, splits: number[] }
+    /** `sector` is the checkpoint's id; `touched` how many the lap has touched with it. */
+    | { type: 'split', lap: number, sector: number, time: number, touched: number }
+    /** `splits` holds each checkpoint's time by id, null where the lap didn't touch it. */
+    | { type: 'lap', lap: number, time: number, splits: (number | null)[] }
 
 /** Metres on top of the speed ceiling's travel that one step may move and still count as driven. */
 const DRIVEN_SLACK = 5
+/** How far below a line a car may cross it, and how far above before it has to be over that line's road. */
+const LINE_BELOW = 2
+const LINE_ABOVE = 5
+/** Metres along the road from a line that the road under a high car may be and still be that line's. */
+const LINE_ROAD_SLACK = 5
+/** Seconds of crossings kept, for a respawn to take back what a flight crossed before it fell. */
+const LOG_SECONDS = 30
+
+interface Crossing {
+    line: LapLine
+    /** Share of the step's move at which it crossed. */
+    f: number
+    forward: boolean
+}
 
 /**
- * Lap clock and counter for an endless session. Each line counts only when
- * the car crosses it following the road, on it or flying along it, in order:
- * the checkpoints, then the line that ends the lap. A flight that lands on
- * road further on crosses nothing, so a skip past a checkpoint leaves the lap
- * open until the car goes back for it. Backing over a counted line takes it back.
- * Each crossing is interpolated inside the step that made it, so times don't
- * snap to the frame.
+ * Lap clock and counter for an endless session, run on the car's moves across the course's
+ * lines. A lap counts once the car has touched K different checkpoints, in any order, where K
+ * is the fewest any route drives, and then crosses the start line of a loop or a finish of a
+ * sprint. Backing over a checkpoint takes it back. A move longer than the car can drive in a
+ * step crosses nothing. Each crossing is interpolated inside the step that made it, so times
+ * don't snap to the frame.
  *
- * On a loop the laps never stop. On an open course `s` is the distance from
- * the start line and the run is over once the finish is crossed. Each
- * checkpoint, given as a distance from the start line, closes a sector.
+ * On a loop the laps never stop; crossing the start line backward owes a crossing before the
+ * next lap can close, and so does a grid behind it. A sprint's clock runs from GO, and its run
+ * is over at the first finish crossed with K checkpoints touched.
  */
 export class LapTimer {
-    readonly lapLength: number
     readonly closed: boolean
-    /** The checkpoints, then the line that ends the lap. */
-    private readonly marks: number[]
+    readonly k: number
     clock = 0
     lap = 0
     lapStart = 0
-    splits: number[] = []
+    /** Each checkpoint's time on this lap, by id; null until touched. */
+    splits: (number | null)[]
+    /** Ids of the checkpoints this lap has touched, in the order it did. */
+    touched: number[] = []
     finished = false
-    private lastS: number
-    /**
-     * A loop with no checkpoints has one line to count: each time the car backs over it, it owes a
-     * crossing before the next one closes a lap. The grid behind the line starts it owing one.
-     */
+    private readonly track: Track
+    private readonly lines: readonly LapLine[]
+    private x: number
+    private y: number
+    private z: number
     private owed: number
+    private log: { at: number, line: LapLine }[] = []
+    private readonly under = newProjection()
 
-    constructor(lapLength: number, closed: boolean, startDistance: number, checkpoints: readonly number[] = []) {
-        this.lapLength = lapLength
-        this.closed = closed
-        this.marks = [...checkpoints, lapLength]
-        this.lastS = closed ? this.wrap(startDistance) : startDistance
-        this.owed = closed && !checkpoints.length && startDistance < 0 ? 1 : 0
+    /** The car sets off at (x, y, z); on a loop, behind the line it owes a crossing first, unless `owes` says otherwise. */
+    constructor(track: Track, x: number, y: number, z: number, owes?: boolean) {
+        this.track = track
+        this.closed = track.closed
+        this.k = track.k
+        this.lines = track.lapLines
+        this.splits = this.blankSplits()
+        this.x = x
+        this.y = y
+        this.z = z
+        const start = this.lines[0]!
+        const behind = (x - start.x) * start.tx + (z - start.z) * start.tz < 0 && Math.hypot(x - start.x, z - start.z) < start.reach * 4
+        this.owed = this.closed && (owes ?? behind) ? 1 : 0
     }
 
     get lapTime() {
         return this.clock - this.lapStart
     }
 
-    private wrap(s: number) {
-        return ((s % this.lapLength) + this.lapLength) % this.lapLength
+    private blankSplits() {
+        return new Array<number | null>(this.track.checkpointCount).fill(null)
     }
 
-    /** How far forward from `a` the line at `mark` is; on a loop the next time round when the car sits on it. */
-    private ahead(a: number, mark: number) {
-        return this.closed ? this.wrap(mark - a) || this.lapLength : mark - a
-    }
-
-    /** How far back from `a` the line at `mark` is: 0 when the car sits on it. */
-    private behind(a: number, mark: number) {
-        return this.closed ? this.wrap(a - mark) : a - mark
-    }
-
-    /** One physics step to `s`; `driven` is false while the car is off to the side of the road, whose moves then cross nothing. */
-    update(s: number, dt: number, driven = true): LapEvent[] {
+    /** One physics step to (x, y, z); `driven` is false while the car is off to the side of the road, whose moves then cross nothing. */
+    update(x: number, y: number, z: number, dt: number, driven = true): LapEvent[] {
         if (this.finished) return []
         this.clock += dt
-        const from = this.lastS
-        this.lastS = s
-        let ds = s - from
-        if (this.closed) {
-            const L = this.lapLength
-            if (ds > L / 2) ds -= L
-            else if (ds < -L / 2) ds += L
+        const x0 = this.x
+        const y0 = this.y
+        const z0 = this.z
+        this.x = x
+        this.y = y
+        this.z = z
+        const dx = x - x0
+        const dz = z - z0
+        if (!driven || Math.hypot(dx, dz) > SPEED_CEILING * dt + DRIVEN_SLACK) return []
+        const crossings: Crossing[] = []
+        for (const line of this.lines) {
+            const a0 = (x0 - line.x) * line.tx + (z0 - line.z) * line.tz
+            const a1 = (x - line.x) * line.tx + (z - line.z) * line.tz
+            const forward = a0 < 0 && a1 >= 0
+            if (!forward && !(a0 >= 0 && a1 < 0)) continue
+            const f = a0 / (a0 - a1)
+            const cx = x0 + dx * f
+            const cz = z0 + dz * f
+            const cy = y0 + (y - y0) * f
+            if (Math.abs((cx - line.x) * -line.tz + (cz - line.z) * line.tx) > line.reach) continue
+            if (cy < line.y - LINE_BELOW || (cy > line.y + LINE_ABOVE && !this.overLine(line, cx, cy, cz))) continue
+            crossings.push({ line, f, forward })
         }
-        if (!driven || Math.abs(ds) > SPEED_CEILING * dt + DRIVEN_SLACK) return []
-        if (ds < 0) {
-            this.back(from, -ds)
-            return []
-        }
+        if (!crossings.length) return []
+        crossings.sort((a, b) => a.f - b.f)
         const events: LapEvent[] = []
-        for (;;) {
-            const k = this.splits.length
-            const d = this.ahead(from, this.marks[k]!)
-            if (d <= 0 || d > ds) break
-            const at = this.clock - dt + dt * d / ds
-            if (this.owed > 0) {
-                this.owed--
-                break
-            }
-            if (k < this.marks.length - 1) {
-                this.splits.push(at - this.lapStart)
-                events.push({ type: 'split', lap: this.lap, sector: k, time: at - this.lapStart })
+        this.log = this.log.filter(c => c.at > this.clock - LOG_SECONDS)
+        for (const c of crossings) {
+            const at = this.clock - dt + dt * c.f
+            if (!c.forward) {
+                this.backOver(c.line)
                 continue
             }
+            this.log.push({ at, line: c.line })
+            if (c.line.kind === 'checkpoint') {
+                if (this.touched.includes(c.line.id)) continue
+                this.touched.push(c.line.id)
+                this.splits[c.line.id] = at - this.lapStart
+                events.push({ type: 'split', lap: this.lap, sector: c.line.id, time: at - this.lapStart, touched: this.touched.length })
+                continue
+            }
+            const ends = this.closed ? c.line.kind === 'start' : c.line.kind === 'finish'
+            if (!ends) continue
+            if (this.owed > 0) {
+                this.owed--
+                continue
+            }
+            if (this.touched.length < this.k) continue
             events.push({ type: 'lap', lap: this.lap, time: at - this.lapStart, splits: this.splits })
             this.lap++
             this.lapStart = at
-            this.splits = []
+            this.splits = this.blankSplits()
+            this.touched = []
             if (!this.closed) {
                 this.finished = true
                 this.clock = at
@@ -124,21 +160,41 @@ export class LapTimer {
         return events
     }
 
-    /** The car put back `by` metres along the road from `from`, as a respawn does: any line it backs over is taken back. */
-    rewind(from: number, by: number) {
-        const to = this.closed ? this.wrap(from - by) : from - by
-        // A flight crosses lines along the road past `from` before it falls; those are taken back too.
-        const flown = this.closed ? this.wrap(this.lastS - to) : this.lastS - to
-        const span = flown > by && (!this.closed || flown < this.lapLength / 2) ? flown : by
-        this.back(this.closed ? this.wrap(to + span) : to + span, span)
-        this.lastS = to
+    /** A car high over a line crosses it only flying over that line's own road, not another road stacked above it. */
+    private overLine(line: LapLine, x: number, y: number, z: number) {
+        if (!this.track.landing(x, y, z, this.under)) return true
+        return this.under.branch === line.branch && Math.abs(this.under.s - line.s) <= LINE_ROAD_SLACK
     }
 
-    private back(from: number, by: number) {
-        // A U-turn back over the last checkpoint would otherwise leave the lap's line ahead to cross again.
-        while (this.splits.length && this.behind(from, this.marks[this.splits.length - 1]!) < by) this.splits.pop()
-        if (this.marks.length > 1 || !this.closed) return
-        const d = this.behind(from, this.marks[0]!)
-        if (d < by) this.owed++
+    private backOver(line: LapLine) {
+        if (line.kind === 'checkpoint') {
+            const i = this.touched.indexOf(line.id)
+            if (i < 0) return
+            this.touched.splice(i, 1)
+            this.splits[line.id] = null
+        } else if (this.closed && line.kind === 'start') {
+            this.owed++
+        }
+    }
+
+    /**
+     * The car put back on the road at (x, y, z), as a respawn does: whatever it crossed since it left
+     * the road at clock `since`, and every line on the road `legs` take it back over, it has backed over.
+     */
+    rewind(since: number, legs: readonly RouteLeg[], x: number, y: number, z: number) {
+        const flown = this.log.filter(c => c.at > since)
+        this.log = this.log.filter(c => c.at <= since)
+        for (const c of flown.reverse()) this.backOver(c.line)
+        for (const leg of legs) {
+            const line = this.track.branches[leg.branch]!
+            for (const l of this.lines) {
+                if (l.branch !== leg.branch) continue
+                const on = (s: number) => s <= leg.from && s > leg.to
+                if (on(l.s) || (line.closed && (on(l.s - line.length) || on(l.s + line.length)))) this.backOver(l)
+            }
+        }
+        this.x = x
+        this.y = y
+        this.z = z
     }
 }

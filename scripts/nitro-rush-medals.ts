@@ -68,7 +68,7 @@ interface Plan {
 function nitroLap(track: Track, plan: Plan | null): { time: number, firedAt: number | null } | null {
     const car = createCar(track, track.startS + GRID_OFFSET)
     car.nitro = 1
-    const timer = new LapTimer(track.lapLength, track.closed, GRID_OFFSET, track.checkpointDistances)
+    const timer = new LapTimer(track, car.x, car.y, car.z)
     const lap = track.closed ? 1 : 0
     const L = track.lapLength
     let armed = false
@@ -86,7 +86,7 @@ function nitroLap(track: Track, plan: Plan | null): { time: number, firedAt: num
         const s = track.closed ? car.proj.s : car.proj.s - track.startS
         distance += track.closed ? s - lastS - Math.round((s - lastS) / L) * L : s - lastS
         lastS = s
-        for (const e of timer.update(s, DT, crossesLines(car, track))) {
+        for (const e of timer.update(car.x, car.y, car.z, DT, crossesLines(car, track))) {
             if (e.type !== 'lap') continue
             if (e.lap === lap) return { time: e.time, firedAt }
             refillAtLine(car, track.closed)

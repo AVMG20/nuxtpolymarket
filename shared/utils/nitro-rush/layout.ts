@@ -1,5 +1,5 @@
 import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP } from './road-checks'
-import { Track, wallFoot, type BoostLane, type BoostPadDef, type TrackDef, type TrackGroup } from './track'
+import { KICKER_GRADE, Track, wallFoot, type BoostLane, type BoostPadDef, type TrackDef, type TrackGroup } from './track'
 
 export { MIN_CLEARANCE } from './road-checks'
 
@@ -80,8 +80,6 @@ const MIN_RUN_OFF = 60
 const EASE_LENGTH = 30
 /** Spacing, from the origin, of the grid a bend off a diagonal lands back on. */
 export const GRID = 10
-/** Steepest grade of a jump's kicker, at its lip; the kicker is as long as that takes, in whole grid steps. */
-export const KICKER_GRADE = 0.15
 export const LANDING_LENGTH = 60
 /** How far a looping comes out to the side of where it went in: clear of its own entry. */
 export const LOOPING_SHIFT = 30
