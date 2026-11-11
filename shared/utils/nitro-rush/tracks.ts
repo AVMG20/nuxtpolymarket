@@ -1,4 +1,4 @@
-import { buildTrack, checkpoint, corner, finish, LINE_BLOCK_LENGTH, ramp, spiral, start, straight, type TrackLayout } from './layout'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, kicker, landing, LINE_BLOCK_LENGTH, looping, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, widthTo, type TrackLayout, type TrackPiece } from './layout'
 import type { TrackDef, TrackGroup } from './track'
 
 /** Menu categories, in menu order. */
@@ -113,8 +113,250 @@ export const ZIGZAG_SPRINT: TrackLayout = {
     ]
 }
 
+const splitY: TrackPiece = { type: 'split', shape: 'y' }
+const joinY: TrackPiece = { type: 'join', shape: 'y' }
+const splitRight: TrackPiece = { type: 'split', shape: 'right' }
+const joinRight: TrackPiece = { type: 'join', shape: 'right' }
+/** The builder's bank, wide road and jump ramp heights, as its sections lay them. */
+const BANK = 25
+const WIDE = ROAD.halfWidth * 1.5
+const KICKER = 4
+const BIG_KICKER = 6
+/** The 45° bend into a join, at the radius the builder solved for it. */
+const mergeBend = (turn: 'left' | 'right', radius: number): TrackPiece => ({ type: 'corner', turn, radius, angle: 45, exact: true })
+
+/**
+ * A sprint that forks twice: the left branch rejoins the right one, which rejoins the main road before the finish.
+ * Built in the track builder; the merge bends are frozen as solved then, so a solver change can't move the course under its records.
+ */
+export const DOUBLE_FORK: TrackLayout = {
+    id: 'double-fork',
+    name: 'The Double Fork',
+    group: 'sprints',
+    ...ROAD,
+    closed: false,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        straight(20),
+        start,
+        straight(20),
+        splitY,
+        corner('right', 60, 45),
+        checkpoint,
+        splitY,
+        corner('right', 60, 45),
+        checkpoint,
+        straight(10),
+        corner('right', 60, 45),
+        joinY,
+        straight(30),
+        finish,
+        straight(60)
+    ],
+    branches: [
+        {
+            pieces: [
+                corner('right', 60, 45),
+                corner('left', 40, 45),
+                straight(10),
+                checkpoint,
+                straight(20),
+                corner('left', 40, 45),
+                straight(30 * Math.SQRT2 - 40),
+                mergeBend('right', 40 * Math.SQRT2)
+            ],
+            from: { branch: 0, at: 3 },
+            to: { branch: 2, at: 2 }
+        },
+        {
+            pieces: [
+                corner('right', 60, 45),
+                joinY,
+                checkpoint,
+                straight(10),
+                corner('left', 60, 45),
+                straight(40 * Math.SQRT2 - 50),
+                mergeBend('right', 50 * Math.SQRT2 - 10)
+            ],
+            from: { branch: 0, at: 6 },
+            to: { branch: 0, at: 12 }
+        }
+    ]
+}
+
+/** A fast oval on wide road with banked bowls at both ends, and a narrow bypass with a boost pad down the back straight. */
+export const SPEEDBOWL: TrackLayout = {
+    id: 'speedbowl',
+    name: 'Speedbowl',
+    group: 'circuits',
+    ...ROAD,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        start,
+        widthTo(WIDE),
+        straight(200),
+        boostPad('full'),
+        straight(200),
+        bankTo(-BANK),
+        corner('left', 80),
+        corner('left', 80),
+        bankTo(0),
+        widthTo(ROAD.halfWidth),
+        splitRight,
+        straight(300),
+        joinRight,
+        checkpoint,
+        straight(30),
+        bankTo(-BANK),
+        corner('left', 80),
+        corner('left', 80),
+        bankTo(0)
+    ],
+    branches: [
+        {
+            pieces: [
+                corner('right', 60, 45),
+                corner('left', 60, 45),
+                widthTo(MIN_HALF_WIDTH),
+                boostPad('full'),
+                straight(70),
+                widthTo(ROAD.halfWidth),
+                corner('left', 60, 45),
+                straight(40 * Math.SQRT2 - 50),
+                mergeBend('right', 50 * Math.SQRT2 - 10)
+            ],
+            from: { branch: 0, at: 10 },
+            to: { branch: 0, at: 13 }
+        }
+    ]
+}
+
+/** A clockwise stunt loop: a looping, a corkscrew between banks, a climb and a spiral back down to the ground. */
+export const CORKSCREW_HILL: TrackLayout = {
+    id: 'corkscrew-hill',
+    name: 'Corkscrew Hill',
+    group: 'circuits',
+    ...ROAD,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        start,
+        straight(100),
+        looping('right', 22),
+        straight(100),
+        corner('right', 60),
+        bankTo(BANK),
+        corkscrew('right', 200),
+        bankTo(0),
+        corner('right', 60),
+        slopeTo(0.1),
+        straight(80),
+        slopeTo(0),
+        straight(60),
+        spiral('right', 40, 360, -12),
+        corner('right', 60),
+        checkpoint,
+        straight(330),
+        corner('right', 60)
+    ]
+}
+
+/** A point-to-point sprint over two jumps: one on the ground, a bigger one off a raised road after a boost pad. */
+export const LONG_JUMP_SPRINT: TrackLayout = {
+    id: 'long-jump-sprint',
+    name: 'Long Jump Sprint',
+    group: 'sprints',
+    ...ROAD,
+    closed: false,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        straight(20),
+        start,
+        straight(100),
+        kicker(KICKER),
+        gap(60),
+        landing,
+        straight(100),
+        corner('right', 60),
+        checkpoint,
+        ramp(150, 12),
+        corner('left', 60),
+        boostPad('full'),
+        straight(60),
+        kicker(BIG_KICKER),
+        gap(60),
+        landing,
+        straight(160),
+        corner('left', 60),
+        ramp(80, -12),
+        corner('right', 60),
+        straight(60),
+        finish,
+        straight(200)
+    ]
+}
+
+/** A sprint that splits for good: a narrow road over a hill to one finish, or a wide straight with a boost pad to another. */
+export const SPLIT_FINISH: TrackLayout = {
+    id: 'split-finish',
+    name: 'The Split Finish',
+    group: 'sprints',
+    ...ROAD,
+    closed: false,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        straight(20),
+        start,
+        straight(100),
+        corner('right', 60),
+        straight(60),
+        corner('left', 60),
+        checkpoint,
+        straight(60),
+        corner('right', 60),
+        straight(60),
+        splitY,
+        widthTo(MIN_HALF_WIDTH),
+        corner('right', 60, 45),
+        boostPad('full'),
+        ramp(80, 12),
+        ramp(80, -12),
+        checkpoint,
+        widthTo(ROAD.halfWidth),
+        straight(60),
+        finish,
+        straight(170)
+    ],
+    branches: [
+        {
+            pieces: [
+                corner('right', 60, 45),
+                corner('left', 60, 45),
+                widthTo(WIDE),
+                boostPad('full'),
+                straight(200),
+                checkpoint,
+                straight(60),
+                finish,
+                straight(170)
+            ],
+            from: { branch: 0, at: 10 },
+            to: null
+        }
+    ]
+}
+
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
-export const TRACKS: readonly TrackDef[] = [buildTrack(POLYTOWN_OVAL), buildTrack(TWIN_HELIX), buildTrack(S_BEND_SPRINT), buildTrack(ZIGZAG_SPRINT)]
+export const TRACKS: readonly TrackDef[] = [
+    buildTrack(POLYTOWN_OVAL),
+    buildTrack(TWIN_HELIX),
+    buildTrack(SPEEDBOWL),
+    buildTrack(CORKSCREW_HILL),
+    buildTrack(S_BEND_SPRINT),
+    buildTrack(ZIGZAG_SPRINT),
+    buildTrack(DOUBLE_FORK),
+    buildTrack(LONG_JUMP_SPRINT),
+    buildTrack(SPLIT_FINISH)
+]
 
 export function findTrack(id: string) {
     return TRACKS.find(t => t.id === id) ?? null

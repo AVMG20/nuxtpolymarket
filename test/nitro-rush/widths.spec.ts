@@ -7,7 +7,7 @@ import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { LOOPING_SHIFT, loopingShift } from '#shared/utils/nitro-rush/layout'
 import { clearanceFault } from '#shared/utils/nitro-rush/road-checks'
-import { ROAD, TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { findTrack, ROAD } from '#shared/utils/nitro-rush/tracks'
 import { drive, trackOf } from './bot-lap'
 
 const DT = 1 / PHYSICS_HZ
@@ -21,8 +21,8 @@ describe('road widths', () => {
         expect(Object.values(ROAD_WIDTHS).map(w => w / ROAD.halfWidth)).toEqual([0.5, 1, 1.5, 2])
     })
 
-    it('leaves every built-in course at the one road width', () => {
-        for (const def of TRACKS) expect(def.halfWidths).toBeUndefined()
+    it('leaves the built-in courses laid before road widths at the one width', () => {
+        for (const id of ['polytown-oval', 'twin-helix', 's-bend-sprint', 'zigzag-sprint']) expect(findTrack(id)!.halfWidths).toBeUndefined()
     })
 
     it('eases the road to a width piece\'s width, and keeps it until another changes it', () => {
