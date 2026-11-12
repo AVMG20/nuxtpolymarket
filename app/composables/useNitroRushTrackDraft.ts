@@ -128,6 +128,11 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         if (closed !== draft.value.closed) edit({ ...draft.value, closed })
     }
 
+    /** Swaps the whole road for `next`, as one edit that undo takes back. */
+    function replace(next: CustomTrack) {
+        edit(next, 0, next.sections.length - 1)
+    }
+
     function setName(name: string) {
         draft.value = { ...draft.value, name: name.slice(0, MAX_NAME_LENGTH) }
     }
@@ -156,6 +161,6 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
 
     return {
         draft, closed, line, cursor, forks, lines, walk, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, setClosed, setName, select, selectLine, undo
+        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
     }
 }

@@ -2,7 +2,7 @@
 import { checkpointRoles } from '~/utils/nitro-rush/builder-forks'
 import { isTyping } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { MAX_NAME_LENGTH, MAX_SECTIONS, raisedTo, rideTag, sectionCount, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { exportCustomTrack, importCustomTrack, MAX_NAME_LENGTH, MAX_SECTIONS, raisedTo, rideTag, sectionCount, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { Track } from '#shared/utils/nitro-rush/track'
 
 /** The track builder: lay sections one at a time, or from the drawer, until the course is drivable. */
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 
 const {
     draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, setClosed, setName, select, selectLine, undo
+    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
 } = useNitroRushTrackDraft(toRef(props, 'track'))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
@@ -107,6 +107,37 @@ function friendly(reason: string) {
     return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+/** The JSON box: paste a course in to replace the road, or copy this one out. */
+const jsonOpen = ref(false)
+const jsonText = ref('')
+const jsonNote = ref<{ ok: boolean, text: string } | null>(null)
+
+function toggleJson() {
+    jsonOpen.value = !jsonOpen.value
+    jsonNote.value = null
+    if (jsonOpen.value && !jsonText.value) jsonText.value = exportCustomTrack(draft.value)
+}
+
+function importJson() {
+    const { track, error } = importCustomTrack(jsonText.value, draft.value.id)
+    if (!track) {
+        jsonNote.value = { ok: false, text: friendly(error) }
+        return
+    }
+    replace(track)
+    jsonNote.value = { ok: true, text: 'Imported: undo takes it back' }
+}
+
+async function copyJson() {
+    jsonText.value = exportCustomTrack(draft.value)
+    try {
+        await navigator.clipboard.writeText(jsonText.value)
+        jsonNote.value = { ok: true, text: 'Copied to the clipboard' }
+    } catch {
+        jsonNote.value = { ok: true, text: 'Select the text above to copy it' }
+    }
+}
+
 function finish() {
     emit('done', dirty.value ? draft.value : null)
 }
@@ -157,6 +188,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       <button class="nr-icon-btn shrink-0" :disabled="!canUndo" aria-label="Undo" title="Undo (Ctrl+Z)" @click="undo">
         <UIcon name="i-lucide-undo-2" class="size-4" />
       </button>
+      <button class="nr-icon-btn shrink-0" :class="{ 'is-active': jsonOpen }" :aria-expanded="jsonOpen" aria-label="Import or export JSON" title="Import or export as JSON" @click="toggleJson">
+        <UIcon name="i-lucide-braces" class="size-4" />
+      </button>
+    </div>
+
+    <div v-if="jsonOpen" class="nr-card nr-card-tight flex flex-col gap-2 text-left">
+      <textarea
+        v-model="jsonText"
+        class="nr-input h-40 resize-y font-mono text-xs"
+        spellcheck="false"
+        aria-label="Track JSON"
+        placeholder="Paste a track's JSON here"
+      />
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="nr-ghost nr-small" @click="importJson">IMPORT</button>
+        <button class="nr-ghost nr-small" @click="copyJson">COPY THIS TRACK</button>
+        <span v-if="jsonNote" class="text-[11px] font-semibold [font-family:system-ui,sans-serif]" :class="jsonNote.ok ? 'text-emerald-300' : 'text-rose-300'">{{ jsonNote.text }}</span>
+      </div>
     </div>
 
     <div class="flex flex-col gap-3 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_17rem] lg:grid-rows-[minmax(0,1fr)_auto]">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileCustomTrack, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, exportCustomTrack, importCustomTrack, isCustomTrackId, isSectionId, loopGap, MAX_NAME_LENGTH, MAX_SECTIONS, newCustomTrack, sanitizeCustomTrack, SECTIONS, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { Track } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 
@@ -169,6 +169,38 @@ describe('sanitizeCustomTrack', () => {
     it('clips an over-long name', () => {
         const t = sanitizeCustomTrack({ ...valid, name: 'x'.repeat(MAX_NAME_LENGTH * 3) })
         expect(t!.name).toHaveLength(MAX_NAME_LENGTH)
+    })
+})
+
+describe('JSON import and export', () => {
+    /** A loop with two shortcuts: a narrow jump that needs nitro, and a boosted narrow chicane. */
+    const FORKED = '{"name":"Nitro Shortcuts","closed":true,"sections":["start","straight-60","ramp-up","straight-20","ramp-down","right-wide","straight-100","boost-pad","straight-60","split-right","straight-100","straight-100","straight-60","straight-20","straight-10","right-wide","straight-100","straight-100","straight-20","straight-10","join-right","straight-60","checkpoint","straight-100","straight-60","straight-20","straight-60","boost-pad","looping-right","straight-100","bank-right","right-wide","bank-flat","straight-200","straight-20","straight-10","straight-20","straight-10","split-right","straight-100","straight-20","right-wide","straight-60","straight-10","join-right","straight-200","straight-20","straight-10","straight-20","straight-10"],"branches":[{"sections":["width-narrow","left-eighth","right-eighth","jump-ramp-big","empty-100","landing-ramp","width-normal"],"from":{"branch":0,"at":9},"to":{"branch":0,"at":20}},{"sections":["width-narrow","boost-pad","left-eighth-tight","right-eighth-tight","width-normal"],"from":{"branch":0,"at":38},"to":{"branch":0,"at":44}}]}'
+
+    it('round-trips a course under the id it is imported as', () => {
+        const t: CustomTrack = { id: 'custom-abc', name: 'Neon Ring', closed: true, sections: [...RECTANGLE] }
+        const text = exportCustomTrack(t)
+        expect(JSON.parse(text)).toEqual({ name: 'Neon Ring', closed: true, sections: RECTANGLE })
+        expect(importCustomTrack(text, 'custom-new')).toEqual({ track: { ...t, id: 'custom-new' }, error: null })
+    })
+
+    it('imports a forked course that drives, and exports it as it came', () => {
+        const { track, error } = importCustomTrack(FORKED, 'custom-forked')
+        expect(error).toBeNull()
+        expect(track!.branches).toHaveLength(2)
+        expect(compileCustomTrack(track!).error).toBeNull()
+        expect(JSON.parse(exportCustomTrack(track!))).toEqual(JSON.parse(FORKED))
+    })
+
+    it('says what is wrong with text that is not a course', () => {
+        expect(importCustomTrack('{ nope', 'custom-x').error).toMatch(/valid JSON/)
+        expect(importCustomTrack('[]', 'custom-x').error).toMatch(/expected an object/)
+        expect(importCustomTrack('{ "sections": "start" }', 'custom-x').error).toMatch(/list of section ids/)
+        expect(importCustomTrack('{ "sections": ["start", "teleporter"] }', 'custom-x').error).toMatch(/unknown section: "teleporter"/)
+        expect(importCustomTrack('{ "sections": ["start", "split-right"] }', 'custom-x').error).toMatch(/not a valid course/)
+    })
+
+    it('fills in a missing name and course type', () => {
+        expect(importCustomTrack('{ "sections": ["start"] }', 'custom-x').track).toEqual({ id: 'custom-x', name: 'Imported', closed: true, sections: ['start'] })
     })
 })
 

@@ -467,3 +467,27 @@ export function sanitizeCustomTrack(raw: unknown): CustomTrack | null {
     if (forks.length) track.branches = forks
     return sectionCount(track) > MAX_SECTIONS ? null : track
 }
+
+/** A course as JSON to share or keep: its road and name, without the id, which belongs to whoever has it. */
+export function exportCustomTrack(t: CustomTrack) {
+    const { name, closed, sections, branches } = t
+    return JSON.stringify(branches?.length ? { name, closed, sections, branches } : { name, closed, sections }, null, 2)
+}
+
+/** A course from JSON as `exportCustomTrack` writes it, taking the id `id`; or why it isn't one. */
+export function importCustomTrack(text: string, id: string): { track: CustomTrack, error: null } | { track: null, error: string } {
+    let raw: unknown
+    try {
+        raw = JSON.parse(text)
+    } catch {
+        return { track: null, error: 'that isn\'t valid JSON' }
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { track: null, error: 'expected an object with name, closed and sections' }
+    const { name = 'Imported', closed = true, sections, branches } = raw as Record<string, unknown>
+    if (!Array.isArray(sections)) return { track: null, error: 'sections must be a list of section ids' }
+    const unknown = sections.find(s => !isSectionId(s) && !(typeof s === 'string' && Object.hasOwn(REPLACED, s)))
+    if (unknown !== undefined) return { track: null, error: `unknown section: ${JSON.stringify(unknown)}` }
+    const track = sanitizeCustomTrack({ id, name, closed, sections, branches })
+    if (!track) return { track: null, error: `not a valid course: check the branches and keep it to ${MAX_SECTIONS} sections` }
+    return { track, error: null }
+}
