@@ -568,9 +568,9 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     // It pulls up before an end barrier.
     const own = lineOf(car, track)
     if (own.barrierEnd) allowed = Math.min(allowed, Math.sqrt(2 * BRAKE_DECEL * 0.7 * Math.max(0, own.length - 12 - car.proj.s)))
-    allowed = Math.min(allowed, ENGINE_TOP_SPEED * pace)
+    // Past its pace it lifts off but never brakes, so a boost pad's speed carries on as it does for a player holding gas.
     return {
-        throttle: v < allowed ? 1 : 0,
+        throttle: v < Math.min(allowed, ENGINE_TOP_SPEED * pace) ? 1 : 0,
         brake: v > allowed + 2 ? 1 : 0,
         steer,
         drift: false
