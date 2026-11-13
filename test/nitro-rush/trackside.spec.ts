@@ -5,6 +5,7 @@ import { CLEAR_HEIGHT, DECK_DEPTH } from '../../app/utils/nitro-rush/road-geomet
 import {
     BILLBOARD_BOTTOM, BILLBOARD_HEIGHT, BILLBOARD_WIDTH, CHEVRON_HEIGHT, CHEVRON_LIFT, FLAG_POLE, HOARDING_HEIGHT, tracksideLayout, type Fixture
 } from '../../app/utils/nitro-rush/trackside-spots'
+import { ARROW_TILE, JUMP_PAINT_REACH, jumpMarks, LIP_STRIPE } from '../../app/utils/nitro-rush/jump-marks'
 import { NAV_CATALOG } from '#shared/utils/nav-catalog'
 import { buildTrack, corner, start, straight, type TrackLayout } from '#shared/utils/nitro-rush/layout'
 import { Track, WALL_HEIGHT, wallFoot } from '#shared/utils/nitro-rush/track'
@@ -16,12 +17,12 @@ const loop = (id: string, radius: number) => new Track(buildTrack({ ...base, id,
 
 /** Every piece of a course's signage as a column: where it stands, its foot and its top. */
 function columns(track: Track) {
-    const { billboards, chevrons, hoardings, flags, overheads } = tracksideLayout(track)
+    const { billboards, chevrons, jumpSigns, hoardings, flags, overheads } = tracksideLayout(track)
     // A wall fixture's own road is the surface under the wall it stands on.
     const on = (f: Fixture, h: number) => ({ x: f.x, z: f.z, foot: f.y, top: f.y + f.up[1] * h, road: f.y - f.up[1] * WALL_HEIGHT, own: f })
     return [
         ...billboards.map(b => ({ x: b.x, z: b.z, foot: Math.min(0, b.base), top: b.base + BILLBOARD_BOTTOM + BILLBOARD_HEIGHT, road: b.base, own: null })),
-        ...chevrons.map(c => on(c, CHEVRON_LIFT + CHEVRON_HEIGHT)),
+        ...[...chevrons, ...jumpSigns].map(c => on(c, CHEVRON_LIFT + CHEVRON_HEIGHT)),
         ...hoardings.flat().map(h => on(h, HOARDING_HEIGHT)),
         ...flags.flat().map(f => on(f, FLAG_POLE)),
         ...overheads.map(o => ({ x: o.x, z: o.z, foot: o.y, top: o.y + CLEAR_HEIGHT, road: o.y, own: o as Fixture }))
@@ -127,6 +128,45 @@ describe('Nitro Rush trackside signage', () => {
         expect(hoardings.length).toBeGreaterThan(0)
         expect(overheads.length).toBeGreaterThan(0)
         for (const h of [...hoardings.flat(), ...overheads]) expect(track.curvature[track.segmentAt(track.project(h.x, h.z).s)]!).toBeLessThan(0.004)
+    })
+})
+
+describe('Nitro Rush jump warnings', () => {
+    const jumpy = courses.filter(t => t.branches.some(l => l.gaps.length))
+
+    it('paints every jump\'s approach, off the boost pads, gaps and lap lines', () => {
+        expect(jumpy.length).toBeGreaterThan(0)
+        for (const track of jumpy) {
+            const marks = jumpMarks(track)
+            expect(marks).toHaveLength(track.branches.reduce((n, l) => n + l.gaps.length, 0))
+            for (const m of marks) {
+                const line = track.branches[m.branch]!
+                const id = `${track.def.id} jump at ${m.lip.toFixed(0)}`
+                expect(m.stripe, id).toEqual([m.lip - LIP_STRIPE, m.lip])
+                expect(m.arrows.length, id).toBeGreaterThan(0)
+                const blocked = [...line.boostPads.map(p => [p.from, p.to]), ...line.gaps, ...track.lapLines.filter(l => l.branch === m.branch).map(l => [l.s - 4, l.s + 4])]
+                for (const [a, b] of m.arrows) {
+                    // On whole tiles, so the paint never starts halfway through an arrow.
+                    expect(Math.abs(a / ARROW_TILE - Math.round(a / ARROW_TILE)), id).toBeLessThan(1e-9)
+                    expect(Math.abs(b / ARROW_TILE - Math.round(b / ARROW_TILE)), id).toBeLessThan(1e-9)
+                    expect(a, id).toBeGreaterThanOrEqual(m.lip - JUMP_PAINT_REACH)
+                    expect(b, id).toBeLessThanOrEqual(m.stripe[0])
+                    for (const [c, d] of blocked) expect(b <= c! || a >= d!, `${id}: paint ${a}-${b} over ${c}-${d}`).toBe(true)
+                }
+            }
+        }
+    })
+
+    it('stands a warning board on the wall where each jump\'s paint begins', () => {
+        for (const track of jumpy) {
+            const { jumpSigns } = tracksideLayout(track)
+            for (const line of track.branches) {
+                for (const [lip] of line.gaps) {
+                    const boards = jumpSigns.filter(f => f.branch === line.branch && f.s <= lip - JUMP_PAINT_REACH && f.s >= lip - JUMP_PAINT_REACH - 12)
+                    expect(boards.length, `${track.def.id} jump at ${lip.toFixed(0)}`).toBeGreaterThan(0)
+                }
+            }
+        }
     })
 })
 

@@ -3,7 +3,7 @@ import type { Reflector } from 'three/addons/objects/Reflector.js'
 import type { Theme } from './config'
 import { boostPadTexture, concreteTexture } from './textures'
 import { buildCity } from './city'
-import { addBoostPads, boostPadMaterial, buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
+import { addBoostPads, addJumpMarks, boostPadMaterial, buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
 import { buildSky } from './world-sky'
 import { buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
 import { buildSignage } from './world-trackside'
@@ -54,6 +54,7 @@ export class World {
         buildTrackside(kit)
         this.boostPads = own(boostPadTexture())
         addBoostPads(kit, own(boostPadMaterial(this.boostPads)))
+        addJumpMarks(kit)
         const concrete = own(concreteTexture(150))
         concrete.repeat.set(0.5, 0.5)
         buildBarriers(kit, concrete)

@@ -1,9 +1,10 @@
 import { ORBIT_RADIUS } from './camera'
+import { JUMP_PAINT_REACH } from './jump-marks'
 import { CLEAR_HEIGHT, DECK_DEPTH } from './road-geometry'
 import { headingOf, newTrackFrame, WALL_BASE_HALF, WALL_HEIGHT, wallFoot, type Track, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
- * Where the signage round a course stands: billboards, hoardings, overhead banners, flags and corner chevrons.
+ * Where the signage round a course stands: billboards, hoardings, overhead banners, flags, corner chevrons and jump warnings.
  * Every piece keeps under CLEAR_HEIGHT over its own road and out of every other road's clearance, so a road passing over never cuts through one.
  */
 
@@ -48,6 +49,8 @@ export interface Overhead extends Fixture {
 export interface TracksideLayout {
     billboards: Billboard[]
     chevrons: Chevron[]
+    /** Warning boards on both walls ahead of each jump. */
+    jumpSigns: Fixture[]
     /** One list per bay between two floodlights; a bay shares one ad. */
     hoardings: Fixture[][]
     /** Clusters of flags, a cluster sharing one ad. */
@@ -84,6 +87,9 @@ const CHEVRON_SPACING = [12, 9, 6.5] as const
 /** They start this far before the bend, where the driver needs them. */
 const CHEVRON_LEAD = 6
 const CHEVRON_MIN_BEND = 10
+/** Jump boards stand where the road paint starts, and may shift this far back to find a free bit of wall. */
+const JUMP_SIGN_LEAD = JUMP_PAINT_REACH
+const JUMP_SIGN_SLIDE = 12
 
 export const FLAG_POLE = 4
 export const FLAG_WIDTH = 0.85
@@ -240,6 +246,24 @@ function chevronsOn(track: Track, line: TrackLine, out: Chevron[], keepOut: Keep
     }
 }
 
+/** A board on each wall where a jump's warning paint starts. */
+function jumpSignsOn(track: Track, line: TrackLine, out: Fixture[], keepOut: KeepOut[]) {
+    const laps = lapLinesOn(track, line)
+    for (const [lip] of line.gaps) {
+        for (const side of [-1, 1] as const) {
+            for (let back = 0; back <= JUMP_SIGN_SLIDE; back += 2) {
+                const s = lip - JUMP_SIGN_LEAD - back
+                if (s < 0 || !line.solidRoadAt(s) || line.openAt(s, side) || near(line, s, laps, LAP_LINE_CLEAR) || nearLamp(line, s, side)) continue
+                const f = wallTop(line, s, side)
+                if (!fixtureClear(track, line, s, f, CHEVRON_WIDTH, CHEVRON_LIFT + CHEVRON_HEIGHT)) continue
+                out.push(f)
+                keepOut.push({ line, s, d: 6 })
+                break
+            }
+        }
+    }
+}
+
 /** Straight stretches, as [from, to] along the line: plain road, both walls standing, turning gentler than a kerb. */
 function straightsOn(line: TrackLine) {
     const runs: [number, number][] = []
@@ -390,6 +414,7 @@ const push = <T>(list: T[], item: T | null) => {
 
 export function tracksideLayout(track: Track): TracksideLayout {
     const chevrons: Chevron[] = []
+    const jumpSigns: Fixture[] = []
     const flags: Fixture[][] = []
     const hoardings: Fixture[][] = []
     const billboards: Billboard[] = []
@@ -407,9 +432,10 @@ export function tracksideLayout(track: Track): TracksideLayout {
     }
     for (const line of track.branches) {
         chevronsOn(track, line, chevrons, keepOut)
+        jumpSignsOn(track, line, jumpSigns, keepOut)
         startFlagsOn(track, line, flags)
         for (const s of lapLinesOn(track, line, ['start', 'finish'])) keepOut.push({ line, s, d: FLAG_REACH + 2 })
     }
     adSlots(track, keepOut, overheads, { billboards, hoardings, flags })
-    return { billboards, chevrons, hoardings, flags, overheads }
+    return { billboards, chevrons, jumpSigns, hoardings, flags, overheads }
 }

@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { adDeck, TRACK_ADS, type AdDeck } from './ads'
 import type { Roof } from './city'
 import { CLEAR_HEIGHT } from './road-geometry'
-import { billboardTexture, cornerSignTexture, flagTexture, stripTexture } from './signs'
+import { billboardTexture, cornerSignTexture, flagTexture, jumpSignTexture, stripTexture } from './signs'
 import {
     BILLBOARD_BOTTOM, BILLBOARD_HEIGHT, BILLBOARD_WIDTH, CHEVRON_HEIGHT, CHEVRON_LIFT, CHEVRON_WIDTH, FLAG_HEIGHT, FLAG_POLE, FLAG_WIDTH,
     HOARDING_HEIGHT, HOARDING_LENGTH, OVERHEAD_BANNER, OVERHEAD_BEAM, tracksideLayout, type Billboard, type Chevron, type Fixture, type Overhead
@@ -11,7 +11,7 @@ import {
 import type { WorldKit } from './world-kit'
 import { newProjection, WALL_BASE_HALF, WALL_HEIGHT } from '#shared/utils/nitro-rush/track'
 
-/** The signage round the road, built from the spots trackside-spots picks: ads in every format and the corner chevrons. */
+/** The signage round the road, built from the spots trackside-spots picks: ads in every format, the corner chevrons and the jump boards. */
 
 type AdFormat = 'board' | 'strip' | 'flag'
 type AdMaterial = (format: AdFormat, ad: number) => THREE.MeshStandardMaterial
@@ -204,32 +204,42 @@ function buildFlags(kit: WorldKit, clusters: readonly Fixture[][], steel: THREE.
 }
 
 /** The corner boards, on posts on the outside wall, each grade in its colour and pointing the way the bend turns. */
-function buildChevrons(kit: WorldKit, chevrons: readonly Chevron[], steel: THREE.Material) {
-    if (!chevrons.length) return
+/** Boards on posts on the wall tops, each painted by its key; `flip` mirrors one for a bend to the left. */
+function buildWallBoards(kit: WorldKit, boards: readonly { at: Fixture, key: string, flip: boolean }[], paint: (key: string) => THREE.Texture, steel: THREE.Material) {
+    if (!boards.length) return
     const { own } = kit
     const faceY = CHEVRON_LIFT + CHEVRON_HEIGHT / 2
     const face = new THREE.PlaneGeometry(CHEVRON_WIDTH, CHEVRON_HEIGHT).translate(0, faceY, 0.031)
-    // A bend to the left (its outside wall on the right) reads the board the other way round.
     const flipped = face.clone()
     const uv = flipped.getAttribute('uv')
     for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i))
     const back = own(new THREE.MeshStandardMaterial({ color: 0x121216, roughness: 0.7 }))
-    const backs = kit.instanced(new THREE.BoxGeometry(CHEVRON_WIDTH + 0.08, CHEVRON_HEIGHT + 0.08, 0.06).translate(0, faceY, 0), back, chevrons.length)
-    const posts = kit.instanced(new THREE.BoxGeometry(0.08, CHEVRON_LIFT, 0.08).translate(0, CHEVRON_LIFT / 2, 0), steel, chevrons.length)
-    const mats = ([1, 2, 3] as const).map(n => own(glowing(own(cornerSignTexture(n)), 1.4)))
+    const backs = kit.instanced(new THREE.BoxGeometry(CHEVRON_WIDTH + 0.08, CHEVRON_HEIGHT + 0.08, 0.06).translate(0, faceY, 0), back, boards.length)
+    const posts = kit.instanced(new THREE.BoxGeometry(0.08, CHEVRON_LIFT, 0.08).translate(0, CHEVRON_LIFT / 2, 0), steel, boards.length)
+    const mats = new Map<string, THREE.Material>()
     const groups = new Map<string, THREE.Matrix4[]>()
-    chevrons.forEach((c, i) => {
-        const m = fixtureMatrix(c)
+    boards.forEach((b, i) => {
+        const m = fixtureMatrix(b.at)
         backs.setMatrixAt(i, m)
         posts.setMatrixAt(i, m)
-        push(groups, `${c.grade}:${c.side > 0 ? 1 : 0}`, m)
+        push(groups, `${b.flip ? 1 : 0}:${b.key}`, m)
     })
-    instancedByKey(kit, groups, (key) => {
-        const [grade, flip] = key.split(':').map(Number) as [number, number]
-        return [(flip ? flipped : face).clone(), mats[grade - 1]!]
+    instancedByKey(kit, groups, (group) => {
+        const [flip, key] = [group[0] === '1', group.slice(2)]
+        if (!mats.has(key)) mats.set(key, own(glowing(own(paint(key)), 1.4)))
+        return [(flip ? flipped : face).clone(), mats.get(key)!]
     })
     face.dispose()
     flipped.dispose()
+}
+
+/** The corner chevrons, and the jump boards on the same posts. */
+function buildRoadSigns(kit: WorldKit, chevrons: readonly Chevron[], jumpSigns: readonly Fixture[], steel: THREE.Material) {
+    buildWallBoards(kit, [
+        // A bend to the left (its outside wall on the right) reads the board the other way round.
+        ...chevrons.map(c => ({ at: c as Fixture, key: String(c.grade), flip: c.side > 0 })),
+        ...jumpSigns.map(at => ({ at, key: 'jump', flip: false }))
+    ], key => key === 'jump' ? jumpSignTexture() : cornerSignTexture(Number(key) as 1 | 2 | 3), steel)
 }
 
 /** Every ad and sign round the course; `roofs` are the city's low roofs near it. */
@@ -242,5 +252,5 @@ export function buildSignage(kit: WorldKit, steel: THREE.Material, roofs: readon
     buildOverheads(kit, layout.overheads, steel, ad, deck)
     buildFlags(kit, layout.flags, steel, ad, deck)
     buildRoofBoards(kit, roofs, steel, ad, deck)
-    buildChevrons(kit, layout.chevrons, steel)
+    buildRoadSigns(kit, layout.chevrons, layout.jumpSigns, steel)
 }

@@ -1,7 +1,8 @@
+import * as THREE from 'three'
 import { canvas, finish } from './canvas'
 import { TRACK_ADS, type TrackAd } from './ads'
 
-/** Signage painted at load: the ads in each of their formats, the number plate's mini ad, the gantry banners and the corner chevrons. */
+/** Signage painted at load: the ads in each of their formats, the number plate's mini ad, the gantry banners, the corner chevrons and the jump warnings. */
 
 type Ctx = CanvasRenderingContext2D
 
@@ -236,5 +237,73 @@ export function cornerSignTexture(count: 1 | 2 | 3) {
         ctx.closePath()
         ctx.fill()
     }
+    return finish(c)
+}
+
+/** Yellow road paint, a touch see-through so the asphalt shows in it. */
+const ROAD_PAINT = 'rgba(255, 210, 61, 0.92)'
+
+/** A road-paint tile, across the road and along it, repeating along the road. */
+function paintTile(w: number, h: number, paint: (ctx: Ctx) => void) {
+    const [c, ctx] = canvas(w, h)
+    ctx.fillStyle = ROAD_PAINT
+    ctx.strokeStyle = ROAD_PAINT
+    paint(ctx)
+    const t = finish(c)
+    t.wrapT = THREE.RepeatWrapping
+    return t
+}
+
+/** One arrow pointing up the road, the top of the canvas being further along. */
+export const jumpArrowTexture = () => paintTile(256, 256, (ctx) => {
+    ctx.lineWidth = 30
+    ctx.lineJoin = 'miter'
+    ctx.beginPath()
+    ctx.moveTo(56, 200)
+    ctx.lineTo(128, 80)
+    ctx.lineTo(200, 200)
+    ctx.stroke()
+})
+
+/** The wall board ahead of a jump: a car leaving a ramp, over the word. */
+export function jumpSignTexture() {
+    const W = 256
+    const H = 192
+    const [c, ctx] = canvas(W, H)
+    const col = CORNER_SIGN_COLOURS[0]
+    ctx.fillStyle = '#121216'
+    ctx.fillRect(0, 0, W, H)
+    ctx.strokeStyle = col
+    ctx.lineWidth = 8
+    ctx.strokeRect(4, 4, W - 8, H - 8)
+    ctx.fillStyle = col
+    ctx.shadowColor = col
+    ctx.shadowBlur = 10
+    // The ramp.
+    ctx.beginPath()
+    ctx.moveTo(30, 132)
+    ctx.lineTo(120, 132)
+    ctx.lineTo(120, 100)
+    ctx.closePath()
+    ctx.fill()
+    // The car in the air, nose up, and its flight.
+    ctx.save()
+    ctx.translate(176, 72)
+    ctx.rotate(-0.3)
+    ctx.beginPath()
+    ctx.roundRect(-34, -12, 68, 24, 8)
+    ctx.fill()
+    ctx.restore()
+    ctx.setLineDash([10, 8])
+    ctx.lineWidth = 5
+    ctx.beginPath()
+    ctx.moveTo(124, 96)
+    ctx.quadraticCurveTo(140, 70, 150, 80)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = '900 38px system-ui, sans-serif'
+    ctx.fillText('JUMP', W / 2, 162)
     return finish(c)
 }
