@@ -1,35 +1,11 @@
 import { canvas, finish } from './canvas'
+import { TRACK_ADS, type TrackAd } from './ads'
 
-/** Signage painted at load: the billboard ads, the number plate's mini ad and the gantry banners. */
+/** Signage painted at load: the ads in each of their formats, the number plate's mini ad, the gantry banners and the corner chevrons. */
 
-/**
- * Billboards advertising the rest of Polynux. Each is a themed gradient, a
- * big emoji mark and the game's tagline.
- */
-export const BILLBOARD_ADS = [
-    { bg: ['#140a24', '#3a0f5a'], icon: '🎰', title: 'POLYNUX', sub: 'PLAY. WIN. REPEAT.', col: '#ff3db8' },
-    { bg: ['#06061a', '#1b1050'], icon: '🚀', title: 'VOID RUNNER', sub: 'THE DEEP IS CALLING', col: '#a98bff' },
-    { bg: ['#1a1000', '#4a2c00'], icon: '⚔️', title: 'HERO QUEST', sub: 'YOUR PARTY AWAITS', col: '#ffc233' },
-    { bg: ['#0e1a00', '#264a00'], icon: '🐛', title: 'COLONY', sub: 'GROW THE HIVE', col: '#a6ff4d' },
-    { bg: ['#001a0e', '#00402a'], icon: '🌱', title: 'XENO', sub: 'HARVEST THE UNKNOWN', col: '#3dffb0' },
-    { bg: ['#001428', '#003a66'], icon: '🏴‍☠️', title: 'PIRATE RAID', sub: 'SIX MINUTES OF PLUNDER', col: '#4dc3ff' },
-    { bg: ['#14140a', '#3a3a14'], icon: '🏰', title: 'PATHWARDEN', sub: 'HOLD THE ROAD', col: '#e8e070' },
-    { bg: ['#1a0004', '#4a000c'], icon: '🧟', title: 'CALL OF XENO', sub: 'SURVIVE THE NIGHT', col: '#ff4d5e' },
-    { bg: ['#000a00', '#002a10'], icon: '💻', title: 'HACK OPS', sub: 'ACCESS GRANTED', col: '#33ff66' },
-    { bg: ['#0a1420', '#1f3a5a'], icon: '🏙️', title: 'POLYTOWN', sub: 'BUILD YOUR CITY', col: '#7fd4ff' },
-    { bg: ['#2a0018', '#5a0a3a'], icon: '🍬', title: 'CANDY MADNESS', sub: 'SWEET MULTIPLIERS', col: '#ff8ad8' },
-    { bg: ['#1a0a00', '#4a1a00'], icon: '💣', title: 'FIRE IN THE HOLE', sub: 'DIG DEEP. BLOW UP.', col: '#ff7a1a' },
-    { bg: ['#0a0614', '#24123a'], icon: '📖', title: 'BOOK OF SHADOWS', sub: 'TURN THE PAGE', col: '#c79bff' },
-    { bg: ['#1a1400', '#3a3000'], icon: '⛏️', title: 'GOLD MINER', sub: 'STRIKE IT RICH', col: '#ffd84d' },
-    { bg: ['#000e1a', '#00304a'], icon: '🛡️', title: 'FIREWALL', sub: '30 WAVES. ONE CORE.', col: '#33e0ff' },
-    { bg: ['#0a0020', '#24006a'], icon: '🔷', title: 'SHAPEZZ', sub: 'GEOMETRY MAYHEM', col: '#6af0ff' },
-    { bg: ['#140a00', '#3a2400'], icon: '🎲', title: 'DICE', sub: 'ROLL THE ODDS', col: '#ffb84d' },
-    { bg: ['#001a14', '#00402e'], icon: '🃏', title: 'LIVE BLACKJACK', sub: 'BEAT THE DEALER', col: '#4dffc8' },
-    { bg: ['#1a0a14', '#3a1430'], icon: '🐴', title: 'NEIGHCASSO DERBY', sub: 'PAINT THE FINISH', col: '#ff9ad0' },
-    { bg: ['#14001a', '#38004a'], icon: '💎', title: 'GEM EXCHANGE', sub: 'TRADE UP', col: '#d07bff' },
-    { bg: ['#001a1a', '#003a3a'], icon: '⚡', title: 'NITRO ENERGY', sub: 'ZERO SUGAR · ALL RUSH', col: '#33f0ff' },
-    { bg: ['#0e0e14', '#24243a'], icon: '🏦', title: 'POLYNUX BANK', sub: 'YOUR COINS, SAFE', col: '#c8d4ff' }
-] as const
+type Ctx = CanvasRenderingContext2D
+
+const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
 
 let emojiOk: boolean | null = null
 
@@ -37,7 +13,7 @@ let emojiOk: boolean | null = null
 function colorEmojiSupported() {
     if (emojiOk !== null) return emojiOk
     const [, ctx] = canvas(32, 32)
-    ctx.font = '24px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
+    ctx.font = `24px ${EMOJI_FONT}`
     ctx.textBaseline = 'middle'
     ctx.fillText('🚀', 2, 16)
     const d = ctx.getImageData(0, 0, 32, 32).data
@@ -51,43 +27,61 @@ function colorEmojiSupported() {
     return emojiOk
 }
 
-export function billboardTexture(i: number) {
-    const [c, ctx] = canvas(512, 256)
-    const ad = BILLBOARD_ADS[i % BILLBOARD_ADS.length]!
-    const g = ctx.createLinearGradient(0, 0, 512, 256)
+/** Whether the ad's mark can be drawn here. */
+const showsIcon = (ad: TrackAd) => ad.icon !== '' && colorEmojiSupported()
+
+function paintBackground(ctx: Ctx, ad: TrackAd, x: number, y: number, w: number, h: number) {
+    const g = ctx.createLinearGradient(x, y, x + w, y + h)
     g.addColorStop(0, ad.bg[0])
     g.addColorStop(1, ad.bg[1])
     ctx.fillStyle = g
-    ctx.fillRect(0, 0, 512, 256)
-    // Soft halo behind the mark.
-    const halo = ctx.createRadialGradient(100, 128, 10, 100, 128, 130)
+    ctx.fillRect(x, y, w, h)
+}
+
+/** A soft glow of the accent behind the mark. */
+function paintHalo(ctx: Ctx, ad: TrackAd, x: number, y: number, r: number) {
+    const halo = ctx.createRadialGradient(x, y, r * 0.08, x, y, r)
     halo.addColorStop(0, ad.col + '66')
     halo.addColorStop(1, ad.col + '00')
     ctx.fillStyle = halo
-    ctx.fillRect(0, 0, 260, 256)
+    ctx.fillRect(x - r, y - r, r * 2, r * 2)
+}
+
+function paintIcon(ctx: Ctx, ad: TrackAd, x: number, y: number, size: number) {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    const icon = colorEmojiSupported()
-    if (icon) {
-        ctx.font = '110px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
-        ctx.fillText(ad.icon, 100, 136)
-    }
-    // Without an icon the text takes the whole board.
-    const left = icon ? 196 : 40
-    const maxW = icon ? 300 : 440
-    ctx.textAlign = 'left'
-    const title = ad.title
-    let size = 64
+    ctx.font = `${size}px ${EMOJI_FONT}`
+    ctx.fillText(ad.icon, x, y)
+}
+
+/** The title in the accent with its glow, shrunk until it fits `maxW`. */
+function paintTitle(ctx: Ctx, ad: TrackAd, x: number, y: number, size: number, minSize: number, maxW: number, blur: number) {
     ctx.font = `900 ${size}px system-ui, sans-serif`
-    while (ctx.measureText(title).width > maxW && size > 30) {
+    while (ctx.measureText(ad.title).width > maxW && size > minSize) {
         size -= 2
         ctx.font = `900 ${size}px system-ui, sans-serif`
     }
     ctx.shadowColor = ad.col
-    ctx.shadowBlur = 22
+    ctx.shadowBlur = blur
     ctx.fillStyle = ad.col
-    ctx.fillText(title, left, 112)
+    ctx.fillText(ad.title, x, y)
     ctx.shadowBlur = 0
+}
+
+/** A 2:1 board: mark on the left, title, tagline and the site line on the right. */
+export function billboardTexture(ad: TrackAd) {
+    const [c, ctx] = canvas(512, 256)
+    paintBackground(ctx, ad, 0, 0, 512, 256)
+    const icon = showsIcon(ad)
+    if (icon) {
+        paintHalo(ctx, ad, 100, 128, 130)
+        paintIcon(ctx, ad, 100, 136, 110)
+    }
+    // Without an icon the text takes the whole board.
+    const left = icon ? 196 : 40
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    paintTitle(ctx, ad, left, 112, 64, 30, icon ? 300 : 440, 22)
     ctx.font = '700 24px system-ui, sans-serif'
     ctx.fillStyle = '#ffffff'
     ctx.fillText(ad.sub, left + 2, 172)
@@ -100,12 +94,62 @@ export function billboardTexture(i: number) {
     return finish(c)
 }
 
-/** The rear plate: a generic panel carrying a random billboard ad instead of a registration. */
+/** An 8:1 strip for the hoardings on the walls and the banners over the road; it tiles end to end. */
+export function stripTexture(ad: TrackAd) {
+    const W = 1024
+    const H = 128
+    const [c, ctx] = canvas(W, H)
+    paintBackground(ctx, ad, 0, 0, W, H)
+    ctx.fillStyle = ad.col
+    ctx.fillRect(0, 0, W, 6)
+    ctx.fillRect(0, H - 6, W, 6)
+    const icon = showsIcon(ad)
+    if (icon) {
+        paintHalo(ctx, ad, 80, H / 2, 70)
+        paintIcon(ctx, ad, 80, H / 2 + 4, 76)
+    }
+    const left = icon ? 150 : 40
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    paintTitle(ctx, ad, left, H / 2 + 2, 76, 40, 470, 16)
+    const titleEnd = left + ctx.measureText(ad.title).width
+    ctx.font = '800 34px system-ui, sans-serif'
+    ctx.fillStyle = '#ffffff'
+    ctx.textAlign = 'right'
+    ctx.fillText(ad.sub, W - 40, H / 2 + 2, Math.max(120, W - 80 - titleEnd))
+    return finish(c)
+}
+
+/** A feather flag's 1:4 cloth: mark at the top, the title reading up the flag. */
+export function flagTexture(ad: TrackAd) {
+    const W = 128
+    const H = 512
+    const [c, ctx] = canvas(W, H)
+    paintBackground(ctx, ad, 0, 0, W, H)
+    ctx.fillStyle = ad.col
+    ctx.fillRect(W - 10, 0, 10, H)
+    const icon = showsIcon(ad)
+    if (icon) {
+        paintHalo(ctx, ad, W / 2, 70, 64)
+        paintIcon(ctx, ad, W / 2, 74, 70)
+    }
+    ctx.save()
+    ctx.translate(W / 2, icon ? 316 : H / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    paintTitle(ctx, ad, 0, 0, 64, 26, icon ? 330 : 470, 12)
+    ctx.restore()
+    return finish(c)
+}
+
+/** The rear plate: a generic panel carrying a random ad instead of a registration. */
 export function plateTexture() {
     const W = 520
     const H = 120
     const [c, ctx] = canvas(W, H)
-    const ad = BILLBOARD_ADS[Math.floor(Math.random() * BILLBOARD_ADS.length)]!
+    // Cosmetic, so Math.random.
+    const ad = TRACK_ADS[Math.floor(Math.random() * TRACK_ADS.length)]!
     ctx.fillStyle = '#0b0b0e'
     ctx.fillRect(0, 0, W, H)
     const g = ctx.createLinearGradient(0, 0, W, H)
@@ -118,38 +162,25 @@ export function plateTexture() {
     ctx.strokeStyle = ad.col + 'aa'
     ctx.lineWidth = 3
     ctx.stroke()
-    ctx.textBaseline = 'middle'
-    const icon = colorEmojiSupported()
+    const icon = showsIcon(ad)
     if (icon) {
-        const halo = ctx.createRadialGradient(62, H / 2, 4, 62, H / 2, 60)
-        halo.addColorStop(0, ad.col + '66')
-        halo.addColorStop(1, ad.col + '00')
-        ctx.fillStyle = halo
-        ctx.fillRect(8, 8, 120, H - 16)
-        ctx.textAlign = 'center'
-        ctx.font = '62px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif'
-        ctx.fillText(ad.icon, 62, H / 2 + 4)
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(8, 8, 120, H - 16)
+        ctx.clip()
+        paintHalo(ctx, ad, 62, H / 2, 60)
+        ctx.restore()
+        paintIcon(ctx, ad, 62, H / 2 + 4, 62)
     }
     const left = icon ? 116 : 30
-    const maxW = W - left - 26
     ctx.textAlign = 'left'
-    let size = 50
-    ctx.font = `900 ${size}px system-ui, sans-serif`
-    while (ctx.measureText(ad.title).width > maxW && size > 24) {
-        size -= 2
-        ctx.font = `900 ${size}px system-ui, sans-serif`
-    }
-    ctx.shadowColor = ad.col
-    ctx.shadowBlur = 14
-    ctx.fillStyle = ad.col
-    ctx.fillText(ad.title, left, 50)
-    ctx.shadowBlur = 0
+    ctx.textBaseline = 'middle'
+    paintTitle(ctx, ad, left, 50, 50, 24, W - left - 26, 14)
     ctx.font = '700 19px system-ui, sans-serif'
     ctx.fillStyle = '#ffffff'
     ctx.fillText(ad.sub, left + 2, 88)
     return finish(c)
 }
-
 
 /** A neon banner for the start gantry. */
 export function bannerTexture(title: string, sub: string) {
@@ -170,5 +201,40 @@ export function bannerTexture(title: string, sub: string) {
     ctx.fillStyle = '#9ff8ff'
     ctx.font = '800 46px system-ui, sans-serif'
     ctx.fillText(sub, 512, 200)
+    return finish(c)
+}
+
+/** Board colour for each corner grade, gentle to hairpin. */
+export const CORNER_SIGN_COLOURS = ['#ffd23d', '#ff8a1f', '#ff2b3a'] as const
+
+/** A corner board with `count` chevrons pointing right; the left-hand boards flip it in their UVs. */
+export function cornerSignTexture(count: 1 | 2 | 3) {
+    const W = 256
+    const H = 192
+    const [c, ctx] = canvas(W, H)
+    const col = CORNER_SIGN_COLOURS[count - 1]!
+    ctx.fillStyle = '#121216'
+    ctx.fillRect(0, 0, W, H)
+    ctx.strokeStyle = col
+    ctx.lineWidth = 8
+    ctx.strokeRect(4, 4, W - 8, H - 8)
+    const step = 56
+    const width = 70
+    const x0 = W / 2 - ((count - 1) * step + width) / 2
+    ctx.fillStyle = col
+    ctx.shadowColor = col
+    ctx.shadowBlur = 10
+    for (let k = 0; k < count; k++) {
+        const x = x0 + k * step
+        ctx.beginPath()
+        ctx.moveTo(x, 30)
+        ctx.lineTo(x + 34, 30)
+        ctx.lineTo(x + width, H / 2)
+        ctx.lineTo(x + 34, H - 30)
+        ctx.lineTo(x, H - 30)
+        ctx.lineTo(x + width - 34, H / 2)
+        ctx.closePath()
+        ctx.fill()
+    }
     return finish(c)
 }

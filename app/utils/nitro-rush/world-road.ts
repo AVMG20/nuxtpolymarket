@@ -3,12 +3,11 @@ import { Reflector } from 'three/addons/objects/Reflector.js'
 import { NEON_PINK } from './config'
 import { BOOST_TILE_LENGTH, checkerTexture, chevronTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
 import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, roadLeft, roadRight, sweep, wallLeft, wallRight, type RoadWidth } from './road-geometry'
+import { KERB_MIN_CURVATURE } from './trackside-spots'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf, newTrackFrame, WALL_BASE_HALF, WALL_HEIGHT, wallFoot, type Cushion, type TrackLine } from '#shared/utils/nitro-rush/track'
 
-/** Kerbs only go where the line turns tighter than this (radians per metre). */
-const KERB_MIN_CURVATURE = 0.004
 const PILLAR_SPACING = 16
 const PILLAR_SIZE = 0.8
 /** A crash cushion's plan, from the nose back between the walls, and its height: a touch over the walls so it reads from the deck. */

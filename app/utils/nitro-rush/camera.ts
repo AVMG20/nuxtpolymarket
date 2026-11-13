@@ -4,6 +4,8 @@ import { wrapAngle, type Track } from '#shared/utils/nitro-rush/track'
 import type { Phase } from './types'
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
+/** The menu camera circles the car this far out, so it swings past the walls when the car runs close to one. */
+export const ORBIT_RADIUS = 9.5
 const ease = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
 
 /** The car this frame, interpolated between physics steps, and how hard it is moving. */
@@ -115,7 +117,7 @@ export class ChaseCamera {
             chaseLook.set(x + fx * 9, roadAhead + 1.1, z + fz * 9)
         }
         const orbitA = time * 0.22
-        const orbitPos = this.orbitPos.set(x + Math.sin(orbitA) * 9.5, y + 2.3 + Math.sin(time * 0.3) * 0.5, z + Math.cos(orbitA) * 9.5)
+        const orbitPos = this.orbitPos.set(x + Math.sin(orbitA) * ORBIT_RADIUS, y + 2.3 + Math.sin(time * 0.3) * 0.5, z + Math.cos(orbitA) * ORBIT_RADIUS)
         const orbitLook = this.orbitLook.set(x, y + 0.9, z)
 
         if (shot.snap) this.blend = shot.target

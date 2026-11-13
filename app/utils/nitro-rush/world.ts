@@ -5,7 +5,8 @@ import { boostPadTexture, concreteTexture } from './textures'
 import { buildCity } from './city'
 import { addBoostPads, boostPadMaterial, buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
 import { buildSky } from './world-sky'
-import { buildBillboards, buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
+import { buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
+import { buildSignage } from './world-trackside'
 import { worldKit } from './world-kit'
 import type { Track } from '#shared/utils/nitro-rush/track'
 
@@ -64,8 +65,9 @@ export class World {
         this.lampPoolMat = lamps.poolMat
         this.lampHeads = lamps.heads
         this.startLights = buildGantries(kit, steel)
-        buildBillboards(kit, steel)
-        this.beacons = buildCity(kit)
+        const city = buildCity(kit)
+        this.beacons = city.beacons
+        buildSignage(kit, steel, city.roofs)
 
         const sky = buildSky(kit)
         this.sky = sky.sky

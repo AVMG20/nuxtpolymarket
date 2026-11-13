@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { ROAD_TILE_LENGTH } from './textures'
+import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { newProjection, newTrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
@@ -24,6 +25,8 @@ export const wallRight = (w: RoadWidth) => w.wall
 
 /** The elevated road's slab, below the surface. */
 export const DECK_DEPTH = 0.8
+/** How high anything may stand above its own road: under the deck of a road passing over at the closest allowed. */
+export const CLEAR_HEIGHT = MIN_CLEARANCE - DECK_DEPTH - 0.15
 /** Over this stretch the wet mirror fades out where the road leaves the ground. */
 const MIRROR_FADE = 18
 /** How far before an open stretch's ends a station is doubled, so a strip's width and a wall can change right there. */

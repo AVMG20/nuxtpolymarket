@@ -1,22 +1,22 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
-import { BILLBOARD_ADS, bannerTexture, billboardTexture } from './signs'
+import { bannerTexture } from './signs'
+import { LAMP_SPACING, lampSlot } from './trackside-spots'
 import { NEON_PINK } from './config'
 import { radialTexture } from './textures'
-import { DECK_DEPTH, roadAbove, roadClearance, roadLevelWith } from './road-geometry'
+import { CLEAR_HEIGHT, roadAbove, roadLevelWith } from './road-geometry'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf, WALL_BASE_HALF, type LapLine } from '#shared/utils/nitro-rush/track'
 
-/** The race venue round the road: floodlights, the arches over the lines and billboards. */
+/** The race venue round the road: floodlights and the arches over the lines. */
 
-const LAMP_SPACING = 34
 const START_LIGHTS = 5
 /** Floodlight pole height; a pole with road above it inside this is left out. */
 export const LAMP_HEIGHT = 11.5
 const ARCH_TUBE = 0.35
-/** The arch's crown, kept under a bridge's deck at the closest a road may pass over, so any road can cross a line. */
-const ARCH_HEIGHT = MIN_CLEARANCE - DECK_DEPTH - ARCH_TUBE - 0.15
+/** The arch's crown, its tube's top kept within the road's clearance so any road can cross a line. */
+const ARCH_HEIGHT = CLEAR_HEIGHT - ARCH_TUBE
 const BANNER_WIDTH = 3.6
 const BOARD_HEIGHT = BANNER_WIDTH / 4 + 0.2
 /** The banner board hangs flush under the crown, its bottom still clear of the chase camera. */
@@ -52,7 +52,7 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
         const others = lines.filter(l => l !== line)
         for (let k = 0; k < Math.floor(line.length / LAMP_SPACING); k++) {
             for (const side of [-1, 1] as const) {
-                const s = (k + (side > 0 ? 0.5 : 0)) * LAMP_SPACING
+                const s = lampSlot(k, side)
                 const p = line.pointAt(s)
                 const lat = side * (line.wallAt(s) + WALL_BASE_HALF)
                 // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank, over a gap or where the side is open onto another road.
@@ -158,43 +158,4 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const SUBS = { start: track.closed ? 'START / FINISH' : 'START', finish: 'FINISH', checkpoint: 'CHECKPOINT' }
     for (const l of track.lapLines) buildGantry(l, SUBS[l.kind], l.kind === 'start')
     return startLights
-}
-
-/** Billboards round the infield, facing the track, about every eighth of the main line along each line. */
-export function buildBillboards({ track, group, own }: WorldKit, steel: THREE.Material) {
-    const boardMats = BILLBOARD_ADS.map((_, i) => {
-        const t = own(billboardTexture(i))
-        return own(new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 1.5, roughness: 0.5 }))
-    })
-    const boardGeo = own(new THREE.PlaneGeometry(16, 8))
-    const legGeo = own(new THREE.BoxGeometry(0.3, 6, 0.3).translate(0, 3, 0))
-    const spacing = track.length / 8
-    // On a flat single road nothing else runs close by; forks and stacked levels can.
-    const crowded = track.forked || track.elevated
-    let i = 0
-    for (const line of track.branches) {
-        for (let k = 0; k < Math.max(1, Math.round(line.length / spacing)); k++, i++) {
-            const s = (k + 0.25) * spacing
-            if (s >= line.length || !line.plainRoadAt(s)) continue
-            const p = line.pointAt(s)
-            const lat = -(line.wallAt(s) + 14)
-            const bx = p.x - p.tz * lat
-            const bz = p.z + p.tx * lat
-            // Not where another stretch of road runs close by, or over it.
-            if (crowded && roadClearance(track.branches, bx, bz) < 9) continue
-            const g = new THREE.Group()
-            g.position.set(bx, 0, bz)
-            // Face the oncoming cars, angled a little toward the track.
-            g.rotation.y = headingOf(p.tx, p.tz) + 0.5
-            const b = new THREE.Mesh(boardGeo, boardMats[i % boardMats.length]!)
-            b.position.y = 9
-            g.add(b)
-            for (const x of [-5, 5]) {
-                const leg = new THREE.Mesh(legGeo, steel)
-                leg.position.x = x
-                g.add(leg)
-            }
-            group.add(g)
-        }
-    }
 }

@@ -34,7 +34,18 @@ function buildingParts(w: number, h: number, d: number) {
     return parts
 }
 
-/** City blocks on a loose grid, clear of the circuit; returns the rooftop beacons' material. */
+/** A low roof near the course, where a billboard reads from the road. */
+export interface Roof {
+    x: number
+    z: number
+    h: number
+}
+
+/** Roofs under this and this close to the road carry a billboard. */
+const BOARD_ROOF_MAX = 48
+const BOARD_ROOF_REACH = 140
+
+/** City blocks on a loose grid, clear of the circuit; returns the rooftop beacons' material and the roofs for billboards. */
 export function buildCity({ track, own, add, instanced }: WorldKit) {
     const kinds: FacadeKind[] = ['office', 'glass', 'residential', 'brick']
     const facadeMats = kinds.map((kind) => {
@@ -50,6 +61,7 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
     const wallsByKind: THREE.BufferGeometry[][] = kinds.map(() => [])
     const roofs: THREE.BufferGeometry[] = []
     const beaconSpots: THREE.Vector3[] = []
+    const boardRoofs: Roof[] = []
     const CELL = 36
     for (let gx = -12; gx <= 12; gx++) {
         for (let gz = -16; gz <= 16; gz++) {
@@ -66,6 +78,7 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
             wallsByKind[kind]!.push(parts.walls.applyMatrix4(m))
             roofs.push(parts.roof.applyMatrix4(m))
             if (h > 60) beaconSpots.push(new THREE.Vector3(x, h + 0.3, z))
+            else if (h < BOARD_ROOF_MAX && clear < BOARD_ROOF_REACH) boardRoofs.push({ x, z, h })
         }
     }
     wallsByKind.forEach((geos, k) => {
@@ -88,7 +101,7 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
             beacons.setMatrixAt(i, dummy.matrix)
         })
     }
-    return beaconMat
+    return { beacons: beaconMat, roofs: boardRoofs }
 }
 
 /**
