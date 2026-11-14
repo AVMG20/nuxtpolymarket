@@ -67,6 +67,7 @@ import type { DfMatchStart, DfPlayerSnap } from '#shared/utils/dead-front/protoc
 import type { DfProfileView } from '#shared/utils/dead-front/types'
 import type { DfNet } from '~/utils/dead-front/net'
 import { createDfEngine } from '~/utils/dead-front/engine'
+import { dfPreloadModels } from '~/utils/dead-front/models'
 import type { DfEngine } from '~/utils/dead-front/engine'
 import { dfCreateHudState, dfHudFeedLine, dfHudPruneFeed, dfHudPushFeed } from '~/utils/dead-front/engine/hud'
 import type { DfHudFeedContext } from '~/utils/dead-front/engine/hud'
@@ -217,10 +218,14 @@ const offSnap = props.net.on('snap', (m) => {
 })
 const feedTimer = setInterval(() => dfHudPruneFeed(hud.feed, performance.now()), 500)
 
-onMounted(() => {
+let unmounted = false
+
+onMounted(async () => {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('blur', onBlur)
-    if (!canvasEl.value) return
+    // the authored model packs (started on the menu, usually done by now)
+    await dfPreloadModels()
+    if (unmounted || !canvasEl.value) return
     try {
         engine = createDfEngine({
             container: canvasEl.value,
@@ -238,6 +243,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+    unmounted = true
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('blur', onBlur)
     offSnap()

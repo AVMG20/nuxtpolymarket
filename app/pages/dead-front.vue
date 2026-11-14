@@ -112,6 +112,7 @@
 
 <script setup lang="ts">
 import { DfNet } from '~/utils/dead-front/net'
+import { dfPreloadModels } from '~/utils/dead-front/models'
 import type { DfNetStatus } from '~/utils/dead-front/net'
 import DfMenuPlay from '~/components/dead-front/menu/DfMenuPlay.vue'
 import DfMenuArmory from '~/components/dead-front/menu/DfMenuArmory.vue'
@@ -285,6 +286,8 @@ onMounted(() => {
         // storage blocked
     }
     void loadProfile()
+    // fetch the model packs while the player is in the menus
+    void dfPreloadModels()
     const n = new DfNet()
     net.value = n
     offs.push(
