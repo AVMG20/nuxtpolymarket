@@ -3,7 +3,7 @@
 // floating refunds, sounds). Game rules live in #shared/utils/gridworks.
 import { Application, Container, Graphics, Sprite, Text, Texture, CullerPlugin, extensions, type FederatedPointerEvent } from 'pixi.js'
 import { BELT_MK, BUILDINGS, CHUNK, ITEMS, ITEM_IDS, MAP_TILES, RECIPES, chunkCost, type ItemId, type Kind, type Stock } from '#shared/utils/gridworks/defs'
-import { DIRS, buildGraph, key3, layersOf, localToWorld, occupancy, placeError, recipeOf, rot, size, type Dir, type Entity, type Graph, type PlaceError } from '#shared/utils/gridworks/layout'
+import { DIRS, accepts, buildGraph, key3, layersOf, localToWorld, occupancy, outputPorts, placeError, recipeOf, rot, size, type Dir, type Entity, type Graph, type PlaceError } from '#shared/utils/gridworks/layout'
 import { canAfford, spentOn, type GridState, type Op, type OpError } from '#shared/utils/gridworks/game'
 import type { Solution } from '#shared/utils/gridworks/flow'
 import { chunkNeighbours, oreAt, oreMap, type OreMap } from '#shared/utils/gridworks/world'
@@ -112,12 +112,18 @@ export class GridEngine {
     // Scene graph.
     private world = new Container()
     private ground = new Container()
+    /** Grid lines and plot outline, redrawn on zoom so they never go sub-pixel. */
+    private grid = new Graphics()
+    private gridZoom = 0
     private others = new Container()
     private beltLayers = [new Container(), new Container(), new Container()]
     private itemLayers = [new Container(), new Container(), new Container()]
     private entLayers = [new Container(), new Container(), new Container()]
     private overlay = new Graphics()
     private ghostLayer = new Container()
+    /** Cog's pointer: a pulsing outline and a bobbing arrow over a goal's target. */
+    private guide = new Graphics()
+    private guideTarget: { x: number, y: number, w: number, h: number } | null = null
     private fx = new Container()
     private buyLayer = new Container()
 
@@ -141,6 +147,8 @@ export class GridEngine {
     // Tools and input.
     tool: Tool = { mode: 'select' }
     rotation: Dir = 0
+    /** Tile where the player turned the belt by hand; auto-rotation stays off there. */
+    private manualTile: string | null = null
     layer = 0
     private recipe: string | undefined
     private pointer = { sx: 0, sy: 0, wx: 0, wy: 0, tx: 0, ty: 0, inside: false }
@@ -191,9 +199,9 @@ export class GridEngine {
 
         const stage = this.app.stage
         stage.addChild(this.world)
-        this.world.addChild(this.others, this.ground)
+        this.world.addChild(this.others, this.ground, this.grid)
         for (let l = 0; l < 3; l++) this.world.addChild(this.beltLayers[l]!, this.itemLayers[l]!, this.entLayers[l]!)
-        this.world.addChild(this.buyLayer, this.overlay, this.ghostLayer, this.fx)
+        this.world.addChild(this.buyLayer, this.overlay, this.guide, this.ghostLayer, this.fx)
         this.ghost.addChild(this.ghostRect, this.ghostBody, this.ghostArrow)
         this.ghostBody.anchor.set(0.5)
         this.ghostLayer.addChild(this.pathMarks, this.ghost)
@@ -309,7 +317,9 @@ export class GridEngine {
             return
         }
         if (this.tool.mode === 'build') {
-            this.rotation = rot(this.rotation, by)
+            const shown = this.ghostEntity()?.r ?? this.rotation
+            this.rotation = rot(shown, by)
+            if (BUILDINGS[this.tool.kind].role === 'belt') this.manualTile = `${this.pointer.tx},${this.pointer.ty}`
             this.ghostRot(false)
             this.sfx.rotate()
             this.hooks.onTool(this.tool, this.rotation)
@@ -331,6 +341,32 @@ export class GridEngine {
             if (this.hover === v) this.hover = nv
             if (this.selected === v) this.select(nv)
         }
+    }
+
+    /** Points Cog's arrow at a tile area, or hides it. */
+    setGuide(target: { x: number, y: number, w: number, h: number } | null) {
+        this.guideTarget = target
+    }
+
+    private drawGuide() {
+        const g = this.guide
+        g.clear()
+        const t = this.guideTarget
+        if (!t) return
+        const pulse = (Math.sin(this.time * 4) + 1) / 2
+        const pad = 4 + pulse * 6
+        const x0 = t.x * TILE - pad
+        const y0 = t.y * TILE - pad
+        const w = t.w * TILE + pad * 2
+        const h = t.h * TILE + pad * 2
+        g.roundRect(x0, y0, w, h, 14).fill({ color: 0x5eead4, alpha: 0.06 + pulse * 0.06 })
+            .stroke({ width: 4, color: 0x5eead4, alpha: 0.55 + pulse * 0.35 })
+        // A chunky arrow bobbing above, pointing down at the target.
+        const ax = (t.x + t.w / 2) * TILE
+        const ay = t.y * TILE - 22 - Math.abs(Math.sin(this.time * 3.2)) * 18
+        g.moveTo(ax, ay).lineTo(ax - 18, ay - 20).lineTo(ax - 7, ay - 20).lineTo(ax - 7, ay - 40)
+            .lineTo(ax + 7, ay - 40).lineTo(ax + 7, ay - 20).lineTo(ax + 18, ay - 20).closePath()
+            .fill(0x5eead4).stroke({ width: 4, color: 0x0f1115, join: 'round' })
     }
 
     undo() { this.history(this.undoStack, this.redoStack) }
@@ -547,6 +583,40 @@ export class GridEngine {
 
     // ---- ground -------------------------------------------------------------------
 
+    /** Lines stay at least ~1.25 screen px wide at any zoom, or every other one drops out. */
+    private drawGrid() {
+        const s = this.state
+        if (!s) return
+        const z = this.cam.zoom
+        if (this.gridZoom && Math.abs(Math.log(z / this.gridZoom)) < 0.08) return
+        this.gridZoom = z
+        const owned = new Set(s.chunks)
+        const g = this.grid
+        g.clear()
+        const E = CHUNK * TILE
+        for (const c of owned) {
+            const [cx, cy] = c.split(',').map(Number) as [number, number]
+            const x0 = cx * E
+            const y0 = cy * E
+            // Include the chunk edges, or two owned chunks meet without a line.
+            for (let i = 0; i <= CHUNK; i++) {
+                g.moveTo(x0 + i * TILE, y0).lineTo(x0 + i * TILE, y0 + E)
+                g.moveTo(x0, y0 + i * TILE).lineTo(x0 + E, y0 + i * TILE)
+            }
+        }
+        g.stroke({ width: Math.max(1.5, 1.25 / z), color: 0x323843, alpha: 1 })
+        for (const c of owned) {
+            const [cx, cy] = c.split(',').map(Number) as [number, number]
+            const x0 = cx * E
+            const y0 = cy * E
+            if (!owned.has(`${cx},${cy - 1}`)) g.moveTo(x0, y0).lineTo(x0 + E, y0)
+            if (!owned.has(`${cx},${cy + 1}`)) g.moveTo(x0, y0 + E).lineTo(x0 + E, y0 + E)
+            if (!owned.has(`${cx - 1},${cy}`)) g.moveTo(x0, y0).lineTo(x0, y0 + E)
+            if (!owned.has(`${cx + 1},${cy}`)) g.moveTo(x0 + E, y0).lineTo(x0 + E, y0 + E)
+        }
+        g.stroke({ width: Math.max(4, 2 / z), color: 0x5b6575, alpha: 0.9 })
+    }
+
     private drawGround() {
         const s = this.state!
         const buyable = s.done.includes('land-1')
@@ -564,51 +634,22 @@ export class GridEngine {
             const [cx, cy] = c.split(',').map(Number) as [number, number]
             g.rect(cx * CHUNK * TILE, cy * CHUNK * TILE, CHUNK * TILE, CHUNK * TILE).fill(0x262b33)
         }
-        for (let y = 0; y < MAP_TILES; y++) {
-            for (let x = 0; x < MAP_TILES; x++) {
-                const o = oreAt(ore, x, y)
-                if (!o) continue
-                const own = owned.has(`${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`)
-                g.roundRect(x * TILE + 3, y * TILE + 3, TILE - 6, TILE - 6, 8).fill({ color: parseInt(ITEMS[o].color.slice(1), 16), alpha: own ? 0.28 : 0.12 })
-            }
-        }
-        // Grid lines on owned land only.
-        for (const c of owned) {
-            const [cx, cy] = c.split(',').map(Number) as [number, number]
-            const x0 = cx * CHUNK * TILE
-            const y0 = cy * CHUNK * TILE
-            for (let i = 1; i < CHUNK; i++) {
-                g.moveTo(x0 + i * TILE, y0).lineTo(x0 + i * TILE, y0 + CHUNK * TILE)
-                g.moveTo(x0, y0 + i * TILE).lineTo(x0 + CHUNK * TILE, y0 + i * TILE)
-            }
-        }
-        g.stroke({ width: 1.5, color: 0x323843, alpha: 1 })
-        // Plot outline around owned chunks.
-        for (const c of owned) {
-            const [cx, cy] = c.split(',').map(Number) as [number, number]
-            const x0 = cx * CHUNK * TILE
-            const y0 = cy * CHUNK * TILE
-            const E = CHUNK * TILE
-            if (!owned.has(`${cx},${cy - 1}`)) g.moveTo(x0, y0).lineTo(x0 + E, y0)
-            if (!owned.has(`${cx},${cy + 1}`)) g.moveTo(x0, y0 + E).lineTo(x0 + E, y0 + E)
-            if (!owned.has(`${cx - 1},${cy}`)) g.moveTo(x0, y0).lineTo(x0, y0 + E)
-            if (!owned.has(`${cx + 1},${cy}`)) g.moveTo(x0 + E, y0).lineTo(x0 + E, y0 + E)
-        }
-        g.stroke({ width: 4, color: 0x5b6575, alpha: 0.9 })
         this.ground.addChild(g)
-        // Ore icons on each ore tile, deterministic jitter.
+        this.gridZoom = 0
+        // Ore tiles: one of three variants per ore, picked by tile hash.
         for (let y = 0; y < MAP_TILES; y++) {
             for (let x = 0; x < MAP_TILES; x++) {
                 const o = oreAt(ore, x, y)
                 if (!o) continue
                 const own = owned.has(`${Math.floor(x / CHUNK)},${Math.floor(y / CHUNK)}`)
-                const sp = new Sprite(this.tex.item[o])
-                sp.anchor.set(0.5)
                 const h = ((x * 73856093) ^ (y * 19349663)) >>> 0
-                sp.width = sp.height = 26 + (h % 7)
-                sp.position.set((x + 0.5) * TILE + ((h >> 3) % 9) - 4, (y + 0.5) * TILE + ((h >> 7) % 9) - 4)
-                sp.rotation = ((h >> 11) % 628) / 100
-                sp.alpha = own ? 0.55 : 0.22
+                const sp = new Sprite(this.tex.ore[o][h % 3])
+                sp.anchor.set(0.5)
+                sp.position.set((x + 0.5) * TILE, (y + 0.5) * TILE)
+                sp.width = sp.height = TILE
+                // The art is lit from the top left, so only a horizontal flip is safe (not for crystal shards).
+                if (o !== 'crystal' && (h >> 5) & 1) sp.scale.x *= -1
+                sp.alpha = own ? 1 : 0.5
                 sp.cullable = true
                 this.ground.addChild(sp)
             }
@@ -772,7 +813,7 @@ export class GridEngine {
         if (this.tool.mode === 'build') {
             const role = BUILDINGS[this.tool.kind].role
             if (role === 'belt') {
-                this.drag = { kind: 'belt', start: [tx, ty], axis: null, path: [{ x: tx, y: ty, r: this.rotation }] }
+                this.drag = { kind: 'belt', start: [tx, ty], axis: null, path: [{ x: tx, y: ty, r: this.beltAim(tx, ty).r }] }
                 this.sfx.beltTick(0)
                 this.drawPath()
                 return
@@ -1028,11 +1069,55 @@ export class GridEngine {
         this.hooks.onHover(null)
     }
 
+    /**
+     * The way a belt in hand should face on a tile: it continues whatever feeds
+     * into the tile and turns into a neighbour that would take its items. Falls
+     * back to the player's rotation, which also wins once they press R there.
+     */
+    private beltAim(tx: number, ty: number): { r: Dir, from: Dir | null } {
+        const key = `${tx},${ty}`
+        if (this.manualTile && this.manualTile !== key) this.manualTile = null
+        const s = this.state
+        const g = this.graph
+        if (!s || !g) return { r: this.rotation, from: null }
+        const l = this.layer
+        const feeds: Dir[] = []
+        const takes: { d: Dir, behind: boolean }[] = []
+        const seen = new Set<number>()
+        for (let d = 0 as Dir; d < 4; d = (d + 1) as Dir) {
+            const nx = tx + DIRS[d]![0]!
+            const ny = ty + DIRS[d]![1]!
+            const i = this.occ.get(key3(nx, ny, l)) ?? (l ? undefined : this.occ.get(key3(nx, ny, 0)))
+            if (i === undefined) continue
+            const n = s.entities[i]!
+            if (!seen.has(i)) {
+                seen.add(i)
+                for (const p of outputPorts(n)) if (p.x === tx && p.y === ty && p.l === l) feeds.push(p.dir)
+            }
+            const a = accepts(n, nx, ny, l, d)
+            // A belt only takes a side feed while nothing else feeds it.
+            if (a === 'behind' || (a === 'side' && !g.inc[i]?.length)) takes.push({ d, behind: a === 'behind' })
+        }
+        const from = feeds.includes(this.rotation) ? this.rotation : feeds[0] ?? null
+        if (this.manualTile === key) return { r: this.rotation, from: feeds.includes(this.rotation) ? this.rotation : feeds.find(f => f !== rot(this.rotation, 2)) ?? null }
+        if (from !== null) {
+            const outs = takes.filter(t => t.d !== rot(from, 2)).map(t => t.d)
+            const r = outs.includes(from) ? from : outs.includes(this.rotation) ? this.rotation : outs[0] ?? from
+            return { r, from }
+        }
+        if (takes.length) {
+            const r = takes.some(t => t.d === this.rotation) ? this.rotation : (takes.find(t => t.behind) ?? takes[0]!).d
+            return { r, from: null }
+        }
+        return { r: this.rotation, from: null }
+    }
+
     private ghostEntity(): Entity | null {
         if (this.tool.mode !== 'build') return null
         const k = this.tool.kind
-        const [w, h] = size(k, this.rotation)
-        const e: Entity = { k, x: this.pointer.tx - Math.floor((w - 1) / 2), y: this.pointer.ty - Math.floor((h - 1) / 2), r: this.rotation }
+        const r = BUILDINGS[k].role === 'belt' ? this.beltAim(this.pointer.tx, this.pointer.ty).r : this.rotation
+        const [w, h] = size(k, r)
+        const e: Entity = { k, x: this.pointer.tx - Math.floor((w - 1) / 2), y: this.pointer.ty - Math.floor((h - 1) / 2), r }
         const role = BUILDINGS[k].role
         if (role === 'belt' && this.layer) e.l = this.layer
         if (role === 'ramp') e.l = Math.min(1, this.layer)
@@ -1086,6 +1171,11 @@ export class GridEngine {
         const shakeX = Math.sin(this.time * 70) * this.ghostPos.shake * 10
         this.ghost.position.set(this.ghostPos.x + shakeX, this.ghostPos.y)
         this.ghostBody.rotation = this.ghostPos.rot
+        if (def.role === 'belt') {
+            const { from } = this.beltAim(this.pointer.tx, this.pointer.ty)
+            const shape: BeltShape = from === null || from === e.r ? 'straight' : from === rot(e.r, 1) ? 'curveL' : 'curveR'
+            this.ghostBody.texture = this.tex.belt[0]![shape][Math.floor(this.time * 10) % BELT_FRAMES]!
+        }
         this.ghostBody.width = def.w * TILE
         this.ghostBody.height = def.h * TILE
         const err = this.ghostError(e)
@@ -1260,7 +1350,7 @@ export class GridEngine {
         const undo: Op[] = []
         const l = this.layer
         // The belt in hand when the drag never left its tile takes the ghost rotation.
-        const path = d.path.length === 1 ? [{ ...d.path[0]!, r: this.rotation }] : d.path
+        const path = d.path.length === 1 ? [{ ...d.path[0]!, r: this.beltAim(d.path[0]!.x, d.path[0]!.y).r }] : d.path
         for (const p of path) {
             const plan = this.beltStepPlan(p)
             if (plan === 'place') {
@@ -1653,6 +1743,7 @@ export class GridEngine {
         this.updateGhost(dt)
         this.updateMove(dt)
         this.drawHighlights()
+        this.drawGuide()
         if (this.drag?.kind === 'mine' && performance.now() >= this.drag.next) {
             this.drag.next = performance.now() + 160
             this.mine(this.drag.x, this.drag.y)
@@ -1690,6 +1781,7 @@ export class GridEngine {
         const w = this.app.screen.width
         const h = this.app.screen.height
         this.world.scale.set(c.zoom)
+        this.drawGrid()
         this.world.position.set(w / 2 - c.x * c.zoom, h / 2 - c.y * c.zoom)
         // Keep the pointer's world position fresh while the camera glides.
         if (this.pointer.inside) {

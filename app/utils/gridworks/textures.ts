@@ -1,7 +1,9 @@
 // Gridworks textures: the SVG sprites rasterised at a fixed density, plus belts
 // drawn procedurally (8 animation frames per Mk and shape).
-import { Graphics, Texture, type Renderer } from 'pixi.js'
-import { BUILDINGS, ITEM_IDS, type ItemId, type Kind } from '#shared/utils/gridworks/defs'
+import { Graphics, Rectangle, Texture, type Renderer } from 'pixi.js'
+import { BUILDINGS, ITEM_IDS, type ItemId, type Kind, type OreId } from '#shared/utils/gridworks/defs'
+
+const ORE_IDS: OreId[] = ['iron-ore', 'copper-ore', 'stone', 'coal', 'oil', 'crystal']
 
 export const TILE = 64
 /** Texture pixels per world unit. */
@@ -16,6 +18,8 @@ export interface GridTextures {
     building: Partial<Record<Kind, Texture>>
     spin: Partial<Record<Kind, Texture>>
     item: Record<ItemId, Texture>
+    /** ore[id][variant]: ground tiles, three variants per ore. */
+    ore: Record<OreId, Texture[]>
     /** belt[mk - 1][shape][frame] */
     belt: Record<BeltShape, Texture[]>[]
     white: Texture
@@ -72,8 +76,9 @@ function beltGraphic(shape: BeltShape, mk: number, frame: number): Graphics {
         g.rect(0, 47, TILE, 5).fill(rim)
         g.moveTo(0, 12).lineTo(TILE, 12).stroke({ width: 2.5, color: OUTLINE })
         g.moveTo(0, 52).lineTo(TILE, 52).stroke({ width: 2.5, color: OUTLINE })
+        // Chevrons run across the tile edge; the texture frame clips them so
+        // they slide into the next belt instead of popping.
         for (let x = offset - BELT_PERIOD; x < TILE + BELT_PERIOD; x += BELT_PERIOD) {
-            if (x < 3 || x > TILE - 3) continue
             drawChevron(g, x, 32, 0, CHEVRON, 0.75)
         }
         return g
@@ -100,15 +105,19 @@ function beltGraphic(shape: BeltShape, mk: number, frame: number): Graphics {
     g.arc(cx, cy, 12, a0, a1, ccw).stroke({ width: 2.5, color: OUTLINE })
     g.moveTo(cx + Math.cos(a0) * 52, cy + Math.sin(a0) * 52)
     g.arc(cx, cy, 52, a0, a1, ccw).stroke({ width: 2.5, color: OUTLINE })
-    // Two chevrons along the 50-unit midline arc.
+    // Two chevrons along the midline arc. They cross the tile edges at the
+    // same moments as on a straight belt; past the ends they carry on along
+    // the tangent and the frame clips them.
     const len = (Math.PI / 2) * 32
-    for (let s = offset * (len / TILE) - len / 2; s < len + len / 2; s += len / 2) {
-        if (s < 4 || s > len - 4) continue
-        const t = s / len
+    const at = (s: number): [number, number, number] => {
+        const t = Math.min(1, Math.max(0, s / len))
         const ang = fromTop ? Math.PI - t * Math.PI / 2 : Math.PI + t * Math.PI / 2
-        const px = cx + Math.cos(ang) * 32
-        const py = cy + Math.sin(ang) * 32
         const heading = fromTop ? ang - Math.PI / 2 : ang + Math.PI / 2
+        const extra = s < 0 ? s : s > len ? s - len : 0
+        return [cx + Math.cos(ang) * 32 + Math.cos(heading) * extra, cy + Math.sin(ang) * 32 + Math.sin(heading) * extra, heading]
+    }
+    for (let s = offset * (len / TILE) - len; s < len + len; s += len / 2) {
+        const [px, py, heading] = at(s)
         drawChevron(g, px, py, heading, CHEVRON, 0.75)
     }
     return g
@@ -130,6 +139,13 @@ export async function loadTextures(renderer: Renderer): Promise<GridTextures> {
     for (const id of ITEM_IDS) {
         jobs.push(rasterSvg(`/gridworks/sprites/items/${id}.svg`, 64, 64).then((t) => { item[id] = t }))
     }
+    const ore = {} as Record<OreId, Texture[]>
+    for (const id of ORE_IDS) {
+        ore[id] = []
+        for (let n = 1; n <= 3; n++) {
+            jobs.push(rasterSvg(`/gridworks/sprites/ore/${id}-${n}.svg`, TILE * RES, TILE * RES).then((t) => { ore[id][n - 1] = t }))
+        }
+    }
     await Promise.all(jobs)
 
     const belt: Record<BeltShape, Texture[]>[] = []
@@ -138,11 +154,11 @@ export async function loadTextures(renderer: Renderer): Promise<GridTextures> {
         for (const shape of ['straight', 'curveL', 'curveR'] as BeltShape[]) {
             for (let f = 0; f < BELT_FRAMES; f++) {
                 const g = beltGraphic(shape, mk, f)
-                set[shape].push(renderer.generateTexture({ target: g, resolution: RES, antialias: true }))
+                set[shape].push(renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, TILE, TILE), resolution: RES, antialias: true }))
                 g.destroy()
             }
         }
         belt.push(set)
     }
-    return { building, spin, item, belt, white: Texture.WHITE }
+    return { building, spin, item, ore, belt, white: Texture.WHITE }
 }
