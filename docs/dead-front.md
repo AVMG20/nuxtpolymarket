@@ -1,8 +1,12 @@
 # Dead Front — design and build contract
 
 A co-op (1–4 players) round-based zombies FPS in three.js, set in 1917 France.
-Server-authoritative simulation over a websocket, original code and art (all
-procedural: no external models, textures or audio files). **No coins or gems
+Server-authoritative simulation over a websocket, original code and art in a
+cel-shaded comic style (toon material in `voxel/material.ts`, ink outline pass in
+`engine/toon-ink.ts`). Authored models are GLB packs built by headless Blender
+scripts in `scripts/dead-front-models/` and loaded by
+`app/utils/dead-front/models/` (a missing pack falls back to the voxel builder);
+no textures or audio files. **No coins or gems
 are paid out**; progression is weapon unlocks, weapon levels/attachments and
 perk research only.
 
