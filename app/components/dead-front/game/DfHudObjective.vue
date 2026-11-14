@@ -94,7 +94,7 @@ function clock(s: number): string {
     max-width: 40vw;
     padding-bottom: 0.55rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000;
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55); border-radius: var(--df-r-sm);
 }
 
 .head {
@@ -167,7 +167,7 @@ function clock(s: number): string {
 }
 
 .fuse.on {
-    animation: df-fuse 0.4s steps(3, end);
+    animation: df-fuse 0.4s ease-out;
 }
 
 .count {
@@ -322,7 +322,7 @@ function clock(s: number): string {
 }
 
 .df-obj-leave-active {
-    transition: opacity 0.25s, transform 0.25s steps(3);
+    transition: opacity 0.25s, transform 0.25s ease-out;
 }
 
 .df-obj-leave-to {

@@ -78,7 +78,7 @@ const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[M
     padding: 0.3rem 0.65rem 0.28rem 0.75rem;
     color: var(--df-chalk);
     background: rgba(12, 14, 16, 0.88);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000, inset 4px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5), inset 4px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, 0.6); border-radius: var(--df-r-sm);
     animation: df-plate 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
 }
 

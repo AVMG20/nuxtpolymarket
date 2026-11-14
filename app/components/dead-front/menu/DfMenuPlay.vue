@@ -222,7 +222,7 @@ watch(() => props.chat.length, async () => {
 <style scoped>
 .df-slip {
     padding: 1.1rem 1.1rem 1rem;
-    transition: transform 0.15s steps(3);
+    transition: transform 0.15s ease-out;
     animation: df-rise-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) backwards;
 }
 

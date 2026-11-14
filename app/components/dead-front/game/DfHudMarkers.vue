@@ -52,7 +52,7 @@ defineProps<{ markers: DfHudMarker[] }>()
     flex-direction: column;
     align-items: center;
     will-change: transform;
-    animation: df-mk-in 0.25s steps(3, end);
+    animation: df-mk-in 0.25s ease-out;
 }
 
 .pip {

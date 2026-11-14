@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
     width: min(24rem, 60vw);
     padding: 0.3rem 0.55rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-chat-label {

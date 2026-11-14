@@ -137,7 +137,7 @@ useHead({
     link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Special+Elite&family=Stardos+Stencil:wght@400;700&display=swap' }
+        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Bangers&family=Barlow+Condensed:wght@500;600;700&family=Patrick+Hand&family=Patrick+Hand+SC&display=swap' }
     ]
 })
 
@@ -515,7 +515,7 @@ onBeforeUnmount(() => {
 
 .df-tape-enter-active,
 .df-tape-leave-active {
-    transition: transform 0.25s steps(4), opacity 0.25s;
+    transition: transform 0.25s ease-out, opacity 0.25s;
 }
 
 .df-tape-enter-from,

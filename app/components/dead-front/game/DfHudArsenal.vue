@@ -174,7 +174,7 @@ const ICONS: Record<string, Runs> = {
 }
 
 .salvage.pop {
-    animation: df-ars-pop 0.35s steps(4);
+    animation: df-ars-pop 0.35s ease-out;
 }
 
 .salvage .item {
