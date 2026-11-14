@@ -32,6 +32,7 @@ import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import type { ArenaDefenseLoadout } from '#shared/utils/hero-quest/arena'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
 import type { NavLayout } from '#shared/utils/nav-layout'
+import type { Entity as GridEntity } from '#shared/utils/gridworks/layout'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -2662,6 +2663,35 @@ export const townStreak = pgTable('town_streak', {
   locked: jsonb('locked').$type<Record<string, TownStreakLock>>().notNull().default({}),
   /** Lucky charges: each upgrades the next chest opened by one tier. Spent with a conditional decrement. */
   lucky: integer('lucky').notNull().default(0),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
+
+/**
+ * Gridworks: one factory plot per player. The economy is date-based: the
+ * steady-state rates of the layout times the time since lastSettledAt, settled
+ * under a row lock on every write, so nothing ticks on the server.
+ */
+export const gridworksPlot = pgTable('gridworks_plot', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  /** Ore map seed. */
+  seed: integer('seed').notNull(),
+  entities: jsonb('entities').$type<GridEntity[]>().notNull().default([]),
+  chunks: jsonb('chunks').$type<string[]>().notNull().default([]),
+  /** Items in storage (fractional between settles). */
+  stock: jsonb('stock').$type<Record<string, number>>().notNull().default({}),
+  researchDone: jsonb('research_done').$type<string[]>().notNull().default([]),
+  researchQueue: jsonb('research_queue').$type<string[]>().notNull().default([]),
+  researchProgress: jsonb('research_progress').$type<Record<string, Record<string, number>>>().notNull().default({}),
+  mine: jsonb('mine').$type<{ tokens: number, at: number }>().notNull().default({ tokens: 0, at: 0 }),
+  /** Bumped on every layout change; keys the solver cache. */
+  layoutVersion: integer('layout_version').notNull().default(1),
+  /** Goals claimed, in order. */
+  goals: jsonb('goals').$type<string[]>().notNull().default([]),
+  /** Ore dug by hand, ever. */
+  mined: integer('mined').notNull().default(0),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
 
