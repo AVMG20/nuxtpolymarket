@@ -60,7 +60,7 @@ const sorted = computed(() => [...props.players].sort((a, b) => b.points - a.poi
 .df-ledger {
     width: min(42rem, 94vw);
     background: rgba(9, 11, 13, 0.9);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000, 0 12px 0 rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55), 0 12px 0 rgba(0, 0, 0, 0.4); border-radius: var(--df-r-sm);
 }
 
 .head {

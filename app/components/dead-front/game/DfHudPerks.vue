@@ -18,7 +18,7 @@
 
 <script setup lang="ts">
 // The perks you have drunk: a block tile per perk, framed in its colour, with
-// the bottle as a pixel sprite so it stays crisp at any size.
+// the bottle as an inked vector badge.
 import type { DfHudState, DfHudPerk } from '~/utils/dead-front/engine/hud'
 import DfPixelPerk from '~/components/dead-front/ui/DfPixelPerk.vue'
 
@@ -40,19 +40,23 @@ defineProps<{ perks: DfHudPerk[], pulse: DfHudState['perkPulse'] }>()
     justify-content: center;
     width: 46px;
     height: 52px;
-    background: color-mix(in srgb, var(--c) 18%, rgba(8, 10, 12, 0.8));
+    border-radius: 45% 55% 40% 50% / 50% 45% 55% 45%;
+    background:
+        radial-gradient(circle, rgba(0, 0, 0, 0.3) 1.1px, transparent 1.5px) 0 0 / 6px 6px,
+        radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--c) 45%, #fff) 0, color-mix(in srgb, var(--c) 30%, #10131a) 70%);
     box-shadow:
-        0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000,
-        inset 0 -4px 0 color-mix(in srgb, var(--c) 70%, #000),
-        inset 0 2px 0 rgba(255, 255, 255, 0.08);
+        0 0 0 3px #000,
+        inset 0 0 0 2px color-mix(in srgb, var(--c) 80%, #fff),
+        4px 5px 0 3px rgba(0, 0, 0, 0.55);
 }
 
 .flash {
     position: absolute;
     inset: 0;
     background: color-mix(in srgb, var(--c) 60%, #fff);
-    animation: df-perk-flash 0.6s steps(4, end) forwards;
+    animation: df-perk-flash 0.6s ease-out forwards;
     pointer-events: none;
+    border-radius: inherit;
 }
 
 .df-perk-enter-active {
@@ -60,7 +64,7 @@ defineProps<{ perks: DfHudPerk[], pulse: DfHudState['perkPulse'] }>()
 }
 
 .df-perk-leave-active {
-    animation: df-perk-out 0.4s steps(4, end) forwards;
+    animation: df-perk-out 0.4s ease-out forwards;
 }
 
 @keyframes df-perk-flash {

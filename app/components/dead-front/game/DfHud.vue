@@ -342,7 +342,7 @@ function iconFor(kind: DfPowerupKind): string {
     text-transform: uppercase;
     color: #1f170e;
     background: var(--df-paper);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000;
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55); border-radius: var(--df-r-sm);
     white-space: nowrap;
 }
 
@@ -433,7 +433,7 @@ function iconFor(kind: DfPowerupKind): string {
 /* hitmarker: four square ticks on the diagonals */
 .df-hit {
     position: absolute;
-    animation: df-hit 0.28s steps(4, end) forwards;
+    animation: df-hit 0.28s ease-out forwards;
 }
 
 .df-hit i {
@@ -607,7 +607,7 @@ function iconFor(kind: DfPowerupKind): string {
     text-transform: uppercase;
     color: #f1e8cf;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-last svg {
@@ -712,12 +712,12 @@ function iconFor(kind: DfPowerupKind): string {
     gap: 0.6rem;
     padding: 0.4rem 0.75rem 0.45rem 0.55rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000, inset 0 2px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(255, 255, 255, 0.06); border-radius: var(--df-r-sm);
 }
 
 .df-prompt .plate.deny {
-    animation: df-shake 0.3s steps(6, end);
-    box-shadow: 0 -3px 0 #8e130b, 0 3px 0 #8e130b, -3px 0 0 #8e130b, 3px 0 0 #8e130b;
+    animation: df-shake 0.3s ease-out;
+    box-shadow: 0 0 0 3px #8e130b, 5px 5px 0 3px rgba(0, 0, 0, 0.55); border-radius: var(--df-r-sm);
 }
 
 .df-prompt .keycap {
@@ -835,7 +835,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-downed .dial {
     position: relative;
-    animation: df-heart 1.1s steps(3, end) infinite;
+    animation: df-heart 1.1s ease-out infinite;
 }
 
 .df-downed svg {
@@ -926,7 +926,7 @@ function iconFor(kind: DfPowerupKind): string {
     width: 50px;
     height: 50px;
     background: rgba(40, 28, 6, 0.85);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000, inset 0 0 0 2px #e2b24f, inset 0 0 14px rgba(255, 200, 80, 0.45);
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55), inset 0 0 0 2px #e2b24f, inset 0 0 14px rgba(255, 200, 80, 0.45); border-radius: var(--df-r-sm);
 }
 
 .df-pu .tile img {
@@ -957,7 +957,7 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 .df-medal-leave-active {
-    transition: opacity 0.25s, transform 0.25s steps(3);
+    transition: opacity 0.25s, transform 0.25s ease-out;
 }
 
 .df-medal-leave-to {
@@ -982,7 +982,7 @@ function iconFor(kind: DfPowerupKind): string {
     font-size: 0.8rem;
     color: #f1e8cf;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-chat .msg b {
@@ -994,7 +994,7 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 .df-tape-enter-active {
-    animation: df-tape-in 0.25s steps(4, end);
+    animation: df-tape-in 0.25s ease-out;
 }
 
 .df-tape-leave-active {
@@ -1029,7 +1029,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-ledger-enter-active,
 .df-ledger-leave-active {
-    transition: opacity 0.12s, transform 0.16s steps(3);
+    transition: opacity 0.12s, transform 0.16s ease-out;
 }
 
 .df-ledger-enter-from,
@@ -1040,7 +1040,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-drop-enter-active,
 .df-drop-leave-active {
-    transition: transform 0.25s steps(4), opacity 0.25s;
+    transition: transform 0.25s ease-out, opacity 0.25s;
 }
 
 .df-drop-enter-from,

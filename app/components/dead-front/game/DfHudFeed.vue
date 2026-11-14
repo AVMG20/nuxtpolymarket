@@ -42,7 +42,7 @@ function tint(c: string | null): string {
     line-height: 1.2;
     color: #e8dfc4;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
     animation: df-feed-life var(--life) linear forwards;
 }
 
@@ -74,7 +74,7 @@ function tint(c: string | null): string {
 }
 
 .df-feed-enter-active {
-    animation: df-feed-in 0.22s steps(4, end);
+    animation: df-feed-in 0.22s ease-out;
 }
 
 .df-feed-leave-active {

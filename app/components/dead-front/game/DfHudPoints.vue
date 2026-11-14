@@ -69,7 +69,7 @@ function bumpKey(pid: number, points: number): number {
     gap: 0.6rem;
     padding: 0.15rem 0.5rem 0.1rem 0.8rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
     transition: opacity 0.3s;
 }
 
@@ -117,7 +117,7 @@ function bumpKey(pid: number, points: number): number {
     text-align: right;
     color: #f6efdc;
     font-variant-numeric: tabular-nums;
-    animation: df-bump 0.22s steps(3, end);
+    animation: df-bump 0.22s ease-out;
 }
 
 .row.me {

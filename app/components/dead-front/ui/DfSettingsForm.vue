@@ -217,7 +217,7 @@ watch(local, (v) => {
     height: 24px;
     background: #e2b24f;
     box-shadow: inset 0 3px 0 rgba(255, 250, 220, 0.6), inset 0 -4px 0 rgba(110, 70, 10, 0.55);
-    transition: transform 0.18s steps(4, end);
+    transition: transform 0.18s ease-out;
     z-index: 1;
 }
 

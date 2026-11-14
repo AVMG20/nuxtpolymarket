@@ -56,6 +56,28 @@ const SLASH: [number, number][] = Array.from({ length: 14 }, (_, i) => [1 + i * 
     min-width: 128px;
 }
 
+.inner {
+    position: relative;
+}
+
+/* a comic burst pops behind the new round */
+.inner.flash::before {
+    content: '';
+    position: absolute;
+    inset: -30px -40px;
+    z-index: -1;
+    background: #ffd23c;
+    clip-path: polygon(50% 0, 58% 14%, 74% 3%, 76% 21%, 94% 16%, 88% 34%, 100% 42%, 86% 54%, 97% 70%, 79% 72%, 80% 92%, 63% 82%, 50% 100%, 40% 84%, 24% 96%, 22% 76%, 4% 78%, 14% 60%, 0 48%, 14% 38%, 6% 20%, 24% 24%, 28% 6%, 42% 18%);
+    animation: df-burst-out 1.8s ease-out forwards;
+}
+
+@keyframes df-burst-out {
+    0% { transform: scale(0.3) rotate(-12deg); opacity: 1; }
+    20% { transform: scale(1) rotate(0); opacity: 1; }
+    70% { opacity: 0.9; }
+    100% { transform: scale(1.1); opacity: 0; }
+}
+
 .inner.flash {
     animation: df-round-flash 1.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -63,19 +85,22 @@ const SLASH: [number, number][] = Array.from({ length: 14 }, (_, i) => [1 + i * 
 .tally {
     display: block;
     overflow: visible;
-    filter: drop-shadow(2px 0 0 #000) drop-shadow(-2px 0 0 #000) drop-shadow(0 2px 0 #000) drop-shadow(0 -2px 0 #000) drop-shadow(0 4px 0 rgba(0, 0, 0, 0.45));
+    filter: drop-shadow(4px 5px 0 rgba(0, 0, 0, 0.55));
 }
 
 .tally .bar,
 .tally .slash rect {
-    fill: #d42a1c;
+    fill: #e0301f;
+    stroke: #000;
+    stroke-width: 2.2;
+    stroke-linejoin: round;
 }
 
 .tally .bar.fresh {
     transform-box: fill-box;
     transform-origin: 50% 0;
     transform: scaleY(0);
-    animation: df-draw 0.6s 0.3s steps(8, end) forwards;
+    animation: df-draw 0.6s 0.3s ease-out forwards;
 }
 
 .tally .slash rect {
@@ -85,12 +110,13 @@ const SLASH: [number, number][] = Array.from({ length: 14 }, (_, i) => [1 + i * 
 
 .numeral {
     font-family: var(--df-font-stencil);
-    font-weight: 700;
-    font-size: 5.4rem;
+    font-size: 6.4rem;
     line-height: 1;
     letter-spacing: 0.02em;
     padding: 0 0.05em;
-    color: #d42a1c;
+    color: #ff3b24;
+    -webkit-text-stroke: 6px #000;
+    paint-order: stroke fill;
     text-shadow: 3px 0 0 #000, -3px 0 0 #000, 0 3px 0 #000, 0 -3px 0 #000, 3px 3px 0 #000, -3px 3px 0 #000, 3px -3px 0 #000, -3px -3px 0 #000, 0 7px 0 rgba(0, 0, 0, 0.45);
     font-variant-numeric: tabular-nums;
 }

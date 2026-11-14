@@ -357,7 +357,7 @@ onBeforeUnmount(() => cancelAnimationFrame(raf))
     color: #fff2dc;
     background: #3f5a26;
     box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.25), inset 0 -3px 0 rgba(0, 0, 0, 0.3), 0 0 0 2px #120d07;
-    animation: df-ink-in 0.4s 0.6s steps(4, end) both;
+    animation: df-ink-in 0.4s 0.6s ease-out both;
 }
 
 .df-chip.gold {

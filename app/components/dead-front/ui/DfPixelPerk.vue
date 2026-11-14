@@ -2,44 +2,59 @@
     <svg
         class="df-pxperk"
         :class="{ lit: glow, dim, brewing }"
-        :viewBox="`0 0 ${W} ${H}`"
+        :viewBox="`-1.2 -1.6 ${W + 2.4} ${H + 2.8}`"
         :width="size * W / H"
         :height="size"
-        shape-rendering="crispEdges"
         :style="{ '--c': color }"
         aria-hidden="true"
     >
-        <defs v-if="brewing">
+        <defs>
             <clipPath :id="clipId">
-                <rect v-for="(r, i) in sprite.liquid" :key="i" :x="r.x" :y="r.y" :width="r.w" height="1" />
+                <path :d="shape.body" />
             </clipPath>
         </defs>
         <g class="df-pxperk-body">
-            <rect v-for="(r, i) in sprite.rects" :key="i" :x="r.x" :y="r.y" :width="r.w" height="1" :fill="r.fill" />
-            <template v-if="brewing">
-                <!-- bubbles rise through the liquid only (clipped), one sprite pixel per step -->
-                <g :clip-path="`url(#${clipId})`">
-                    <rect
+            <!-- ink drop shadow, offset like a printed plate -->
+            <g transform="translate(0.7 0.7)" fill="#000" stroke="#000" stroke-width="1.3" stroke-linejoin="round" opacity="0.55">
+                <path :d="shape.body" />
+                <rect v-bind="shape.cork" />
+            </g>
+            <path :d="shape.body" fill="#e9f0ea" fill-opacity="0.9" />
+            <g :clip-path="`url(#${clipId})`">
+                <rect x="-1" :y="shape.liquidTop" :width="W + 2" :height="H" :fill="color" />
+                <rect x="-1" :y="shape.liquidTop" :width="W + 2" height="0.7" fill="#fff" fill-opacity="0.55" />
+                <!-- halftone dots on the shaded side -->
+                <g fill="#000" fill-opacity="0.32">
+                    <circle v-for="(d, i) in shape.dots" :key="i" :cx="d.x" :cy="d.y" r="0.32" />
+                </g>
+                <rect :x="shape.label.x" :y="shape.label.y" :width="shape.label.w" :height="shape.label.h" fill="#f3e6c2" stroke="#000" stroke-width="0.55" />
+                <rect :x="shape.label.x" :y="shape.label.y + shape.label.h / 2 - 0.5" :width="shape.label.w" height="1" :fill="color" />
+                <!-- glass shine -->
+                <path :d="shape.shine" stroke="#fff" stroke-opacity="0.8" stroke-width="0.8" stroke-linecap="round" fill="none" />
+                <template v-if="brewing">
+                    <circle
                         v-for="(b, i) in sprite.bubbles"
                         :key="`b${i}`"
                         class="df-bubble"
-                        :x="b.x"
-                        :y="b.y"
-                        width="1"
-                        height="1"
-                        :fill="b.fill"
-                        :style="{ '--d': b.d, 'animationDuration': `${b.dur}s`, 'animationDelay': `${b.delay}s`, 'animationTimingFunction': `steps(${b.d}, end)` }"
+                        :cx="b.x + 0.5"
+                        :cy="b.y + 0.5"
+                        r="0.55"
+                        fill="#fff"
+                        fill-opacity="0.85"
+                        :style="{ '--d': b.d, 'animationDuration': `${b.dur}s`, 'animationDelay': `${b.delay}s`, 'animationTimingFunction': 'linear' }"
                     />
-                </g>
-                <!-- steam wisps and sparkles off the cork -->
-                <rect
+                </template>
+            </g>
+            <path :d="shape.body" fill="none" stroke="#000" stroke-width="1.25" stroke-linejoin="round" />
+            <rect v-bind="shape.cork" fill="#b9844a" stroke="#000" stroke-width="1.1" stroke-linejoin="round" />
+            <template v-if="brewing">
+                <circle
                     v-for="(w, i) in sprite.wisps"
                     :key="`w${i}`"
                     :class="w.spark ? 'df-spark' : 'df-wisp'"
-                    :x="w.x"
-                    :y="w.y"
-                    width="1"
-                    height="1"
+                    :cx="w.x + 0.5"
+                    :cy="w.y + 0.5"
+                    :r="w.spark ? 0.45 : 0.8"
                     :fill="w.fill"
                     :style="{ '--dx': w.dx, 'animationDelay': `${w.delay}s` }"
                 />
@@ -49,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-// A perk bottle as a pixel sprite, matching the voxel world: each perk has
+// A perk bottle as an inked vector badge (same silhouettes as the world's bottles): each perk has
 // its own silhouette (stout, tonic, rye, round flask, wasp waist, long neck),
 // filled with that perk's colour up to `fill`. Sizes that are multiples of
 // 20 px land on whole pixels.
@@ -93,6 +108,36 @@ function mix(c: [number, number, number], to: [number, number, number], t: numbe
     const b = Math.round(c[2] + (to[2] - c[2]) * t)
     return `rgb(${r},${g},${b})`
 }
+
+const shape = computed(() => {
+    const sp = DF_BOTTLES[props.perk]
+    const first = sp.spans.findIndex(r => r !== null)
+    const bodyTop = first + 2
+    const last = sp.spans.length - 1
+    const right: string[] = []
+    const left: string[] = []
+    for (let r = bodyTop; r <= last; r++) {
+        const sr = sp.spans[r]!
+        right.push(`${sr[1] + 1} ${r + (r === bodyTop ? 0 : 0.5)}`)
+        left.unshift(`${sr[0]} ${r + (r === bodyTop ? 0 : 0.5)}`)
+    }
+    const top = sp.spans[bodyTop]!
+    const bot = sp.spans[last]!
+    const body = `M${top[0]} ${bodyTop} L${right.join(' L')} L${bot[1] + 1} ${last + 1} L${bot[0]} ${last + 1} L${left.join(' L')} Z`
+    const c = sp.spans[first]!
+    const cork = { x: c[0] + 0.5, y: first, width: c[1] - c[0], height: 2.2, rx: 0.5 }
+    const liquidTop = last + 1 - Math.max(0.05, Math.min(1, props.fill)) * (last + 1 - bodyTop - 0.5)
+    const mid = sp.spans[Math.min(last, sp.label[0])]!
+    const label = { x: mid[0] - 0.5, y: sp.label[0], w: mid[1] - mid[0] + 2, h: sp.label[1] - sp.label[0] + 1 }
+    const dots: { x: number, y: number }[] = []
+    for (let r = bodyTop; r <= last; r++) {
+        const sr = sp.spans[r]!
+        for (let x = sr[1] - 1; x <= sr[1] + 0.5; x += 1) dots.push({ x: x + (r % 2 ? 0.5 : 0), y: r + 0.5 })
+    }
+    const sh = sp.spans[bodyTop + 2]!
+    const shine = `M${sh[0] + 1} ${bodyTop + 2} L${sh[0] + 1} ${last - 2}`
+    return { body, cork, liquidTop, label, dots, shine }
+})
 
 interface Px { x: number, y: number, w: number, fill: string }
 
@@ -167,13 +212,12 @@ const sprite = computed(() => {
 <style scoped>
 .df-pxperk {
     display: block;
-    image-rendering: pixelated;
-    filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+    overflow: visible;
     transition: opacity 0.3s, filter 0.3s;
 }
 
 .df-pxperk.lit {
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--c) 70%, transparent)) drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--c) 70%, transparent));
 }
 
 .df-pxperk.brewing {
@@ -194,7 +238,7 @@ const sprite = computed(() => {
 
 .df-wisp {
     opacity: 0;
-    animation: df-wisp 2.2s steps(4, end) infinite;
+    animation: df-wisp 2.2s ease-out infinite;
 }
 
 .df-spark {
@@ -204,10 +248,10 @@ const sprite = computed(() => {
 
 @keyframes df-brew-glow {
     0%, 100% {
-        filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 55%, transparent)) drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+        filter: drop-shadow(0 0 4px color-mix(in srgb, var(--c) 55%, transparent));
     }
     50% {
-        filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 90%, transparent)) drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+        filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 90%, transparent));
     }
 }
 
@@ -259,7 +303,7 @@ const sprite = computed(() => {
     }
 
     .df-pxperk.brewing {
-        filter: drop-shadow(0 0 7px color-mix(in srgb, var(--c) 75%, transparent)) drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+        filter: drop-shadow(0 0 7px color-mix(in srgb, var(--c) 75%, transparent));
     }
 
     .df-spark {
@@ -269,6 +313,6 @@ const sprite = computed(() => {
 
 .df-pxperk.dim {
     opacity: 0.5;
-    filter: saturate(0.3) drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+    filter: saturate(0.3);
 }
 </style>

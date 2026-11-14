@@ -93,7 +93,7 @@ const view = ref<'main' | 'settings'>('main')
 
 .df-page-enter-active,
 .df-page-leave-active {
-    transition: opacity 0.15s, transform 0.15s steps(3);
+    transition: opacity 0.15s, transform 0.15s ease-out;
 }
 
 .df-page-enter-from {
