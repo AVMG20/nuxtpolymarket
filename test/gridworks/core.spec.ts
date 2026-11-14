@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { MAP_TILES, type OreId } from '#shared/utils/gridworks/defs'
 import { buildGraph, localToWorld, outputPorts, type Entity } from '#shared/utils/gridworks/layout'
 import { solve, waterFill } from '#shared/utils/gridworks/flow'
-import { applyOp, newState, settle, storageCap, type GridState } from '#shared/utils/gridworks/game'
+import { applyOp, newState, parseOp, settle, storageCap, type GridState } from '#shared/utils/gridworks/game'
+import { GOAL_BY_ID, currentGoal } from '#shared/utils/gridworks/goals'
 import { oreAt, oreMap } from '#shared/utils/gridworks/world'
 
 const SEED = 12345
@@ -171,5 +172,33 @@ describe('gridworks settle and ops', () => {
         expect(applyOp(s, { op: 'mine', x, y, n: 5 }, now)).toBe('busy')
         expect(applyOp(s, { op: 'mine', x, y, n: 5 }, now + 1000)).toBeNull()
         expect(s.stock.stone).toBe(start + 29)
+    })
+})
+
+describe('gridworks goals', () => {
+    const now = Date.UTC(2026, 10, 14)
+
+    it('claims goals in order, once each, only when met', () => {
+        const s = newState(SEED, now)
+        expect(currentGoal(s)?.id).toBe('hello')
+        expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBe('missing')
+        expect(applyOp(s, { op: 'goal', id: 'hello' }, now, null)).toBeNull()
+        expect(applyOp(s, { op: 'goal', id: 'hello' }, now, null)).toBe('missing')
+        expect(currentGoal(s)?.id).toBe('hand-mine')
+
+        const stone = s.stock.stone ?? 0
+        expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBe('goal')
+        const [x, y] = findOre('iron-ore')
+        expect(applyOp(s, { op: 'mine', x, y, n: 10 }, now)).toBeNull()
+        expect(s.mined).toBe(10)
+        expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBeNull()
+        expect(s.stock.stone).toBe(stone + (GOAL_BY_ID['hand-mine']!.reward.stone ?? 0))
+        expect(s.goals).toEqual(['hello', 'hand-mine'])
+    })
+
+    it('rejects unknown and oversized goal ids', () => {
+        expect(parseOp({ op: 'goal', id: 'x'.repeat(41) })).toBeNull()
+        expect(parseOp({ op: 'goal', id: 1 })).toBeNull()
+        expect(parseOp({ op: 'goal', id: 'hello' })).toEqual({ op: 'goal', id: 'hello' })
     })
 })

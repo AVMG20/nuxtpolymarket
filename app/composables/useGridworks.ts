@@ -102,7 +102,7 @@ export function useGridworks() {
         if (!server) return
         const v = clone(server)
         extrapolate(v, now())
-        for (const op of pending) applyOp(v, op, now())
+        for (const op of pending) applyOp(v, op, now(), sol.value)
         publish(v, animate)
     }
 
@@ -112,7 +112,7 @@ export function useGridworks() {
         if (!cur) return ops.map(() => 'invalid' as const)
         const trial = clone(cur)
         extrapolate(trial, now())
-        const errs = ops.map(op => applyOp(trial, op, now()))
+        const errs = ops.map(op => applyOp(trial, op, now(), sol.value))
         const ok = ops.filter((_, i) => !errs[i])
         if (ok.length) {
             pending.push(...ok)

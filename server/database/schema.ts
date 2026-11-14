@@ -2686,6 +2686,10 @@ export const gridworksPlot = pgTable('gridworks_plot', {
   mine: jsonb('mine').$type<{ tokens: number, at: number }>().notNull().default({ tokens: 0, at: 0 }),
   /** Bumped on every layout change; keys the solver cache. */
   layoutVersion: integer('layout_version').notNull().default(1),
+  /** Goals claimed, in order. */
+  goals: jsonb('goals').$type<string[]>().notNull().default([]),
+  /** Ore dug by hand, ever. */
+  mined: integer('mined').notNull().default(0),
   lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()

@@ -9,6 +9,7 @@ import {
 import { key3, occupancy, placeError, rot, type Dir, type Entity, type PlaceError } from './layout'
 import { solve, type Solution, type SolveFlags } from './flow'
 import { chunkNeighbours, oreAt, oreMap } from './world'
+import { currentGoal, goalMet } from './goals'
 
 export interface GridState {
     seed: number
@@ -26,6 +27,10 @@ export interface GridState {
     settledAt: number
     /** Bumped on every layout change (solver cache key). */
     layout: number
+    /** Goals claimed, in order. */
+    goals: string[]
+    /** Ore dug by hand, ever. */
+    mined: number
 }
 
 export const QUEUE_MAX = 1
@@ -46,7 +51,9 @@ export function newState(seed: number, now: number): GridState {
         progress: {},
         mine: { tokens: MINE_BUCKET, at: now },
         settledAt: now,
-        layout: 1
+        layout: 1,
+        goals: [],
+        mined: 0
     }
 }
 
@@ -163,8 +170,9 @@ export type Op =
     | { op: 'research', id: string }
     | { op: 'unqueue', id: string }
     | { op: 'mine', x: number, y: number, n: number }
+    | { op: 'goal', id: string }
 
-export type OpError = PlaceError | 'afford' | 'missing' | 'mk' | 'research' | 'queue' | 'adjacent' | 'busy' | 'invalid'
+export type OpError = PlaceError | 'afford' | 'missing' | 'mk' | 'research' | 'queue' | 'adjacent' | 'busy' | 'goal' | 'invalid'
 
 export function canAfford(stock: Stock, cost: Stock): boolean {
     return (Object.entries(cost) as [ItemId, number][]).every(([k, v]) => (stock[k] ?? 0) >= v - 1e-9)
@@ -197,8 +205,11 @@ function clean(e: Entity): Entity {
     return out
 }
 
-/** Applies one action. Returns an error (and leaves the state untouched) when it can't. */
-export function applyOp(s: GridState, op: Op, now: number): OpError | null {
+/**
+ * Applies one action. Returns an error (and leaves the state untouched) when it
+ * can't. `sol` saves the client a main-thread solve when it claims a goal.
+ */
+export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null): OpError | null {
     switch (op.op) {
         case 'place': {
             if (!BUILDINGS[op.e?.k]) return 'invalid'
@@ -306,6 +317,16 @@ export function applyOp(s: GridState, op: Op, now: number): OpError | null {
             s.mine = { tokens: tokens - n, at: now }
             if (!n) return 'busy'
             give(s.stock, { [ore]: n * HAND_MINE })
+            s.mined += n
+            return null
+        }
+        case 'goal': {
+            // Goals are claimed in order, once each, and only when met.
+            const g = currentGoal(s)
+            if (!g || g.id !== op.id) return 'missing'
+            if (!goalMet(g, s, sol ?? solveCached('goal', s))) return 'goal'
+            give(s.stock, g.reward)
+            s.goals.push(g.id)
             return null
         }
     }
@@ -365,6 +386,8 @@ export function parseOp(raw: unknown): Op | null {
             return typeof o.key === 'string' && o.key.length < 8 ? { op: 'chunk', key: o.key } : null
         case 'research': case 'unqueue':
             return typeof o.id === 'string' && o.id.length < 40 ? { op: o.op, id: o.id } : null
+        case 'goal':
+            return typeof o.id === 'string' && o.id.length <= 40 ? { op: 'goal', id: o.id } : null
         case 'mine': {
             const n = int(o.n, 1, 100)
             return x === null || y === null || n === null ? null : { op: 'mine', x, y, n }

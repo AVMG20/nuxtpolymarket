@@ -18,7 +18,9 @@ export function toState(row: PlotRow): GridState {
         progress: row.researchProgress,
         mine: row.mine,
         settledAt: row.lastSettledAt.getTime(),
-        layout: row.layoutVersion
+        layout: row.layoutVersion,
+        goals: row.goals,
+        mined: row.mined
     }
 }
 
@@ -32,6 +34,8 @@ function toRow(s: GridState) {
         researchProgress: s.progress,
         mine: s.mine,
         layoutVersion: s.layout,
+        goals: s.goals,
+        mined: s.mined,
         lastSettledAt: new Date(s.settledAt),
         updatedAt: new Date()
     }
