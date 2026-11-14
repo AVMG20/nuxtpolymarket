@@ -2,13 +2,15 @@ import * as THREE from 'three'
 import type { DfLight } from '#shared/utils/dead-front/map'
 import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import { dfRaycast } from '#shared/utils/dead-front/physics'
+import { dfModelGeometry } from '../models'
 import { DfVoxModel } from '../voxel/model'
 import type { DfWorldKit, DfWorldPart } from './kit'
 import { damp, dfFlicker, dfPowerLevel, dfRng } from './util'
 
 // Lanterns, candles, braziers, bulbs and arc lamps. Every map light gets a
-// voxel fixture (instanced per kind, flicker through the instance colour) and
-// flames made of glowing cubes; a fixed pool of real point lights (never added
+// fixture, instanced per kind with flicker through the instance colour, and
+// dancing flames (the `lamp-*` models of the `props` pack, voxel models as the
+// fallback); a fixed pool of real point lights (never added
 // or removed at runtime, so no shader recompiles) follows the fixtures that
 // matter most around the camera, with crossfades.
 
@@ -113,22 +115,28 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
     const meshes: THREE.InstancedMesh[] = []
     const lampposts = kit.world.props.filter(p => p.kind === 'lamppost')
 
-    const models: Record<FixtureKind, { geo: THREE.BufferGeometry, y: number }> = {
-        lantern: { geo: lanternModel().mesh(C, [2, 3, 2])!, y: 0 },
-        candle: { geo: candleModel().mesh(C, [2.5, 0, 2.5])!, y: -0.12 },
-        fire: { geo: brazierModel().mesh(C, [4, 6, 4])!, y: -0.15 },
-        bulb: { geo: bulbModel().mesh(C, [3, 1, 3])!, y: 0 },
-        arc: { geo: arcModel().mesh(C, [4, 3, 4])!, y: 0 }
+    // Authored geometry is shared by the model cache: only the voxel fallbacks are ours to dispose.
+    const own = (geo: THREE.BufferGeometry) => {
+        geos.push(geo)
+        return geo
     }
-    for (const m of Object.values(models)) geos.push(m.geo)
+    const fixtureGeo = (name: string, voxel: () => THREE.BufferGeometry) => dfModelGeometry('props', name) ?? own(voxel())
+    const models: Record<FixtureKind, { geo: THREE.BufferGeometry, y: number }> = {
+        lantern: { geo: fixtureGeo('lamp-lantern', () => lanternModel().mesh(C, [2, 3, 2])!), y: 0 },
+        candle: { geo: fixtureGeo('lamp-candles', () => candleModel().mesh(C, [2.5, 0, 2.5])!), y: -0.12 },
+        fire: { geo: fixtureGeo('lamp-brazier', () => brazierModel().mesh(C, [4, 6, 4])!), y: -0.15 },
+        bulb: { geo: fixtureGeo('lamp-bulb', () => bulbModel().mesh(C, [3, 1, 3])!), y: 0 },
+        arc: { geo: fixtureGeo('lamp-arc', () => arcModel().mesh(C, [4, 3, 4])!), y: 0 }
+    }
     const unit = new DfVoxModel(1, 1, 1)
     unit.box(0, 0, 0, 1, 1, 1, unit.c(0x2a2a2d))
     const barGeo = unit.mesh(1, [0.5, 0.5, 0.5])!
     geos.push(barGeo)
-    const flameModel = new DfVoxModel(1, 1, 1)
-    flameModel.box(0, 0, 0, 1, 1, 1, flameModel.c(0xffa64d, 1))
-    const flameGeo = flameModel.mesh(1, [0.5, 0, 0.5])!
-    geos.push(flameGeo)
+    const flameGeo = fixtureGeo('lamp-flame', () => {
+        const flameModel = new DfVoxModel(1, 1, 1)
+        flameModel.box(0, 0, 0, 1, 1, 1, flameModel.c(0xffa64d, 1))
+        return flameModel.mesh(1, [0.5, 0, 0.5])!
+    })
 
     const fixtures: Fixture[] = []
     const bars: THREE.Matrix4[] = []

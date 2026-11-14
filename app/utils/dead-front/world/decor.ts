@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { DF_MAP_P, DF_VOX_CELL, DF_VOX_ORIGIN } from '#shared/utils/dead-front/map-world'
 import { dfGroundHeight } from '#shared/utils/dead-front/physics'
 import { dfHash3 } from '#shared/utils/dead-front/voxel'
+import { dfModelGeometry } from '../models'
 import { dfMergeVoxGeometries } from '../voxel/mesher'
 import { dfBuildDecorModel } from './decor-models'
 import type { DfDecorKind } from './decor-models'
@@ -16,7 +17,12 @@ import type { DfWorldKit, DfWorldPart } from './kit'
 //
 // None of it collides: everything tall stands against a wall or in a corner,
 // out of the walking lanes (test/dead-front/world-decor.spec.ts checks it
-// against the nav graph). All static, merged into a few chunked meshes.
+// against the nav graph). All static, merged into a few chunked meshes. The
+// ground scatter uses the authored `decor-*` models from the `props` pack when
+// it has them (SCATTER_MODELS), the voxel models otherwise.
+
+/** Kinds the props pack authors (as `decor-<kind>`). */
+const SCATTER_MODELS = new Set<DfDecorKind>(['tuft-0', 'tuft-1', 'tuft-2', 'pebbles-0', 'pebbles-1', 'poppies', 'campion', 'bricks-0', 'bricks-1'])
 
 export interface DfDecorPlacement {
     kind: DfDecorKind
@@ -110,8 +116,10 @@ function floorAt(kit: DfWorldKit, x: number, z: number): number {
 }
 
 export function createDfDecor(kit: DfWorldKit): DfWorldPart {
-    const geoCache = new Map<DfDecorKind, { geo: THREE.BufferGeometry, shadow: boolean } | null>()
+    const geoCache = new Map<DfDecorKind, { geo: THREE.BufferGeometry, shadow: boolean, shared?: boolean } | null>()
     const geoOf = (kind: DfDecorKind) => {
+        const authored = !geoCache.has(kind) && SCATTER_MODELS.has(kind) ? dfModelGeometry('props', `decor-${kind}`) : null
+        if (authored) geoCache.set(kind, { geo: authored, shadow: false, shared: true })
         if (!geoCache.has(kind)) {
             const d = dfBuildDecorModel(kind)
             const geo = d.model.mesh(d.cell, d.pivot, d.opts)
@@ -321,7 +329,7 @@ export function createDfDecor(kit: DfWorldKit): DfWorldPart {
                 m.removeFromParent()
                 m.geometry.dispose()
             }
-            for (const g of geoCache.values()) g?.geo.dispose()
+            for (const g of geoCache.values()) if (g && !g.shared) g.geo.dispose()
             if (puddles) {
                 puddles.removeFromParent()
                 puddles.geometry.dispose()
