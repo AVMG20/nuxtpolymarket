@@ -201,4 +201,21 @@ export class GridSfx {
             this.tone('sine', f * 2, f * 2, 0.15, 0.03, i * 0.07)
         })
     }
+
+    /** Cog's voice: a soft blip per syllable, pitch picked by the caller's cosmetic jitter. */
+    talk(jitter: number) {
+        if (!this.ready('talk', 55)) return
+        const f = 520 + jitter * 180
+        this.tone('square', f, f * 1.08, 0.035, 0.025)
+        this.tone('sine', f * 2, f * 2, 0.03, 0.02)
+    }
+
+    goal() {
+        if (!this.ready('goal', 300)) return
+        ;[0, 7, 12, 16].forEach((st, i) => {
+            const f = 392 * Math.pow(2, st / 12)
+            this.tone('triangle', f, f, 0.2, 0.11, i * 0.06)
+        })
+        ;[2093, 2637, 3136].forEach((f, i) => this.tone('sine', f, f, 0.08, 0.04, 0.24 + i * 0.04))
+    }
 }

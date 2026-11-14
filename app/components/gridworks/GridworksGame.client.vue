@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { BUILDINGS, ITEMS, ITEM_IDS, RECIPES, RESEARCH_BY_ID, isUnlocked, maxMk, upgradeCost, type Category, type ItemId, type Kind, type Stock } from '#shared/utils/gridworks/defs'
 import { canAfford } from '#shared/utils/gridworks/game'
+import { currentGoal, goalMet, type GoalFocus } from '#shared/utils/gridworks/goals'
+import GridworksGuide from './GridworksGuide.vue'
 import GridworksResearch from './GridworksResearch.vue'
 import { GridEngine, fmt, type HoverInfo, type Selected, type Tool } from '~/utils/gridworks/engine'
 
@@ -18,7 +20,22 @@ const selected = ref<Selected | null>(null)
 const muted = ref(false)
 const researchOpen = ref(false)
 const banner = ref<{ id: string, key: number } | null>(null)
-const showHelp = ref(true)
+const showHelp = ref(false)
+
+// Cog's goals: the next one to claim, what it points at, and which button glows.
+const goal = computed(() => view.value ? currentGoal(view.value) : null)
+const goalDone = computed(() => !!goal.value && !!view.value && goalMet(goal.value, view.value, sol.value))
+const focus = computed<GoalFocus>(() => goalDone.value ? null : goal.value?.focus ?? null)
+const focusKind = computed(() => focus.value?.startsWith('build:') ? focus.value.slice(6) as Kind : null)
+const guideMarker = computed(() => goal.value && view.value && !goalDone.value ? goal.value.marker?.(view.value) ?? null : null)
+watch([guideMarker, eng], ([m]) => eng.value?.setGuide(m), { deep: true })
+
+function claimGoal(id: string) {
+    engine?.sfx.unlock()
+    const [err] = game.commit([{ op: 'goal', id }])
+    if (err) engine?.sfx.invalid()
+    else engine?.sfx.goal()
+}
 
 const CATEGORIES: { id: Category, label: string, icon: string }[] = [
     { id: 'logistics', label: 'Logistics', icon: 'i-lucide-route' },
@@ -156,7 +173,7 @@ onMounted(async () => {
     if (view.value) engine.setState(view.value, { animate: false })
     if (sol.value) engine.setSolution(sol.value, game.solEntities())
     window.addEventListener('keydown', onKey)
-    showHelp.value = localStorage.getItem('gridworks:help') !== '0'
+    showHelp.value = localStorage.getItem('gridworks:help') === '1'
 })
 
 onBeforeUnmount(() => {
@@ -167,9 +184,9 @@ onBeforeUnmount(() => {
     eng.value = null
 })
 
-function hideHelp() {
-    showHelp.value = false
-    localStorage.setItem('gridworks:help', '0')
+function toggleHelp() {
+    showHelp.value = !showHelp.value
+    localStorage.setItem('gridworks:help', showHelp.value ? '1' : '0')
 }
 </script>
 
@@ -191,7 +208,7 @@ function hideHelp() {
           <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/50">
             <UIcon name="i-lucide-flask-conical" class="size-4" /> Research
           </div>
-          <button class="rounded-md bg-white/10 px-2 py-1 text-xs font-medium transition hover:bg-white/20 active:scale-95" @click="researchOpen = true">
+          <button class="rounded-md bg-white/10 px-2 py-1 text-xs font-medium transition hover:bg-white/20 active:scale-95" :class="{ 'gw-guide': focus === 'research' }" @click="researchOpen = true">
             Tree <UKbd class="ml-1" value="T" size="sm" />
           </button>
         </div>
@@ -352,7 +369,7 @@ function hideHelp() {
           v-for="c in categories"
           :key="c.id"
           class="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition active:scale-95"
-          :class="category === c.id ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white'"
+          :class="[category === c.id ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white', focusKind && category !== c.id && BUILDINGS[focusKind].category === c.id && isUnlocked(focusKind, done) ? 'gw-guide' : '']"
           @click="category = c.id; eng?.sfx.tool()"
         >
           <UIcon :name="c.icon" class="size-3.5" /> {{ c.label }}
@@ -381,10 +398,10 @@ function hideHelp() {
         <div class="mx-1 h-12 w-px self-center bg-white/10" />
         <TransitionGroup name="gw-slot" tag="div" class="flex items-end gap-1.5">
           <div v-for="(k, i) in bar" :key="k">
-          <UTooltip :delay-duration="150" :content="{ side: 'top' }">
+          <UTooltip :delay-duration="150" :content="{ side: 'top', sideOffset: 10 }" :ui="{ content: 'h-auto px-3 py-2' }">
             <button
               class="gw-slot"
-              :class="[tool.mode === 'build' && tool.kind === k ? 'gw-slot-on' : '', affordable(BUILDINGS[k].cost) ? '' : 'gw-slot-poor']"
+              :class="[tool.mode === 'build' && tool.kind === k ? 'gw-slot-on' : '', affordable(BUILDINGS[k].cost) ? '' : 'gw-slot-poor', focusKind === k && !(tool.mode === 'build' && tool.kind === k) ? 'gw-guide' : '']"
               @click="pick(k)"
             >
               <img
@@ -403,11 +420,11 @@ function hideHelp() {
               <span class="gw-key">{{ i + 1 }}</span>
             </button>
             <template #content>
-              <div class="p-1 text-xs">
+              <div class="text-xs leading-snug">
                 <div class="font-semibold">
                   {{ BUILDINGS[k].name }}
                 </div>
-                <div class="mt-1 flex items-center gap-2">
+                <div class="mt-1.5 flex items-center gap-2">
                   <span v-for="[c, v] in costEntries(BUILDINGS[k].cost)" :key="c" class="flex items-center gap-1" :class="(stock[c] ?? 0) >= v ? '' : 'text-red-400'">
                     <img :src="itemUrl(c)" class="size-4" alt="">{{ fmt(v) }}
                   </span>
@@ -429,26 +446,32 @@ function hideHelp() {
       </div>
     </div>
 
-    <!-- Controls help -->
-    <Transition name="gw-pop">
-      <div v-if="showHelp" class="absolute bottom-3 left-3 w-56 rounded-xl border border-white/10 bg-[#0f1115]/85 p-3 text-xs text-white/70 shadow-xl backdrop-blur">
-        <div class="mb-1.5 flex items-center justify-between font-semibold text-white">
-          Controls
-          <button class="text-white/40 hover:text-white" @click="hideHelp">
-            <UIcon name="i-lucide-x" class="size-3.5" />
-          </button>
+    <!-- Cog and controls: bottom left -->
+    <div class="pointer-events-none absolute bottom-3 left-3 flex flex-col items-start gap-2">
+      <Transition name="gw-pop">
+        <div v-if="showHelp" class="pointer-events-auto w-56 rounded-xl border border-white/10 bg-[#0f1115]/85 p-3 text-xs text-white/70 shadow-xl backdrop-blur">
+          <div class="mb-1.5 flex items-center justify-between font-semibold text-white">
+            Controls
+            <button class="text-white/40 hover:text-white" @click="toggleHelp">
+              <UIcon name="i-lucide-x" class="size-3.5" />
+            </button>
+          </div>
+          <div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+            <span class="text-white/40">Click ore</span><span>Mine by hand</span>
+            <span class="text-white/40">Drag</span><span>Lay belts / move</span>
+            <span class="text-white/40">R</span><span>Rotate</span>
+            <span class="text-white/40">Right-click</span><span>Remove (drag for many)</span>
+            <span class="text-white/40">Q</span><span>Copy building</span>
+            <span class="text-white/40">Ctrl+Z</span><span>Undo</span>
+            <span class="text-white/40">WASD / drag</span><span>Pan · wheel zooms</span>
+          </div>
         </div>
-        <div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
-          <span class="text-white/40">Click ore</span><span>Mine by hand</span>
-          <span class="text-white/40">Drag</span><span>Lay belts / move</span>
-          <span class="text-white/40">R</span><span>Rotate</span>
-          <span class="text-white/40">Right-click</span><span>Remove (drag for many)</span>
-          <span class="text-white/40">Q</span><span>Copy building</span>
-          <span class="text-white/40">Ctrl+Z</span><span>Undo</span>
-          <span class="text-white/40">WASD / drag</span><span>Pan · wheel zooms</span>
-        </div>
-      </div>
-    </Transition>
+      </Transition>
+      <GridworksGuide v-if="view && goal" :goal="goal" :state="view" :sol="sol" :sfx="eng?.sfx" @claim="claimGoal" @help="toggleHelp" />
+      <button v-else-if="view" class="pointer-events-auto grid size-9 place-items-center rounded-xl border border-white/10 bg-[#0f1115]/85 text-white/60 shadow-xl backdrop-blur transition hover:text-white" title="Controls" @click="toggleHelp">
+        <UIcon name="i-lucide-keyboard" class="size-4" />
+      </button>
+    </div>
 
     <!-- Cursor tooltip -->
     <div
@@ -510,6 +533,11 @@ function hideHelp() {
   box-shadow: 0 0 0 3px rgb(248 113 113 / 0.2);
 }
 .gw-slot-poor img, .gw-slot-poor svg { opacity: 0.4; filter: grayscale(0.6); }
+.gw-guide { animation: gw-guide 1.3s ease-in-out infinite; }
+@keyframes gw-guide {
+  0%, 100% { box-shadow: 0 0 0 2px rgb(94 234 212 / 0.9), 0 0 0 4px rgb(94 234 212 / 0.15); }
+  50% { box-shadow: 0 0 0 2px rgb(94 234 212 / 0.9), 0 0 14px 6px rgb(94 234 212 / 0.45); }
+}
 .gw-key {
   position: absolute;
   right: 3px;
