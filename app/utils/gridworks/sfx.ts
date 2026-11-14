@@ -11,6 +11,7 @@ export class GridSfx {
     private master: GainNode | null = null
     private noiseBuf: AudioBuffer | null = null
     private last = new Map<string, number>()
+    private disposed = false
     muted = false
     volume = 0.7
 
@@ -25,6 +26,7 @@ export class GridSfx {
 
     /** Call from a user gesture; browsers keep audio suspended until then. */
     unlock() {
+        if (this.disposed) return
         if (!this.ctx) {
             const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
             if (!Ctx) return
@@ -41,6 +43,16 @@ export class GridSfx {
             for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1
         }
         if (this.ctx.state === 'suspended') void this.ctx.resume()
+    }
+
+    /** Closes the audio device; every sound after this is a no-op. */
+    dispose() {
+        this.disposed = true
+        const ctx = this.ctx
+        this.ctx = null
+        this.master = null
+        this.noiseBuf = null
+        if (ctx && ctx.state !== 'closed') void ctx.close().catch(() => {})
     }
 
     private ready(name: string, gapMs = 0): AudioContext | null {

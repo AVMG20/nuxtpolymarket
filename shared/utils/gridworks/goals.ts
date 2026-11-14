@@ -1,7 +1,7 @@
 // Gridworks goals: Cog's guided first steps, then milestones. Each one is
 // checked against the plot, and its reward (items, never coins) is claimed
 // once, in order.
-import { RESEARCH_BY_ID, START_CHUNKS, tierOpen, type ItemId, type Stock } from './defs'
+import { RESEARCH_BY_ID, START_CHUNKS, tierOpen, type ItemId, type Kind, type Stock } from './defs'
 import type { Solution } from './flow'
 import type { GridState } from './game'
 import { oreAt, oreMap } from './world'
@@ -9,7 +9,7 @@ import { oreAt, oreMap } from './world'
 export type CogPose = 'idle' | 'point' | 'cheer' | 'think'
 
 /** UI element a goal draws attention to. */
-export type GoalFocus = 'build:miner' | 'build:belt' | 'build:lab' | 'build:smelter' | 'build:kiln' | 'research' | null
+export type GoalFocus = `build:${Kind}` | 'research' | null
 
 export interface Goal {
     id: string
@@ -18,7 +18,8 @@ export interface Goal {
     say: string
     pose: CogPose
     reward: Stock
-    focus?: GoalFocus
+    /** Fixed, or worked out from the plot when the next step depends on what is researched. */
+    focus?: GoalFocus | ((s: GridState) => GoalFocus)
     /** Progress as [current, target]; met when current >= target. */
     progress(s: GridState, sol: Solution | null): [number, number]
     /** Tile area to point at on the map. */
@@ -57,6 +58,20 @@ function nearestOre(s: GridState, ore: ItemId) {
         }
     }
     return best
+}
+
+/** Points at the research tree until `research` is done, then at the building it unlocks. */
+const needs = (research: string, kind: Kind) => (s: GridState): GoalFocus => s.done.includes(research) ? `build:${kind}` : 'research'
+
+/** Walks a production chain: the first step that is still missing gets the focus. */
+function chain(steps: { research?: string, kind?: Kind }[]) {
+    return (s: GridState): GoalFocus => {
+        for (const step of steps) {
+            if (step.research && !s.done.includes(step.research)) return 'research'
+            if (step.kind && !has(s, step.kind)) return `build:${step.kind}`
+        }
+        return null
+    }
 }
 
 export const GOALS: Goal[] = [
@@ -111,12 +126,14 @@ export const GOALS: Goal[] = [
         progress: (_, sol) => flag(rate(sol, 'iron-plate') > 0)
     },
     {
-        id: 'bricks', title: 'Bake bricks', pose: 'idle', reward: { brick: 30 }, focus: 'build:kiln',
-        say: 'Bricks pay for land. Research Kiln and bake stone into bricks.',
+        id: 'bricks', title: 'Bake bricks', pose: 'idle', reward: { brick: 30 },
+        focus: needs('kiln', 'kiln'),
+        say: 'Bricks pay for land. Research Kiln in the tree (T), then build one and bake stone into bricks.',
         progress: (_, sol) => flag(rate(sol, 'brick') > 0)
     },
     {
         id: 'land', title: 'Grow your plot', pose: 'cheer', reward: { brick: 40 },
+        focus: s => s.done.includes('land-1') ? null : 'research',
         say: 'Research Land I, then click one of the tagged chunks next to your plot to buy it.',
         progress: s => flag(s.chunks.length > START_CHUNKS.length)
     },
@@ -132,11 +149,13 @@ export const GOALS: Goal[] = [
     },
     {
         id: 'gears', title: 'Gears', pose: 'point', reward: { gear: 40 },
+        focus: needs('press', 'press'),
         say: 'The Press turns plates into gears. Research it and get gears flowing.',
         progress: (_, sol) => flag(rate(sol, 'gear') > 0)
     },
     {
         id: 'steel', title: 'Steel', pose: 'point', reward: { steel: 40 },
+        focus: needs('mixer', 'mixer'),
         say: 'The Mixer takes two inputs on its back edge. Feed it iron plates and coal for steel.',
         progress: (_, sol) => flag(rate(sol, 'steel') > 0)
     },
@@ -147,6 +166,7 @@ export const GOALS: Goal[] = [
     },
     {
         id: 'motors', title: 'Motors', pose: 'point', reward: { motor: 20 },
+        focus: needs('assembler', 'assembler'),
         say: 'Assemblers take three inputs on their back edge. Build motors from steel, gears and wire.',
         progress: (_, sol) => flag(rate(sol, 'motor') > 0)
     },
@@ -157,21 +177,34 @@ export const GOALS: Goal[] = [
     },
     {
         id: 'chips', title: 'Chips', pose: 'point', reward: { chip: 40 },
-        say: 'Pump oil, refine plastic, and mix chips. This is where it gets big.',
+        focus: chain([{ research: 'oil' }, { kind: 'pumpjack' }, { kind: 'refinery' }, { research: 'electronics' }, { kind: 'mixer' }]),
+        say: 'Research Oil, then pump it and refine plastic. Research Electronics, and a Mixer turns circuits and plastic into chips.',
         progress: (_, sol) => flag(rate(sol, 'chip') > 0)
     },
     {
+        id: 'tier-5', title: 'Open tier 5', pose: 'think', reward: { motor: 100, chip: 60 }, focus: 'research',
+        say: 'Four tier 4 researches open tier 5: crystal, lenses and the fusion reactor.',
+        progress: s => flag(tierOpen(5, s.done))
+    },
+    {
         id: 'fusion', title: 'Fusion Cores', pose: 'cheer', reward: { lens: 40, chip: 100 },
-        say: 'The final machine: a fusion reactor making Fusion Cores. Show me one!',
+        focus: chain([{ research: 'crystal' }, { kind: 'crystal-drill' }, { kind: 'grinder' }, { research: 'fusion-reactor' }, { kind: 'reactor' }]),
+        say: 'Research Crystal and grind lenses, then research the Fusion reactor. Feed it chips, motors and lenses for a Fusion Core!',
         progress: (_, sol) => flag(rate(sol, 'fusion-core') > 0)
     }
 ]
 
-export const GOAL_BY_ID: Record<string, Goal> = Object.fromEntries(GOALS.map(g => [g.id, g]))
+/** No prototype, so a made-up id like 'constructor' finds nothing. */
+export const GOAL_BY_ID: Record<string, Goal> = Object.assign(Object.create(null), Object.fromEntries(GOALS.map(g => [g.id, g])))
 
 /** The next goal to claim, or null when they're all done. */
 export function currentGoal(s: Pick<GridState, 'goals'>): Goal | null {
     return GOALS.find(g => !s.goals.includes(g.id)) ?? null
+}
+
+/** What the goal points at right now. */
+export function goalFocus(g: Goal, s: GridState): GoalFocus {
+    return typeof g.focus === 'function' ? g.focus(s) : g.focus ?? null
 }
 
 export function goalMet(g: Goal, s: GridState, sol: Solution | null): boolean {

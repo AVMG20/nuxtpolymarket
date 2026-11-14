@@ -193,11 +193,21 @@ export const RESEARCH: ResearchNode[] = [
     { id: 'machine-mk5', tier: 5, branch: 'production', name: 'Machine Mk5', cost: { lens: 4000 }, desc: 'Machines ×4' },
     { id: 'storage-6', tier: 5, branch: 'idle', name: 'Storage VI', cost: { motor: 8000 }, desc: 'Storage holds 40k of each item' }
 ]
-export const RESEARCH_BY_ID: Record<string, ResearchNode> = Object.fromEntries(RESEARCH.map(n => [n.id, n]))
+/**
+ * No prototype: ids arrive from the client, and a plain object would answer
+ * 'constructor' or 'toString' with something truthy.
+ */
+export const RESEARCH_BY_ID: Record<string, ResearchNode> = Object.assign(Object.create(null), Object.fromEntries(RESEARCH.map(n => [n.id, n])))
+
+/** Own-key check for the lookup tables here, safe for untrusted strings. */
+export function hasKey<T extends object>(table: T, key: unknown): key is keyof T & string {
+    return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key)
+}
 /** Nodes of the previous tier needed before a tier opens. */
 export const TIER_GATE: Record<number, number> = { 1: 0, 2: 4, 3: 5, 4: 6, 5: 4 }
 
 export function tierOpen(tier: number, done: readonly string[]): boolean {
+    if (!Number.isFinite(tier)) return false
     if (tier <= 1) return true
     const prev = RESEARCH.filter(n => n.tier === tier - 1 && done.includes(n.id)).length
     return prev >= (TIER_GATE[tier] ?? 0) && tierOpen(tier - 1, done)
@@ -221,8 +231,12 @@ export function maxMk(kind: Kind, done: readonly string[]): number {
     return 1
 }
 
+/** The highest storage research done sets the level; the ones below it aren't needed. */
 export function storageLevel(done: readonly string[]): number {
-    return STORAGE_CAP_RESEARCH.filter(id => done.includes(id)).length
+    for (let i = STORAGE_CAP_RESEARCH.length - 1; i >= 0; i--) {
+        if (done.includes(STORAGE_CAP_RESEARCH[i]!)) return i + 1
+    }
+    return 0
 }
 
 /** Price of the n-th chunk bought (0-based, the free start chunks excluded). */

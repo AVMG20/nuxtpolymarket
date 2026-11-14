@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BUILDINGS, ITEMS, ITEM_IDS, RECIPES, RESEARCH_BY_ID, isUnlocked, maxMk, upgradeCost, type Category, type ItemId, type Kind, type Stock } from '#shared/utils/gridworks/defs'
 import { canAfford } from '#shared/utils/gridworks/game'
-import { currentGoal, goalMet, type GoalFocus } from '#shared/utils/gridworks/goals'
+import { currentGoal, goalFocus, goalMet, type GoalFocus } from '#shared/utils/gridworks/goals'
 import GridworksGuide from './GridworksGuide.vue'
 import GridworksResearch from './GridworksResearch.vue'
 import { GridEngine, fmt, type HoverInfo, type Selected, type Tool } from '~/utils/gridworks/engine'
@@ -25,10 +25,22 @@ const showHelp = ref(false)
 // Cog's goals: the next one to claim, what it points at, and which button glows.
 const goal = computed(() => view.value ? currentGoal(view.value) : null)
 const goalDone = computed(() => !!goal.value && !!view.value && goalMet(goal.value, view.value, sol.value))
-const focus = computed<GoalFocus>(() => goalDone.value ? null : goal.value?.focus ?? null)
+const focus = computed<GoalFocus>(() => !goal.value || !view.value || goalDone.value ? null : goalFocus(goal.value, view.value))
 const focusKind = computed(() => focus.value?.startsWith('build:') ? focus.value.slice(6) as Kind : null)
-const guideMarker = computed(() => goal.value && view.value && !goalDone.value ? goal.value.marker?.(view.value) ?? null : null)
-watch([guideMarker, eng], ([m]) => eng.value?.setGuide(m), { deep: true })
+// The marker scans the plot's ore, so it is only worked out again when the goal
+// or the layout changes, not on every mined rock or research pick.
+let markerMemo: { key: string, marker: { x: number, y: number, w: number, h: number } | null } = { key: '', marker: null }
+const guideMarker = computed(() => {
+    const g = goal.value
+    const v = view.value
+    if (!g || !v || goalDone.value) return null
+    const key = `${g.id}|${v.seed}|${v.layout}|${v.entities.length}|${v.chunks.length}`
+    if (key !== markerMemo.key) markerMemo = { key, marker: g.marker?.(v) ?? null }
+    return markerMemo.marker
+})
+watch([guideMarker, eng], ([m]) => eng.value?.setGuide(m))
+// Game shortcuts stay off while the research tree covers the plot.
+watch([researchOpen, eng], ([open]) => eng.value?.setInputLocked(open))
 
 function claimGoal(id: string) {
     engine?.sfx.unlock()
@@ -94,6 +106,8 @@ function onKey(ev: KeyboardEvent) {
     const t = ev.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return
+    // With the research tree open, only T (which closes it) still counts.
+    if (researchOpen.value && ev.key.toLowerCase() !== 't') return
     if (/^[1-9]$/.test(ev.key)) {
         const k = bar.value[Number(ev.key) - 1]
         if (k) pick(k)
@@ -143,9 +157,12 @@ function costEntries(c: Stock) {
     return Object.entries(c) as [ItemId, number][]
 }
 
+let unmounted = false
+let bannerTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(async () => {
     if (!host.value) return
-    engine = new GridEngine(host.value, {
+    const created = new GridEngine(host.value, {
         commit: ops => game.commit(ops),
         stock: () => game.currentStock(),
         onSelect: s => { selected.value = s },
@@ -157,6 +174,7 @@ onMounted(async () => {
         },
         onLayer: l => { layer.value = l }
     })
+    engine = created
     muted.value = engine.sfx.muted
     game.onView((v, animate) => engine?.setState(v, { animate }))
     game.onSolution((s, ents) => engine?.setSolution(s, ents))
@@ -164,19 +182,25 @@ onMounted(async () => {
     game.onResearch((id) => {
         engine?.sfx.research()
         banner.value = { id, key: Date.now() }
-        setTimeout(() => { if (banner.value?.id === id) banner.value = null }, 3200)
+        if (bannerTimer) clearTimeout(bannerTimer)
+        bannerTimer = setTimeout(() => { banner.value = null }, 3200)
     })
-    await engine.init()
-    eng.value = engine
+    // The page may be left while the sprites or the plot load: stop at each step.
+    await created.init()
+    if (unmounted) return
+    eng.value = created
     await game.start()
-    if (game.world.value.length) engine.setWorld(game.world.value, game.me.value)
-    if (view.value) engine.setState(view.value, { animate: false })
-    if (sol.value) engine.setSolution(sol.value, game.solEntities())
+    if (unmounted) return
+    if (game.world.value.length) created.setWorld(game.world.value, game.me.value)
+    if (view.value) created.setState(view.value, { animate: false })
+    if (sol.value) created.setSolution(sol.value, game.solEntities())
     window.addEventListener('keydown', onKey)
     showHelp.value = localStorage.getItem('gridworks:help') === '1'
 })
 
 onBeforeUnmount(() => {
+    unmounted = true
+    if (bannerTimer) clearTimeout(bannerTimer)
     window.removeEventListener('keydown', onKey)
     game.stop()
     engine?.destroy()
@@ -191,7 +215,7 @@ function toggleHelp() {
 </script>
 
 <template>
-  <div class="relative h-full min-h-[560px] w-full select-none overflow-hidden bg-[#15181d] text-sm text-white">
+  <div class="gw-root relative h-full min-h-[560px] w-full select-none overflow-hidden bg-[#15181d] text-sm text-white">
     <div ref="host" class="absolute inset-0" />
 
     <div v-if="loading" class="absolute inset-0 grid place-items-center bg-[#15181d]">
@@ -240,7 +264,7 @@ function toggleHelp() {
           <span class="flex items-center gap-2"><UIcon name="i-lucide-package" class="size-4" /> Storage</span>
           <span class="font-mono normal-case tracking-normal text-white/40">max {{ fmt(cap) }} each</span>
         </div>
-        <TransitionGroup name="gw-row" tag="div" class="flex flex-col gap-1">
+        <TransitionGroup name="gw-row" tag="div" class="gw-storage flex flex-col gap-1 overflow-y-auto overflow-x-hidden" :class="{ 'gw-storage-short': selected }">
           <div v-for="it in items" :key="it.id" class="flex items-center gap-2" :title="ITEMS[it.id].name">
             <img :src="itemUrl(it.id)" class="size-5" alt="">
             <div class="flex-1">
@@ -447,7 +471,7 @@ function toggleHelp() {
     </div>
 
     <!-- Cog and controls: bottom left -->
-    <div class="pointer-events-none absolute bottom-3 left-3 flex flex-col items-start gap-2">
+    <div class="gw-corner pointer-events-none absolute left-3 flex flex-col items-start gap-2">
       <Transition name="gw-pop">
         <div v-if="showHelp" class="pointer-events-auto w-56 rounded-xl border border-white/10 bg-[#0f1115]/85 p-3 text-xs text-white/70 shadow-xl backdrop-blur">
           <div class="mb-1.5 flex items-center justify-between font-semibold text-white">
@@ -507,6 +531,16 @@ function toggleHelp() {
 </template>
 
 <style scoped>
+/* Sizes below follow the game's own box, not the window: the site's sidebar takes a share of it. */
+.gw-root { container-type: size; }
+/* Cog sits above the build bar, and drops into the corner once the widest bar leaves room beside it. */
+.gw-corner { bottom: 8.25rem; }
+@container (min-width: 1640px) {
+  .gw-corner { bottom: 0.75rem; }
+}
+/* The storage list scrolls before it reaches the build bar, or the selected building's panel. */
+.gw-storage { max-height: max(7rem, calc(100cqh - 17rem)); scrollbar-width: thin; }
+.gw-storage-short { max-height: max(7rem, calc(100cqh - 37rem)); }
 .gw-slot {
   position: relative;
   display: grid;

@@ -2,14 +2,14 @@
 // actions. The server runs these under a row lock; the client runs the same
 // code to predict the result instantly.
 import {
-    BUILDINGS, CHUNK, HAND_MINE, ITEM_IDS, MAP_TILES, RESEARCH_BY_ID, SILO_MULT, START_CHUNKS, START_STOCK, STORAGE_CAP,
-    chunkCost, isUnlocked, maxMk, researchAvailable, storageLevel, upgradeCost,
+    BUILDINGS, CHUNK, HAND_MINE, ITEM_IDS, MAP_CHUNKS, MAP_TILES, RECIPES, RESEARCH_BY_ID, SILO_MULT, START_CHUNKS, START_STOCK, STORAGE_CAP,
+    chunkCost, hasKey, isUnlocked, maxMk, researchAvailable, storageLevel, upgradeCost,
     type ItemId, type Kind, type Stock
 } from './defs'
 import { key3, occupancy, placeError, rot, type Dir, type Entity, type PlaceError } from './layout'
 import { solve, type Solution, type SolveFlags } from './flow'
 import { chunkNeighbours, oreAt, oreMap } from './world'
-import { currentGoal, goalMet } from './goals'
+import { GOAL_BY_ID, currentGoal, goalMet } from './goals'
 
 export interface GridState {
     seed: number
@@ -112,6 +112,8 @@ export interface SettleEvent { t: number, kind: 'research', id: string }
 /** Advances the plot from settledAt to `now` using the steady-state rates. */
 export function settle(scope: string, s: GridState, now: number): SettleEvent[] {
     const events: SettleEvent[] = []
+    // A clock that ran backwards never rewinds the plot.
+    if (now <= s.settledAt) return events
     let t = s.settledAt
     for (let guard = 0; guard < 200 && now - t > 0; guard++) {
         const flags = flagsOf(s)
@@ -152,7 +154,8 @@ export function settle(scope: string, s: GridState, now: number): SettleEvent[] 
             events.push({ t, kind: 'research', id: active })
         }
     }
-    s.settledAt = now
+    // If the guard ever cuts the loop short, the time left is settled by the next call.
+    s.settledAt = now - t > 0 ? Math.floor(t) : now
     return events
 }
 
@@ -172,7 +175,7 @@ export type Op =
     | { op: 'mine', x: number, y: number, n: number }
     | { op: 'goal', id: string }
 
-export type OpError = PlaceError | 'afford' | 'missing' | 'mk' | 'research' | 'queue' | 'adjacent' | 'busy' | 'goal' | 'invalid'
+export type OpError = PlaceError | 'afford' | 'missing' | 'mk' | 'research' | 'queue' | 'adjacent' | 'busy' | 'full' | 'goal' | 'invalid'
 
 export function canAfford(stock: Stock, cost: Stock): boolean {
     return (Object.entries(cost) as [ItemId, number][]).every(([k, v]) => (stock[k] ?? 0) >= v - 1e-9)
@@ -180,6 +183,11 @@ export function canAfford(stock: Stock, cost: Stock): boolean {
 function pay(stock: Stock, cost: Stock) {
     for (const [k, v] of Object.entries(cost) as [ItemId, number][]) stock[k] = Math.max(0, (stock[k] ?? 0) - v)
 }
+/**
+ * Adds items without looking at the storage cap. The cap only stops what flows
+ * in (belts in settle, hand mining): refunds and goal rewards always arrive in
+ * full, so removing a building never destroys what it cost.
+ */
 function give(stock: Stock, items: Stock) {
     for (const [k, v] of Object.entries(items) as [ItemId, number][]) stock[k] = (stock[k] ?? 0) + v
 }
@@ -207,12 +215,14 @@ function clean(e: Entity): Entity {
 
 /**
  * Applies one action. Returns an error (and leaves the state untouched) when it
- * can't. `sol` saves the client a main-thread solve when it claims a goal.
+ * can't. `sol` saves the client a main-thread solve when it claims a goal;
+ * without one the goal is checked against a fresh solve cached under `scope`
+ * (the user id on the server).
  */
-export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null): OpError | null {
+export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null, scope = 'local'): OpError | null {
     switch (op.op) {
         case 'place': {
-            if (!BUILDINGS[op.e?.k]) return 'invalid'
+            if (!hasKey(BUILDINGS, op.e?.k)) return 'invalid'
             const e = clean(op.e)
             if (!isUnlocked(e.k, s.done)) return 'locked'
             const err = placeError(s, oreMap(s.seed), e, s.done)
@@ -248,6 +258,7 @@ export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null
             const i = entityAt(s, op.x, op.y, 0)
             const e = s.entities[i]
             if (!e) return 'missing'
+            if (!hasKey(RECIPES, op.recipe)) return 'recipe'
             const next = { ...e, recipe: op.recipe }
             const err = placeError(s, oreMap(s.seed), next, s.done, undefined, i)
             if (err) return err
@@ -283,7 +294,7 @@ export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null
         case 'chunk': {
             if (!s.done.includes('land-1')) return 'locked'
             if (s.chunks.includes(op.key)) return 'blocked'
-            if (!/^\d+,\d+$/.test(op.key)) return 'invalid'
+            if (!validChunkKey(op.key)) return 'invalid'
             if (!s.chunks.some(c => chunkNeighbours(c).includes(op.key))) return 'adjacent'
             const cost = chunkCost(s.chunks.length - START_CHUNKS.length)
             if (!canAfford(s.stock, cost)) return 'afford'
@@ -313,7 +324,10 @@ export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null
             if (!ore || ore === 'oil' || ore === 'crystal') return 'ore'
             if (!s.chunks.includes(`${Math.floor(op.x / CHUNK)},${Math.floor(op.y / CHUNK)}`)) return 'land'
             const tokens = Math.min(MINE_BUCKET, s.mine.tokens + (now - s.mine.at) / 1000 * MINE_REFILL)
-            const n = Math.max(0, Math.min(Math.floor(op.n), Math.floor(tokens)))
+            // Hand mining stops at the storage cap, like the belts do.
+            const room = Math.floor((storageCap(s) - (s.stock[ore] ?? 0)) / HAND_MINE)
+            if (room < 1) return 'full'
+            const n = Math.max(0, Math.min(Math.floor(op.n), Math.floor(tokens), room))
             s.mine = { tokens: tokens - n, at: now }
             if (!n) return 'busy'
             give(s.stock, { [ore]: n * HAND_MINE })
@@ -324,7 +338,7 @@ export function applyOp(s: GridState, op: Op, now: number, sol?: Solution | null
             // Goals are claimed in order, once each, and only when met.
             const g = currentGoal(s)
             if (!g || g.id !== op.id) return 'missing'
-            if (!goalMet(g, s, sol ?? solveCached('goal', s))) return 'goal'
+            if (!goalMet(g, s, sol ?? solveCached(scope, s))) return 'goal'
             give(s.stock, g.reward)
             s.goals.push(g.id)
             return null
@@ -340,10 +354,22 @@ export function buildable(done: readonly string[]): Kind[] {
 
 // ---- input -------------------------------------------------------------------------
 
+const isItem = (v: unknown): v is ItemId => typeof v === 'string' && (ITEM_IDS as readonly string[]).includes(v)
+
 const int = (v: unknown, min: number, max: number): number | null =>
     typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : null
 
-/** Turns untrusted JSON into an Op, or null. */
+/** A chunk key in canonical form ('5,6') that lies on the map. */
+function validChunkKey(key: unknown): key is string {
+    if (typeof key !== 'string' || !/^\d{1,2},\d{1,2}$/.test(key)) return false
+    const [cx, cy] = key.split(',').map(Number) as [number, number]
+    return cx < MAP_CHUNKS && cy < MAP_CHUNKS && key === `${cx},${cy}`
+}
+
+/**
+ * Turns untrusted JSON into an Op, or null. Every id is checked against its
+ * table here, so nothing downstream looks up a string the client made up.
+ */
 export function parseOp(raw: unknown): Op | null {
     if (!raw || typeof raw !== 'object') return null
     const o = raw as Record<string, unknown>
@@ -354,16 +380,22 @@ export function parseOp(raw: unknown): Op | null {
     switch (o.op) {
         case 'place': {
             const e = o.e as Record<string, unknown> | undefined
-            if (!e || typeof e.k !== 'string' || !(e.k in BUILDINGS)) return null
+            if (!e || typeof e !== 'object' || !hasKey(BUILDINGS, e.k)) return null
             const ex = int(e.x, 0, MAP_TILES - 1)
             const ey = int(e.y, 0, MAP_TILES - 1)
             const er = int(e.r, 0, 3) as Dir | null
             const el = int(e.l ?? 0, 0, 2)
             if (ex === null || ey === null || er === null || el === null) return null
-            const ent: Entity = { k: e.k as Kind, x: ex, y: ey, r: er }
+            const ent: Entity = { k: e.k, x: ex, y: ey, r: er }
             if (el) ent.l = el
-            if (typeof e.recipe === 'string') ent.recipe = e.recipe
-            if (typeof e.filter === 'string') ent.filter = e.filter as ItemId
+            if (e.recipe !== undefined && e.recipe !== null) {
+                if (!hasKey(RECIPES, e.recipe)) return null
+                ent.recipe = e.recipe
+            }
+            if (e.filter !== undefined && e.filter !== null) {
+                if (!isItem(e.filter)) return null
+                ent.filter = e.filter
+            }
             return { op: 'place', e: ent }
         }
         case 'remove': case 'upgrade':
@@ -379,15 +411,15 @@ export function parseOp(raw: unknown): Op | null {
             return { op: 'move', x, y, l, to: { x: tx, y: ty, r: tr } }
         }
         case 'recipe':
-            return x === null || y === null || typeof o.recipe !== 'string' ? null : { op: 'recipe', x, y, recipe: o.recipe }
+            return x === null || y === null || !hasKey(RECIPES, o.recipe) ? null : { op: 'recipe', x, y, recipe: o.recipe }
         case 'filter':
-            return x === null || y === null || (o.item !== null && typeof o.item !== 'string') ? null : { op: 'filter', x, y, item: o.item as ItemId | null }
+            return x === null || y === null || (o.item !== null && !isItem(o.item)) ? null : { op: 'filter', x, y, item: o.item }
         case 'chunk':
-            return typeof o.key === 'string' && o.key.length < 8 ? { op: 'chunk', key: o.key } : null
+            return validChunkKey(o.key) ? { op: 'chunk', key: o.key } : null
         case 'research': case 'unqueue':
-            return typeof o.id === 'string' && o.id.length < 40 ? { op: o.op, id: o.id } : null
+            return hasKey(RESEARCH_BY_ID, o.id) ? { op: o.op, id: o.id } : null
         case 'goal':
-            return typeof o.id === 'string' && o.id.length <= 40 ? { op: 'goal', id: o.id } : null
+            return hasKey(GOAL_BY_ID, o.id) ? { op: 'goal', id: o.id } : null
         case 'mine': {
             const n = int(o.n, 1, 100)
             return x === null || y === null || n === null ? null : { op: 'mine', x, y, n }

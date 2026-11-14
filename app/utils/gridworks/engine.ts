@@ -7,7 +7,7 @@ import { DIRS, accepts, buildGraph, key3, layersOf, localToWorld, occupancy, out
 import { canAfford, spentOn, type GridState, type Op, type OpError } from '#shared/utils/gridworks/game'
 import type { Solution } from '#shared/utils/gridworks/flow'
 import { chunkNeighbours, oreAt, oreMap, type OreMap } from '#shared/utils/gridworks/world'
-import { BELT_FRAMES, BELT_PERIOD, TILE, loadTextures, type BeltShape, type GridTextures } from './textures'
+import { BELT_FRAMES, BELT_PERIOD, MAX_ZOOM, TILE, loadTextures, type BeltShape, type GridTextures } from './textures'
 import { GridSfx } from './sfx'
 
 extensions.add(CullerPlugin)
@@ -24,7 +24,7 @@ export interface HoverInfo {
 
 export interface Selected { e: Entity, flow: number, busy: number }
 
-export interface WorldPlot { userId: string, name: string, seed: number, entities: Entity[], chunks: string[] }
+export interface WorldPlot { userId: string, name: string, seed: number, entities: Entity[], chunks: string[], layout?: number }
 
 export interface EngineHooks {
     commit(ops: Op[]): (OpError | null)[]
@@ -88,7 +88,7 @@ type Drag =
     | { kind: 'pan', sx: number, sy: number, cx: number, cy: number, moved: boolean, lastX: number, lastY: number, lastT: number }
     | { kind: 'maybe', sx: number, sy: number, view: EntView }
     | { kind: 'move', view: EntView, from: Entity, r: Dir, grabDx: number, grabDy: number }
-    | { kind: 'belt', start: [number, number], axis: 'x' | 'y' | null, path: { x: number, y: number, r: Dir }[] }
+    | { kind: 'belt', start: [number, number], axis: 'x' | 'y' | null, moved: boolean, path: { x: number, y: number, r: Dir }[] }
     | { kind: 'paint', last: [number, number] | null, placed: number }
     | { kind: 'erase', last: [number, number] | null, count: number, sx: number, sy: number, moved: boolean }
     | { kind: 'mine', x: number, y: number, next: number }
@@ -99,6 +99,13 @@ function sigOf(e: Entity): string {
 function keyOf(e: Entity): string {
     return `${e.x},${e.y},${layersOf(e)[0]}`
 }
+
+const MIN_ZOOM = 0.08
+/** World text is rasterised for one of these zoom levels, the first that covers the camera. */
+const TEXT_ZOOMS = [0.5, 0.75, 1, 1.5, MAX_ZOOM]
+const BELT_FRAME_LEN = BELT_PERIOD / BELT_FRAMES
+/** The animation frame of a belt moving at `speed` tiles per second. */
+const beltFrameAt = (time: number, speed: number) => Math.floor(time * speed * TILE / BELT_FRAME_LEN) % BELT_FRAMES
 
 export class GridEngine {
     readonly sfx = new GridSfx()
@@ -116,21 +123,33 @@ export class GridEngine {
     private grid = new Graphics()
     private gridZoom = 0
     private others = new Container()
+    /** Neighbour plots by user id, rebuilt only when their signature changes. */
+    private otherPlots = new Map<string, { sig: string, c: Container }>()
     private beltLayers = [new Container(), new Container(), new Container()]
     private itemLayers = [new Container(), new Container(), new Container()]
     private entLayers = [new Container(), new Container(), new Container()]
     private overlay = new Graphics()
     private ghostLayer = new Container()
     /** Cog's pointer: a pulsing outline and a bobbing arrow over a goal's target. */
-    private guide = new Graphics()
+    private guide = new Container()
+    private guideBox = new Graphics()
+    private guideArrow = new Graphics()
     private guideTarget: { x: number, y: number, w: number, h: number } | null = null
+    private guideKey = ''
     private fx = new Container()
     private buyLayer = new Container()
+    /** Price tags with their half sizes, so hit tests don't measure them again. */
+    private buyTags: { key: string, tag: Container, hw: number, hh: number }[] = []
+    /** Text that lives in the world and is re-rasterised as the camera zooms. */
+    private worldTexts = new Map<Text, number>()
+    private textZoom = 0
 
     // Camera.
     private cam = { x: 0, y: 0, zoom: 0.8, tx: 0, ty: 0, tz: 0.8, vx: 0, vy: 0 }
     private keys = new Set<string>()
     private spaceDown = false
+    /** Set while a dialog covers the game: shortcuts and camera keys are ignored. */
+    private locked = false
 
     // Game view.
     private state: GridState | null = null
@@ -160,6 +179,8 @@ export class GridEngine {
     private ghostRect = new Graphics()
     private ghostArrow = new Graphics()
     private ghostPos = { x: 0, y: 0, rot: 0, shake: 0 }
+    private ghostKey = ''
+    private fullShownAt = 0
     private pathGhosts: Sprite[] = []
     private pathMarks = new Graphics()
     private undoStack: Op[][] = []
@@ -195,7 +216,10 @@ export class GridEngine {
         }
         this.host.appendChild(this.app.canvas)
         this.app.canvas.style.touchAction = 'none'
-        this.tex = await loadTextures(this.app.renderer)
+        // destroy() may run while the sprites load; nothing below may touch the dead app.
+        const tex = await loadTextures(this.app.renderer, () => this.disposed)
+        if (!tex || this.disposed) return
+        this.tex = tex
 
         const stage = this.app.stage
         stage.addChild(this.world)
@@ -206,6 +230,8 @@ export class GridEngine {
         this.ghostBody.anchor.set(0.5)
         this.ghostLayer.addChild(this.pathMarks, this.ghost)
         this.ghost.visible = false
+        this.guide.addChild(this.guideBox, this.guideArrow)
+        this.guide.visible = false
 
         this.bindInput()
         this.app.ticker.add(t => this.frame(t.deltaMS / 1000))
@@ -214,6 +240,8 @@ export class GridEngine {
     destroy() {
         this.disposed = true
         for (const off of this.cleanups) off()
+        this.cleanups = []
+        this.sfx.dispose()
         try {
             this.app.destroy(true, { children: true })
         } catch { /* not initialised yet */ }
@@ -270,18 +298,47 @@ export class GridEngine {
 
     setWorld(plots: WorldPlot[], me: string) {
         if (!this.tex) return
-        this.others.removeChildren().forEach(c => c.destroy({ children: true }))
         const cols = Math.max(1, Math.ceil(Math.sqrt(plots.length)))
         const span = (MAP_TILES + 24) * TILE
         const idx = Math.max(0, plots.findIndex(p => p.userId === me))
         const myCol = idx % cols
         const myRow = Math.floor(idx / cols)
+        const seen = new Set<string>()
         plots.forEach((p, i) => {
             if (p.userId === me) return
+            seen.add(p.userId)
             const ox = ((i % cols) - myCol) * span
             const oy = (Math.floor(i / cols) - myRow) * span
-            this.others.addChild(this.buildOtherPlot(p, ox, oy))
+            // Only a plot that changed is rebuilt; the rest just move if the grid shifted.
+            const sig = `${p.seed}|${p.layout ?? JSON.stringify(p.entities)}|${p.chunks.length}|${p.name}`
+            let entry = this.otherPlots.get(p.userId)
+            if (!entry || entry.sig !== sig) {
+                if (entry) this.destroyOtherPlot(entry.c)
+                entry = { sig, c: this.buildOtherPlot(p) }
+                this.otherPlots.set(p.userId, entry)
+                this.others.addChild(entry.c)
+            }
+            entry.c.position.set(ox, oy)
         })
+        for (const [id, entry] of this.otherPlots) {
+            if (seen.has(id)) continue
+            this.destroyOtherPlot(entry.c)
+            this.otherPlots.delete(id)
+        }
+    }
+
+    private destroyOtherPlot(c: Container) {
+        for (const child of c.children) if (child instanceof Text) this.worldTexts.delete(child)
+        c.destroy({ children: true })
+    }
+
+    /** Stops shortcuts and camera keys while a dialog is open over the game. */
+    setInputLocked(locked: boolean) {
+        this.locked = locked
+        if (!locked) return
+        this.keys.clear()
+        this.spaceDown = false
+        if (this.drag && this.drag.kind !== 'pan') this.cancelDrag()
     }
 
     setTool(tool: Tool) {
@@ -348,25 +405,49 @@ export class GridEngine {
         this.guideTarget = target
     }
 
+    /** A stroke that is `k` world units wide, but never thinner than `px` screen pixels. */
+    private lineWidth(k: number, px: number): number {
+        return Math.max(k, px / this.cam.zoom)
+    }
+
+    /** Changes when the zoom moved far enough that zoom-dependent shapes need a redraw. */
+    private zoomStep(): number {
+        return Math.round(Math.log(this.cam.zoom) / 0.08)
+    }
+
+    /**
+     * The guide's shapes are drawn once per target (and zoom step); the pulse
+     * and the bob only move, scale and fade them.
+     */
     private drawGuide() {
-        const g = this.guide
-        g.clear()
         const t = this.guideTarget
-        if (!t) return
+        this.guide.visible = !!t
+        if (!t) {
+            this.guideKey = ''
+            return
+        }
+        const box = this.guideBox
+        const arrow = this.guideArrow
+        const w = t.w * TILE
+        const h = t.h * TILE
+        // Far out, the arrow stops shrinking so it still reads as an arrow.
+        const grow = Math.max(1, 0.45 / this.cam.zoom)
+        const key = `${t.x},${t.y},${t.w},${t.h}|${this.zoomStep()}`
+        if (key !== this.guideKey) {
+            this.guideKey = key
+            box.clear().roundRect(-w / 2 - 4, -h / 2 - 4, w + 8, h + 8, 14).fill({ color: 0x5eead4, alpha: 0.12 })
+                .stroke({ width: this.lineWidth(4, 2), color: 0x5eead4 })
+            box.position.set((t.x + t.w / 2) * TILE, (t.y + t.h / 2) * TILE)
+            // A chunky arrow pointing down at the target, tip at the origin.
+            arrow.clear().moveTo(0, 0).lineTo(-18, -20).lineTo(-7, -20).lineTo(-7, -40)
+                .lineTo(7, -40).lineTo(7, -20).lineTo(18, -20).closePath()
+                .fill(0x5eead4).stroke({ width: Math.max(4, 1.5 / (this.cam.zoom * grow)), color: 0x0f1115, join: 'round' })
+            arrow.scale.set(grow)
+        }
         const pulse = (Math.sin(this.time * 4) + 1) / 2
-        const pad = 4 + pulse * 6
-        const x0 = t.x * TILE - pad
-        const y0 = t.y * TILE - pad
-        const w = t.w * TILE + pad * 2
-        const h = t.h * TILE + pad * 2
-        g.roundRect(x0, y0, w, h, 14).fill({ color: 0x5eead4, alpha: 0.06 + pulse * 0.06 })
-            .stroke({ width: 4, color: 0x5eead4, alpha: 0.55 + pulse * 0.35 })
-        // A chunky arrow bobbing above, pointing down at the target.
-        const ax = (t.x + t.w / 2) * TILE
-        const ay = t.y * TILE - 22 - Math.abs(Math.sin(this.time * 3.2)) * 18
-        g.moveTo(ax, ay).lineTo(ax - 18, ay - 20).lineTo(ax - 7, ay - 20).lineTo(ax - 7, ay - 40)
-            .lineTo(ax + 7, ay - 40).lineTo(ax + 7, ay - 20).lineTo(ax + 18, ay - 20).closePath()
-            .fill(0x5eead4).stroke({ width: 4, color: 0x0f1115, join: 'round' })
+        box.scale.set(1 + pulse * 12 / (w + 8), 1 + pulse * 12 / (h + 8))
+        box.alpha = 0.6 + pulse * 0.4
+        arrow.position.set((t.x + t.w / 2) * TILE, t.y * TILE - (22 + Math.abs(Math.sin(this.time * 3.2)) * 18) * grow)
     }
 
     undo() { this.history(this.undoStack, this.redoStack) }
@@ -394,7 +475,7 @@ export class GridEngine {
     }
 
     zoomBy(f: number) {
-        this.cam.tz = Math.min(2.2, Math.max(0.08, this.cam.tz * f))
+        this.cam.tz = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.cam.tz * f))
     }
 
     select(v: EntView | null) {
@@ -433,6 +514,7 @@ export class GridEngine {
         if (op === 'filter') {
             const [err] = this.hooks.commit([{ op: 'filter', x: e.x, y: e.y, item: (arg ?? null) as ItemId | null }])
             if (err) return this.reject(e.x, e.y, err)
+            this.pushUndo([{ op: 'filter', x: e.x, y: e.y, item: e.filter ?? null }])
             this.sfx.select()
         }
     }
@@ -624,6 +706,8 @@ export class GridEngine {
         if (key === this.groundKey) return
         this.groundKey = key
         this.ground.removeChildren().forEach(c => c.destroy({ children: true }))
+        for (const { tag } of this.buyTags) for (const child of tag.children) if (child instanceof Text) this.worldTexts.delete(child)
+        this.buyTags = []
         this.buyLayer.removeChildren().forEach(c => c.destroy({ children: true }))
         const owned = new Set(s.chunks)
         const g = new Graphics()
@@ -672,6 +756,9 @@ export class GridEngine {
                     tag.addChild(bg, t)
                     tag.alpha = 0.75
                     tag.label = n
+                    tag.cullable = true
+                    this.trackText(t)
+                    this.buyTags.push({ key: n, tag, hw: t.width / 2 + 22, hh: t.height / 2 + 14 })
                     this.buyLayer.addChild(tag)
                 }
             }
@@ -684,9 +771,8 @@ export class GridEngine {
         return canAfford(this.hooks.stock(), cost) ? 1 : 0
     }
 
-    private buildOtherPlot(p: WorldPlot, ox: number, oy: number): Container {
+    private buildOtherPlot(p: WorldPlot): Container {
         const c = new Container()
-        c.position.set(ox, oy)
         const g = new Graphics()
         const ore = oreMap(p.seed)
         const owned = new Set(p.chunks)
@@ -731,6 +817,9 @@ export class GridEngine {
             name.anchor.set(0.5, 1)
             name.position.set((minX + maxX) / 2 * CHUNK * TILE, minY * CHUNK * TILE - 40)
             name.alpha = 0.85
+            name.cullable = true
+            // Names are huge already; past this they'd cost megabytes each for nothing.
+            this.trackText(name, 2.5)
             c.addChild(name)
         }
         return c
@@ -747,6 +836,9 @@ export class GridEngine {
         on(canvas, 'pointerdown', ev => this.onDown(ev))
         on(window, 'pointermove', ev => this.onMove(ev))
         on(window, 'pointerup', ev => this.onUp(ev))
+        // A pointerup that never arrives (touch taken over, capture lost) must not leave a drag open.
+        on(window, 'pointercancel', () => this.cancelDrag())
+        on(canvas, 'lostpointercapture', () => this.cancelDrag())
         on(canvas, 'pointerenter', () => { this.pointer.inside = true; this.ghost.visible = this.tool.mode === 'build' })
         on(canvas, 'pointerleave', () => {
             this.pointer.inside = false
@@ -794,12 +886,16 @@ export class GridEngine {
         if (!this.state) return
         this.sfx.unlock()
         this.updatePointer(ev)
+        // A drag whose pointerup got lost is put away before a new one starts.
+        if (this.drag) {
+            const held = this.drag.kind === 'move' || this.drag.kind === 'belt'
+            this.cancelDrag()
+            if (held && ev.button === 2) return
+        }
         this.app.canvas.setPointerCapture?.(ev.pointerId)
         const { tx, ty } = this.pointer
         if (ev.button === 1 || (ev.button === 0 && this.spaceDown)) return this.startPan(ev)
         if (ev.button === 2) {
-            if (this.drag?.kind === 'move') return this.cancelDrag()
-            if (this.drag?.kind === 'belt') return this.cancelDrag()
             this.drag = { kind: 'erase', last: null, count: 0, sx: ev.clientX, sy: ev.clientY, moved: false }
             this.eraseStep(tx, ty)
             return
@@ -813,7 +909,7 @@ export class GridEngine {
         if (this.tool.mode === 'build') {
             const role = BUILDINGS[this.tool.kind].role
             if (role === 'belt') {
-                this.drag = { kind: 'belt', start: [tx, ty], axis: null, path: [{ x: tx, y: ty, r: this.beltAim(tx, ty).r }] }
+                this.drag = { kind: 'belt', start: [tx, ty], axis: null, moved: false, path: [{ x: tx, y: ty, r: this.beltAim(tx, ty).r }] }
                 this.sfx.beltTick(0)
                 this.drawPath()
                 return
@@ -854,6 +950,8 @@ export class GridEngine {
         const d = this.drag
         const { tx, ty } = this.pointer
         const tileChanged = tx !== prevTx || ty !== prevTy
+        // The right button pressed while the left one holds something arrives as a move.
+        if (ev.button === 2 && (ev.buttons & 2) && (d?.kind === 'move' || d?.kind === 'belt')) return this.cancelDrag()
         if (d?.kind === 'pan') {
             const z = this.cam.zoom
             this.cam.x = this.cam.tx = d.cx - (ev.clientX - d.sx) / z
@@ -925,7 +1023,7 @@ export class GridEngine {
         const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaY
         const f = Math.exp(-dy * 0.0016)
         const before = this.cam.tz
-        this.cam.tz = Math.min(2.2, Math.max(0.08, this.cam.tz * f))
+        this.cam.tz = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.cam.tz * f))
         // Zoom toward the cursor: keep the world point under it fixed at the target zoom.
         const r = this.app.canvas.getBoundingClientRect()
         const mx = ev.clientX - r.left - r.width / 2
@@ -937,22 +1035,29 @@ export class GridEngine {
     }
 
     private onKey(ev: KeyboardEvent, down: boolean) {
+        const k = ev.key.toLowerCase()
+        // Releases always count, wherever the focus went and whatever else is
+        // held, or a key let go over a text field stays down forever.
+        if (!down) {
+            this.keys.delete(k)
+            if (k === ' ') this.spaceDown = false
+            return
+        }
+        if (this.locked) return
         const target = ev.target as HTMLElement | null
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
-        const k = ev.key.toLowerCase()
         if (k === ' ') {
-            this.spaceDown = down
-            if (down) ev.preventDefault()
+            this.spaceDown = true
+            ev.preventDefault()
             return
         }
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
             if (ev.ctrlKey || ev.metaKey) return
-            if (down) this.keys.add(k)
-            else this.keys.delete(k)
+            this.keys.add(k)
             if (k.startsWith('arrow')) ev.preventDefault()
             return
         }
-        if (!down || ev.repeat && k !== 'r') return
+        if (ev.repeat && k !== 'r') return
         if ((ev.ctrlKey || ev.metaKey) && k === 'z') {
             ev.preventDefault()
             if (ev.shiftKey) this.redo()
@@ -1000,11 +1105,31 @@ export class GridEngine {
     }
 
     private buyTagAt(wx: number, wy: number): string | null {
-        for (const tag of this.buyLayer.children) {
-            const b = tag.getLocalBounds()
-            if (Math.abs(wx - tag.x) <= b.width / 2 && Math.abs(wy - tag.y) <= b.height / 2) return tag.label
+        for (const { key, tag, hw, hh } of this.buyTags) {
+            if (Math.abs(wx - tag.x) <= hw && Math.abs(wy - tag.y) <= hh) return key
         }
         return null
+    }
+
+    /** Registers a text that sits in the world, at the sharpness the camera needs now. */
+    private trackText(t: Text, maxRes = Infinity) {
+        this.worldTexts.set(t, maxRes)
+        if (this.textZoom) t.resolution = Math.min(maxRes, this.app.renderer.resolution * this.textZoom)
+    }
+
+    /**
+     * World text is drawn once and then scaled by the camera, so it goes soft
+     * zoomed in and wastes memory zoomed out. Re-rasterise it per zoom level.
+     */
+    private syncTextResolution() {
+        const z = TEXT_ZOOMS.find(v => v >= this.cam.zoom - 0.01) ?? MAX_ZOOM
+        if (z === this.textZoom) return
+        this.textZoom = z
+        const res = this.app.renderer.resolution * z
+        for (const [t, maxRes] of this.worldTexts) {
+            if (t.destroyed) this.worldTexts.delete(t)
+            else t.resolution = Math.min(maxRes, res)
+        }
     }
 
     private buyChunk(key: string) {
@@ -1112,12 +1237,13 @@ export class GridEngine {
         return { r: this.rotation, from: null }
     }
 
-    private ghostEntity(): Entity | null {
+    /** The building in hand as it would stand with the cursor on a tile. */
+    private ghostEntity(tx = this.pointer.tx, ty = this.pointer.ty): Entity | null {
         if (this.tool.mode !== 'build') return null
         const k = this.tool.kind
-        const r = BUILDINGS[k].role === 'belt' ? this.beltAim(this.pointer.tx, this.pointer.ty).r : this.rotation
+        const r = BUILDINGS[k].role === 'belt' ? this.beltAim(tx, ty).r : this.rotation
         const [w, h] = size(k, r)
-        const e: Entity = { k, x: this.pointer.tx - Math.floor((w - 1) / 2), y: this.pointer.ty - Math.floor((h - 1) / 2), r }
+        const e: Entity = { k, x: tx - Math.floor((w - 1) / 2), y: ty - Math.floor((h - 1) / 2), r }
         const role = BUILDINGS[k].role
         if (role === 'belt' && this.layer) e.l = this.layer
         if (role === 'ramp') e.l = Math.min(1, this.layer)
@@ -1174,7 +1300,7 @@ export class GridEngine {
         if (def.role === 'belt') {
             const { from } = this.beltAim(this.pointer.tx, this.pointer.ty)
             const shape: BeltShape = from === null || from === e.r ? 'straight' : from === rot(e.r, 1) ? 'curveL' : 'curveR'
-            this.ghostBody.texture = this.tex.belt[0]![shape][Math.floor(this.time * 10) % BELT_FRAMES]!
+            this.ghostBody.texture = this.tex.belt[0]![shape][beltFrameAt(this.time, BELT_MK[0]!.speed)]!
         }
         this.ghostBody.width = def.w * TILE
         this.ghostBody.height = def.h * TILE
@@ -1186,22 +1312,30 @@ export class GridEngine {
         this.ghostBody.alpha = same ? 0.18 : 0.62 + 0.08 * Math.sin(this.time * 5)
         this.ghostBody.tint = ok ? 0xffffff : 0xff8080
         const edge = same ? 0xffffff : ok ? 0x4ade80 : 0xf87171
-        this.ghostRect.clear()
-            .roundRect(-w * TILE / 2 + 1, -h * TILE / 2 + 1, w * TILE - 2, h * TILE - 2, 10)
-            .fill({ color: edge, alpha: same ? 0.04 : ok ? 0.12 : 0.2 })
-            .stroke({ width: 3, color: edge, alpha: same ? 0.35 : 0.9 })
-        // Direction arrow beyond the output edge.
-        this.ghostArrow.clear()
-        if (def.role !== 'sink' && def.role !== 'passive') {
-            const D = DIRS[e.r]!
-            const outs = def.role === 'machine' ? localToWorld(e.k, e.r, def.w - 1, def.outRow ?? 0) : [0, 0]
-            const ax = (e.x + outs[0]! + 0.5 + D[0] * 0.75) * TILE - (e.x + w / 2) * TILE
-            const ay = (e.y + outs[1]! + 0.5 + D[1] * 0.75) * TILE - (e.y + h / 2) * TILE
-            const ang = e.r * Math.PI / 2
-            const p = (dx: number, dy: number) => [ax + dx * Math.cos(ang) - dy * Math.sin(ang), ay + dx * Math.sin(ang) + dy * Math.cos(ang)] as const
-            const a = p(-8, -12), b = p(8, 0), c = p(-8, 12)
-            this.ghostArrow.moveTo(a[0], a[1]).lineTo(b[0], b[1]).lineTo(c[0], c[1])
-                .stroke({ width: 5, color: ok ? 0x4ade80 : 0xf87171, alpha: 0.85 + 0.15 * Math.sin(this.time * 6), cap: 'round', join: 'round' })
+        const arrow = def.role !== 'sink' && def.role !== 'passive'
+        this.ghostArrow.visible = arrow
+        this.ghostArrow.alpha = 0.85 + 0.15 * Math.sin(this.time * 6)
+        // The outline and arrow only change with the building, its turn, its verdict and the zoom.
+        const key = `${e.k}|${e.r}|${ok}|${same}|${this.zoomStep()}`
+        if (key !== this.ghostKey) {
+            this.ghostKey = key
+            this.ghostRect.clear()
+                .roundRect(-w * TILE / 2 + 1, -h * TILE / 2 + 1, w * TILE - 2, h * TILE - 2, 10)
+                .fill({ color: edge, alpha: same ? 0.04 : ok ? 0.12 : 0.2 })
+                .stroke({ width: this.lineWidth(3, 2), color: edge, alpha: same ? 0.35 : 0.9 })
+            // Direction arrow beyond the output edge.
+            this.ghostArrow.clear()
+            if (arrow) {
+                const D = DIRS[e.r]!
+                const outs = def.role === 'machine' ? localToWorld(e.k, e.r, def.w - 1, def.outRow ?? 0) : [0, 0]
+                const ax = (outs[0]! + 0.5 + D[0] * 0.75 - w / 2) * TILE
+                const ay = (outs[1]! + 0.5 + D[1] * 0.75 - h / 2) * TILE
+                const ang = e.r * Math.PI / 2
+                const p = (dx: number, dy: number) => [ax + dx * Math.cos(ang) - dy * Math.sin(ang), ay + dx * Math.sin(ang) + dy * Math.cos(ang)] as const
+                const a = p(-8, -12), b = p(8, 0), c = p(-8, 12)
+                this.ghostArrow.moveTo(a[0], a[1]).lineTo(b[0], b[1]).lineTo(c[0], c[1])
+                    .stroke({ width: this.lineWidth(5, 2.5), color: ok ? 0x4ade80 : 0xf87171, cap: 'round', join: 'round' })
+            }
         }
         const layerDim = this.layer > 0 && (def.role === 'belt' || def.role === 'ramp')
         this.ghost.scale.set(layerDim ? 1.04 : 1)
@@ -1210,14 +1344,24 @@ export class GridEngine {
     // ---- build actions -------------------------------------------------------------
 
     private paintStep() {
-        const e = this.ghostEntity()
         const d = this.drag
-        if (!e || d?.kind !== 'paint') return
+        if (this.tool.mode !== 'build' || d?.kind !== 'paint') return
         // Only place on fresh tiles in a drag; the first click always tries.
         const at: [number, number] = [this.pointer.tx, this.pointer.ty]
         if (d.last && d.last[0] === at[0] && d.last[1] === at[1]) return
         const first = !d.last
+        // Fill the gaps when the cursor jumps several tiles in one move.
+        const pts = d.last ? line(d.last[0], d.last[1], at[0], at[1]).slice(1) : [at]
         d.last = at
+        for (const [x, y] of pts) {
+            if (this.drag !== d) break
+            this.paintAt(d, x, y, first)
+        }
+    }
+
+    private paintAt(d: Extract<Drag, { kind: 'paint' }>, tx: number, ty: number, first: boolean) {
+        const e = this.ghostEntity(tx, ty)
+        if (!e) return
         const twin = this.ghostTwin(e)
         if (twin) {
             // Clicking a building with its own ghost turns it to the ghost's rotation.
@@ -1254,12 +1398,14 @@ export class GridEngine {
         const dx = tx - sx
         const dy = ty - sy
         if (!d.axis && (dx || dy)) d.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y'
+        if (dx || dy) d.moved = true
         if (!dx && !dy) d.axis = null
         const path: { x: number, y: number, r: Dir }[] = []
         const dirX: Dir = dx >= 0 ? 0 : 2
         const dirY: Dir = dy >= 0 ? 1 : 3
         if (!d.axis) {
-            path.push({ x: sx, y: sy, r: this.rotation })
+            // Back on the start tile: the same aim the ghost showed before the drag.
+            path.push({ x: sx, y: sy, r: this.beltAim(sx, sy).r })
         } else if (d.axis === 'x') {
             for (let i = 0; i <= Math.abs(dx); i++) path.push({ x: sx + Math.sign(dx) * i, y: sy, r: dirX })
             for (let j = 1; j <= Math.abs(dy); j++) path.push({ x: tx, y: sy + Math.sign(dy) * j, r: dirY })
@@ -1340,7 +1486,7 @@ export class GridEngine {
             }
             sp.alpha = plan === 'same' ? 0.35 : 0.7
             sp.tint = ok ? 0xffffff : 0xff7070
-            g.roundRect(p.x * TILE + 2, p.y * TILE + 2, TILE - 4, TILE - 4, 8).stroke({ width: 3, color: ok ? 0x4ade80 : 0xf87171, alpha: 0.75 })
+            g.roundRect(p.x * TILE + 2, p.y * TILE + 2, TILE - 4, TILE - 4, 8).stroke({ width: this.lineWidth(3, 2), color: ok ? 0x4ade80 : 0xf87171, alpha: 0.75 })
         })
         for (let i = d.path.length; i < this.pathGhosts.length; i++) this.pathGhosts[i]!.visible = false
     }
@@ -1349,8 +1495,9 @@ export class GridEngine {
         const ops: Op[] = []
         const undo: Op[] = []
         const l = this.layer
-        // The belt in hand when the drag never left its tile takes the ghost rotation.
-        const path = d.path.length === 1 ? [{ ...d.path[0]!, r: this.beltAim(d.path[0]!.x, d.path[0]!.y).r }] : d.path
+        // A click that never left its tile takes the ghost rotation. A drag commits
+        // exactly the path it drew, also when that is one tile aimed at a building.
+        const path = !d.moved && d.path.length === 1 ? [{ ...d.path[0]!, r: this.beltAim(d.path[0]!.x, d.path[0]!.y).r }] : d.path
         for (const p of path) {
             const plan = this.beltStepPlan(p)
             if (plan === 'place') {
@@ -1478,7 +1625,7 @@ export class GridEngine {
         const [w, h] = size(target.k, target.r)
         this.overlay.roundRect(target.x * TILE + 2, target.y * TILE + 2, w * TILE - 4, h * TILE - 4, 10)
             .fill({ color: err ? 0xf87171 : 0x4ade80, alpha: 0.14 })
-            .stroke({ width: 3, color: err ? 0xf87171 : 0x4ade80, alpha: 0.9 })
+            .stroke({ width: this.lineWidth(3, 2), color: err ? 0xf87171 : 0x4ade80, alpha: 0.9 })
     }
 
     private moveTarget(d: Extract<Drag, { kind: 'move' }>): Entity {
@@ -1494,9 +1641,10 @@ export class GridEngine {
         return placeError(s, this.ore!, t, s.done, this.occ, idx)
     }
 
-    private dropMoved(d: Extract<Drag, { kind: 'move' }>) {
+    /** Puts a carried building down where it hovers, or back where it came from. */
+    private dropMoved(d: Extract<Drag, { kind: 'move' }>, cancel = false) {
         const v = d.view
-        const t = this.moveTarget(d)
+        const t = cancel ? { ...d.from } : this.moveTarget(d)
         const l = layersOf(d.from)[0]!
         const unchanged = t.x === d.from.x && t.y === d.from.y && t.r === d.from.r
         this.quiet = true
@@ -1533,8 +1681,17 @@ export class GridEngine {
         }
         if (err || unchanged) {
             if (err) this.reject(t.x, t.y, err)
+            // The building may have left the plot while it was in hand (an undo, another tab).
+            const cur = this.views.get(v.key)
+            const gone = !this.state?.entities.some(e => keyOf(e) === v.key && sigOf(e) === v.sig)
+            if (gone || (cur && cur !== v)) {
+                root.destroy({ children: true })
+                return
+            }
             // Fly home. The view keeps its key, nothing changed in state.
             this.views.set(v.key, v)
+            // A turn made in the air is undone too.
+            if (d.r !== d.from.r) this.tweenRotation(v, d.from.r)
             settle(d.from)
             return
         }
@@ -1554,22 +1711,27 @@ export class GridEngine {
         settle(t)
     }
 
+    /** Ends the drag without doing what it was about to do. */
     private cancelDrag() {
         const d = this.drag
+        if (!d) return
         this.drag = null
-        if (d?.kind === 'move') {
-            this.dropMoved({ ...d, r: d.from.r, grabDx: 0, grabDy: 0 } as typeof d)
-        }
-        if (d?.kind === 'belt') {
+        this.app.canvas.style.cursor = ''
+        if (d.kind === 'move') this.dropMoved(d, true)
+        if (d.kind === 'belt') {
             this.drawPath()
             this.sfx.remove(1)
         }
+        this.refreshHover()
     }
 
     private mine(x: number, y: number) {
         const [err] = this.hooks.commit([{ op: 'mine', x, y, n: 1 }])
         if (err) {
-            if (err === 'busy') this.ghostPos.shake = 0
+            if (err === 'full' && performance.now() - this.fullShownAt > 900) {
+                this.fullShownAt = performance.now()
+                this.floatText((x + 0.5) * TILE, (y + 0.2) * TILE, 'Storage is full', 0xfcd34d, 22)
+            }
             return
         }
         const o = oreAt(this.ore!, x, y)!
@@ -1598,6 +1760,8 @@ export class GridEngine {
     }
 
     private history(from: Op[][], to: Op[][]) {
+        // A building in hand goes home first, or the undo could pull the plot out from under it.
+        if (this.drag && this.drag.kind !== 'pan') this.cancelDrag()
         const ops = from.pop()
         if (!ops) return
         // Each op's inverse is computed against the state before it runs.
@@ -1625,6 +1789,9 @@ export class GridEngine {
             } else if (op.op === 'recipe') {
                 const i = occupancy(s.entities).get(key3(op.x, op.y, 0))
                 if (i !== undefined) inverse.unshift({ ...op, recipe: recipeOf(s.entities[i]!) ?? op.recipe })
+            } else if (op.op === 'filter') {
+                const i = occupancy(s.entities).get(key3(op.x, op.y, 0))
+                if (i !== undefined) inverse.unshift({ ...op, item: s.entities[i]!.filter ?? null })
             }
         }
         const errs = this.hooks.commit(ops)
@@ -1798,9 +1965,11 @@ export class GridEngine {
                 else if (!this.drag) this.refreshHover()
             }
         }
+        this.syncTextResolution()
         // Buy tags brighten under the cursor.
-        for (const tag of this.buyLayer.children) {
-            const hot = this.tool.mode === 'select' && this.buyTagAt(this.pointer.wx, this.pointer.wy) === tag.label
+        const hotKey = this.tool.mode === 'select' && this.pointer.inside && this.buyTags.length ? this.buyTagAt(this.pointer.wx, this.pointer.wy) : null
+        for (const { key, tag } of this.buyTags) {
+            const hot = key === hotKey
             const target = hot ? 1 : 0.7
             tag.alpha += (target - tag.alpha) * 0.2
             const s = hot ? 1.06 : 1
@@ -1834,7 +2003,7 @@ export class GridEngine {
             p.s.rotation += p.spin * dt
             const f = p.life / p.max
             p.s.alpha = Math.min(1, f * 1.6)
-            p.s.scale.set(p.s.scale.x * (0.985))
+            p.s.scale.set(p.s.scale.x * Math.pow(0.985, dt * 60))
             keep.push(p)
         }
         this.particles = keep
@@ -1842,7 +2011,7 @@ export class GridEngine {
 
     private updateBelts() {
         // Every belt of a Mk shares a frame: swap textures only when it advances.
-        const frames = BELT_MK.map(m => Math.floor(this.time * m.speed * TILE / (BELT_PERIOD / BELT_FRAMES)) % BELT_FRAMES)
+        const frames = BELT_MK.map(m => beltFrameAt(this.time, m.speed))
         const key = frames.join(',')
         if (key === this.beltFrame) return
         this.beltFrame = key
@@ -1952,7 +2121,7 @@ export class GridEngine {
         const o = this.overlay
         const box = (v: EntView, color: number, alpha: number, width: number) => {
             const [w, h] = size(v.e.k, v.e.r)
-            o.roundRect(v.e.x * TILE + 1, v.e.y * TILE + 1, w * TILE - 2, h * TILE - 2, 11).stroke({ width, color, alpha })
+            o.roundRect(v.e.x * TILE + 1, v.e.y * TILE + 1, w * TILE - 2, h * TILE - 2, 11).stroke({ width: this.lineWidth(width, width * 0.6), color, alpha })
         }
         if (this.hover && !this.hover.lifted && this.tool.mode !== 'build') {
             const erase = this.tool.mode === 'remove' || this.drag?.kind === 'erase'
@@ -1960,7 +2129,7 @@ export class GridEngine {
         }
         if (this.selected && !this.selected.lifted) box(this.selected, 0x60a5fa, 0.95, 4)
         if (this.tool.mode === 'remove' && this.pointer.inside && !this.hover) {
-            o.roundRect(this.pointer.tx * TILE + 4, this.pointer.ty * TILE + 4, TILE - 8, TILE - 8, 8).stroke({ width: 2, color: 0xf87171, alpha: 0.5 })
+            o.roundRect(this.pointer.tx * TILE + 4, this.pointer.ty * TILE + 4, TILE - 8, TILE - 8, 8).stroke({ width: this.lineWidth(2, 1.5), color: 0xf87171, alpha: 0.5 })
         }
     }
 }

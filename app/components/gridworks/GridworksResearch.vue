@@ -65,7 +65,7 @@ const RING = 2 * Math.PI * 30
           <div class="text-right text-xs text-white/50">
             <span class="text-base font-semibold tabular-nums text-white">{{ doneCount }}</span>/{{ RESEARCH.length }} done
           </div>
-          <button class="grid size-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white" @click="open = false">
+          <button class="grid size-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/10 hover:text-white" aria-label="Close research" title="Close" @click="open = false">
             <UIcon name="i-lucide-x" class="size-4" />
           </button>
         </div>

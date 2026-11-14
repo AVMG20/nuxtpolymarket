@@ -1,13 +1,13 @@
-// Gridworks textures: the SVG sprites rasterised at a fixed density, plus belts
-// drawn procedurally (8 animation frames per Mk and shape).
+// Gridworks textures: the SVG sprites rasterised at a density that fits the
+// screen, plus belts drawn procedurally (8 animation frames per Mk and shape).
 import { Graphics, Rectangle, Texture, type Renderer } from 'pixi.js'
 import { BUILDINGS, ITEM_IDS, type ItemId, type Kind, type OreId } from '#shared/utils/gridworks/defs'
 
 const ORE_IDS: OreId[] = ['iron-ore', 'copper-ore', 'stone', 'coal', 'oil', 'crystal']
 
 export const TILE = 64
-/** Texture pixels per world unit. */
-const RES = 2
+/** The closest the camera gets (screen px per world unit, before the device pixel ratio). */
+export const MAX_ZOOM = 2.2
 export const BELT_FRAMES = 8
 /** Chevron spacing along a belt, in world units; 8 frames cover one period. */
 export const BELT_PERIOD = 32
@@ -123,7 +123,20 @@ function beltGraphic(shape: BeltShape, mk: number, frame: number): Graphics {
     return g
 }
 
-export async function loadTextures(renderer: Renderer): Promise<GridTextures> {
+/**
+ * Texture pixels per world unit. Sprites want one texel per screen pixel at
+ * full zoom (2.2 on a standard screen, 4.4 on Retina); capped so a Retina
+ * screen doesn't pay 5x the memory for the last bit of sharpness. Belts are
+ * flat shapes in 96 frames, so they stop a step earlier.
+ */
+function densities(renderer: Renderer) {
+    const sprite = Math.min(4, Math.max(2, Math.ceil(MAX_ZOOM * renderer.resolution)))
+    return { sprite, belt: Math.min(3, sprite), item: renderer.resolution > 1 ? 96 : 64 }
+}
+
+/** Resolves to null (with everything freed) when `cancelled` turns true while loading. */
+export async function loadTextures(renderer: Renderer, cancelled: () => boolean = () => false): Promise<GridTextures | null> {
+    const { sprite: res, belt: beltRes, item: itemPx } = densities(renderer)
     const building: Partial<Record<Kind, Texture>> = {}
     const spin: Partial<Record<Kind, Texture>> = {}
     const item = {} as Record<ItemId, Texture>
@@ -131,22 +144,29 @@ export async function loadTextures(renderer: Renderer): Promise<GridTextures> {
     for (const [k, def] of Object.entries(BUILDINGS) as [Kind, typeof BUILDINGS[Kind]][]) {
         if (!def.sprite) continue
         const url = `/gridworks/sprites/${def.sprite}`
-        jobs.push(rasterSvg(url, def.w * TILE * RES, def.h * TILE * RES).then((t) => { building[k] = t }))
+        jobs.push(rasterSvg(url, def.w * TILE * res, def.h * TILE * res).then((t) => { building[k] = t }))
         if (k === 'miner' || k === 'grinder' || k === 'crystal-drill') {
-            jobs.push(rasterSvg(url.replace('.svg', '.spin.svg'), TILE * RES, TILE * RES).then((t) => { spin[k] = t }))
+            jobs.push(rasterSvg(url.replace('.svg', '.spin.svg'), TILE * res, TILE * res).then((t) => { spin[k] = t }))
         }
     }
     for (const id of ITEM_IDS) {
-        jobs.push(rasterSvg(`/gridworks/sprites/items/${id}.svg`, 64, 64).then((t) => { item[id] = t }))
+        jobs.push(rasterSvg(`/gridworks/sprites/items/${id}.svg`, itemPx, itemPx).then((t) => { item[id] = t }))
     }
     const ore = {} as Record<OreId, Texture[]>
     for (const id of ORE_IDS) {
         ore[id] = []
         for (let n = 1; n <= 3; n++) {
-            jobs.push(rasterSvg(`/gridworks/sprites/ore/${id}-${n}.svg`, TILE * RES, TILE * RES).then((t) => { ore[id][n - 1] = t }))
+            jobs.push(rasterSvg(`/gridworks/sprites/ore/${id}-${n}.svg`, TILE * res, TILE * res).then((t) => { ore[id][n - 1] = t }))
         }
     }
-    await Promise.all(jobs)
+    const loaded = await Promise.allSettled(jobs)
+    const failed = loaded.find(j => j.status === 'rejected')
+    if (failed || cancelled()) {
+        const all = [...Object.values(building), ...Object.values(spin), ...Object.values(item), ...Object.values(ore).flat()]
+        for (const t of all) t?.destroy(true)
+        if (failed && !cancelled()) throw failed.reason
+        return null
+    }
 
     const belt: Record<BeltShape, Texture[]>[] = []
     for (let mk = 1; mk <= 4; mk++) {
@@ -154,7 +174,7 @@ export async function loadTextures(renderer: Renderer): Promise<GridTextures> {
         for (const shape of ['straight', 'curveL', 'curveR'] as BeltShape[]) {
             for (let f = 0; f < BELT_FRAMES; f++) {
                 const g = beltGraphic(shape, mk, f)
-                set[shape].push(renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, TILE, TILE), resolution: RES, antialias: true }))
+                set[shape].push(renderer.generateTexture({ target: g, frame: new Rectangle(0, 0, TILE, TILE), resolution: beltRes, antialias: true }))
                 g.destroy()
             }
         }
