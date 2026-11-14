@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs>
+<radialGradient id="smelting-glow" cx=".5" cy=".85" r=".8">
+<stop offset="0" stop-color="#ffe08a"/>
+<stop offset=".55" stop-color="#ff7a1f"/>
+<stop offset="1" stop-color="#7a2a12"/>
+</radialGradient>
+</defs>
+<rect x="34" y="4" width="10" height="14" rx="2" fill="#c2562f" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<rect x="5" y="14" width="44" height="42" rx="8" fill="#f28c4e"/>
+<path d="M5 24V22A8 8 0 0 1 13 14H41A8 8 0 0 1 49 22V24Z" fill="#fff" fill-opacity=".25"/>
+<path d="M5 48H49A8 8 0 0 1 41 56H13A8 8 0 0 1 5 48Z" fill="#c9672f"/>
+<rect x="5" y="14" width="44" height="42" rx="8" fill="none" stroke="#2b3038" stroke-width="3"/>
+<path d="M14 50V37A11 11 0 0 1 36 37V50Z" fill="url(#smelting-glow)" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<path d="M25 30C30 35 32.5 39 32.5 42.5A7.5 7.5 0 0 1 17.5 42.5C17.5 39 20 35 25 30Z" fill="#f2b83a" stroke="#2b3038" stroke-width="2" stroke-linejoin="round"/>
+<path d="M25 37.5C27.5 40 28.5 42 28.5 43.5A3.5 3.5 0 0 1 21.5 43.5C21.5 42 22.5 40 25 37.5Z" fill="#fff6d6"/>
+<rect x="37" y="38" width="22" height="22" rx="2" fill="#d7dee8"/>
+<path d="M37 38H59L54.5 42.5H41.5V55.5L37 60Z" fill="#fff" fill-opacity=".45"/>
+<path d="M59 38V60H37L41.5 55.5H54.5V42.5Z" fill="#a3aebd"/>
+<rect x="37" y="38" width="22" height="22" rx="2" fill="none" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+</svg>

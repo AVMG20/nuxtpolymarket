@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs>
+<radialGradient id="kiln-glow" cx=".5" cy=".9" r=".85">
+<stop offset="0" stop-color="#ffe08a"/>
+<stop offset=".5" stop-color="#ff8a2a"/>
+<stop offset="1" stop-color="#8a3216"/>
+</radialGradient>
+<g id="kiln-brick" stroke="#2b3038" stroke-width="2.5" stroke-linejoin="round">
+<path d="M0 5L5 0H24L19 5Z" fill="#e88a62"/>
+<path d="M19 5L24 0V8L19 13Z" fill="#923f20"/>
+<path d="M0 5H19V13H0Z" fill="#c2562f"/>
+</g>
+</defs>
+<rect x="24" y="4" width="10" height="10" rx="2" fill="#6b7a90" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<path d="M5 54V34A24 24 0 0 1 53 34V54Z" fill="#a3aebd"/>
+<path d="M8.6 22A24 24 0 0 1 49.4 22L45 24.5A19 19 0 0 0 13 24.5Z" fill="#fff" fill-opacity=".3"/>
+<path d="M5 47H53V54H5Z" fill="#6b7a90"/>
+<g fill="none" stroke="#6b7a90" stroke-width="2" stroke-linecap="round">
+<path d="M8 36H17M41 36H50M12 27H20M38 27H46M22 16V21M36 16V21"/>
+</g>
+<path d="M5 54V34A24 24 0 0 1 53 34V54Z" fill="none" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<path d="M18 54V41A11 11 0 0 1 40 41V54Z" fill="url(#kiln-glow)" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<rect x="3" y="52" width="52" height="6" rx="2" fill="#6b7a90" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<use href="#kiln-brick" transform="translate(36 47)"/>
+<use href="#kiln-brick" transform="translate(36 39)"/>
+</svg>
