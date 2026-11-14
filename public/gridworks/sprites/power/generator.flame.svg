@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="gw-gen-glow" cx="32" cy="36" r="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fb923c" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#fb923c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="36" r="14" fill="url(#gw-gen-glow)"/>
+  <path d="M32 21C34.5 26.5 43 29.5 43 37C43 42 38.5 45.5 32 45.5C25.5 45.5 21 42 21 37C21 32.5 23.5 29.5 25.5 26.5C27 29 28.5 30.5 29.5 31C29.5 27.5 30.5 24.5 32 21Z" fill="#fb923c" stroke="#c2410c" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M32 30C34 33.5 37.5 35.5 37.5 39.5C37.5 42.3 35.3 44 32 44C28.7 44 26.5 42.3 26.5 39.5C26.5 36 30 34 32 30Z" fill="#fde047"/>
+</svg>
