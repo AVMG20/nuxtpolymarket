@@ -5,12 +5,16 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from './resolution'
+import { DfInkPass } from './toon-ink'
 
 // Renderer + post chain:
-//   world RenderPass -> viewmodel pass (same buffer, depth cleared) -> bloom
-//   -> grade pass (ACES, sRGB, a light split-tone, vignette, faint grain, damage, downed).
-// The viewmodel is drawn into the HDR buffer before bloom and grading, so it
-// gets the same look and its muzzle flashes bloom.
+//   world RenderPass -> world ink -> viewmodel pass (same buffer, depth cleared)
+//   -> viewmodel ink -> bloom -> grade pass (a hue-keeping tone map, sRGB, comic
+//   colour, halftone in the deepest shadows, paper grain, vignette, damage, downed).
+// The ink passes (toon-ink.ts) draw outlines from the depth buffer; the world's
+// has to run before the viewmodel clears that depth. The viewmodel is drawn into
+// the HDR buffer before bloom and grading, so it gets the same look and its
+// muzzle flashes bloom over the ink.
 
 const GRADE_SHADER = {
     uniforms: {
@@ -23,7 +27,7 @@ const GRADE_SHADER = {
         uDamage: { value: 0 },
         uDown: { value: 0 },
         uFlash: { value: 0 },
-        uGrain: { value: 0.012 }
+        uGrain: { value: 0.008 }
     },
     vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -45,17 +49,21 @@ const GRADE_SHADER = {
         uniform float uGrain;
         varying vec2 vUv;
 
-        vec3 dfRrtOdtFit(vec3 v) {
-            vec3 a = v * (v + 0.0245786) - 0.000090537;
-            vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-            return a / b;
-        }
-        vec3 dfAces(vec3 color) {
-            const mat3 inM = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
-            const mat3 outM = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
-            color = inM * (color / 0.6);
-            color = dfRrtOdtFit(color);
-            return clamp(outM * color, 0.0, 1.0);
+        // Khronos neutral: colours below the shoulder pass through untouched, so the
+        // toon bands stay flat and saturated (ACES bends and greys them)
+        vec3 dfTone(vec3 color) {
+            const float start = 0.76;
+            const float desat = 0.15;
+            float x = min(color.r, min(color.g, color.b));
+            float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+            color -= offset;
+            float peak = max(color.r, max(color.g, color.b));
+            if (peak < start) return color;
+            float d = 1.0 - start;
+            float newPeak = 1.0 - d * d / (peak + d - start);
+            color *= newPeak / peak;
+            float g = 1.0 - 1.0 / (desat * (peak - newPeak) + 1.0);
+            return mix(color, vec3(newPeak), g);
         }
         vec3 dfToSrgb(vec3 c) {
             c = clamp(c, 0.0, 1.0);
@@ -87,16 +95,24 @@ const GRADE_SHADER = {
                 hdr = texture2D(tDiffuse, uv).rgb;
             }
             hdr = max(hdr, vec3(0.0)) * uExposure * (1.0 + uFlash);
-            vec3 c = dfToSrgb(dfAces(hdr));
+            vec3 c = dfToSrgb(dfTone(hdr * 1.3));
 
             float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-            // a light split tone (cool shadows, warm highlights) that keeps the voxel colours crisp
-            vec3 shadowTint = vec3(0.95, 0.99, 1.04);
-            vec3 highTint = vec3(1.03, 1.0, 0.95);
-            c *= mix(shadowTint, highTint, smoothstep(0.04, 0.75, l));
-            // a touch of contrast and saturation
-            c = mix(vec3(l), c, 1.08);
-            c = clamp((c - 0.5) * 1.04 + 0.5, 0.0, 1.0);
+            // comic colour: violet-blue shadows, warm lights, a firm push in saturation and contrast
+            vec3 shadowTint = vec3(0.94, 0.97, 1.07);
+            vec3 highTint = vec3(1.04, 1.0, 0.94);
+            c *= mix(shadowTint, highTint, smoothstep(0.04, 0.7, l));
+            c = mix(vec3(l), c, 1.22);
+            c = clamp((c - 0.5) * 1.1 + 0.52, 0.0, 1.0);
+            l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+
+            // halftone in the deepest shadows: a 45 degree dot screen, dots growing as it gets darker
+            vec2 css = gl_FragCoord.xy / max(uPr, 1.0);
+            vec2 hp = mat2(0.7071, -0.7071, 0.7071, 0.7071) * css / 5.0;
+            float hd = length(fract(hp) - 0.5);
+            float hr = 0.46 * (1.0 - smoothstep(0.015, 0.11, l));
+            float dots = 1.0 - smoothstep(hr - 0.09, hr + 0.09, hd);
+            c *= 1.0 - dots * 0.3;
 
             float desat = max(uLowHealth * 0.6, uDown * 0.9);
             c = mix(c, vec3(l) * vec3(1.02, 0.99, 0.96), desat);
@@ -112,9 +128,10 @@ const GRADE_SHADER = {
             float red = clamp(uLowHealth * 0.75 * pulse + uDamage * 0.9, 0.0, 1.0) * smoothstep(0.2, 0.95, r);
             c = mix(c, vec3(0.32, 0.015, 0.01) * (0.6 + 0.4 * l), red * 0.85);
 
-            // film grain sized in CSS pixels, plus a faint gate flicker
-            vec2 g = floor(gl_FragCoord.xy / max(uPr, 1.0));
-            float n = hash(g + fract(uTime * 13.7) * vec2(173.0, 91.0)) - 0.5;
+            // paper: a still, fibrous grain the ink sits on, plus a faint live grain
+            float paper = hash(floor(css * 0.5)) * 0.5 + hash(floor(css)) * 0.3 + hash(floor(css * vec2(0.12, 1.0))) * 0.2;
+            c *= 1.0 + (paper - 0.5) * 0.05;
+            float n = hash(floor(css) + fract(uTime * 13.7) * vec2(173.0, 91.0)) - 0.5;
             c += n * uGrain * (1.15 - l * 0.6);
             // dither against banding in the dark sky
             c += (hash(gl_FragCoord.xy * 1.37 + 11.0) - 0.5) / 255.0;
@@ -189,13 +206,16 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     container.appendChild(canvas)
 
     const quality = opts.quality === 'low' || opts.quality === 'high' ? opts.quality : detectQuality(renderer.getContext())
+    // the depth texture feeds the ink passes (with MSAA it is the resolved copy)
     const target = new THREE.WebGLRenderTarget(1, 1, {
         type: THREE.HalfFloatType,
-        samples: quality === 'high' ? 4 : 0
+        samples: quality === 'high' ? 4 : 0,
+        depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType)
     })
     const composer = new EffectComposer(renderer, target)
     let worldPass: RenderPass | null = null
     let vmPass: LayerPass | null = null
+    let inks: DfInkPass[] = []
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.38, 0.92)
     bloom.enabled = quality === 'high'
     const grade = new ShaderPass(GRADE_SHADER)
@@ -222,6 +242,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         composer.setSize(width, height)
         gu.uRes.value.set(width * pr, height * pr)
         gu.uPr.value = pr
+        for (const ink of inks) ink.setPixelRatio(pr)
     }
 
     function resize(): void {
@@ -254,8 +275,17 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             composer.passes.length = 0
             worldPass = new RenderPass(scene, camera)
             vmPass = new LayerPass(vmScene, vmCamera)
+            for (const ink of inks) ink.dispose()
+            // without MSAA the depth texture is the attachment itself: copy instead of blending in place
+            const copy = quality !== 'high'
+            inks = [
+                new DfInkPass(camera, { copy, width: copy ? 1.3 : 1.9, fade: 1, strength: 0.92 }),
+                new DfInkPass(vmCamera, { copy, width: copy ? 1.3 : 1.9, fade: 0, strength: 0.95 })
+            ]
             composer.addPass(worldPass)
+            composer.addPass(inks[0]!)
             composer.addPass(vmPass)
+            composer.addPass(inks[1]!)
             composer.addPass(bloom)
             composer.addPass(grade)
             resize()
@@ -284,6 +314,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         },
         dispose() {
             composer.passes.length = 0
+            for (const ink of inks) ink.dispose()
             bloom.dispose()
             grade.dispose()
             composer.dispose()
