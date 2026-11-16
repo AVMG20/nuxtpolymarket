@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RESEARCH, TIER_GATE, researchAvailable, tierOpen, type Branch, type ItemId, type ResearchNode, type Stock } from '#shared/utils/gridworks/defs'
+import { ITEMS, RESEARCH, TIER_GATE, researchAvailable, tierOpen, type Branch, type ItemId, type ResearchNode, type Stock } from '#shared/utils/gridworks/defs'
 import type { GridState } from '#shared/utils/gridworks/game'
 import { fmt } from '~/utils/gridworks/engine'
 
@@ -140,13 +140,11 @@ const RING = 2 * Math.PI * 30
                     {{ n.desc }}
                   </div>
                   <div v-if="status(n) !== 'done'" class="mt-1.5 flex flex-wrap gap-1">
-                    <span
-                      v-for="[k, v] in Object.entries(n.cost)"
-                      :key="k"
-                      class="flex items-center gap-0.5 rounded-md bg-black/30 px-1 py-px text-[11px] tabular-nums"
-                    >
-                      <img :src="itemUrl(k)" class="size-3.5" alt="">{{ fmt(v) }}
-                    </span>
+                    <UTooltip v-for="[k, v] in Object.entries(n.cost)" :key="k" :text="ITEMS[k as ItemId]?.name ?? k" :delay-duration="150">
+                      <span class="flex items-center gap-0.5 rounded-md bg-black/30 px-1 py-px text-[11px] tabular-nums">
+                        <img :src="itemUrl(k)" class="size-3.5" :alt="ITEMS[k as ItemId]?.name ?? k">{{ fmt(v) }}
+                      </span>
+                    </UTooltip>
                   </div>
                 </div>
               </button>

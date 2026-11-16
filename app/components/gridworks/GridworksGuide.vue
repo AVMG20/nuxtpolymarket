@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { GOALS, goalMet, type Goal } from '#shared/utils/gridworks/goals'
-import type { ItemId } from '#shared/utils/gridworks/defs'
+import { ITEMS, type ItemId } from '#shared/utils/gridworks/defs'
 import type { Solution } from '#shared/utils/gridworks/flow'
 import type { GridState } from '#shared/utils/gridworks/game'
 import { fmt } from '~/utils/gridworks/engine'
@@ -143,9 +143,11 @@ const itemUrl = (id: string) => `/gridworks/sprites/items/${id}.svg`
         <div class="mt-2.5 flex items-center gap-2">
           <div v-if="rewards.length" class="flex flex-wrap items-center gap-1.5 text-xs">
             <span class="text-white/40">Reward</span>
-            <span v-for="[k, v] in rewards" :key="k" class="flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5">
-              <img :src="itemUrl(k)" class="size-4" alt="">{{ fmt(v) }}
-            </span>
+            <UTooltip v-for="[k, v] in rewards" :key="k" :text="ITEMS[k as ItemId]?.name ?? k" :delay-duration="150">
+              <span class="flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5">
+                <img :src="itemUrl(k)" class="size-4" :alt="ITEMS[k as ItemId]?.name ?? k">{{ fmt(v) }}
+              </span>
+            </UTooltip>
           </div>
           <button
             v-if="met"

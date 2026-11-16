@@ -250,7 +250,9 @@ function toggleHelp() {
             {{ active.node.name }}
           </div>
           <div v-for="p in active.parts" :key="p.id" class="mb-1 flex items-center gap-2">
-            <img :src="itemUrl(p.id)" class="size-5" alt="">
+            <UTooltip :text="ITEMS[p.id].name" :delay-duration="150">
+              <img :src="itemUrl(p.id)" class="size-5" :alt="ITEMS[p.id].name">
+            </UTooltip>
             <div class="relative h-2 flex-1 overflow-hidden rounded-full bg-white/10">
               <div class="absolute inset-y-0 left-0 rounded-full bg-violet-400 transition-[width] duration-300" :style="{ width: `${(p.got / p.total) * 100}%` }" />
             </div>
@@ -343,10 +345,14 @@ function toggleHelp() {
         <div v-if="selRecipe" class="mb-2 flex items-center gap-1 text-xs text-white/60">
           <template v-for="([k, v], i) in costEntries(RECIPES[selRecipe]!.inputs)" :key="k">
             <span v-if="i" class="text-white/30">+</span>
-            <img :src="itemUrl(k)" class="size-4" alt="">{{ v }}
+            <UTooltip :text="ITEMS[k].name" :delay-duration="150">
+              <span class="flex items-center gap-1"><img :src="itemUrl(k)" class="size-4" :alt="ITEMS[k].name">{{ v }}</span>
+            </UTooltip>
           </template>
           <UIcon name="i-lucide-arrow-right" class="mx-0.5 size-3.5 text-white/40" />
-          <img :src="itemUrl(RECIPES[selRecipe]!.out)" class="size-4" alt="">{{ RECIPES[selRecipe]!.outQty }}
+          <UTooltip :text="ITEMS[RECIPES[selRecipe]!.out].name" :delay-duration="150">
+            <span class="flex items-center gap-1"><img :src="itemUrl(RECIPES[selRecipe]!.out)" class="size-4" :alt="ITEMS[RECIPES[selRecipe]!.out].name">{{ RECIPES[selRecipe]!.outQty }}</span>
+          </UTooltip>
           <span class="ml-auto text-white/40">{{ RECIPES[selRecipe]!.time }}s</span>
         </div>
         <div v-if="selected.e.k === 'smart-splitter'" class="mb-2">
@@ -362,7 +368,7 @@ function toggleHelp() {
               :title="ITEMS[id].name"
               @click="eng?.act('filter', selected.e.filter === id ? null : id)"
             >
-              <img :src="itemUrl(id)" class="size-5" alt="">
+              <img :src="itemUrl(id)" class="size-5" :alt="ITEMS[id].name" :title="ITEMS[id].name">
             </button>
           </div>
         </div>
@@ -375,9 +381,9 @@ function toggleHelp() {
           >
             <span class="font-semibold text-amber-200">Upgrade to Mk{{ selUpgrade.mk + 1 }}</span>
             <span class="flex items-center gap-1">
-              <template v-for="[k, v] in costEntries(selUpgrade.cost)" :key="k">
-                <img :src="itemUrl(k)" class="size-4" alt="">{{ fmt(v) }}
-              </template>
+              <UTooltip v-for="[k, v] in costEntries(selUpgrade.cost)" :key="k" :text="ITEMS[k].name" :delay-duration="150">
+                <span class="flex items-center gap-1"><img :src="itemUrl(k)" class="size-4" :alt="ITEMS[k].name">{{ fmt(v) }}</span>
+              </UTooltip>
             </span>
           </button>
           <div v-else class="text-xs text-white/40">
