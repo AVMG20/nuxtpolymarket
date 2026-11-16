@@ -27,14 +27,17 @@ const published = {
 function setup(opts: { local: CustomTrack[], unpublishes?: boolean }) {
     let local = opts.local
     let mine = [published]
+    let hidden: NrPublishedTrack[] = []
+    const forgotten: string[] = []
     const trackId = ref(PUBLISHED_ID)
     const compile = (t: { id: string, name: string, closed: boolean, sections: SectionId[] }) => compileCustomTrack(t).def
-    const entries = () => ownTrackEntries(local, mine, compile, compile)
+    const entries = () => ownTrackEntries(local, mine, hidden, compile, compile)
     const actions = useNitroRushOwnTrackActions({
         ownEntry: id => entries().find(e => e.track.id === id),
         publishTrack: async () => null,
         unpublishTrack: async () => {
             if (opts.unpublishes === false) return false
+            hidden = mine
             mine = []
             return true
         },
@@ -45,7 +48,9 @@ function setup(opts: { local: CustomTrack[], unpublishes?: boolean }) {
             local = local.filter(l => l.id !== id)
         },
         records: ref<Record<string, TrackRecord>>({}),
-        forgetRecord: () => {},
+        forgetRecord: (id) => {
+            forgotten.push(id)
+        },
         trackId,
         resolveTrack: (id): TrackDef | null => {
             const t = local.find(l => l.id === id)
@@ -56,14 +61,24 @@ function setup(opts: { local: CustomTrack[], unpublishes?: boolean }) {
         },
         click: () => {}
     })
-    return { actions, entries, trackId, stored: () => local }
+    return { actions, entries, trackId, forgotten, stored: () => local, rebuild: (t: CustomTrack) => (local = [t]) }
 }
 
 describe('Nitro Rush own track actions', () => {
-    it('keeps a course with no copy here when it is unpublished', async () => {
-        const { actions, entries } = setup({ local: [] })
+    it('keeps a course with no copy here when it is unpublished, ready to bring its board back', async () => {
+        const { actions, entries, forgotten } = setup({ local: [] })
         await actions.unpublish(SOURCE_ID)
-        expect(entries()).toMatchObject([{ track: { id: SOURCE_ID, name: 'Test', sections: SECTIONS }, published: null, change: 'new' }])
+        expect(entries()).toMatchObject([{ track: { id: SOURCE_ID, name: 'Test', sections: SECTIONS }, published: null, hidden: { id: PUBLISHED_ID }, change: 'restore' }])
+        expect(forgotten).toEqual([])
+    })
+
+    it('offers the board back to the same road rebuilt under another name and id', async () => {
+        const { actions, entries, rebuild } = setup({ local: [] })
+        await actions.unpublish(SOURCE_ID)
+        rebuild({ id: 'custom-again', name: 'Again', closed: true, sections: SECTIONS })
+        expect(entries()).toMatchObject([{ track: { id: 'custom-again' }, hidden: { id: PUBLISHED_ID }, change: 'restore' }])
+        rebuild({ id: 'custom-again', name: 'Again', closed: true, sections: SECTIONS.slice(0, -1) })
+        expect(entries()).toMatchObject([{ hidden: null }])
     })
 
     it('moves the engine to the kept copy of the course it was driving', async () => {
@@ -84,10 +99,11 @@ describe('Nitro Rush own track actions', () => {
         expect(entries()).toMatchObject([{ track: { id: SOURCE_ID }, published: { id: PUBLISHED_ID } }])
     })
 
-    it('still deletes a course outright, leaving no copy behind', async () => {
-        const { actions, entries, trackId } = setup({ local: [] })
+    it('still deletes a course outright, leaving no copy or bests behind', async () => {
+        const { actions, entries, trackId, forgotten } = setup({ local: [] })
         await actions.deleteTrack(SOURCE_ID)
         expect(entries()).toEqual([])
         expect(trackId.value).toBe(TRACKS[0]!.id)
+        expect(forgotten).toContain(PUBLISHED_ID)
     })
 })

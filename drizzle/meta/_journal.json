@@ -512,6 +512,13 @@
       "when": 1794391006748,
       "tag": "0072_nitro_rush_branches",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794824967050,
+      "tag": "0073_nitro_rush_hidden_tracks",
+      "breakpoints": true
     }
   ]
 }

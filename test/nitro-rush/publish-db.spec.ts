@@ -13,6 +13,11 @@ const tag = Date.now().toString(36)
 const A = `nrp-a-${tag}`
 const B = `nrp-b-${tag}`
 const C = `nrp-c-${tag}`
+const D = `nrp-d-${tag}`
+const E = `nrp-e-${tag}`
+const F = `nrp-f-${tag}`
+const G = `nrp-g-${tag}`
+const USERS = [A, B, C, D, E, F, G]
 
 const course = (id: string, sections = RECTANGLE, name = 'Neon Ring'): CustomTrack => ({ id: `custom-${id}-${tag}`, name, closed: true, sections })
 const LAPS = new Map([[RECTANGLE, publishLap(true, RECTANGLE)], [LONG_RECTANGLE, publishLap(true, LONG_RECTANGLE)]])
@@ -28,14 +33,10 @@ function ghostOf(seconds: number) {
 
 describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
     beforeAll(async () => {
-        await seedUser(A)
-        await seedUser(B)
-        await seedUser(C)
+        for (const u of USERS) await seedUser(u)
     })
     afterAll(async () => {
-        await cleanupUser(A)
-        await cleanupUser(B)
-        await cleanupUser(C)
+        for (const u of USERS) await cleanupUser(u)
     })
 
     it('publishes a course that others can race, and refuses one that isn\'t finished or named', async () => {
@@ -110,7 +111,7 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         expect(theirs.mine).toEqual([])
     })
 
-    it('takes a track down with its times, and only its author can', async () => {
+    it('takes a track down out of sight with its times kept, and only its author can', async () => {
         // Its own author, since the tests above leave A at the cap.
         const id = await publish(C, course('gone'))
         await submitNrLap(B, id, 30_000)
@@ -118,7 +119,66 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         await unpublishNrTrack(C, course('gone').id)
         expect(await nrTrackDef(id)).toBeNull()
         expect((await nrPublishedTracks(B)).community.some(t => t.id === id)).toBe(false)
+        const own = await nrPublishedTracks(C)
+        expect(own.mine.some(t => t.id === id)).toBe(false)
+        expect(own.hidden.find(t => t.id === id)).toMatchObject({ sourceId: course('gone').id, summary: { entries: 2 } })
         await expect(unpublishNrTrack(C, course('gone').id)).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('brings the board back when the same road is published again, renamed or rebuilt, with no lap needed', async () => {
+        const id = await publish(D, course('back'))
+        await submitNrLap(B, id, 30_000)
+        await saveNrGhost(B, id, { ghost: ghostOf(30), standing: false })
+        await unpublishNrTrack(D, course('back').id)
+        expect(await publishNrTrack(D, course('back', RECTANGLE, 'Back Again'))).toBe(id)
+        expect((await nrPublishedTracks(B)).community.find(t => t.id === id)).toMatchObject({ name: 'Back Again', summary: { entries: 2, myLapMs: 30_000 } })
+        expect(await nrGhost(B, id)).not.toBeNull()
+
+        await unpublishNrTrack(D, course('back').id)
+        expect(await publishNrTrack(D, course('rebuilt'))).toBe(id)
+        expect((await nrPublishedTracks(D)).mine.find(t => t.id === id)?.sourceId).toBe(course('rebuilt').id)
+    })
+
+    it('publishes a changed road fresh, keeping the hidden board for that old road to come back to', async () => {
+        const old = await publish(E, course('swap'))
+        await submitNrLap(B, old, 30_000)
+        await unpublishNrTrack(E, course('swap').id)
+        // A changed road still needs its lap.
+        await expect(publishNrTrack(E, course('swap', LONG_RECTANGLE))).rejects.toMatchObject({ statusCode: 400 })
+        const next = await publish(E, course('swap', LONG_RECTANGLE))
+        expect(next).not.toBe(old)
+        expect((await nrLeaderboard(next, E)).entries).toBe(1)
+        expect((await nrPublishedTracks(E)).hidden.map(t => t.id)).toEqual([old])
+        expect(await publishNrTrack(E, course('swap-back'))).toBe(old)
+        expect((await nrLeaderboard(old, E)).entries).toBe(2)
+    })
+
+    it('keeps one consistent copy under a burst of unpublishes and republishes', async () => {
+        const id = await publish(F, course('flip'))
+        await Promise.allSettled(Array.from({ length: 10 }, (_, i) => i % 2 ? publishNrTrack(F, course('flip')) : unpublishNrTrack(F, course('flip').id)))
+        const rows = await db.select().from(nitroRushTracks).where(eq(nitroRushTracks.authorId, F))
+        expect(rows.map(r => [r.id, r.sourceId])).toEqual([[id, course('flip').id]])
+        expect((await nrLeaderboard(id, F)).entries).toBe(1)
+    })
+
+    it('keeps only the newest unpublished tracks per author', async () => {
+        const stale = Array.from({ length: MAX_CUSTOM_TRACKS }, (_, i) => ({
+            id: `pub-stale-${i}-${tag}`,
+            authorId: G,
+            sourceId: `custom-stale-${i}-${tag}`,
+            name: 'Stale',
+            closed: true,
+            sections: LONG_RECTANGLE,
+            roadHash: `stale-${i}`,
+            unpublishedAt: new Date(Date.now() - (i + 1) * 60_000)
+        }))
+        await db.insert(nitroRushTracks).values(stale)
+        const id = await publish(G, course('fresh'))
+        await unpublishNrTrack(G, course('fresh').id)
+        const hidden = (await nrPublishedTracks(G)).hidden.map(t => t.id)
+        expect(hidden).toHaveLength(MAX_CUSTOM_TRACKS)
+        expect(hidden).toContain(id)
+        expect(hidden).not.toContain(stale.at(-1)!.id)
     })
 
     it('caps how many tracks one player may publish', async () => {

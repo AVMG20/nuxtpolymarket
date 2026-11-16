@@ -19,6 +19,8 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
     const toast = useToast()
     const community = ref<NrPublishedTrack[]>([])
     const mine = ref<NrPublishedTrack[]>([])
+    /** The player's unpublished courses, which publishing the same road brings back. */
+    const hidden = ref<NrPublishedTrack[]>([])
     /** The course being published or taken down, by its local id. */
     const busy = ref<string | null>(null)
     /** Community courses with a vote in flight, by published id. */
@@ -44,14 +46,15 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         return def ? [{ track, def }] : []
     }))
 
-    const entries = computed(() => ownTrackEntries(own.tracks.value, mine.value, t => own.compile(t).def, compile))
+    const entries = computed(() => ownTrackEntries(own.tracks.value, mine.value, hidden.value, t => own.compile(t).def, compile))
     const ownEntry = (sourceId: string) => entries.value.find(e => e.track.id === sourceId)
 
     async function load() {
         try {
-            const res = await apiFetch<{ community: NrPublishedTrack[], mine: NrPublishedTrack[] }>('/api/nitro-rush/published')
+            const res = await apiFetch<{ community: NrPublishedTrack[], mine: NrPublishedTrack[], hidden: NrPublishedTrack[] }>('/api/nitro-rush/published')
             community.value = res.community
             mine.value = res.mine
+            hidden.value = res.hidden
             onSummaries([...res.community, ...res.mine].map(t => t.summary))
         } catch {
             // The menu shows what it had, and only the player's own courses on first load.
@@ -88,8 +91,10 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
             await apiPost('/api/nitro-rush/unpublish', { sourceId }).catch((e) => {
                 if ((e as { statusCode?: number }).statusCode !== 404) throw e
             })
-            // Off the list now, since a failed reload keeps what it had.
-            mine.value = mine.value.filter(p => p.sourceId !== sourceId)
+            // Moved now, since a failed reload keeps what it had.
+            const gone = mine.value.find(p => p.sourceId === sourceId)
+            mine.value = mine.value.filter(p => p !== gone)
+            if (gone) hidden.value = [...hidden.value, gone]
             await load()
             return true
         } catch (e) {

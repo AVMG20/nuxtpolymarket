@@ -14,28 +14,31 @@ export function publishedCourse(p: NrPublishedTrack, id = p.id): CustomTrack {
 export const knowsSections = (p: NrPublishedTrack) => p.sections.every(isSectionId) && (p.branches ?? []).every(b => b.sections.every(isSectionId))
 
 /**
- * The My Tracks list: each course in this browser with its published copy, then the player's
+ * The My Tracks list: each course in this browser with its published or unpublished copy, then the player's
  * published courses with no copy here (published from another device, or deleted here).
  */
 export function ownTrackEntries(
     local: CustomTrack[],
     mine: NrPublishedTrack[],
+    hiddenTracks: NrPublishedTrack[],
     compileLocal: (t: CustomTrack) => TrackDef | null,
     compilePublished: (t: NrPublishedTrack) => TrackDef | null
 ): CustomTrackEntry[] {
     const here = local.map((track): CustomTrackEntry => {
         const def = compileLocal(track)
         const published = mine.find(p => p.sourceId === track.id) ?? null
+        // Matched by road like the server's restore, so a renamed or rebuilt copy finds it too.
+        const hidden = !published && def ? hiddenTracks.find(h => sameRoad(publishedCourse(h, track.id), track)) ?? null : null
         const same = !!published && sameRoad(publishedCourse(published, track.id), track)
         const renamed = !!published && published.name !== track.name.trim()
-        const change = !def ? null : !published ? 'new' : !same ? 'replace' : renamed ? 'rename' : null
-        return { track, def, published, change, playId: same ? published!.id : track.id }
+        const change = !def ? null : hidden ? 'restore' : !published ? 'new' : !same ? 'replace' : renamed ? 'rename' : null
+        return { track, def, published, hidden, change, playId: same ? published!.id : track.id }
     })
     const elsewhere = mine.filter(p => !local.some(t => t.id === p.sourceId)).flatMap((published): CustomTrackEntry[] => {
         const def = compilePublished(published)
         if (!def) return []
         const track = publishedCourse(published, published.sourceId)
-        return [{ track, def, published, change: null, playId: published.id }]
+        return [{ track, def, published, hidden: null, change: null, playId: published.id }]
     })
     return [...here, ...elsewhere]
 }

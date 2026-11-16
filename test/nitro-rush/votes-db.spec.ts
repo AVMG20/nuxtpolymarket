@@ -91,13 +91,15 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect(await voteRows(id)).toEqual([])
     })
 
-    it('drops the votes when a track is taken down, and answers 404 after', async () => {
+    it('keeps the votes on a track taken down, takes no new ones, and has them back on a republish', async () => {
         const id = await publish(A, course('gone'))
         await voteNrTrack(B, id, 1)
         await voteNrTrack(C, id, -1)
         await unpublishNrTrack(A, course('gone').id)
-        expect(await voteRows(id)).toEqual([])
-        await expect(voteNrTrack(B, id, 1)).rejects.toMatchObject({ statusCode: 404 })
+        expect(await voteRows(id)).toHaveLength(2)
+        await expect(voteNrTrack(B, id, -1)).rejects.toMatchObject({ statusCode: 404 })
+        expect(await publish(A, course('gone'))).toBe(id)
+        expect((await nrPublishedTracks(B)).community.find(t => t.id === id)?.votes).toEqual({ up: 1, down: 1, myVote: 1 })
     })
 
     it('answers a vote that lands while the track is being taken down with a 404', async () => {
@@ -142,7 +144,7 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect((await nrPublishedTracks(C)).community.find(t => t.id === next)?.votes).toEqual({ up: 1, down: 1, myVote: -1 })
         expect(await voteNrTrack(B, next, -1)).toMatchObject({ up: 0, down: 2, myVote: -1 })
         await unpublishNrTrack(A, course('edit').id)
-        expect(await voteRows(next)).toEqual([])
+        expect(await voteRows(next)).toHaveLength(2)
     })
 
     it('carries a vote that was mid-flight when the road changed, with no deadlock and nothing left on the old id', async () => {

@@ -113,7 +113,9 @@ describe('storing a forked course', () => {
 
     it('counts a branch built differently as a different road', () => {
         expect(sameRoad(LOOP, structuredClone(LOOP))).toBe(true)
+        expect(sameRoad(LOOP, { ...structuredClone(LOOP), id: 'custom-other', name: 'Other' })).toBe(true)
         expect(sameRoad(LOOP, withBranch(LOOP, BOW.slice(0, -1)))).toBe(false)
+        expect(sameRoad(LOOP, { ...LOOP, branches: LOOP.branches!.map(b => ({ ...b, to: null })) })).toBe(false)
     })
 })
 

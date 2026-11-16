@@ -2779,7 +2779,8 @@ export const nitroRushLaps = pgTable('nitro_rush_laps', {
 ])
 
 // Nitro Rush: courses players built and published for everyone to race. `sourceId` is
-// the author's own copy; a changed road is published under a new `id`.
+// the author's own copy; a changed road is published under a new `id`. An unpublished
+// course is hidden, not deleted, so publishing the same road again brings its board back.
 export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   id: text('id').primaryKey(),
   authorId: text('author_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -2789,10 +2790,15 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   sections: jsonb('sections').$type<SectionId[]>().notNull(),
   // Null on a course that never forks, which is every course published before forks.
   branches: jsonb('branches').$type<CustomBranch[]>(),
-  publishedAt: timestamp('published_at').defaultNow().notNull()
+  publishedAt: timestamp('published_at').defaultNow().notNull(),
+  /** Set while the author has it unpublished. */
+  unpublishedAt: timestamp('unpublished_at'),
+  // Null on a course published before hiding existed; unpublishing one fills it in.
+  roadHash: text('road_hash')
 }, t => [
   uniqueIndex('nitro_rush_tracks_author_source_idx').on(t.authorId, t.sourceId),
-  index('nitro_rush_tracks_published_idx').on(t.publishedAt)
+  index('nitro_rush_tracks_published_idx').on(t.publishedAt),
+  index('nitro_rush_tracks_author_road_idx').on(t.authorId, t.roadHash)
 ])
 
 // Nitro Rush: one up (+1) or down (-1) vote per player on a published course; they go with the course.
