@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { nitroRushGhosts, nitroRushLaps, nitroRushTrackVotes, nitroRushTracks, user } from '#server/database/schema'
-import { nrTrackSummaries, validGhost, type NrGhost, type NrTrackSummary } from '#server/utils/nitro-rush'
+import { nitroRushGhosts, nitroRushLaps, nitroRushPlays, nitroRushTrackVotes, nitroRushTracks, user } from '#server/database/schema'
+import { nrTrackSummaries, playedLately, recordNrPlay, validGhost, type NrGhost, type NrTrackSummary } from '#server/utils/nitro-rush'
 import { compileCustomTrack, isPublishedTrackId, MAX_CUSTOM_TRACKS, newPublishedTrackId, roadKey, sanitizeCustomTrack, type CustomBranch, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
@@ -11,14 +11,12 @@ import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
 /** Published courses: players' own tracks, raced by everyone on a shared leaderboard. */
 
-/** The newest this many from other players make the community list, along with this many of the best voted. */
+/** The newest this many from other players make the community list, along with this many of the best voted and the most played. */
 const COMMUNITY_LIMIT = 100
 /** Compiled roads kept in memory; past this the cache starts over. */
 const DEF_CACHE_LIMIT = 500
 /** Longer than any id `newPublishedTrackId` makes. */
 const TRACK_ID_MAX = 64
-/** Votes carried to a replaced road per insert, well inside Postgres' parameter limit. */
-const VOTE_MOVE_CHUNK = 5000
 /** Unpublished courses kept per author, boards and all, for publishing the same road to bring back. */
 const HIDDEN_LIMIT = MAX_CUSTOM_TRACKS
 
@@ -79,11 +77,14 @@ async function lockAuthor(tx: Tx, userId: string) {
     await tx.execute(sql`select 1 from "user" where id = ${userId} for no key update`)
 }
 
-/** Takes a published course down with every time and ghost set on it; its votes cascade with it. */
+/** Deletes a published course with every time, ghost, vote and play on it. */
 async function removeTrack(tx: Tx, id: string) {
+    // The course first: it waits out a vote holding key share on it, so the vote deletes below see that vote too.
+    await tx.delete(nitroRushTracks).where(eq(nitroRushTracks.id, id))
+    await tx.delete(nitroRushTrackVotes).where(eq(nitroRushTrackVotes.trackId, id))
+    await tx.delete(nitroRushPlays).where(eq(nitroRushPlays.trackId, id))
     await tx.delete(nitroRushLaps).where(eq(nitroRushLaps.trackId, id))
     await tx.delete(nitroRushGhosts).where(eq(nitroRushGhosts.trackId, id))
-    await tx.delete(nitroRushTracks).where(eq(nitroRushTracks.id, id))
 }
 
 /** The builder's ghost when it is a lap really driven on `def`'s road, else null. */
@@ -117,7 +118,7 @@ async function pruneHidden(tx: Tx, userId: string) {
 /**
  * Publishes the player's course, or updates their published copy: a new name keeps its board, a road they
  * unpublished comes back with its board, and a changed road replaces the live copy under a new id, starting
- * from the builder's lap and ghost and keeping its votes. Answers with the published id.
+ * from the builder's lap and ghost and keeping its votes and plays. Answers with the published id.
  */
 export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?: unknown, standing?: unknown } = {}): Promise<string> {
     const track = sanitizeCustomTrack(raw)
@@ -151,18 +152,16 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         const driven = drivenLap(def, lap.ghost, lap.standing)
         if (!driven) throw createError({ statusCode: 400, statusMessage: 'Drive a lap first' })
         const id = newPublishedTrackId()
-        // Lifted off before the old road goes, since the new one can't exist beside it (one copy per source course).
-        const votes = live
-            ? await tx.delete(nitroRushTrackVotes).where(eq(nitroRushTrackVotes.trackId, live.id))
-                .returning({ userId: nitroRushTrackVotes.userId, value: nitroRushTrackVotes.value })
-            : []
-        if (live) await removeTrack(tx, live.id)
+        if (live) {
+            // Moved off before the old road goes; the old row's lock above keeps any vote from landing in between.
+            await tx.update(nitroRushTrackVotes).set({ trackId: id }).where(eq(nitroRushTrackVotes.trackId, live.id))
+            await tx.update(nitroRushPlays).set({ trackId: id }).where(eq(nitroRushPlays.trackId, live.id))
+            await removeTrack(tx, live.id)
+        }
         const now = new Date()
         const lapMs = driven.ghost.end
         await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections, branches: track.branches ?? null, roadHash: hash })
-        for (let i = 0; i < votes.length; i += VOTE_MOVE_CHUNK) {
-            await tx.insert(nitroRushTrackVotes).values(votes.slice(i, i + VOTE_MOVE_CHUNK).map(v => ({ ...v, trackId: id })))
-        }
+        await recordNrPlay(userId, id, tx)
         await tx.insert(nitroRushLaps).values({ userId, trackId: id, lapMs, setAt: now })
         await tx.insert(nitroRushGhosts).values({ userId, trackId: id, lapMs, standing: driven.standing, ghost: driven.ghost, updatedAt: now })
         return id
@@ -187,16 +186,20 @@ export async function unpublishNrTrack(userId: string, sourceId: unknown) {
 const upCount = sql<number>`(count(*) filter (where ${nitroRushTrackVotes.value} > 0))::int`
 const downCount = sql<number>`(count(*) filter (where ${nitroRushTrackVotes.value} < 0))::int`
 
-/** Sets the player's vote on another player's published course to `vote`, so a repeat lands on the same state. */
+/** Sets the player's vote on a built-in course or another player's published one to `vote`, so a repeat lands on the same state. */
 export async function voteNrTrack(userId: string, trackId: unknown, vote: unknown): Promise<NrTrackVotes & { trackId: string }> {
-    if (typeof trackId !== 'string' || trackId.length > TRACK_ID_MAX || !isPublishedTrackId(trackId)) throw createError({ statusCode: 400, statusMessage: 'Invalid track' })
+    if (typeof trackId !== 'string' || trackId.length > TRACK_ID_MAX) throw createError({ statusCode: 400, statusMessage: 'Invalid track' })
+    const builtIn = !!findTrack(trackId)
+    if (!builtIn && !isPublishedTrackId(trackId)) throw createError({ statusCode: 400, statusMessage: 'Invalid track' })
     if (vote !== 1 && vote !== -1 && vote !== 0) throw createError({ statusCode: 400, statusMessage: 'Invalid vote' })
     return db.transaction(async (tx) => {
-        // Holds a removal off until the vote lands, so a course deleted mid-vote is a 404, not a key error; a hidden one keeps its votes anyway.
-        const [track] = await tx.select({ authorId: nitroRushTracks.authorId }).from(nitroRushTracks)
-            .where(and(eq(nitroRushTracks.id, trackId), isLive)).for('key share')
-        if (!track) throw createError({ statusCode: 404, statusMessage: 'Track was removed' })
-        if (track.authorId === userId) throw createError({ statusCode: 403, statusMessage: 'Can\'t vote on your own track' })
+        if (!builtIn) {
+            // Holds a removal off until the vote lands, so a course deleted mid-vote leaves no vote behind; a hidden one keeps its votes anyway.
+            const [track] = await tx.select({ authorId: nitroRushTracks.authorId }).from(nitroRushTracks)
+                .where(and(eq(nitroRushTracks.id, trackId), isLive)).for('key share')
+            if (!track) throw createError({ statusCode: 404, statusMessage: 'Track was removed' })
+            if (track.authorId === userId) throw createError({ statusCode: 403, statusMessage: 'Can\'t vote on your own track' })
+        }
         if (vote === 0) {
             await tx.delete(nitroRushTrackVotes).where(and(eq(nitroRushTrackVotes.userId, userId), eq(nitroRushTrackVotes.trackId, trackId)))
         } else {
@@ -208,8 +211,8 @@ export async function voteNrTrack(userId: string, trackId: unknown, vote: unknow
     })
 }
 
-/** Every course's votes and the viewer's own, in one grouped query. */
-async function nrTrackVotes(userId: string, ids: string[]): Promise<Map<string, NrTrackVotes>> {
+/** Each listed course's votes and the viewer's own, zero for an unvoted one, in one grouped query. */
+export async function nrTrackVotes(userId: string, ids: string[]): Promise<Map<string, NrTrackVotes>> {
     if (!ids.length) return new Map()
     const rows = await db.select({
         trackId: nitroRushTrackVotes.trackId,
@@ -217,12 +220,13 @@ async function nrTrackVotes(userId: string, ids: string[]): Promise<Map<string, 
         down: downCount,
         myVote: sql<number>`coalesce(max(${nitroRushTrackVotes.value}) filter (where ${nitroRushTrackVotes.userId} = ${userId}), 0)::int`
     }).from(nitroRushTrackVotes).where(inArray(nitroRushTrackVotes.trackId, ids)).groupBy(nitroRushTrackVotes.trackId)
-    return new Map(rows.map(r => [r.trackId, { up: r.up, down: r.down, myVote: Math.sign(r.myVote) as NrVote }]))
+    const counted = new Map(rows.map(r => [r.trackId, { up: r.up, down: r.down, myVote: Math.sign(r.myVote) as NrVote }]))
+    return new Map(ids.map(id => [id, counted.get(id) ?? { up: 0, down: 0, myVote: 0 }]))
 }
 
 /**
- * The viewer's own published and unpublished courses, and from everyone else the newest plus the best voted (newest first),
- * each with its record and the viewer's best. The best voted are there so Popular reaches past the newest.
+ * The viewer's own published and unpublished courses, and from everyone else the newest plus the best voted and most played
+ * (newest first), each with its record and the viewer's best. The last two are there so TOP and POPULAR reach past the newest.
  */
 export async function nrPublishedTracks(userId: string): Promise<{ community: NrPublishedTrack[], mine: NrPublishedTrack[], hidden: NrPublishedTrack[] }> {
     const columns = {
@@ -238,7 +242,8 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
     }
     const select = () => db.select(columns).from(nitroRushTracks).innerJoin(user, eq(user.id, nitroRushTracks.authorId))
     const score = sql<number>`sum(${nitroRushTrackVotes.value})`
-    const [own, newest, voted] = await Promise.all([
+    const racers = sql<number>`count(*)`
+    const [own, newest, voted, played] = await Promise.all([
         select().where(eq(nitroRushTracks.authorId, userId)),
         select().where(and(ne(nitroRushTracks.authorId, userId), isLive)).orderBy(desc(nitroRushTracks.publishedAt)).limit(COMMUNITY_LIMIT),
         select().innerJoin(nitroRushTrackVotes, eq(nitroRushTrackVotes.trackId, nitroRushTracks.id))
@@ -246,16 +251,21 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
             .groupBy(nitroRushTracks.id, user.id)
             .having(sql`${score} > 0`)
             .orderBy(desc(score), desc(nitroRushTracks.publishedAt))
+            .limit(COMMUNITY_LIMIT),
+        select().innerJoin(nitroRushPlays, eq(nitroRushPlays.trackId, nitroRushTracks.id))
+            .where(and(ne(nitroRushTracks.authorId, userId), isLive, playedLately))
+            .groupBy(nitroRushTracks.id, user.id)
+            .orderBy(desc(racers), desc(nitroRushTracks.publishedAt))
             .limit(COMMUNITY_LIMIT)
     ])
-    const community = [...new Map([...newest, ...voted].map(t => [t.id, t])).values()]
+    const community = [...new Map([...newest, ...voted, ...played].map(t => [t.id, t])).values()]
         .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
     const ids = [...own, ...community].map(t => t.id)
     const [summaries, votes] = await Promise.all([nrTrackSummaries(userId, ids), nrTrackVotes(userId, ids)])
     const withSummary = ({ publishedAt: _, unpublishedAt: __, ...t }: typeof own[number]): NrPublishedTrack => ({
         ...t,
         summary: summaries.find(s => s.trackId === t.id)!,
-        votes: votes.get(t.id) ?? { up: 0, down: 0, myVote: 0 }
+        votes: votes.get(t.id)!
     })
     return {
         community: community.map(withSummary),

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 import { db } from '#server/database'
-import { nitroRushTracks } from '#server/database/schema'
-import { nrGhost, nrLeaderboard, nrRecordGhost, saveNrGhost, submitNrLap } from '#server/utils/nitro-rush'
+import { nitroRushPlays, nitroRushTracks } from '#server/database/schema'
+import { nrGhost, nrLeaderboard, nrRecordGhost, recordNrPlay, saveNrGhost, submitNrLap } from '#server/utils/nitro-rush'
 import { nrPublishedTracks, nrTrackDef, publishNrTrack, unpublishNrTrack } from '#server/utils/nitro-rush-tracks'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount } from '#shared/utils/nitro-rush/ghost'
 import { MAX_CUSTOM_TRACKS, type CustomTrack } from '#shared/utils/nitro-rush/custom'
@@ -17,7 +17,8 @@ const D = `nrp-d-${tag}`
 const E = `nrp-e-${tag}`
 const F = `nrp-f-${tag}`
 const G = `nrp-g-${tag}`
-const USERS = [A, B, C, D, E, F, G]
+const H = `nrp-h-${tag}`
+const USERS = [A, B, C, D, E, F, G, H]
 
 const course = (id: string, sections = RECTANGLE, name = 'Neon Ring'): CustomTrack => ({ id: `custom-${id}-${tag}`, name, closed: true, sections })
 const LAPS = new Map([[RECTANGLE, publishLap(true, RECTANGLE)], [LONG_RECTANGLE, publishLap(true, LONG_RECTANGLE)]])
@@ -179,6 +180,32 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         expect(hidden).toHaveLength(MAX_CUSTOM_TRACKS)
         expect(hidden).toContain(id)
         expect(hidden).not.toContain(stale.at(-1)!.id)
+    })
+
+    it('counts the builder\'s lap as a play, and carries every play over to a changed road', async () => {
+        const old = await publish(H, course('played'))
+        await recordNrPlay(B, old)
+        await recordNrPlay(B, old)
+        const next = await publish(H, course('played', LONG_RECTANGLE))
+        expect(await db.select().from(nitroRushPlays).where(eq(nitroRushPlays.trackId, old))).toEqual([])
+        expect((await nrPublishedTracks(B)).community.find(t => t.id === next)?.summary.plays).toEqual({ racers: 2, laps: 4 })
+    })
+
+    it('lists a well-played track past the newest hundred, once', async () => {
+        const old = await publish(H, course('classic'))
+        // After the vote spec's oldest, which it expects last on the same list.
+        await db.update(nitroRushTracks).set({ publishedAt: new Date('2001-06-01') }).where(eq(nitroRushTracks.id, old))
+        // Dated long ago, so they don't push out other specs' tracks.
+        const filler = (i: number) => `pub-play-filler-${i}-${tag}`
+        await db.insert(nitroRushTracks).values(Array.from({ length: 100 }, (_, i) => ({
+            id: filler(i), authorId: H, sourceId: `custom-play-filler-${i}-${tag}`, name: 'Filler', closed: true, sections: RECTANGLE, publishedAt: new Date(Date.UTC(2002, 0, 1, 0, 0, i))
+        })))
+        try {
+            const ids = (await nrPublishedTracks(B)).community.map(t => t.id)
+            expect(ids.filter(id => id === old)).toHaveLength(1)
+        } finally {
+            await db.delete(nitroRushTracks).where(sql`${nitroRushTracks.id} like ${`pub-play-filler-%-${tag}`}`)
+        }
     })
 
     it('caps how many tracks one player may publish', async () => {

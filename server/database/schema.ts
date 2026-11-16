@@ -2801,15 +2801,30 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   index('nitro_rush_tracks_author_road_idx').on(t.authorId, t.roadHash)
 ])
 
-// Nitro Rush: one up (+1) or down (-1) vote per player on a published course; they go with the course.
+// Nitro Rush: one up (+1) or down (-1) vote per player on a course. No key to the published
+// tracks, since built-in courses take votes too; taking a published one down deletes its own.
 export const nitroRushTrackVotes = pgTable('nitro_rush_track_votes', {
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  trackId: text('track_id').notNull().references(() => nitroRushTracks.id, { onDelete: 'cascade' }),
+  /** A `TRACKS` id or a published course's id. */
+  trackId: text('track_id').notNull(),
   value: smallint('value').notNull()
 }, t => [
   primaryKey({ columns: [t.userId, t.trackId] }),
   index('nitro_rush_track_votes_track_idx').on(t.trackId),
   check('nitro_rush_track_votes_value_check', sql`${t.value} in (-1, 1)`)
+])
+
+// Nitro Rush: how often each player drives a course, which the menu ranks courses by.
+export const nitroRushPlays = pgTable('nitro_rush_plays', {
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `TRACKS` id or a published course's id. */
+  trackId: text('track_id').notNull(),
+  /** Finished laps, or runs on a sprint. */
+  laps: integer('laps').notNull(),
+  lastLapAt: timestamp('last_lap_at').defaultNow().notNull()
+}, t => [
+  primaryKey({ columns: [t.userId, t.trackId] }),
+  index('nitro_rush_plays_track_idx').on(t.trackId, t.lastLapAt)
 ])
 
 // Nitro Rush: the ghost each player races on a course, so it follows them to any

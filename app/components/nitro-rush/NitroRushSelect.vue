@@ -6,7 +6,8 @@ import type { TrackDef } from '#shared/utils/nitro-rush/track'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
 import { GHOST_MAX_SECONDS } from '#shared/utils/nitro-rush/ghost'
 import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
-import type { NrPublishedTrack, NrVote } from '#server/utils/nitro-rush-tracks'
+import type { NrTrackVotes, NrVote } from '#server/utils/nitro-rush-tracks'
+import { NO_VOTES } from '~/utils/nitro-rush/community'
 
 const props = defineProps<{
     trackId: string
@@ -30,7 +31,9 @@ const props = defineProps<{
     communityTracks: CommunityTrackEntry[]
     /** The own course being published or taken down. */
     busy: string | null
-    /** Community courses with a vote in flight. */
+    /** Every course's votes, by id. */
+    votes: Record<string, NrTrackVotes>
+    /** Courses with a vote in flight. */
     voting: Set<string>
 }>()
 defineEmits<{ back: [], select: [id: string], car: [id: CarId], garage: [open: boolean], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
@@ -54,13 +57,15 @@ const hasLap = (id: string) => !!props.records[id]?.ghost
 /** Its best lap ran past what a ghost holds, so no lap driven so far can publish it. */
 const lapTooLong = (id: string) => !hasLap(id) && (props.records[id]?.bestLap ?? 0) > GHOST_MAX_SECONDS
 
-/** The selected course as the side panel shows it: another player's can be voted on, the player's own only shows its score. */
-const selected = computed((): { author: string | null, published: NrPublishedTrack | null, canVote: boolean } => {
+const votesOf = (id: string) => props.votes[id] ?? NO_VOTES
+/** The selected course as the side panel shows it: a built-in or another player's can be voted on, the player's own only shows its score. */
+const selected = computed((): { author: string | null, votes: NrTrackVotes | null, canVote: boolean } => {
+    if (findTrack(props.trackId)) return { author: null, votes: votesOf(props.trackId), canVote: true }
     const theirs = props.communityTracks.find(c => c.track.id === props.trackId)
-    if (theirs) return { author: theirs.track.author, published: theirs.track, canVote: true }
+    if (theirs) return { author: theirs.track.author, votes: votesOf(props.trackId), canVote: true }
     const own = props.customTracks.find(c => c.playId === props.trackId)
-    if (own) return { author: 'you', published: own.published?.id === props.trackId ? own.published : null, canVote: false }
-    return { author: null, published: null, canVote: false }
+    // A private course has no votes.
+    return { author: own ? 'you' : null, votes: own?.published?.id === props.trackId ? votesOf(props.trackId) : null, canVote: false }
 })
 </script>
 
@@ -89,8 +94,8 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
           </button>
         </div>
         <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
-          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
-          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
           <NitroRushGarage v-else-if="tab === 'garage'" :car="car" :paint="paint" @select="$emit('car', $event)" @paint="$emit('paint', $event)" @open="$emit('garage', $event)" />
           <NitroRushMyTracks
             v-else
@@ -120,7 +125,7 @@ const selected = computed((): { author: string | null, published: NrPublishedTra
           :track-name="trackName"
           :def="trackDef"
           :author="selected.author"
-          :published="selected.published"
+          :votes="selected.votes"
           :can-vote="selected.canVote"
           :voting="voting.has(trackId)"
           :board="board"

@@ -1,5 +1,7 @@
 import type { CustomTrackEntry } from './types'
-import type { NrPublishedTrack, NrTrackVotes } from '#server/utils/nitro-rush-tracks'
+import type { NrPublishedTrack, NrTrackVotes, NrVote } from '#server/utils/nitro-rush-tracks'
+import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import { byPlays, NO_PLAYS, PLAY_WINDOW_DAYS, type TrackPlays } from '#shared/utils/nitro-rush/popularity'
 import { isSectionId, sameRoad, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -43,16 +45,38 @@ export function ownTrackEntries(
     return [...here, ...elsewhere]
 }
 
-export type CommunitySort = 'newest' | 'popular'
+/** A course list's own order (newest first, or by series), or ranked by votes or by how much it is raced. */
+export type TrackSort = 'listed' | 'top' | 'popular'
 
-/** Net votes, which the chips show and Popular sorts by. */
+/** Net votes, which the chips show and TOP sorts by. */
 export const voteScore = (v: NrTrackVotes) => v.up - v.down
-export const trackScore = (t: NrPublishedTrack) => voteScore(t.votes)
 
 export const voteCounts = (v: NrTrackVotes) => `${v.up} up · ${v.down} down`
 
-/** The community list in the chosen order; it comes newest first and the sort is stable, so ties stay newest first. */
-export function sortCommunity<T extends { track: NrPublishedTrack }>(entries: T[], sort: CommunitySort): T[] {
-    if (sort === 'newest') return entries
-    return [...entries].sort((a, b) => trackScore(b.track) - trackScore(a.track))
+export const NO_VOTES: NrTrackVotes = { up: 0, down: 0, myVote: 0 }
+
+/** `votes` with the viewer's vote changed to `value`, as the server will count it. */
+export function withVote(votes: NrTrackVotes, value: NrVote): NrTrackVotes {
+    const was = votes.myVote
+    return {
+        up: votes.up - (was === 1 ? 1 : 0) + (value === 1 ? 1 : 0),
+        down: votes.down - (was === -1 ? 1 : 0) + (value === -1 ? 1 : 0),
+        myVote: value
+    }
+}
+
+export const playCounts = (p: TrackPlays) => `${p.laps} ${p.laps === 1 ? 'lap' : 'laps'} · ${p.racers} ${p.racers === 1 ? 'racer' : 'racers'} in the last ${PLAY_WINDOW_DAYS} days`
+
+/** What the menu knows of each course, by id. */
+export interface TrackStats {
+    votes: Record<string, NrTrackVotes>
+    summaries: Record<string, NrTrackSummary>
+}
+
+/** The list in the chosen order; the sort is stable, so ties keep the list's own order. */
+export function sortTracks<T>(entries: T[], sort: TrackSort, idOf: (e: T) => string, stats: TrackStats): T[] {
+    if (sort === 'listed') return entries
+    const votes = (e: T) => voteScore(stats.votes[idOf(e)] ?? NO_VOTES)
+    const plays = (e: T) => stats.summaries[idOf(e)]?.plays ?? NO_PLAYS
+    return [...entries].sort(sort === 'top' ? (a, b) => votes(b) - votes(a) : (a, b) => byPlays(plays(a), plays(b)))
 }

@@ -519,6 +519,13 @@
       "when": 1794824967050,
       "tag": "0073_nitro_rush_hidden_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794825700040,
+      "tag": "0074_nitro_rush_plays",
+      "breakpoints": true
     }
   ]
 }

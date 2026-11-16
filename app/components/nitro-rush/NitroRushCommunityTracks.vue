@@ -1,29 +1,27 @@
 <script setup lang="ts">
-import { sortCommunity, type CommunitySort } from '~/utils/nitro-rush/community'
+import { sortTracks, type TrackSort } from '~/utils/nitro-rush/community'
 import type { CommunityTrackEntry } from '~/utils/nitro-rush/types'
 import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
+import type { NrTrackVotes } from '#server/utils/nitro-rush-tracks'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
-/** Other players' published courses, newest or most popular first; the info panel takes the votes. */
+/** Other players' published courses, newest, best voted or most raced first; the info panel takes the votes. */
 const props = defineProps<{
     trackId: string
     tracks: CommunityTrackEntry[]
     summaries: Record<string, NrTrackSummary>
+    votes: Record<string, NrTrackVotes>
     /** The medal the viewer's best holds on a course. */
     medalOn: (id: string, def: TrackDef) => Medal | null
 }>()
 defineEmits<{ select: [id: string] }>()
 
-const SORTS: readonly { id: CommunitySort, label: string }[] = [
-    { id: 'newest', label: 'NEWEST' },
-    { id: 'popular', label: 'TOP' }
-]
-const sort = ref<CommunitySort>('newest')
+const sort = ref<TrackSort>('listed')
 const sorted = shallowRef<CommunityTrackEntry[]>([])
 // Ranked when the list or the sort changes, not on every vote, so a card doesn't jump away from the tap.
 watch([() => props.tracks, sort], ([tracks, by]) => {
-    sorted.value = sortCommunity(tracks, by)
+    sorted.value = sortTracks(tracks, by, c => c.track.id, props)
 }, { immediate: true })
 </script>
 
@@ -33,19 +31,7 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
       <h3 class="nr-group">COMMUNITY</h3>
       <span class="nr-blurb hidden flex-1 truncate text-right sm:block">Tracks by other players</span>
       <span class="flex-1 sm:hidden" />
-      <div v-if="tracks.length > 1" class="nr-seg" role="radiogroup" aria-label="Sort tracks">
-        <button
-          v-for="s in SORTS"
-          :key="s.id"
-          class="nr-seg-btn"
-          :class="{ 'is-active': sort === s.id }"
-          role="radio"
-          :aria-checked="sort === s.id"
-          @click="sort = s.id"
-        >
-          {{ s.label }}
-        </button>
-      </div>
+      <NitroRushSortSeg v-if="tracks.length > 1" v-model="sort" listed="NEWEST" />
     </div>
     <div v-if="tracks.length" class="nr-track-grid">
       <NitroRushTrackCard
@@ -57,7 +43,8 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
         :record="summaries[c.track.id]?.record ?? null"
         :medal="medalOn(c.track.id, c.def)"
         :author="c.track.author"
-        :votes="c.track.votes"
+        :votes="votes[c.track.id] ?? c.track.votes"
+        :plays="summaries[c.track.id]?.plays"
         @select="$emit('select', c.track.id)"
       />
     </div>

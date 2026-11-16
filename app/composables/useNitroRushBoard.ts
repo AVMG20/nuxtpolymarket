@@ -2,6 +2,8 @@ import type { Ref } from 'vue'
 import { BoardCache } from '~/utils/nitro-rush/board'
 import type { TrackRecord } from '~/utils/nitro-rush/types'
 import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
+import type { NrTrackVotes } from '#server/utils/nitro-rush-tracks'
+import { NO_PLAYS } from '#shared/utils/nitro-rush/popularity'
 import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 
 /** A board this recent is shown without asking the server again. */
@@ -16,7 +18,7 @@ const BOARD_CACHE_LIMIT = 200
  * lap submission. A faster best from another device replaces this browser's record.
  * A player's unpublished courses have no board: their times stay in this browser.
  */
-export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onServerBest: (trackId: string) => void) {
+export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onServerBest: (trackId: string) => void, onVotes: (votes: Record<string, NrTrackVotes>) => void) {
     const toast = useToast()
     const board = ref<NrBoard | null>(null)
     /** True from a selection until its board is in or the request failed. */
@@ -27,12 +29,13 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
     let boardTimer: ReturnType<typeof setTimeout> | undefined
     const cache = new BoardCache(BOARD_CACHE_LIMIT)
 
-    /** A fresher board than the menu summary was built from. */
+    /** A fresher board than the menu summary was built from; the plays stay as the summary had them. */
     function noteBoard(b: NrBoard) {
         const top = b.top[0]
+        const plays = summaries.value[b.trackId]?.plays ?? NO_PLAYS
         summaries.value = {
             ...summaries.value,
-            [b.trackId]: { trackId: b.trackId, entries: b.entries, record: top ? { name: top.name, lapMs: top.lapMs, mine: top.you } : null, myLapMs: b.me?.lapMs ?? null }
+            [b.trackId]: { trackId: b.trackId, entries: b.entries, record: top ? { name: top.name, lapMs: top.lapMs, mine: top.you } : null, myLapMs: b.me?.lapMs ?? null, plays }
         }
     }
 
@@ -84,7 +87,9 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
 
     async function loadSummaries() {
         try {
-            addSummaries(await apiFetch<NrTrackSummary[]>('/api/nitro-rush/tracks'))
+            const res = await apiFetch<{ summaries: NrTrackSummary[], votes: Record<string, NrTrackVotes> }>('/api/nitro-rush/tracks')
+            addSummaries(res.summaries)
+            onVotes(res.votes)
         } catch {
             // The cards fall back to this browser's own times.
         }

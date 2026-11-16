@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 import { db } from '#server/database'
 import { nitroRushTrackVotes, nitroRushTracks } from '#server/database/schema'
-import { nrPublishedTracks, publishNrTrack, unpublishNrTrack, voteNrTrack } from '#server/utils/nitro-rush-tracks'
+import { nrPublishedTracks, nrTrackVotes, publishNrTrack, unpublishNrTrack, voteNrTrack } from '#server/utils/nitro-rush-tracks'
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { LONG_RECTANGLE, publishLap, RECTANGLE } from './bot-lap'
 
@@ -78,9 +78,18 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect(await voteRows(id)).toEqual([])
     })
 
-    it('refuses built-in, private, unknown and malformed tracks, and anything but 1, -1 or 0', async () => {
+    it('takes votes on a built-in track from anyone', async () => {
+        const before = await nrTrackVotes(C, ['polytown-oval'])
+        const up = before.get('polytown-oval')?.up ?? 0
+        expect(await voteNrTrack(B, 'polytown-oval', 1)).toMatchObject({ trackId: 'polytown-oval', up: up + 1, myVote: 1 })
+        expect((await nrTrackVotes(B, ['polytown-oval'])).get('polytown-oval')?.myVote).toBe(1)
+        expect(await voteNrTrack(B, 'polytown-oval', 0)).toMatchObject({ up, myVote: 0 })
+        expect(await voteRows('polytown-oval', B)).toEqual([])
+    })
+
+    it('refuses private, unknown and malformed tracks, and anything but 1, -1 or 0', async () => {
         const id = await publish(A, course('input'))
-        await expect(voteNrTrack(B, 'polytown-oval', 1)).rejects.toMatchObject({ statusCode: 400 })
+        await expect(voteNrTrack(B, 'polytown-nowhere', 1)).rejects.toMatchObject({ statusCode: 400 })
         await expect(voteNrTrack(B, course('input').id, 1)).rejects.toMatchObject({ statusCode: 400 })
         await expect(voteNrTrack(B, 'pub-nowhere', 1)).rejects.toMatchObject({ statusCode: 404 })
         await expect(voteNrTrack(B, `pub-${'x'.repeat(100)}`, 1)).rejects.toMatchObject({ statusCode: 400 })
