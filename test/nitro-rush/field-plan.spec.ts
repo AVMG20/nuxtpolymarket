@@ -5,6 +5,7 @@ import { defaultFieldPlan, FIELD_TILE, GATE_POST_RADIUS, gatePosts, type FieldTi
 import { routeCrossings, routeFieldPaths, type FieldPath } from '#shared/utils/nitro-rush/field-plan'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track } from '#shared/utils/nitro-rush/track'
+import { findTrack } from '#shared/utils/nitro-rush/tracks'
 import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botLapTime, medalTimes } from '../../app/utils/nitro-rush/medals'
 import { botInput, createCar, crossesLines, stepCar } from '../../app/utils/nitro-rush/physics'
@@ -95,6 +96,20 @@ describe('the field planner', () => {
         ])
         const ghost = drive(t)
         expect(ghostDrivesTrack(t, ghost)).toBe(true)
+    })
+
+    it('drives The Open Field to the finish without touching a wall', () => {
+        const t = new Track(findTrack('open-field')!)
+        expect(t.fields).toHaveLength(1)
+        expect(t.checkpointCount).toBe(2)
+        const car = createCar(t, t.startS - 14)
+        for (let i = 0; i < PHYSICS_HZ * 20; i++) {
+            const ev = stepCar(car, botInput(car, t), t, 1 / PHYSICS_HZ)
+            expect(ev.fell).toBe(false)
+            expect(ev.wallImpact).toBe(0)
+        }
+        expect(botLapTime(t)).not.toBeNull()
+        expect(ghostDrivesTrack(t, drive(t))).toBe(true)
     })
 
     it('drives straight through a gate that faces back down the road', () => {
