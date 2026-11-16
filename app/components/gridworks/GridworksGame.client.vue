@@ -2,6 +2,7 @@
 import { BUILDINGS, ITEMS, ITEM_IDS, RECIPES, RESEARCH_BY_ID, isUnlocked, maxMk, upgradeCost, type Category, type ItemId, type Kind, type Stock } from '#shared/utils/gridworks/defs'
 import { canAfford } from '#shared/utils/gridworks/game'
 import { currentGoal, goalFocus, goalMet, type GoalFocus } from '#shared/utils/gridworks/goals'
+import GridworksBuildIcon from './GridworksBuildIcon.vue'
 import GridworksGuide from './GridworksGuide.vue'
 import GridworksResearch from './GridworksResearch.vue'
 import { GridEngine, fmt, type HoverInfo, type Selected, type Tool } from '~/utils/gridworks/engine'
@@ -55,12 +56,111 @@ const CATEGORIES: { id: Category, label: string, icon: string }[] = [
     { id: 'storage', label: 'Storage', icon: 'i-lucide-package' },
     { id: 'power', label: 'Boost', icon: 'i-lucide-zap' }
 ]
-const category = ref<Category>('production')
-
 const done = computed(() => view.value?.done ?? [])
 const kindsIn = (c: Category) => (Object.keys(BUILDINGS) as Kind[]).filter(k => BUILDINGS[k].category === c && isUnlocked(k, done.value))
-const bar = computed(() => kindsIn(category.value))
 const categories = computed(() => CATEGORIES.filter(c => kindsIn(c.id).length))
+const unlocked = computed(() => (Object.keys(BUILDINGS) as Kind[]).filter(k => isUnlocked(k, done.value)))
+
+// The hotbar: nine slots the player arranges (keys 1-9). The category menus list
+// everything unlocked; drag from a menu onto a slot to equip, drag between slots
+// to swap, drag a slot off the bar to clear it. A newly unlocked building drops
+// into the first free slot once, so one the player removed stays removed.
+const SLOTS = 9
+const HOTBAR_KEY = 'gridworks:hotbar'
+const SEEN_KEY = 'gridworks:hotbar-seen'
+const isKind = (k: unknown): k is Kind => typeof k === 'string' && Object.hasOwn(BUILDINGS, k)
+const hotbar = ref<(Kind | null)[]>(Array.from({ length: SLOTS }, () => null))
+let seen = new Set<Kind>()
+try {
+    const raw: unknown = JSON.parse(localStorage.getItem(HOTBAR_KEY) ?? 'null')
+    if (Array.isArray(raw)) hotbar.value = Array.from({ length: SLOTS }, (_, i) => isKind(raw[i]) ? raw[i] : null)
+    const old: unknown = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')
+    if (Array.isArray(old)) seen = new Set(old.filter(isKind))
+} catch {
+    // storage blocked or corrupt: start empty
+}
+
+function saveHotbar() {
+    try {
+        localStorage.setItem(HOTBAR_KEY, JSON.stringify(hotbar.value))
+        localStorage.setItem(SEEN_KEY, JSON.stringify([...seen]))
+    } catch {
+        // storage blocked
+    }
+}
+
+watch([unlocked, view], ([list, v]) => {
+    if (!v) return
+    const bar = [...hotbar.value]
+    let changed = false
+    for (const k of list) {
+        if (seen.has(k)) continue
+        seen.add(k)
+        changed = true
+        const free = bar.indexOf(null)
+        if (!bar.includes(k) && free >= 0) bar[free] = k
+    }
+    if (changed) {
+        hotbar.value = bar
+        saveHotbar()
+    }
+}, { immediate: true })
+
+/** The slot's building, while it is unlocked. */
+const slotKind = (i: number) => {
+    const k = hotbar.value[i]
+    return k && isUnlocked(k, done.value) ? k : null
+}
+
+const menu = ref<Category | null>(null)
+const menuKinds = computed(() => menu.value ? kindsIn(menu.value) : [])
+function toggleMenu(c: Category) {
+    menu.value = menu.value === c ? null : c
+    engine?.sfx.tool()
+}
+
+const drag = ref<{ kind: Kind, from: number | null } | null>(null)
+const dropOver = ref<number | null>(null)
+let dropped = false
+
+function onDragStart(ev: DragEvent, kind: Kind, from: number | null) {
+    drag.value = { kind, from }
+    dropped = false
+    ev.dataTransfer?.setData('text/plain', kind)
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
+}
+
+function onDrop(i: number) {
+    const d = drag.value
+    dropOver.value = null
+    if (!d) return
+    dropped = true
+    const bar = [...hotbar.value]
+    const src = d.from ?? bar.indexOf(d.kind)
+    if (src === i) return
+    if (src >= 0) bar[src] = bar[i] ?? null
+    bar[i] = d.kind
+    hotbar.value = bar
+    saveHotbar()
+    engine?.sfx.select()
+}
+
+function onDragEnd() {
+    const d = drag.value
+    // a slot dragged off the bar is cleared
+    if (d && d.from !== null && !dropped) {
+        const bar = [...hotbar.value]
+        bar[d.from] = null
+        hotbar.value = bar
+        saveHotbar()
+        engine?.sfx.tool()
+    }
+    drag.value = null
+    dropOver.value = null
+}
+
+/** The hotbar slot holding a building, or -1. */
+const slotOf = (k: Kind) => hotbar.value.findIndex((x, i) => x === k && slotKind(i))
 
 const items = computed(() => {
     const rates = sol.value?.store ?? {}
@@ -118,15 +218,17 @@ function onKey(ev: KeyboardEvent) {
     // With the research tree open, only T (which closes it) still counts.
     if (researchOpen.value && ev.key.toLowerCase() !== 't') return
     if (/^[1-9]$/.test(ev.key)) {
-        const k = bar.value[Number(ev.key) - 1]
+        const k = slotKind(Number(ev.key) - 1)
         if (k) pick(k)
         return
     }
+    if (ev.key === 'Escape') menu.value = null
     if (ev.key === 'Tab') {
         ev.preventDefault()
         const list = categories.value
-        const i = list.findIndex(c => c.id === category.value)
-        category.value = list[(i + (ev.shiftKey ? list.length - 1 : 1)) % list.length]!.id
+        if (!list.length) return
+        const i = menu.value ? list.findIndex(c => c.id === menu.value) : (ev.shiftKey ? 0 : -1)
+        menu.value = list[(i + (ev.shiftKey ? list.length - 1 : 1)) % list.length]!.id
         engine?.sfx.tool()
         return
     }
@@ -179,7 +281,6 @@ onMounted(async () => {
         onTool: (t, r) => {
             tool.value = t
             rotation.value = r
-            if (t.mode === 'build') category.value = BUILDINGS[t.kind].category
         },
         onLayer: l => { layer.value = l }
     })
@@ -403,13 +504,46 @@ function toggleHelp() {
 
     <!-- Build bar: bottom -->
     <div class="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center gap-1.5">
+      <!-- the open category menu: click to build, drag onto the bar to equip -->
+      <div v-if="menu && menuKinds.length" class="pointer-events-auto flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-[#0f1115]/90 p-2 shadow-2xl backdrop-blur">
+        <div class="flex flex-wrap justify-center gap-1.5">
+          <UTooltip v-for="k in menuKinds" :key="k" :delay-duration="150" :content="{ side: 'top', sideOffset: 10 }" :ui="{ content: 'h-auto px-3 py-2' }">
+            <button
+              class="gw-slot"
+              :class="[tool.mode === 'build' && tool.kind === k ? 'gw-slot-on' : '', affordable(BUILDINGS[k].cost) ? '' : 'gw-slot-poor', focusKind === k && slotOf(k) < 0 ? 'gw-guide' : '']"
+              draggable="true"
+              @click="pick(k); menu = null"
+              @dragstart="onDragStart($event, k, null)"
+              @dragend="onDragEnd"
+            >
+              <GridworksBuildIcon :kind="k" />
+              <span v-if="slotOf(k) >= 0" class="gw-key">{{ slotOf(k) + 1 }}</span>
+            </button>
+            <template #content>
+              <div class="text-xs leading-snug">
+                <div class="font-semibold">
+                  {{ BUILDINGS[k].name }}
+                </div>
+                <div class="mt-1.5 flex items-center gap-2">
+                  <span v-for="[c, v] in costEntries(BUILDINGS[k].cost)" :key="c" class="flex items-center gap-1" :class="(stock[c] ?? 0) >= v ? '' : 'text-red-400'">
+                    <img :src="itemUrl(c)" class="size-4" alt="">{{ fmt(v) }}
+                  </span>
+                </div>
+              </div>
+            </template>
+          </UTooltip>
+        </div>
+        <div class="text-[10px] text-white/35">
+          Drag onto the bar to equip · drag off the bar to remove
+        </div>
+      </div>
       <div class="pointer-events-auto flex items-center gap-1 rounded-xl border border-white/10 bg-[#0f1115]/85 p-1 shadow-xl backdrop-blur">
         <button
           v-for="c in categories"
           :key="c.id"
           class="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition active:scale-95"
-          :class="[category === c.id ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white', focusKind && category !== c.id && BUILDINGS[focusKind].category === c.id && isUnlocked(focusKind, done) ? 'gw-guide' : '']"
-          @click="category = c.id; eng?.sfx.tool()"
+          :class="[menu === c.id ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white', focusKind && menu !== c.id && slotOf(focusKind) < 0 && BUILDINGS[focusKind].category === c.id && isUnlocked(focusKind, done) ? 'gw-guide' : '']"
+          @click="toggleMenu(c.id)"
         >
           <UIcon :name="c.icon" class="size-3.5" /> {{ c.label }}
         </button>
@@ -435,44 +569,44 @@ function toggleHelp() {
           <span class="gw-key">X</span>
         </button>
         <div class="mx-1 h-12 w-px self-center bg-white/10" />
-        <TransitionGroup name="gw-slot" tag="div" class="flex items-end gap-1.5">
-          <div v-for="(k, i) in bar" :key="k">
-          <UTooltip :delay-duration="150" :content="{ side: 'top', sideOffset: 10 }" :ui="{ content: 'h-auto px-3 py-2' }">
-            <button
-              class="gw-slot"
-              :class="[tool.mode === 'build' && tool.kind === k ? 'gw-slot-on' : '', affordable(BUILDINGS[k].cost) ? '' : 'gw-slot-poor', focusKind === k && !(tool.mode === 'build' && tool.kind === k) ? 'gw-guide' : '']"
-              @click="pick(k)"
-            >
-              <img
-                v-if="spriteUrl(k)"
-                :src="spriteUrl(k)"
-                class="max-h-10 max-w-10 object-contain transition-transform duration-150"
-                :style="tool.mode === 'build' && tool.kind === k ? { transform: `rotate(${rotation * 90}deg)` } : {}"
-                alt=""
+        <div class="flex items-end gap-1.5">
+          <div
+            v-for="i in SLOTS"
+            :key="i"
+            @dragover.prevent="dropOver = i - 1"
+            @dragleave="dropOver === i - 1 && (dropOver = null)"
+            @drop.prevent="onDrop(i - 1)"
+          >
+            <UTooltip v-if="slotKind(i - 1)" :delay-duration="150" :content="{ side: 'top', sideOffset: 10 }" :ui="{ content: 'h-auto px-3 py-2' }">
+              <button
+                class="gw-slot"
+                :class="[tool.mode === 'build' && tool.kind === slotKind(i - 1) ? 'gw-slot-on' : '', affordable(BUILDINGS[slotKind(i - 1)!].cost) ? '' : 'gw-slot-poor', focusKind === slotKind(i - 1) && !(tool.mode === 'build' && tool.kind === focusKind) ? 'gw-guide' : '', dropOver === i - 1 ? 'gw-slot-drop' : '', drag?.from === i - 1 ? 'opacity-40' : '']"
+                draggable="true"
+                @click="pick(slotKind(i - 1)!)"
+                @dragstart="onDragStart($event, slotKind(i - 1)!, i - 1)"
+                @dragend="onDragEnd"
               >
-              <svg v-else viewBox="0 0 64 64" class="size-10 transition-transform duration-150" :style="tool.mode === 'build' && tool.kind === k ? { transform: `rotate(${rotation * 90}deg)` } : {}">
-                <rect x="0" y="12" width="64" height="40" fill="#5d6570" />
-                <rect x="0" y="12" width="64" height="5" fill="#9aa3ae" />
-                <rect x="0" y="47" width="64" height="5" fill="#9aa3ae" />
-                <path d="M20 25 L28 32 L20 39 M38 25 L46 32 L38 39" stroke="#d9dee5" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span class="gw-key">{{ i + 1 }}</span>
-            </button>
-            <template #content>
-              <div class="text-xs leading-snug">
-                <div class="font-semibold">
-                  {{ BUILDINGS[k].name }}
+                <GridworksBuildIcon :kind="slotKind(i - 1)!" :turn="tool.mode === 'build' && tool.kind === slotKind(i - 1) ? rotation : 0" />
+                <span class="gw-key">{{ i }}</span>
+              </button>
+              <template #content>
+                <div class="text-xs leading-snug">
+                  <div class="font-semibold">
+                    {{ BUILDINGS[slotKind(i - 1)!].name }}
+                  </div>
+                  <div class="mt-1.5 flex items-center gap-2">
+                    <span v-for="[c, v] in costEntries(BUILDINGS[slotKind(i - 1)!].cost)" :key="c" class="flex items-center gap-1" :class="(stock[c] ?? 0) >= v ? '' : 'text-red-400'">
+                      <img :src="itemUrl(c)" class="size-4" alt="">{{ fmt(v) }}
+                    </span>
+                  </div>
                 </div>
-                <div class="mt-1.5 flex items-center gap-2">
-                  <span v-for="[c, v] in costEntries(BUILDINGS[k].cost)" :key="c" class="flex items-center gap-1" :class="(stock[c] ?? 0) >= v ? '' : 'text-red-400'">
-                    <img :src="itemUrl(c)" class="size-4" alt="">{{ fmt(v) }}
-                  </span>
-                </div>
-              </div>
-            </template>
-          </UTooltip>
+              </template>
+            </UTooltip>
+            <div v-else class="gw-slot gw-slot-empty" :class="dropOver === i - 1 ? 'gw-slot-drop' : ''">
+              <span class="gw-key">{{ i }}</span>
+            </div>
           </div>
-        </TransitionGroup>
+        </div>
         <template v-if="done.includes('bridges')">
           <div class="mx-1 h-12 w-px self-center bg-white/10" />
           <button class="gw-slot" title="Belt layer (L)" @click="eng?.setLayer(layer >= (done.includes('skyway') ? 2 : 1) ? 0 : layer + 1)">
@@ -567,21 +701,22 @@ function toggleHelp() {
   background: rgb(255 255 255 / 0.04);
   transition: transform 140ms cubic-bezier(.3, 1.6, .5, 1), background 120ms, border-color 120ms, box-shadow 120ms;
 }
-.gw-slot:hover { background: rgb(255 255 255 / 0.1); transform: translateY(-3px); }
-.gw-slot:active { transform: translateY(0) scale(0.92); }
+.gw-slot:hover { background: rgb(255 255 255 / 0.1); }
+.gw-slot:active { transform: scale(0.92); }
 .gw-slot-on {
   background: rgb(96 165 250 / 0.2);
   border-color: rgb(96 165 250 / 0.8);
-  box-shadow: 0 0 0 3px rgb(96 165 250 / 0.2), 0 8px 18px -6px rgb(96 165 250 / 0.6);
-  transform: translateY(-6px);
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 0.2), 0 0 14px -4px rgb(96 165 250 / 0.6);
 }
-.gw-slot-on:hover { transform: translateY(-7px); }
 .gw-slot-red {
   background: rgb(248 113 113 / 0.18);
   border-color: rgb(248 113 113 / 0.8);
   box-shadow: 0 0 0 3px rgb(248 113 113 / 0.2);
 }
 .gw-slot-poor img, .gw-slot-poor svg { opacity: 0.4; filter: grayscale(0.6); }
+.gw-slot-empty { border: 1px dashed rgb(255 255 255 / 0.12); background: transparent; }
+.gw-slot-empty:hover { transform: none; background: transparent; }
+.gw-slot-drop { outline: 2px solid rgb(56 189 248 / 0.8); outline-offset: 1px; background: rgb(56 189 248 / 0.12); }
 .gw-guide { animation: gw-guide 1.3s ease-in-out infinite; }
 @keyframes gw-guide {
   0%, 100% { box-shadow: 0 0 0 2px rgb(94 234 212 / 0.9), 0 0 0 4px rgb(94 234 212 / 0.15); }
