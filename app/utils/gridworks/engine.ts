@@ -1077,7 +1077,7 @@ export class GridEngine {
             return this.select(null)
         }
         if (k === 'x' || k === 'delete') {
-            if (this.selected && k === 'delete') return this.act('remove')
+            if (this.selected) return this.act('remove')
             return this.setTool(this.tool.mode === 'remove' ? { mode: 'select' } : { mode: 'remove' })
         }
         if (k === 'q') return this.pipette()
