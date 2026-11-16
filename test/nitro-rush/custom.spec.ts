@@ -31,6 +31,7 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'boost-pad', 'boost-pad-left', 'boost-pad-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'jump-ramp', 'empty-10', 'empty-20', 'landing-ramp', 'straight-100', 'jump-ramp-big', 'empty-60', 'empty-100', 'empty-200', 'landing-ramp', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'width-narrow', 'left-tight', 'width-normal', 'straight-60', 'width-wide', 'right-hairpin', 'width-very-wide', 'looping-left', 'width-normal', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-60', 'field', 'straight-60', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200']),
         {
             ...sprint(['straight-20', 'start', 'split-y', 'right-eighth', 'straight-200', 'join-y', 'straight-100', 'finish', 'straight-200']),

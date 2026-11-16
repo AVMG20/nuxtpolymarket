@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { PreviewCourse } from '~/utils/nitro-rush/builder-course'
 import { BuilderPreview, type PreviewSelection } from '~/utils/nitro-rush/builder-preview'
-import { draftTrackDef, pieceAt, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { draftTrackDef, pieceAt } from '#shared/utils/nitro-rush/custom-draft'
 import { draftForkedDef, type ForkedLines } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 

@@ -4,6 +4,7 @@ import { db } from '#server/database'
 import { nitroRushGhosts, nitroRushLaps, nitroRushPlays, nitroRushTrackVotes, nitroRushTracks, user } from '#server/database/schema'
 import { nrTrackSummaries, playedLately, recordNrPlay, validGhost, type NrGhost, type NrTrackSummary } from '#server/utils/nitro-rush'
 import { compileCustomTrack, isPublishedTrackId, MAX_CUSTOM_TRACKS, newPublishedTrackId, roadKey, sanitizeCustomTrack, type CustomBranch, type SectionId } from '#shared/utils/nitro-rush/custom'
+import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -39,6 +40,8 @@ export interface NrPublishedTrack {
     sections: SectionId[]
     /** Null on a course that never forks. */
     branches: CustomBranch[] | null
+    /** Null on a course without fields. */
+    fields: CustomField[] | null
     author: string
     summary: NrTrackSummary
     votes: NrTrackVotes
@@ -59,12 +62,12 @@ export async function nrTrackDef(trackId: unknown): Promise<TrackDef | null> {
     if (typeof trackId !== 'string') return null
     const builtIn = findTrack(trackId)
     if (builtIn || !isPublishedTrackId(trackId)) return builtIn
-    const [row] = await db.select({ name: nitroRushTracks.name, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections, branches: nitroRushTracks.branches })
+    const [row] = await db.select({ name: nitroRushTracks.name, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections, branches: nitroRushTracks.branches, fields: nitroRushTracks.fields })
         .from(nitroRushTracks).where(and(eq(nitroRushTracks.id, trackId), isLive))
     if (!row) return null
     const cached = defs.get(trackId)
     if (cached) return cached
-    const { def } = compileCustomTrack({ id: trackId, ...row, branches: row.branches ?? undefined })
+    const { def } = compileCustomTrack({ id: trackId, ...row, branches: row.branches ?? undefined, fields: row.fields ?? undefined })
     if (!def) return null
     if (defs.size >= DEF_CACHE_LIMIT) defs.clear()
     defs.set(trackId, def)
@@ -160,7 +163,7 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         }
         const now = new Date()
         const lapMs = driven.ghost.end
-        await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections, branches: track.branches ?? null, roadHash: hash })
+        await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections, branches: track.branches ?? null, fields: track.fields ?? null, roadHash: hash })
         await recordNrPlay(userId, id, tx)
         await tx.insert(nitroRushLaps).values({ userId, trackId: id, lapMs, setAt: now })
         await tx.insert(nitroRushGhosts).values({ userId, trackId: id, lapMs, standing: driven.standing, ghost: driven.ghost, updatedAt: now })
@@ -173,7 +176,7 @@ export async function unpublishNrTrack(userId: string, sourceId: unknown) {
     if (typeof sourceId !== 'string') throw createError({ statusCode: 400, statusMessage: 'Invalid track' })
     await db.transaction(async (tx) => {
         await lockAuthor(tx, userId)
-        const [row] = await tx.select({ id: nitroRushTracks.id, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections, branches: nitroRushTracks.branches })
+        const [row] = await tx.select({ id: nitroRushTracks.id, closed: nitroRushTracks.closed, sections: nitroRushTracks.sections, branches: nitroRushTracks.branches, fields: nitroRushTracks.fields })
             .from(nitroRushTracks)
             .where(and(eq(nitroRushTracks.authorId, userId), eq(nitroRushTracks.sourceId, sourceId), isLive))
         if (!row) throw createError({ statusCode: 404, statusMessage: 'Track not published' })
@@ -236,6 +239,7 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
         closed: nitroRushTracks.closed,
         sections: nitroRushTracks.sections,
         branches: nitroRushTracks.branches,
+        fields: nitroRushTracks.fields,
         author: user.name,
         publishedAt: nitroRushTracks.publishedAt,
         unpublishedAt: nitroRushTracks.unpublishedAt

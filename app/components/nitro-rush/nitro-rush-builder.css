@@ -326,3 +326,27 @@
     color: var(--nr-green);
     border-color: rgb(77 255 138 / 0.4);
 }
+
+/* The field editor: tiles from above, scaled to fit, entry at the bottom. */
+.nr-root .nr-field-editor {
+    width: 100%;
+    max-height: 18rem;
+    touch-action: none;
+    cursor: crosshair;
+    user-select: none;
+}
+
+.nr-root .nr-field-floor { fill: #1b1c26; stroke: rgb(255 255 255 / 0.35); stroke-width: 0.6; }
+.nr-root .nr-field-grid { stroke: rgb(255 255 255 / 0.1); stroke-width: 0.4; }
+.nr-root .nr-field-block { fill: #8a8d99; stroke: #2a2c36; stroke-width: 0.6; }
+.nr-root .nr-field-pad { fill: rgb(43 255 90 / 0.25); stroke: #2bff5a; stroke-width: 0.8; }
+.nr-root .nr-field-gate { stroke: var(--nr-cyan); stroke-width: 1.6; }
+.nr-root .nr-field-arrow { fill: none; stroke: #2bff5a; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.nr-root .nr-field-arrow.is-gate { stroke: var(--nr-cyan); }
+.nr-root .nr-field-slot rect { fill: rgb(255 255 255 / 0.06); stroke: rgb(255 255 255 / 0.15); stroke-width: 0.4; }
+.nr-root .nr-field-slot rect.is-taken { fill: rgb(255 43 214 / 0.35); stroke: var(--nr-pink); }
+.nr-root .nr-field-slot.is-live { cursor: pointer; }
+.nr-root .nr-field-slot.is-live rect { stroke: var(--nr-cyan); }
+.nr-root .nr-field-slot.is-live:hover rect { fill: rgb(61 242 255 / 0.3); }
+.nr-root .nr-field-slot-label { fill: #fff; font: 700 5px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.nr-root .nr-field-arrival { fill: var(--nr-gold); stroke: #05050f; stroke-width: 0.8; }

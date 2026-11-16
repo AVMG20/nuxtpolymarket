@@ -40,16 +40,8 @@ interface Crossing {
 }
 
 /**
- * Lap clock and counter for an endless session, run on the car's moves across the course's
- * lines. A lap counts once the car has touched K different checkpoints, in any order, where K
- * is the fewest any route drives, and then crosses the start line of a loop or a finish of a
- * sprint. Backing over a checkpoint takes it back. A move longer than the car can drive in a
- * step crosses nothing. Each crossing is interpolated inside the step that made it, so times
- * don't snap to the frame.
- *
- * On a loop the laps never stop; crossing the start line backward owes a crossing before the
- * next lap can close, and so does a grid behind it. A sprint's clock runs from GO, and its run
- * is over at the first finish crossed with K checkpoints touched.
+ * Lap clock: a lap is K checkpoints in any order, then a loop's start or a sprint's finish; backing over a road checkpoint
+ * takes it back, a field gate counts either way, and a move longer than one step's drive crosses nothing.
  */
 export class LapTimer {
     readonly closed: boolean
@@ -127,7 +119,8 @@ export class LapTimer {
         this.log = this.log.filter(c => c.at > this.clock - LOG_SECONDS)
         for (const c of crossings) {
             const at = this.clock - dt + dt * c.f
-            if (!c.forward) {
+            // A field is free roam, so its gates count either way through and backing over one keeps it.
+            if (!c.forward && c.line.field === undefined) {
                 this.backOver(c.line)
                 continue
             }
@@ -163,6 +156,8 @@ export class LapTimer {
     /** A car high over a line crosses it only flying over that line's own road, not another road stacked above it. */
     private overLine(line: LapLine, x: number, y: number, z: number) {
         if (!this.track.landing(x, y, z, this.under)) return true
+        // Coming down on a field, a line counts if it lies across that field, wherever on it the car lands.
+        if (this.under.field >= 0) return this.track.fields[this.under.field]!.crossedAt(line.branch, line.s)
         return this.under.branch === line.branch && Math.abs(this.under.s - line.s) <= LINE_ROAD_SLACK
     }
 

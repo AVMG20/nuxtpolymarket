@@ -19,9 +19,10 @@ import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
-import { headingOf, Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { createSeededRandom } from '#shared/utils/random'
 import { World } from './world'
+import { WRONG_WAY_DELAY, wrongWayTime } from './wrong-way'
 import type { NitroAudio } from './audio'
 import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostSource, type LapEntry, type MapGhost, type Phase, type TrackRecord } from './types'
 
@@ -418,8 +419,7 @@ export class NitroRushEngine {
 
         if (this.phase === 'racing') {
             // Going the wrong way for a while gets a warning.
-            const along = Math.cos(s.travel - headingOf(s.proj.tx, s.proj.tz)) * s.speed
-            this.wrongWayTime = along < -3 ? this.wrongWayTime + dt : 0
+            this.wrongWayTime = wrongWayTime(s, this.wrongWayTime, dt)
             // Announced once each time a drift tops the tank up to full.
             if (s.nitro < 1) this.nitroReadyAnnounced = false
             else if (!this.nitroReadyAnnounced) {
@@ -559,9 +559,10 @@ export class NitroRushEngine {
             nitro: s.nitro,
             nitroActive: s.nitroOn,
             drifting: s.drifting,
-            wrongWay: this.wrongWayTime > 1.2,
+            wrongWay: this.wrongWayTime > WRONG_WAY_DELAY,
             car: { x: this.motion.pos.x, z: this.motion.pos.z, heading: this.motion.drawn.heading },
-            ghosts: this.ghosts.frames.map((f): MapGhost => ({ x: f.pose.x, z: f.pose.z, color: f.color ?? GHOST_COLOR }))
+            ghosts: this.ghosts.frames.map((f): MapGhost => ({ x: f.pose.x, z: f.pose.z, color: f.color ?? GHOST_COLOR })),
+            gates: timer && this.track.fieldGateIds.some(ids => ids.length) ? { touched: timer.touched.length, k: timer.k } : null
         })
     }
 

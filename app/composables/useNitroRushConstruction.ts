@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { nextSection, stateAfter, stepsFor, type Construction } from '#shared/utils/nitro-rush/construct'
-import { lastPieceWalk, raisedTo, sectionFault, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { raisedTo, sectionFault, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { lastPieceWalk } from '#shared/utils/nitro-rush/custom-draft'
 import { lastPieceClashes } from '#shared/utils/nitro-rush/road-checks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 

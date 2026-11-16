@@ -172,6 +172,18 @@ describe('LapTimer', () => {
         expect(drive(bare, timerAt(bare, 0), 0, 10, 0.1, 100).map(e => e.type)).toEqual(['lap'])
     })
 
+    it('counts a road checkpoint only forward, and takes it back when backed over', () => {
+        const track = rectangleLoop([250])
+        const timer = timerAt(track, 240)
+        drive(track, timer, 240, 1, 0.1, 20)
+        expect(timer.touched).toEqual([0])
+        drive(track, timer, 260, -1, 0.1, 20)
+        expect(timer.touched).toEqual([])
+        const backward = timerAt(track, 260)
+        drive(track, backward, 260, -1, 0.1, 20)
+        expect(backward.touched).toEqual([])
+    })
+
     it('does not close a lap when the car first crosses the line from the grid', () => {
         const track = rectangleLoop()
         const timer = timerAt(track, -14)

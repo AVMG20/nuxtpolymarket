@@ -22,8 +22,16 @@ const emit = defineEmits<{
 
 const {
     draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
+    fieldTargets, fieldSpot, fieldPlan, fieldMouths, fieldError,
+    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+    fieldTool, resizeFieldTo, moveFieldExit, addExit
 } = useNitroRushTrackDraft(toRef(props, 'track'))
+
+/** The roads leaving the highlighted field through its edges, by line. */
+const fieldPorts = computed(() => (draft.value.branches ?? []).flatMap((b, i) => {
+    const spot = fieldSpot.value
+    return spot && b.from.port && b.from.branch === spot.branch && b.from.at === spot.at ? [{ line: i + 1, port: b.from.port }] : []
+}))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
 const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
@@ -64,7 +72,7 @@ const { armed, tap } = useNitroRushConfirmTap()
 /** What's still wrong with a branch's end, or null when it ends somewhere. */
 function branchStatus(l: number) {
     const e = endings.value[l - 1]
-    if (e?.kind === 'open') return `Branch ${l} needs ${draft.value.closed ? 'a join' : 'a join or a finish line'}`
+    if (e?.kind === 'open') return `Branch ${l} needs ${draft.value.closed ? 'a join or a field' : 'a join, a field or a finish line'}`
     if (e?.kind === 'short') return `Branch ${l} is ${Math.round(e.metres)} m from its join`
     if (e?.kind === 'askew') return `Branch ${l} ${e.why}`
     return null
@@ -260,6 +268,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
+        <NitroRushBuilderField
+          v-if="fieldPlan"
+          :plan="fieldPlan"
+          :ports="fieldPorts"
+          :mouths="fieldMouths"
+          :error="fieldError"
+          @tool="fieldTool"
+          @resize="resizeFieldTo"
+          @exit="addExit"
+          @road="moveFieldExit"
+        />
         <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" :fault="fault" @pick="pick" @build="build">
           <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
             ALL SECTIONS
@@ -275,7 +294,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <button role="radio" :aria-checked="!draft.closed" :class="{ 'is-active': !draft.closed }" @click="setClosed(false)">SPRINT</button>
         </div>
         <p class="text-[11px] font-semibold text-white/55 [font-family:system-ui,sans-serif]">
-          {{ line ? (draft.closed ? 'End the branch at a join.' : 'End the branch at a join or a finish line.') : draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
+          {{ line ? (draft.closed ? 'End the branch at a join or a field.' : 'End the branch at a join, a field or a finish line.') : draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
           New sections go in after the highlighted one; drag a section's grip to move it.
         </p>
         <NitroRushBuilderRoads
@@ -284,6 +303,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           :line="line"
           :joins="forks.joins"
           :joinable="joinable"
+          :fields="fieldTargets"
           @select="selectLine"
           @join="joinAt"
           @remove="removeLine"

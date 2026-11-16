@@ -4,6 +4,7 @@ import type { Theme } from './config'
 import { boostPadTexture, concreteTexture } from './textures'
 import { buildCity } from './city'
 import { addBoostPads, addJumpMarks, boostPadMaterial, buildBarriers, buildRoad, buildTrackside, type WetUniforms } from './world-road'
+import { buildFields } from './world-field'
 import { buildSky } from './world-sky'
 import { buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
 import { buildSignage } from './world-trackside'
@@ -53,11 +54,13 @@ export class World {
         this.wetUniforms = road.wetUniforms
         buildTrackside(kit)
         this.boostPads = own(boostPadTexture())
-        addBoostPads(kit, own(boostPadMaterial(this.boostPads)))
+        const padMaterial = own(boostPadMaterial(this.boostPads))
+        addBoostPads(kit, padMaterial)
         addJumpMarks(kit)
         const concrete = own(concreteTexture(150))
         concrete.repeat.set(0.5, 0.5)
         buildBarriers(kit, concrete)
+        buildFields(kit, padMaterial, concrete)
         // Shared by every structure.
         const steel = own(new THREE.MeshStandardMaterial({ color: 0x80848c, roughness: 0.4, metalness: 0.85 }))
 

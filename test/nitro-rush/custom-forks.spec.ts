@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkpointRoles } from '../../app/utils/nitro-rush/builder-forks'
-import { compileCustomTrack, MAX_SECTIONS, sameRoad, sanitizeCustomTrack, sectionCount, sectionWalk, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, MAX_SECTIONS, roadKey, sameRoad, sanitizeCustomTrack, sectionCount, sectionWalk, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { branchEnding, canJoin, draftForkedDef, insertSection, joinCandidates, moveSection, removeBranch, removeSection, sectionPartner, setJoin, walkForks } from '#shared/utils/nitro-rush/custom-forks'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { Track } from '#shared/utils/nitro-rush/track'
@@ -140,6 +140,15 @@ describe('editing a forked course', () => {
         expect(moved.sections[5]).toBe('join-left')
         expect(moved.branches![0]!.to).toEqual({ branch: 0, at: 5 })
         expect(moved.branches![0]!.from).toEqual({ branch: 0, at: 1 })
+    })
+
+    it('keeps fields in course order when one moves past another, as the published copy stores them', () => {
+        const plan = (width: number) => ({ width, length: 100, entry: 0, exit: { edge: 'exit' as const, tile: 0 }, tiles: [] })
+        const t: CustomTrack = { id: 'custom-fields', name: 'Fields', closed: false, sections: ['start', 'field', 'straight-100', 'field', 'finish'], fields: [{ at: { branch: 0, at: 1 }, ...plan(40) }, { at: { branch: 0, at: 3 }, ...plan(60) }] }
+        const moved = moveSection(t, 0, 1, 4)
+        expect(moved.fields!.map(f => f.at.at)).toEqual([2, 4])
+        expect(moved.fields!.map(f => f.width)).toEqual([60, 40])
+        expect(roadKey(sanitizeCustomTrack(moved)!)).toBe(roadKey(moved))
     })
 
     it('takes a split\'s branch, and every branch off it, away with it', () => {

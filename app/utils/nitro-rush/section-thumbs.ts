@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { buildStage, CourseMaterials, layCourse, MARKER_LIFT } from './builder-course'
 import { worldKit } from './world-kit'
-import { draftTrackDef, mapWalkHeights, sectionWalk, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { mapWalkHeights, sectionWalk, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { draftTrackDef } from '#shared/utils/nitro-rush/custom-draft'
 import { sectionPartner } from '#shared/utils/nitro-rush/custom-forks'
+import { fieldPoint } from '#shared/utils/nitro-rush/field'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 import { Track, wallFoot } from '#shared/utils/nitro-rush/track'
 
@@ -48,7 +50,7 @@ export function cardWalk(id: SectionId): LayoutWalk {
     return walk.rails.length || walk.lifts.some(Boolean) ? walk : mapWalkHeights(walk, y => y * HEIGHT_STRETCH)
 }
 
-/** The road's outer edges, the ground under them and the end marker: everything a card has to show. */
+/** The road's outer edges, any field, the ground under them and the end marker: everything a card has to show. */
 export function cardExtent(track: Track, end: LayoutWalk['end']) {
     const points: THREE.Vector3[] = []
     for (let i = 0; i < track.n; i++) {
@@ -58,6 +60,12 @@ export function cardExtent(track: Track, end: LayoutWalk['end']) {
         for (const side of [-edge, edge]) {
             const foot = centre.clone().addScaledVector(right, side)
             points.push(foot, new THREE.Vector3(foot.x, 0, foot.z))
+        }
+    }
+    for (const f of track.fields) {
+        for (const [u, v] of [[0, 0], [f.width, 0], [f.width, f.length], [0, f.length]] as const) {
+            const [x, z] = fieldPoint(f, u, v)
+            points.push(new THREE.Vector3(x, f.y, z), new THREE.Vector3(x, 0, z))
         }
     }
     const marker = new THREE.Vector3(end.x, end.y + MARKER_LIFT, end.z)
