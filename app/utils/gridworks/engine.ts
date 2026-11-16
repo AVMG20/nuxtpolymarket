@@ -72,6 +72,9 @@ interface EntView {
     body: Sprite
     spin?: Sprite
     icon?: Sprite
+    /** Labs: the research progress bar and the fraction it last drew. */
+    bar?: Graphics
+    barAt?: number
     /** Index in the current solution, -1 when unknown. */
     sol: number
     /** Belts: drawing shape, distance from the line's head (tiles), layer. */
@@ -135,6 +138,9 @@ export class GridEngine {
     private guideBox = new Graphics()
     private guideArrow = new Graphics()
     private guideTarget: { x: number, y: number, w: number, h: number } | null = null
+    /** Active research progress 0..1 (null: nothing queued), and the eased value the labs show. */
+    private research: number | null = null
+    private researchShown = 0
     private guideKey = ''
     private fx = new Container()
     private buyLayer = new Container()
@@ -400,6 +406,12 @@ export class GridEngine {
         }
     }
 
+    /** The active research's progress (0..1), drawn as a bar on every lab; null hides the bars. */
+    setResearch(frac: number | null) {
+        if (frac !== null && this.research === null) this.researchShown = frac
+        this.research = frac === null ? null : Math.max(0, Math.min(1, frac))
+    }
+
     /** Points Cog's arrow at a tile area, or hides it. */
     setGuide(target: { x: number, y: number, w: number, h: number } | null) {
         this.guideTarget = target
@@ -569,6 +581,10 @@ export class GridEngine {
             const sn = Math.sin(e.r * Math.PI / 2)
             f.position.set(-17 * c + 17 * sn, -17 * sn - 17 * c)
             root.addChild(f)
+        }
+        if (e.k === 'lab') {
+            v.bar = new Graphics()
+            root.addChild(v.bar)
         }
         if ((e.mk ?? 1) > 1 && def.role !== 'belt') {
             const pip = new Graphics()
@@ -1906,6 +1922,7 @@ export class GridEngine {
         this.updateParticles(dt)
         this.updateBelts()
         this.updateMachines(dt)
+        this.updateLabBars(dt)
         this.updateItems()
         this.updateGhost(dt)
         this.updateMove(dt)
@@ -2022,6 +2039,24 @@ export class GridEngine {
             const f = moving ? frames[mk]! : 0
             const tex = this.tex.belt[mk]![v.shape ?? 'straight']![f]!
             if (v.body.texture !== tex) v.body.texture = tex
+        }
+    }
+
+    private updateLabBars(dt: number) {
+        const target = this.research
+        if (target !== null) this.researchShown += (target - this.researchShown) * (1 - Math.exp(-dt * 4))
+        const frac = target === null ? -1 : Math.round(this.researchShown * 200) / 200
+        for (const v of this.views.values()) {
+            if (!v.bar || v.barAt === frac) continue
+            v.barAt = frac
+            const g = v.bar.clear()
+            if (frac < 0) continue
+            const def = BUILDINGS[v.e.k]
+            const w = def.w * TILE - 28
+            const x = -w / 2
+            const y = def.h * TILE / 2 - 15
+            g.roundRect(x - 2, y - 2, w + 4, 10, 5).fill({ color: 0x0f1115, alpha: 0.85 })
+            if (frac > 0) g.roundRect(x, y, Math.max(6, w * frac), 6, 3).fill(0xa78bfa)
         }
     }
 

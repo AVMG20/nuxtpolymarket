@@ -82,6 +82,15 @@ const active = computed(() => {
     }
 })
 
+// The active research's progress, also drawn as a bar on every lab.
+const researchFrac = computed(() => {
+    const a = active.value
+    if (!a) return null
+    const total = a.parts.reduce((n, p) => n + p.total, 0)
+    return total ? a.parts.reduce((n, p) => n + p.got, 0) / total : 0
+})
+watch([researchFrac, eng], ([f]) => eng.value?.setResearch(f))
+
 function spriteUrl(k: Kind) {
     const s = BUILDINGS[k].sprite
     return s ? `/gridworks/sprites/${s}` : ''
