@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs>
+<radialGradient id="gw-research-fusion-reactor-orb" cx=".42" cy=".4" r=".62">
+<stop offset="0" stop-color="#fff"/>
+<stop offset=".3" stop-color="#fbcfff"/>
+<stop offset=".65" stop-color="#e879f9"/>
+<stop offset="1" stop-color="#c026d3"/>
+</radialGradient>
+</defs>
+<path d="M17.5 6.9H46.5L61 32L46.5 57.1H17.5L3 32Z" fill="#a3aebd" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<path d="M17.5 6.9H46.5L52 16.4H12Z" fill="#d7dee8"/>
+<path d="M3 32L17.5 57.1H46.5L61 32L55.5 32L44 51.5H20L8.5 32Z" fill="#6b7a90"/>
+<path d="M17.5 6.9H46.5L61 32L46.5 57.1H17.5L3 32Z" fill="none" stroke="#2b3038" stroke-width="3" stroke-linejoin="round"/>
+<g fill="#2b3038">
+<circle cx="18.5" cy="12" r="2"/>
+<circle cx="45.5" cy="12" r="2"/>
+<circle cx="18.5" cy="52" r="2"/>
+<circle cx="45.5" cy="52" r="2"/>
+<circle cx="8.5" cy="32" r="2"/>
+<circle cx="55.5" cy="32" r="2"/>
+</g>
+<circle cx="32" cy="32" r="20" fill="#a21caf" stroke="#2b3038" stroke-width="3"/>
+<g transform="translate(32 32)" fill="#2b3038">
+<rect x="-2.5" y="-21" width="5" height="7" rx="1.5" transform="rotate(45)"/>
+<rect x="-2.5" y="-21" width="5" height="7" rx="1.5" transform="rotate(135)"/>
+<rect x="-2.5" y="-21" width="5" height="7" rx="1.5" transform="rotate(225)"/>
+<rect x="-2.5" y="-21" width="5" height="7" rx="1.5" transform="rotate(315)"/>
+</g>
+<circle cx="32" cy="32" r="14.5" fill="url(#gw-research-fusion-reactor-orb)" stroke="#2b3038" stroke-width="2.5"/>
+<path d="M32 22L33.9 30.1L42 32L33.9 33.9L32 42L30.1 33.9L22 32L30.1 30.1Z" fill="#fff" fill-opacity=".9"/>
+</svg>

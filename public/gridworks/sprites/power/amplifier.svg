@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="gw-amp-body"><rect x="3" y="3" width="58" height="58" rx="10"/></clipPath>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="10" fill="#34d399"/>
+  <g clip-path="url(#gw-amp-body)">
+    <rect x="0" y="0" width="64" height="14" fill="#fff" fill-opacity=".25"/>
+    <rect x="0" y="52" width="64" height="12" fill="#059669"/>
+  </g>
+  <rect x="3" y="3" width="58" height="58" rx="10" fill="none" stroke="#2b3038" stroke-width="3"/>
+  <g fill="#047857" stroke="#2b3038" stroke-width="2.5" stroke-linejoin="round">
+    <path d="M27 20V13L32 7L37 13V20Z"/>
+    <path d="M27 44V51L32 57L37 51V44Z"/>
+    <path d="M20 27H13L7 32L13 37H20Z"/>
+    <path d="M44 27H51L57 32L51 37H44Z"/>
+  </g>
+  <circle cx="32" cy="32" r="14" fill="#065f46" stroke="#2b3038" stroke-width="3"/>
+  <circle cx="32" cy="32" r="8" fill="#a7f3d0" stroke="#2b3038" stroke-width="2"/>
+  <circle cx="32" cy="32" r="3.5" fill="#ecfdf5"/>
+</svg>

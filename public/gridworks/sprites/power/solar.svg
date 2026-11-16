@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <clipPath id="gw-solar-body"><rect x="3" y="3" width="122" height="122" rx="10"/></clipPath>
+  </defs>
+  <rect x="3" y="3" width="122" height="122" rx="10" fill="#cbd5e1"/>
+  <g clip-path="url(#gw-solar-body)">
+    <rect x="0" y="0" width="128" height="9" fill="#fff" fill-opacity=".25"/>
+    <rect x="0" y="119" width="128" height="9" fill="#94a3b8"/>
+  </g>
+  <rect x="3" y="3" width="122" height="122" rx="10" fill="none" stroke="#2b3038" stroke-width="3"/>
+  <g fill="#1e3a8a" stroke="#2b3038" stroke-width="2">
+    <rect x="10" y="10" width="24" height="24" rx="2"/><rect x="38" y="10" width="24" height="24" rx="2"/><rect x="66" y="10" width="24" height="24" rx="2"/><rect x="94" y="10" width="24" height="24" rx="2"/>
+    <rect x="10" y="38" width="24" height="24" rx="2"/><rect x="38" y="38" width="24" height="24" rx="2"/><rect x="66" y="38" width="24" height="24" rx="2"/><rect x="94" y="38" width="24" height="24" rx="2"/>
+    <rect x="10" y="66" width="24" height="24" rx="2"/><rect x="38" y="66" width="24" height="24" rx="2"/><rect x="66" y="66" width="24" height="24" rx="2"/><rect x="94" y="66" width="24" height="24" rx="2"/>
+    <rect x="10" y="94" width="24" height="24" rx="2"/><rect x="38" y="94" width="24" height="24" rx="2"/><rect x="66" y="94" width="24" height="24" rx="2"/><rect x="94" y="94" width="24" height="24" rx="2"/>
+  </g>
+  <g fill="#fff" fill-opacity=".2">
+    <path d="M12 12h18l-18 18z"/><path d="M40 12h18l-18 18z"/><path d="M68 12h18l-18 18z"/><path d="M96 12h18l-18 18z"/>
+    <path d="M12 40h18l-18 18z"/><path d="M40 40h18l-18 18z"/><path d="M68 40h18l-18 18z"/><path d="M96 40h18l-18 18z"/>
+    <path d="M12 68h18l-18 18z"/><path d="M40 68h18l-18 18z"/><path d="M68 68h18l-18 18z"/><path d="M96 68h18l-18 18z"/>
+    <path d="M12 96h18l-18 18z"/><path d="M40 96h18l-18 18z"/><path d="M68 96h18l-18 18z"/><path d="M96 96h18l-18 18z"/>
+  </g>
+  <path d="M22 11V33M50 11V33M78 11V33M106 11V33M22 39V61M50 39V61M78 39V61M106 39V61M22 67V89M50 67V89M78 67V89M106 67V89M22 95V117M50 95V117M78 95V117M106 95V117" stroke="#3b5bb5" stroke-width="1.5"/>
+</svg>

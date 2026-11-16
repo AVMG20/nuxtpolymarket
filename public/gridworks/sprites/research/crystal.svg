@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs>
+<radialGradient id="gw-research-crystal-glow" cx=".5" cy=".5" r=".5">
+<stop offset="0" stop-color="#bff1ff" stop-opacity=".85"/>
+<stop offset=".55" stop-color="#5fd4f5" stop-opacity=".35"/>
+<stop offset="1" stop-color="#5fd4f5" stop-opacity="0"/>
+</radialGradient>
+</defs>
+<circle cx="27" cy="38" r="25" fill="url(#gw-research-crystal-glow)"/>
+<g transform="translate(1.5 14) scale(1.6)" stroke="#2b3038" stroke-width="1.9" stroke-linejoin="round">
+<path d="M6.5 27L4.8 16.6L7.8 12L12.6 14.6L13 27Z" fill="#5fd4f5"/>
+<path d="M7.8 12L12.6 14.6L13 27L9.6 27Z" fill="#36a6cb" stroke="none"/>
+<path d="M6.5 27L4.8 16.6L7.8 12L12.6 14.6L13 27Z" fill="none"/>
+<path d="M25.5 27L27.2 17.6L24.4 12.6L19.6 15L19 27Z" fill="#5fd4f5"/>
+<path d="M24.4 12.6L27.2 17.6L25.5 27L22.4 27Z" fill="#36a6cb" stroke="none"/>
+<path d="M25.5 27L27.2 17.6L24.4 12.6L19.6 15L19 27Z" fill="none"/>
+<path d="M11.8 27L11.8 10.6L16 4.6L20.2 10.6L20.2 27Z" fill="#8ee6fb"/>
+<path d="M16 4.6L20.2 10.6L20.2 27L16 27Z" fill="#36a6cb" stroke="none"/>
+<path d="M13.8 12L13.8 22" fill="none" stroke="#fff" stroke-opacity=".6" stroke-linecap="round"/>
+<path d="M11.8 27L11.8 10.6L16 4.6L20.2 10.6L20.2 27Z" fill="none"/>
+<path d="M4.5 27L27.5 27" fill="none" stroke-linecap="round"/>
+</g>
+<g transform="translate(46 16.5) rotate(40) scale(1.25)" stroke="#2b3038" stroke-linejoin="round">
+<rect x="-4" y="-14" width="8" height="8" rx="1.5" fill="#6b7a90" stroke-width="2"/>
+<rect x="-7" y="-7" width="14" height="5" rx="1.5" fill="#f2b83a" stroke-width="2"/>
+<path d="M-6 -2H6L0 18Z" fill="#d7dee8" stroke-width="2"/>
+<path d="M-5.5 1.5L4.5 4M-4.2 6L3.2 8.5M-2.8 10.5L1.9 12.5" fill="none" stroke-width="1.6" stroke-linecap="round"/>
+</g>
+</svg>

@@ -47,7 +47,8 @@ export const NAV_CATALOG: NavSection[] = [
             { label: 'Hack Ops', icon: 'i-lucide-terminal', to: '/hack', description: 'Recruit agents, gear them up and send squads on timed hacking ops' },
             { label: 'Colony', icon: 'i-lucide-bug', to: '/colony', description: 'Breed alien bugs, keep them fed and let them forage while you are away' },
             { label: 'Polytown', icon: 'i-lucide-building-2', to: '/polytown', description: 'Build and level a town of shops, homes and landmarks with an AI advisor' },
-            { label: 'Hero Quest', icon: 'i-lucide-swords', to: '/hero-quest', description: 'An idle RPG: your hero fights through stages and bosses on their own' }
+            { label: 'Hero Quest', icon: 'i-lucide-swords', to: '/hero-quest', description: 'An idle RPG: your hero fights through stages and bosses on their own' },
+            { label: 'Gridworks', icon: 'i-lucide-factory', to: '/gridworks', description: 'Grow a factory from one miner to fusion cores on a grid next to everyone else' }
         ]
     },
     {

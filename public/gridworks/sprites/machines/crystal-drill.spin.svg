@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<g id="b" stroke="#2b3038" stroke-width="2" stroke-linejoin="round">
+<path d="M27 32 28 24H36L37 32Z" fill="#d9dee6"/>
+<path d="M32 18.5 37.5 23.5 32 28.5 26.5 23.5Z" fill="#cffafe"/>
+<path d="M32 19.5 36.5 23.5 32 27.5Z" fill="#5fcdf5" stroke="none"/>
+</g>
+<use href="#b" transform="rotate(90 32 32)"/>
+<use href="#b" transform="rotate(180 32 32)"/>
+<use href="#b" transform="rotate(270 32 32)"/>
+<circle cx="32" cy="32" r="6.5" fill="#2b3038"/>
+<path d="M32 28.5 35.5 32 32 35.5 28.5 32Z" fill="#cffafe"/>
+</svg>
