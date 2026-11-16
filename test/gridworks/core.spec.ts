@@ -228,11 +228,8 @@ describe('gridworks goals', () => {
 
     it('claims goals in order, once each, only when met', () => {
         const s = newState(SEED, now)
-        expect(currentGoal(s)?.id).toBe('hello')
-        expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBe('missing')
-        expect(applyOp(s, { op: 'goal', id: 'hello' }, now, null)).toBeNull()
-        expect(applyOp(s, { op: 'goal', id: 'hello' }, now, null)).toBe('missing')
         expect(currentGoal(s)?.id).toBe('hand-mine')
+        expect(applyOp(s, { op: 'goal', id: 'first-belt' }, now, null)).toBe('missing')
 
         const stone = s.stock.stone ?? 0
         expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBe('goal')
@@ -240,25 +237,34 @@ describe('gridworks goals', () => {
         expect(applyOp(s, { op: 'mine', x, y, n: 10 }, now)).toBeNull()
         expect(s.mined).toBe(10)
         expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBeNull()
+        expect(applyOp(s, { op: 'goal', id: 'hand-mine' }, now, null)).toBe('missing')
         expect(s.stock.stone).toBe(stone + (GOAL_BY_ID['hand-mine']!.reward.stone ?? 0))
-        expect(s.goals).toEqual(['hello', 'hand-mine'])
+        expect(s.goals).toEqual(['hand-mine'])
+        expect(currentGoal(s)?.id).toBe('first-belt')
     })
 
     it('rejects unknown and oversized goal ids', () => {
         expect(parseOp({ op: 'goal', id: 'x'.repeat(41) })).toBeNull()
         expect(parseOp({ op: 'goal', id: 1 })).toBeNull()
         expect(parseOp({ op: 'goal', id: 'nope' })).toBeNull()
-        expect(parseOp({ op: 'goal', id: 'hello' })).toEqual({ op: 'goal', id: 'hello' })
+        expect(parseOp({ op: 'goal', id: 'hand-mine' })).toEqual({ op: 'goal', id: 'hand-mine' })
     })
 
     it('keeps the ids players already claimed and leads through tier 5', () => {
         const ids = GOALS.map(g => g.id)
         expect(new Set(ids).size).toBe(ids.length)
-        for (const id of ['hello', 'hand-mine', 'first-miner', 'first-belt', 'two-ores', 'pick-research', 'lab', 'smelting', 'plates', 'bricks', 'land', 'plates-60', 'tier-2', 'gears', 'steel', 'tier-3', 'motors', 'tier-4', 'chips', 'fusion']) {
-            expect(ids).toContain(id)
-        }
-        expect(ids.indexOf('tier-5')).toBeGreaterThan(ids.indexOf('chips'))
-        expect(ids.indexOf('tier-5')).toBeLessThan(ids.indexOf('fusion'))
+        expect(ids).toEqual(['hand-mine', 'first-belt', 'smelting', 'plates', 'bricks', 'land', 'gears', 'steel', 'motors', 'chips', 'fusion'])
+    })
+
+    it('points the first line at iron until a miner stands on it', () => {
+        const s = newState(SEED, now)
+        const line = GOAL_BY_ID['first-belt']!
+        expect(goalFocus(line, s)).toBe('build:miner')
+        const [x, y] = findOre('iron-ore')
+        expect(line.marker!(s)).toMatchObject({ w: 1, h: 1 })
+        s.entities.push({ k: 'miner', x, y, r: 0 })
+        expect(goalFocus(line, s)).toBe('build:belt')
+        expect(line.marker!(s)).toMatchObject({ w: 2, h: 2 })
     })
 
     it('points at the research tree until the building a goal needs is unlocked', () => {

@@ -1,7 +1,7 @@
 // Gridworks goals: Cog's guided first steps, then milestones. Each one is
 // checked against the plot, and its reward (items, never coins) is claimed
 // once, in order.
-import { RESEARCH_BY_ID, START_CHUNKS, tierOpen, type ItemId, type Kind, type Stock } from './defs'
+import { START_CHUNKS, type ItemId, type Kind, type Stock } from './defs'
 import type { Solution } from './flow'
 import type { GridState } from './game'
 import { oreAt, oreMap } from './world'
@@ -60,6 +60,12 @@ function nearestOre(s: GridState, ore: ItemId) {
     return best
 }
 
+/** Whether a miner stands on ore of this kind. */
+function minerOn(s: GridState, ore: ItemId) {
+    const map = oreMap(s.seed)
+    return s.entities.some(e => e.k === 'miner' && oreAt(map, e.x, e.y) === ore)
+}
+
 /** Points at the research tree until `research` is done, then at the building it unlocks. */
 const needs = (research: string, kind: Kind) => (s: GridState): GoalFocus => s.done.includes(research) ? `build:${kind}` : 'research'
 
@@ -76,53 +82,27 @@ function chain(steps: { research?: string, kind?: Kind }[]) {
 
 export const GOALS: Goal[] = [
     {
-        id: 'hello', title: 'Meet Cog', pose: 'idle', reward: {},
-        say: 'Hi, I\'m Cog! This lit square is your plot, and the crate in the middle is your storage. Let\'s get a factory humming.',
-        progress: () => [1, 1],
-        marker: storageArea
-    },
-    {
         id: 'hand-mine', title: 'Mine by hand', pose: 'point', reward: { stone: 20 },
-        say: 'Click an iron ore rock to dig it up yourself. Hold the button to keep digging. Grab 10!',
+        say: 'Hi, I\'m Cog! This lit square is your plot. Click an iron ore rock to dig it up, and hold the button to keep digging. Grab 10!',
         progress: s => [Math.min(10, s.mined), 10],
         marker: s => nearestOre(s, 'iron-ore')
     },
     {
-        id: 'first-miner', title: 'Place a miner', pose: 'point', reward: { 'iron-ore': 20 }, focus: 'build:miner',
-        say: 'Digging is slow. Pick the Miner from Production and drop it on ore. The arrow shows where its ore comes out; press R to turn it.',
-        progress: s => flag(has(s, 'miner')),
-        marker: s => nearestOre(s, 'iron-ore')
+        id: 'first-belt', title: 'Your first line', pose: 'point', reward: { 'iron-ore': 50, stone: 60 },
+        focus: s => minerOn(s, 'iron-ore') ? 'build:belt' : 'build:miner',
+        say: 'Drop a Miner from Production on iron ore (R turns its arrow), then drag a belt from the arrow into the storage crate.',
+        progress: (_, sol) => flag(rate(sol, 'iron-ore') > 0),
+        marker: s => minerOn(s, 'iron-ore') ? storageArea(s) : nearestOre(s, 'iron-ore')
     },
     {
-        id: 'first-belt', title: 'Belt it home', pose: 'point', reward: { 'iron-ore': 30, stone: 20 }, focus: 'build:belt',
-        say: 'Now drag a belt from the miner\'s arrow into the storage. Drop the end on the crate and the belt turns into it.',
-        progress: (_, sol) => flag(Object.values(sol?.store ?? {}).some(v => v > 0)),
-        marker: storageArea
-    },
-    {
-        id: 'two-ores', title: 'Iron and stone', pose: 'idle', reward: { stone: 40 }, focus: 'build:miner',
-        say: 'Storage takes anything you feed it. Get iron ore and stone flowing in at the same time.',
-        progress: (_, sol) => [(rate(sol, 'iron-ore') > 0 ? 1 : 0) + (rate(sol, 'stone') > 0 ? 1 : 0), 2],
-        marker: s => nearestOre(s, 'stone')
-    },
-    {
-        id: 'pick-research', title: 'Pick a research', pose: 'think', reward: { stone: 20 }, focus: 'research',
-        say: 'Time to learn something! Open the research tree (T) and pick Smelting.',
-        progress: s => flag(s.queue.length > 0 || s.done.length > 0)
-    },
-    {
-        id: 'lab', title: 'Feed a lab', pose: 'point', reward: { 'iron-ore': 30 }, focus: 'build:lab',
-        say: 'Research runs on items. Build a Lab from the Storage tab and belt iron ore into it.',
-        progress: (s, sol) => flag(Object.values(sol?.lab ?? {}).some(v => v > 0) || s.done.length > 0)
-    },
-    {
-        id: 'smelting', title: 'Learn Smelting', pose: 'think', reward: { stone: 40 },
-        say: 'Labs keep working while you\'re away, so feel free to come back later. Finish Smelting.',
+        id: 'smelting', title: 'Learn Smelting', pose: 'think', reward: { 'iron-ore': 30, stone: 60 },
+        focus: s => s.done.includes('smelting') ? null : !s.queue.length ? 'research' : has(s, 'lab') ? null : 'build:lab',
+        say: 'Open the research tree (T) and pick Smelting. Then build a Lab from the Storage tab and belt iron ore into it. Labs keep working while you\'re away.',
         progress: s => flag(s.done.includes('smelting'))
     },
     {
-        id: 'plates', title: 'Make iron plates', pose: 'point', reward: { 'iron-plate': 20 }, focus: 'build:smelter',
-        say: 'Put a Smelter on a belt between a miner and the storage: ore goes in the back, plates come out the front.',
+        id: 'plates', title: 'Make iron plates', pose: 'point', reward: { 'iron-plate': 80 }, focus: 'build:smelter',
+        say: 'Build a Smelter. Plates come out of the side with the arrow; belt iron ore into any other side, then belt the plates into the storage.',
         progress: (_, sol) => flag(rate(sol, 'iron-plate') > 0)
     },
     {
@@ -138,19 +118,9 @@ export const GOALS: Goal[] = [
         progress: s => flag(s.chunks.length > START_CHUNKS.length)
     },
     {
-        id: 'plates-60', title: '60 plates a minute', pose: 'idle', reward: { 'iron-plate': 60 },
-        say: 'One line is a start. Get 60 iron plates a minute into storage. Mergers help join lines.',
-        progress: (_, sol) => [Math.min(60, Math.floor(rate(sol, 'iron-plate'))), 60]
-    },
-    {
-        id: 'tier-2', title: 'Open tier 2', pose: 'think', reward: { 'iron-plate': 100, brick: 60 }, focus: 'research',
-        say: 'Finish four tier 1 researches and tier 2 opens up: gears, wire, steel and faster belts.',
-        progress: s => [Math.min(4, s.done.filter(id => RESEARCH_BY_ID[id]?.tier === 1).length), 4]
-    },
-    {
-        id: 'gears', title: 'Gears', pose: 'point', reward: { gear: 40 },
+        id: 'gears', title: 'Gears', pose: 'point', reward: { gear: 40, 'iron-plate': 100, brick: 60 },
         focus: needs('press', 'press'),
-        say: 'The Press turns plates into gears. Research it and get gears flowing.',
+        say: 'Four tier 1 researches open tier 2. Research the Press there and turn plates into gears.',
         progress: (_, sol) => flag(rate(sol, 'gear') > 0)
     },
     {
@@ -160,36 +130,21 @@ export const GOALS: Goal[] = [
         progress: (_, sol) => flag(rate(sol, 'steel') > 0)
     },
     {
-        id: 'tier-3', title: 'Open tier 3', pose: 'cheer', reward: { steel: 100, gear: 100 }, focus: 'research',
-        say: 'Five tier 2 researches open tier 3: assemblers, smart splitters and skyways.',
-        progress: s => flag(tierOpen(3, s.done))
-    },
-    {
-        id: 'motors', title: 'Motors', pose: 'point', reward: { motor: 20 },
+        id: 'motors', title: 'Motors', pose: 'point', reward: { motor: 20, steel: 100, gear: 100 },
         focus: needs('assembler', 'assembler'),
-        say: 'Assemblers take three inputs on their back edge. Build motors from steel, gears and wire.',
+        say: 'Five tier 2 researches open tier 3. Research the Assembler and build motors from steel, gears and wire.',
         progress: (_, sol) => flag(rate(sol, 'motor') > 0)
     },
     {
-        id: 'tier-4', title: 'Open tier 4', pose: 'think', reward: { motor: 60, circuit: 100 }, focus: 'research',
-        say: 'Six tier 3 researches open tier 4: oil, plastic and chips.',
-        progress: s => flag(tierOpen(4, s.done))
-    },
-    {
-        id: 'chips', title: 'Chips', pose: 'point', reward: { chip: 40 },
+        id: 'chips', title: 'Chips', pose: 'point', reward: { chip: 40, motor: 60, circuit: 100 },
         focus: chain([{ research: 'oil' }, { kind: 'pumpjack' }, { kind: 'refinery' }, { research: 'electronics' }, { kind: 'mixer' }]),
-        say: 'Research Oil, then pump it and refine plastic. Research Electronics, and a Mixer turns circuits and plastic into chips.',
+        say: 'Six tier 3 researches open tier 4. Research Oil, pump it and refine plastic, then research Electronics: a Mixer turns circuits and plastic into chips.',
         progress: (_, sol) => flag(rate(sol, 'chip') > 0)
     },
     {
-        id: 'tier-5', title: 'Open tier 5', pose: 'think', reward: { motor: 100, chip: 60 }, focus: 'research',
-        say: 'Four tier 4 researches open tier 5: crystal, lenses and the fusion reactor.',
-        progress: s => flag(tierOpen(5, s.done))
-    },
-    {
-        id: 'fusion', title: 'Fusion Cores', pose: 'cheer', reward: { lens: 40, chip: 100 },
+        id: 'fusion', title: 'Fusion Cores', pose: 'cheer', reward: { lens: 40, chip: 160, motor: 100 },
         focus: chain([{ research: 'crystal' }, { kind: 'crystal-drill' }, { kind: 'grinder' }, { research: 'fusion-reactor' }, { kind: 'reactor' }]),
-        say: 'Research Crystal and grind lenses, then research the Fusion reactor. Feed it chips, motors and lenses for a Fusion Core!',
+        say: 'Four tier 4 researches open tier 5. Research Crystal and grind lenses, then the Fusion reactor: feed it chips, motors and lenses for a Fusion Core!',
         progress: (_, sol) => flag(rate(sol, 'fusion-core') > 0)
     }
 ]
