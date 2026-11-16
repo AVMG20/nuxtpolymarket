@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RESEARCH, RESEARCH_BY_ID, STORAGE_CAP, STORAGE_CAP_RESEARCH, researchAvailable, storageLevel, tierOpen, type OreId, MAP_TILES } from '#shared/utils/gridworks/defs'
-import { buildGraph, localToWorld, outputPorts, type Entity } from '#shared/utils/gridworks/layout'
+import { accepts, buildGraph, localToWorld, outputPorts, type Entity } from '#shared/utils/gridworks/layout'
 import { solve, waterFill } from '#shared/utils/gridworks/flow'
 import { applyOp, newState, parseOp, settle, storageCap, type GridState } from '#shared/utils/gridworks/game'
 import { GOALS, GOAL_BY_ID, currentGoal, goalFocus } from '#shared/utils/gridworks/goals'
@@ -36,6 +36,18 @@ describe('gridworks world', () => {
 })
 
 describe('gridworks layout', () => {
+    it('1x1 machines take items from every side but their output', () => {
+        const smelter: Entity = { k: 'smelter', x: 10, y: 10, r: 0 }
+        // pushed east (from the back), south (from above) and north (from below)
+        expect(accepts(smelter, 10, 10, 0, 0)).toBe('behind')
+        expect(accepts(smelter, 10, 10, 0, 1)).toBe('behind')
+        expect(accepts(smelter, 10, 10, 0, 3)).toBe('behind')
+        // pushed west, into its output side
+        expect(accepts(smelter, 10, 10, 0, 2)).toBeNull()
+        // bigger machines still only take their back edge
+        expect(accepts({ k: 'mixer', x: 10, y: 10, r: 0 }, 10, 10, 0, 1)).toBeNull()
+    })
+
     it('rotates multi-tile footprints so the input edge faces the flow', () => {
         // A 1×2 mixer facing south: its two input tiles sit side by side on the top row.
         expect(localToWorld('mixer', 1, 0, 0)).toEqual([1, 0])

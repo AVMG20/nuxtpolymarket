@@ -19,5 +19,7 @@
 <circle cx="32" cy="30" r="13" fill="#f4f6f9" stroke="#2b3038" stroke-width="2"/>
 <rect x="3" y="3" width="58" height="58" rx="10" fill="none" stroke="#2b3038" stroke-width="3"/>
 <rect x="0" y="22" width="7" height="20" rx="2" fill="#2b3038"/>
-<path d="M55 23 62 32 55 41Z" fill="#2b3038" stroke="#2b3038" stroke-width="2" stroke-linejoin="round"/>
+<rect x="22" y="0" width="20" height="7" rx="2" fill="#2b3038"/>
+<rect x="22" y="57" width="20" height="7" rx="2" fill="#2b3038"/>
+<path d="M51 21 62 32 51 43Z" fill="#ffd34d" stroke="#2b3038" stroke-width="2.5" stroke-linejoin="round"/>
 </svg>

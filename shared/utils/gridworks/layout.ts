@@ -120,7 +120,10 @@ export function accepts(e: Entity, x: number, y: number, l: number, dir: Dir): A
             return dir === e.r && l === inLayer ? 'behind' : null
         }
         case 'machine': {
-            if (l !== 0 || dir !== e.r) return null
+            if (l !== 0) return null
+            // A 1x1 machine takes items from every side but its output (refused above).
+            if (BUILDINGS[e.k].w === 1 && BUILDINGS[e.k].h === 1) return 'behind'
+            if (dir !== e.r) return null
             // Only the tiles on the input edge (local u = 0).
             const [w, h] = size(e.k, e.r)
             const D = DIRS[e.r]!
