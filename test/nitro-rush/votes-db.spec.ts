@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 import { db } from '#server/database'
 import { nitroRushTrackVotes, nitroRushTracks } from '#server/database/schema'
-import { nrPublishedTracks, publishNrTrack, unpublishNrTrack, voteNrTrack } from '#server/utils/nitro-rush-tracks'
+import { nrPublishedTracks, nrTrackVotes, publishNrTrack, unpublishNrTrack, voteNrTrack } from '#server/utils/nitro-rush-tracks'
 import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { LONG_RECTANGLE, publishLap, RECTANGLE } from './bot-lap'
 
@@ -78,9 +78,18 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect(await voteRows(id)).toEqual([])
     })
 
-    it('refuses built-in, private, unknown and malformed tracks, and anything but 1, -1 or 0', async () => {
+    it('takes votes on a built-in track from anyone', async () => {
+        const before = await nrTrackVotes(C, ['polytown-oval'])
+        const up = before.get('polytown-oval')?.up ?? 0
+        expect(await voteNrTrack(B, 'polytown-oval', 1)).toMatchObject({ trackId: 'polytown-oval', up: up + 1, myVote: 1 })
+        expect((await nrTrackVotes(B, ['polytown-oval'])).get('polytown-oval')?.myVote).toBe(1)
+        expect(await voteNrTrack(B, 'polytown-oval', 0)).toMatchObject({ up, myVote: 0 })
+        expect(await voteRows('polytown-oval', B)).toEqual([])
+    })
+
+    it('refuses private, unknown and malformed tracks, and anything but 1, -1 or 0', async () => {
         const id = await publish(A, course('input'))
-        await expect(voteNrTrack(B, 'polytown-oval', 1)).rejects.toMatchObject({ statusCode: 400 })
+        await expect(voteNrTrack(B, 'polytown-nowhere', 1)).rejects.toMatchObject({ statusCode: 400 })
         await expect(voteNrTrack(B, course('input').id, 1)).rejects.toMatchObject({ statusCode: 400 })
         await expect(voteNrTrack(B, 'pub-nowhere', 1)).rejects.toMatchObject({ statusCode: 404 })
         await expect(voteNrTrack(B, `pub-${'x'.repeat(100)}`, 1)).rejects.toMatchObject({ statusCode: 400 })
@@ -91,13 +100,15 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect(await voteRows(id)).toEqual([])
     })
 
-    it('drops the votes when a track is taken down, and answers 404 after', async () => {
+    it('keeps the votes on a track taken down, takes no new ones, and has them back on a republish', async () => {
         const id = await publish(A, course('gone'))
         await voteNrTrack(B, id, 1)
         await voteNrTrack(C, id, -1)
         await unpublishNrTrack(A, course('gone').id)
-        expect(await voteRows(id)).toEqual([])
-        await expect(voteNrTrack(B, id, 1)).rejects.toMatchObject({ statusCode: 404 })
+        expect(await voteRows(id)).toHaveLength(2)
+        await expect(voteNrTrack(B, id, -1)).rejects.toMatchObject({ statusCode: 404 })
+        expect(await publish(A, course('gone'))).toBe(id)
+        expect((await nrPublishedTracks(B)).community.find(t => t.id === id)?.votes).toEqual({ up: 1, down: 1, myVote: 1 })
     })
 
     it('answers a vote that lands while the track is being taken down with a 404', async () => {
@@ -142,7 +153,7 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect((await nrPublishedTracks(C)).community.find(t => t.id === next)?.votes).toEqual({ up: 1, down: 1, myVote: -1 })
         expect(await voteNrTrack(B, next, -1)).toMatchObject({ up: 0, down: 2, myVote: -1 })
         await unpublishNrTrack(A, course('edit').id)
-        expect(await voteRows(next)).toEqual([])
+        expect(await voteRows(next)).toHaveLength(2)
     })
 
     it('carries a vote that was mid-flight when the road changed, with no deadlock and nothing left on the old id', async () => {

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
-import { nrGhost, nrLeaderboard, nrRecordGhost, nrTrackSummaries, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
+import { eq } from 'drizzle-orm'
+import { db } from '#server/database'
+import { nitroRushPlays } from '#server/database/schema'
+import { nrGhost, nrLeaderboard, nrRecordGhost, nrTrackSummaries, recordNrPlay, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
+import { PLAY_WINDOW_DAYS } from '#shared/utils/nitro-rush/popularity'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
 
@@ -95,10 +99,23 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
     it('sums up each course with its record and the viewer\'s own best', async () => {
         const EMPTY = `${TRACK}-empty`
         const [track, empty] = await nrTrackSummaries(A, [TRACK, EMPTY])
-        expect(track).toEqual({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000, mine: false }, myLapMs: 26_900 })
-        expect(empty).toEqual({ trackId: EMPTY, entries: 0, record: null, myLapMs: null })
+        expect(track).toMatchObject({ trackId: TRACK, entries: 2, record: { name: 'concurrency test user', lapMs: 25_000, mine: false }, myLapMs: 26_900 })
+        expect(empty).toEqual({ trackId: EMPTY, entries: 0, record: null, myLapMs: null, plays: { racers: 0, laps: 0 } })
         expect((await nrTrackSummaries(B, [TRACK]))[0]!.myLapMs).toBe(25_000)
         expect((await nrTrackSummaries(B, [TRACK]))[0]!.record?.mine).toBe(true)
+    })
+
+    it('counts every lap under a burst, and only recent racers as racing it', async () => {
+        const PLAYED = `${TRACK}-played`
+        await Promise.all(Array.from({ length: 10 }, () => recordNrPlay(A, PLAYED)))
+        await recordNrPlay(B, PLAYED)
+        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 2, laps: 11 })
+        const lapsed = new Date(Date.now() - (PLAY_WINDOW_DAYS + 1) * 86_400_000)
+        await db.update(nitroRushPlays).set({ lastLapAt: lapsed }).where(eq(nitroRushPlays.userId, B))
+        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 1, laps: 11 })
+        // Racing it again counts them back in.
+        await recordNrPlay(B, PLAYED)
+        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 2, laps: 12 })
     })
 
     it('gives the record to whoever set the time first when a later lap ties it', async () => {

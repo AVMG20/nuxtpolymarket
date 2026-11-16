@@ -217,16 +217,14 @@ export function newCustomTrack(closed = true): CustomTrack {
 
 export { mapWalkHeights, raisedTo } from './layout'
 
-const sameSpot = (a: SectionSpot | null, b: SectionSpot | null) => a === b || (!!a && !!b && a.branch === b.branch && a.at === b.at)
-const sameSections = (a: readonly SectionId[], b: readonly SectionId[]) => a.length === b.length && a.every((s, i) => s === b[i])
+/** One string per road: equal exactly when two versions of a course drive the same, whatever their name. */
+export function roadKey(t: { closed: boolean, sections: readonly SectionId[], branches?: readonly CustomBranch[] | null }): string {
+    const spot = (s: SectionSpot | null) => s ? [s.branch, s.at] : null
+    return JSON.stringify([t.closed, t.sections, (t.branches ?? []).map(b => [b.sections, spot(b.from), spot(b.to)])])
+}
 
 /** True when two versions of a course drive the same, so lap times set on one stand on the other. */
-export function sameRoad(a: CustomTrack, b: CustomTrack) {
-    const x = a.branches ?? []
-    const y = b.branches ?? []
-    return a.closed === b.closed && sameSections(a.sections, b.sections) && x.length === y.length
-        && x.every((p, i) => sameSections(p.sections, y[i]!.sections) && sameSpot(p.from, y[i]!.from) && sameSpot(p.to, y[i]!.to))
-}
+export const sameRoad = (a: CustomTrack, b: CustomTrack) => roadKey(a) === roadKey(b)
 
 /** Line `line`'s sections: 0 is the main road. */
 export const lineSections = (t: CustomTrack, line: number): SectionId[] => line ? t.branches?.[line - 1]?.sections ?? [] : t.sections

@@ -1,9 +1,10 @@
-import { and, eq, sql } from 'drizzle-orm'
-import { db } from '#server/database'
-import { nitroRushGhosts, nitroRushLaps } from '#server/database/schema'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { db, type DbExecutor } from '#server/database'
+import { nitroRushGhosts, nitroRushLaps, nitroRushPlays } from '#server/database/schema'
 import { decodeGhost, replacesGhost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
+import { NO_PLAYS, PLAY_WINDOW_DAYS, type TrackPlays } from '#shared/utils/nitro-rush/popularity'
 
 export const NR_LEADERBOARD_TOP = 20
 /** Longer than any honest lap, so a stray clock can't land on the board. */
@@ -32,6 +33,7 @@ export interface NrTrackSummary {
     /** `mine` follows the board's ranking, so an equal time set later doesn't count as the record. */
     record: { name: string, lapMs: number, mine: boolean } | null
     myLapMs: number | null
+    plays: TrackPlays
 }
 
 /** The ghost a player races on a course. */
@@ -120,6 +122,28 @@ export async function nrRecordGhost(trackId: string, userId: string): Promise<Nr
     return { name: row.name, lapMs: Number(row.lap_ms), ghost: row.ghost, standing: row.standing }
 }
 
+/** Counts a finished lap towards the course's popularity; one statement, so parallel laps all count. */
+export async function recordNrPlay(userId: string, trackId: string, tx: DbExecutor = db) {
+    await tx.insert(nitroRushPlays).values({ userId, trackId, laps: 1, lastLapAt: new Date() })
+        .onConflictDoUpdate({
+            target: [nitroRushPlays.userId, nitroRushPlays.trackId],
+            set: { laps: sql`${nitroRushPlays.laps} + 1`, lastLapAt: sql`excluded.last_lap_at` }
+        })
+}
+
+/** A play inside the popularity window. */
+export const playedLately = sql`${nitroRushPlays.lastLapAt} > now() - make_interval(days => ${PLAY_WINDOW_DAYS})`
+
+/** Each course's plays, in one grouped query. */
+async function nrTrackPlays(trackIds: string[]): Promise<Map<string, TrackPlays>> {
+    const rows = await db.select({
+        trackId: nitroRushPlays.trackId,
+        racers: sql<number>`(count(*) filter (where ${playedLately}))::int`,
+        laps: sql<number>`sum(${nitroRushPlays.laps})::int`
+    }).from(nitroRushPlays).where(inArray(nitroRushPlays.trackId, trackIds)).groupBy(nitroRushPlays.trackId)
+    return new Map(rows.map(r => [r.trackId, { racers: r.racers, laps: r.laps }]))
+}
+
 /** Records a lap; it only replaces the player's entry when quicker, so parallel submits keep the best. */
 export async function submitNrLap(userId: string, trackId: string, lapMs: number) {
     const now = new Date()
@@ -162,7 +186,7 @@ export async function nrLeaderboard(trackId: string, userId: string): Promise<Nr
 /** Every course in `trackIds` (all of them by default), in that order; a course nobody has driven gets an empty row. */
 export async function nrTrackSummaries(userId: string, trackIds: string[] = TRACKS.map(t => t.id)): Promise<NrTrackSummary[]> {
     if (!trackIds.length) return []
-    const result = await db.execute(sql`
+    const [result, plays] = await Promise.all([db.execute(sql`
         with ranked as (
             select l.track_id, l.user_id, u.name, l.lap_ms,
                    row_number() over (partition by l.track_id order by l.lap_ms asc, l.set_at asc, l.user_id collate "C")::int as rank,
@@ -174,7 +198,7 @@ export async function nrTrackSummaries(userId: string, trackIds: string[] = TRAC
         select track_id, user_id, name, lap_ms, rank, entries
         from ranked
         where rank = 1 or user_id = ${userId}
-    `)
+    `), nrTrackPlays(trackIds)])
     const rows = result.rows as { track_id: string, user_id: string, name: string, lap_ms: number, rank: number, entries: number }[]
     return trackIds.map((trackId) => {
         const top = rows.find(r => r.track_id === trackId && Number(r.rank) === 1)
@@ -183,7 +207,8 @@ export async function nrTrackSummaries(userId: string, trackIds: string[] = TRAC
             trackId,
             entries: top ? Number(top.entries) : 0,
             record: top ? { name: top.name, lapMs: Number(top.lap_ms), mine: top.user_id === userId } : null,
-            myLapMs: mine ? Number(mine.lap_ms) : null
+            myLapMs: mine ? Number(mine.lap_ms) : null,
+            plays: plays.get(trackId) ?? NO_PLAYS
         }
     })
 }

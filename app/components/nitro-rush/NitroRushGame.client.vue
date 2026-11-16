@@ -51,9 +51,10 @@ function onServerRecord(id: string) {
     if (engine?.trackDef.id === id) engine.setRecord(records.value[id]!)
 }
 
-const { board, boardLoading, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord)
+const votes = useNitroRushVotes()
+const { board, boardLoading, summaries, loadBoard, loadSummaries, addSummaries, submitLap } = useNitroRushBoard(records, onServerRecord, votes.addVotes)
 const { loadGhost, submitGhost } = useNitroRushGhosts(records, onServerRecord)
-const community = useNitroRushCommunity(custom, addSummaries)
+const community = useNitroRushCommunity(custom, addSummaries, votes.addVotes)
 const ownEntries = community.entries
 const ownTracks = useNitroRushOwnTrackActions({
     ownEntry: community.ownEntry,
@@ -445,7 +446,8 @@ onBeforeUnmount(() => {
         :custom-tracks="ownEntries"
         :community-tracks="community.communityEntries.value"
         :busy="community.busy.value"
-        :voting="community.voting.value"
+        :votes="votes.votes.value"
+        :voting="votes.voting.value"
         @back="backToTitle"
         @select="selectTrack"
         @car="setCar"
@@ -456,7 +458,7 @@ onBeforeUnmount(() => {
         @publish="ownTracks.publish"
         @unpublish="ownTracks.unpublish"
         @delete="ownTracks.deleteTrack"
-        @vote="community.vote"
+        @vote="votes.vote"
       />
     </Transition>
     <Transition name="nr-fade">

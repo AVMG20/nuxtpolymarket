@@ -2,7 +2,7 @@
 import { topRows } from '~/utils/nitro-rush/board'
 import { MEDAL_LABELS, MEDALS, medalFor } from '~/utils/nitro-rush/medals'
 import type { NrBoard } from '#server/utils/nitro-rush'
-import type { NrPublishedTrack, NrVote } from '#server/utils/nitro-rush-tracks'
+import type { NrTrackVotes, NrVote } from '#server/utils/nitro-rush-tracks'
 import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 import { lapTimeOrBlank } from '#shared/utils/nitro-rush/timing'
 import { Track, type TrackDef } from '#shared/utils/nitro-rush/track'
@@ -14,9 +14,9 @@ const props = defineProps<{
     def: TrackDef | null
     /** Who built it: a name, 'you', or null for a built-in course. */
     author: string | null
-    /** Its published copy, which carries the votes; null for a built-in or private course. */
-    published: NrPublishedTrack | null
-    /** Another player's course, which the viewer may vote on. */
+    /** Its votes; null for a private course. */
+    votes: NrTrackVotes | null
+    /** A built-in or another player's course, which the viewer may vote on. */
     canVote: boolean
     /** A vote on it is in flight. */
     voting: boolean
@@ -61,8 +61,8 @@ const medalOf = (ms: number) => fresh.value ? medalFor(ms / 1000, medalTimes.val
     <div class="nr-label mb-1">TRACK</div>
     <div class="flex items-center justify-between gap-2">
       <div class="nr-track-name min-w-0">{{ trackName }}</div>
-      <NitroRushTrackVote v-if="published && canVote" :track="published" :busy="voting" @vote="$emit('vote', $event)" />
-      <NitroRushScore v-else-if="published" :votes="published.votes" />
+      <NitroRushTrackVote v-if="votes && canVote" :votes="votes" :busy="voting" @vote="$emit('vote', $event)" />
+      <NitroRushScore v-else-if="votes" :votes="votes" />
     </div>
     <div class="nr-track-holder">{{ meta }}</div>
 

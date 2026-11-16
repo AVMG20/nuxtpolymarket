@@ -43,7 +43,6 @@ export function useNitroRushOwnTrackActions(deps: OwnTrackActionDeps) {
     async function takeDown(sourceId: string) {
         const old = ownEntry(sourceId)?.published?.id
         if (!old || !(await deps.unpublishTrack(sourceId))) return null
-        forgetRecord(old)
         return old
     }
 
@@ -69,6 +68,8 @@ export function useNitroRushOwnTrackActions(deps: OwnTrackActionDeps) {
         const published = !!ownEntry(sourceId)?.published
         const old = published ? await takeDown(sourceId) : null
         if (published && !old) return
+        // Unpublish keeps the bests, since republishing the road brings its board back; a delete doesn't.
+        if (old) forgetRecord(old)
         removeLocal(sourceId, old ?? undefined)
     }
 

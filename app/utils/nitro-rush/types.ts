@@ -119,8 +119,10 @@ export interface CustomTrackEntry {
     def: TrackDef | null
     /** Its copy on the community list, if it's published. */
     published: NrPublishedTrack | null
+    /** The player's unpublished copy of this same road, which publishing brings back with its board. */
+    hidden: NrPublishedTrack | null
     /** What publishing it now would do; a replace clears its times. Null when there's nothing to publish. */
-    change: 'new' | 'rename' | 'replace' | null
+    change: 'new' | 'rename' | 'replace' | 'restore' | null
     /** The id it's driven under: its published copy's while that still has the same road, so the times go on the board. */
     playId: string
 }

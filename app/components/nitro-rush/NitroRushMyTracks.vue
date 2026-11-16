@@ -21,37 +21,43 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ select: [id: string], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string] }>()
 
-type ConfirmedAction = 'publish' | 'unpublish' | 'delete'
+type ConfirmedAction = 'publish' | 'delete'
 
 const { armed, tap, disarm } = useNitroRushConfirmTap()
 const confirmKey = (c: CustomTrackEntry, action: ConfirmedAction) => `${c.track.id}:${action}`
 
-const PUBLISH_LABEL = { new: 'PUBLISH', rename: 'UPDATE NAME', replace: 'PUBLISH CHANGES' } as const
+const PUBLISH_LABEL = { new: 'PUBLISH', rename: 'UPDATE NAME', replace: 'PUBLISH CHANGES', restore: 'REPUBLISH' } as const
 
-/** A new road goes up with the builder's lap on it; a rename keeps the board it has. */
+/** A new road goes up with the builder's lap on it; a rename or a restore keeps the board it has. */
 const needsLap = (c: CustomTrackEntry) => (c.change === 'new' || c.change === 'replace') && !props.hasLap(c.track.id)
 
 const lapHint = (c: CustomTrackEntry) => props.lapTooLong(c.track.id) ? 'LAP TOO LONG TO PUBLISH' : 'DRIVE A LAP FIRST'
 
 function status(c: CustomTrackEntry) {
     if (!c.def) return 'UNFINISHED'
-    if (!c.published) return needsLap(c) ? lapHint(c) : 'ONLY ON THIS DEVICE'
+    const board = c.published ?? c.hidden
+    if (!board) return needsLap(c) ? lapHint(c) : 'ONLY ON THIS DEVICE'
     if (needsLap(c)) return `CHANGED · ${lapHint(c)}`
-    const racers = c.published.summary.entries
+    const racers = board.summary.entries
     const times = `${racers} ${racers === 1 ? 'RACER' : 'RACERS'}`
+    if (!c.published) return `UNPUBLISHED · ${times}`
     return c.change === 'replace' ? `CHANGED SINCE PUBLISHED · ${times}` : `PUBLISHED · ${times}`
 }
 
 const isArmed = (c: CustomTrackEntry, action: ConfirmedAction) => armed.value === confirmKey(c, action)
 const hasTimes = (c: CustomTrackEntry) => !!c.published?.summary.entries
 
-/** Taps that would clear other players' times need a second tap. */
-function act(c: CustomTrackEntry, action: 'publish' | 'unpublish') {
-    const clears = (action === 'unpublish' || c.change === 'replace') && hasTimes(c)
-    if (clears && !tap(confirmKey(c, action))) return
+/** A publish that would clear other players' times needs a second tap. */
+function askPublish(c: CustomTrackEntry) {
+    if (c.change === 'replace' && hasTimes(c) && !tap(confirmKey(c, 'publish'))) return
     disarm()
-    if (action === 'publish') emit('publish', c.track.id)
-    else emit('unpublish', c.track.id)
+    emit('publish', c.track.id)
+}
+
+/** No second tap: the board is kept, and publishing the same road again brings it back. */
+function unpublish(c: CustomTrackEntry) {
+    disarm()
+    emit('unpublish', c.track.id)
 }
 
 /** There's no getting a deleted course back, so it always takes a second tap. */
@@ -121,18 +127,17 @@ const atLimit = computed(() => props.tracks.length >= MAX_CUSTOM_TRACKS)
             :class="{ 'is-danger': isArmed(c, 'publish'), 'is-locked': needsLap(c) }"
             :disabled="!!busy || needsLap(c)"
             :title="needsLap(c) ? (lapTooLong(c.track.id) ? `Drive a lap under ${GHOST_MAX_SECONDS / 60} minutes first` : 'Drive one clean lap first') : undefined"
-            @click="act(c, 'publish')"
+            @click="askPublish(c)"
           >
             {{ isArmed(c, 'publish') ? 'CLEARS TIMES · TAP AGAIN' : PUBLISH_LABEL[c.change] }}
           </button>
           <button
             v-if="c.published"
             class="nr-ghost nr-small"
-            :class="{ 'is-danger': isArmed(c, 'unpublish') }"
             :disabled="!!busy"
-            @click="act(c, 'unpublish')"
+            @click="unpublish(c)"
           >
-            {{ isArmed(c, 'unpublish') ? 'CLEARS TIMES · TAP AGAIN' : 'UNPUBLISH' }}
+            UNPUBLISH
           </button>
         </div>
       </div>
