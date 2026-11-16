@@ -33,6 +33,9 @@ export interface Solution {
     busy: Float32Array
     /** Per-entity, per-item inflow rates (entity × item), for belt visuals. */
     mix: Float32Array
+    /** Belts: how full each one is (0..1) and what it holds (entity × item), so a jammed line shows backed up. */
+    fill: Float32Array
+    held: Float32Array
     ticks: number
 }
 
@@ -329,7 +332,7 @@ export function solve(entities: readonly Entity[], ore: OreMap, flags: SolveFlag
         const curLab = lab.map(v => v / secs)
         const stable = !!prevStore && !!prevLab && close(prevStore, curStore) && close(prevLab, curLab)
         if ((stable && windows >= MIN_WINDOWS) || ticks + WINDOW > MAX_TICKS) {
-            result = finish(curStore, curLab, mix, crafted, nodes, secs, labCount, ticks)
+            result = finish(curStore, curLab, mix, crafted, nodes, secs, labCount, ticks, buf, total)
             break
         }
         prevStore = curStore
@@ -337,7 +340,7 @@ export function solve(entities: readonly Entity[], ore: OreMap, flags: SolveFlag
         store.fill(0); lab.fill(0); mix.fill(0); crafted.fill(0)
         windowTicks = 0
     }
-    return result ?? finish(new Float64Array(NI), new Float64Array(NI), mix, crafted, nodes, 1, labCount, ticks)
+    return result ?? finish(new Float64Array(NI), new Float64Array(NI), mix, crafted, nodes, 1, labCount, ticks, buf, total)
 }
 
 function close(a: Float64Array, b: Float64Array): boolean {
@@ -348,7 +351,7 @@ function close(a: Float64Array, b: Float64Array): boolean {
     return true
 }
 
-function finish(store: Float64Array, lab: Float64Array, mix: Float64Array, crafted: Float64Array, nodes: Node[], secs: number, _labs: number, ticks: number): Solution {
+function finish(store: Float64Array, lab: Float64Array, mix: Float64Array, crafted: Float64Array, nodes: Node[], secs: number, _labs: number, ticks: number, buf: Float64Array, total: Float64Array): Solution {
     const toStock = (arr: Float64Array): Stock => {
         const s: Stock = {}
         arr.forEach((v, i) => { if (v > 1e-4) s[ITEM_IDS[i]!] = round(v) })
@@ -359,7 +362,14 @@ function finish(store: Float64Array, lab: Float64Array, mix: Float64Array, craft
     const carry = new Int8Array(n).fill(-1)
     const busy = new Float32Array(n)
     const mixRate = new Float32Array(n * NI)
+    const fill = new Float32Array(n)
+    const held = new Float32Array(n * NI)
     for (let j = 0; j < n; j++) {
+        const t = nodes[j]!.t
+        if ((t === T.Belt || t === T.Logi) && nodes[j]!.cap > 0) {
+            fill[j] = Math.min(1, total[j]! / nodes[j]!.cap)
+            for (let it = 0; it < NI; it++) held[j * NI + it] = buf[j * NI + it]!
+        }
         let best = 0
         for (let it = 0; it < NI; it++) {
             const v = mix[j * NI + it]! / secs
@@ -376,7 +386,7 @@ function finish(store: Float64Array, lab: Float64Array, mix: Float64Array, craft
             if (out >= 0) carry[j] = out
         }
     }
-    return { store: toStock(store), lab: toStock(lab), flow, carry, busy, mix: mixRate, ticks }
+    return { store: toStock(store), lab: toStock(lab), flow, carry, busy, mix: mixRate, fill, held, ticks }
 }
 
 const round = (v: number) => Math.round(v * 1e4) / 1e4

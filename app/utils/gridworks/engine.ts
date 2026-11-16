@@ -2061,12 +2061,16 @@ export class GridEngine {
                     const e = v.e
                     if (e.x < x0 || e.x > x1 || e.y < y0 || e.y > y1 || v.sol < 0 || v.lifted) continue
                     const flow = sol.flow[v.sol]!
-                    if (flow < 0.01) continue
+                    const fill = sol.fill?.[v.sol] ?? 0
+                    // A belt whose destination won't take more backs up: it fills and slows to what drains.
+                    const jammed = fill > 0.5
+                    if (flow < 0.01 && !jammed) continue
                     const mk = BELT_MK[Math.min(4, e.mk ?? 1) - 1]!
                     const speed = mk.speed
-                    // Items spaced by how many arrive per tile of travel.
-                    const spacing = Math.max(0.25, speed / flow)
-                    const head = this.time * speed
+                    // Items spaced by how many sit on a tile: what arrives per tile of travel, or a full jam.
+                    const perTile = Math.max(flow / speed, jammed ? 4 * fill : 0)
+                    const spacing = Math.max(0.25, 1 / perTile)
+                    const head = this.time * Math.min(speed, flow * spacing)
                     const s0 = v.chain ?? 0
                     const firstK = Math.ceil((s0 - head) / spacing)
                     const l = e.l ?? 0
@@ -2075,7 +2079,8 @@ export class GridEngine {
                         const p = s - s0
                         if (p >= 1) break
                         if (p < 0) continue
-                        const item = this.pickItem(sol.mix, v.sol * NI, k)
+                        let item = this.pickItem(sol.mix, v.sol * NI, k)
+                        if (item < 0 && sol.held) item = this.pickItem(sol.held, v.sol * NI, k)
                         if (item < 0) continue
                         let sp = this.itemPool[l]![used[l]!]
                         if (!sp) {
