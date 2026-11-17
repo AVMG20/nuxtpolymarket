@@ -336,14 +336,44 @@
     user-select: none;
 }
 
-.nr-root .nr-field-floor { fill: #1b1c26; stroke: rgb(255 255 255 / 0.35); stroke-width: 0.6; }
-.nr-root .nr-field-grid { stroke: rgb(255 255 255 / 0.1); stroke-width: 0.4; }
+/* Words beside the icons: an icon alone didn't say which tool lays a pad and which a gate. */
+.nr-root .nr-toggle.is-row button.nr-field-tool {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.nr-root .nr-field-hint {
+    font: 600 11px system-ui, sans-serif;
+    color: rgb(255 255 255 / 0.55);
+}
+.nr-root .nr-field-hint-plus {
+    display: inline-grid;
+    place-items: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--nr-cyan);
+    color: #05050f;
+    font-weight: 800;
+    line-height: 1;
+}
+
+/* --u scales the marks with the picture, so a group of big fields keeps readable lines. */
+.nr-root .nr-field-floor { fill: #1b1c26; stroke: rgb(255 255 255 / 0.35); stroke-width: calc(0.6px * var(--u, 1)); }
+.nr-root .nr-field-grid { stroke: rgb(255 255 255 / 0.1); stroke-width: calc(0.4px * var(--u, 1)); }
+.nr-root .nr-field-selected { fill: none; stroke: var(--nr-pink); stroke-width: calc(1.2px * var(--u, 1)); pointer-events: none; }
+.nr-root .nr-field-grow { cursor: pointer; }
+.nr-root .nr-field-grow circle { fill: rgb(61 242 255 / 0.18); stroke: var(--nr-cyan); stroke-width: calc(0.6px * var(--u, 1)); }
+.nr-root .nr-field-grow path { stroke: var(--nr-cyan); stroke-width: calc(1.2px * var(--u, 1)); stroke-linecap: round; }
+.nr-root .nr-field-grow:hover circle { fill: rgb(61 242 255 / 0.4); }
 .nr-root .nr-field-block { fill: #8a8d99; stroke: #2a2c36; stroke-width: 0.6; }
 .nr-root .nr-field-pad { fill: rgb(43 255 90 / 0.25); stroke: #2bff5a; stroke-width: 0.8; }
 .nr-root .nr-field-gate { stroke: var(--nr-cyan); stroke-width: 1.6; }
 .nr-root .nr-field-arrow { fill: none; stroke: #2bff5a; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .nr-root .nr-field-arrow.is-gate { stroke: var(--nr-cyan); }
-.nr-root .nr-field-slot rect { fill: rgb(255 255 255 / 0.06); stroke: rgb(255 255 255 / 0.15); stroke-width: 0.4; }
+.nr-root .nr-field-slot rect { fill: rgb(255 255 255 / 0.06); stroke: rgb(255 255 255 / 0.15); stroke-width: calc(0.4px * var(--u, 1)); }
 .nr-root .nr-field-slot rect.is-taken { fill: rgb(255 43 214 / 0.35); stroke: var(--nr-pink); }
 .nr-root .nr-field-slot.is-live { cursor: pointer; }
 .nr-root .nr-field-slot.is-live rect { stroke: var(--nr-cyan); }

@@ -1,6 +1,9 @@
 import { isFieldSection, MAX_BRANCHES, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionSpot } from './custom'
 import { mouthsFit, type CustomField } from './custom-fields'
-import { defaultFieldPlan, edgeTile, edgeTiles, FIELD_MAX_ITEMS, FIELD_TILE, isBlocking, walledOffFault, type FieldDir, type FieldPlan, type FieldPort, type FieldTile } from './field'
+import { insertSection, walkForks } from './custom-forks'
+import { defaultFieldPlan, edgeLength, edgeTile, edgeTiles, FIELD_MAX_ITEMS, FIELD_TILE, fieldsOverlap, isBlocking, walledOffFault, type FieldDir, type FieldEdge, type FieldPlan, type FieldPort, type FieldTile } from './field'
+import { walkedFields } from './field-group'
+import { MIN_CLEARANCE } from './road-checks'
 
 /** The builder's edits to a field: its size, its items and the roads out of it. Each gives the new course, or why it can't. */
 
@@ -45,8 +48,8 @@ function planFault(t: CustomTrack, spot: SectionSpot, plan: FieldPlan, ports: re
     return null
 }
 
-/** The field at `spot` with `tool` used on tile (col, row): `turn` turns a pad or gate already there instead of leaving it. */
-export function useFieldTool(t: CustomTrack, spot: SectionSpot, col: number, row: number, tool: FieldTool, turn = true): FieldEdit {
+/** The field at `spot` with `tool` used on tile (col, row): `turn` turns a pad or gate already there instead of leaving it, and a new one faces `facing` if it fits. */
+export function useFieldTool(t: CustomTrack, spot: SectionSpot, col: number, row: number, tool: FieldTool, turn = true, facing: FieldDir = 0): FieldEdit {
     if (!isFieldSection(t, spot)) return no('that isn\'t a field')
     const plan = fieldPlanAt(t, spot)
     if (col < 0 || row < 0 || col >= plan.width / FIELD_TILE || row >= plan.length / FIELD_TILE) return no('that\'s off the field')
@@ -61,7 +64,7 @@ export function useFieldTool(t: CustomTrack, spot: SectionSpot, col: number, row
     if (tool === 'boost' || tool === 'checkpoint') {
         if (here?.kind === tool && !turn) return ok(t)
         // It turns on to the next way that fits, so a gate on a road's tile skips the ways across it.
-        const from = here?.kind === tool ? here.dir + 1 : 0
+        const from = here?.kind === tool ? here.dir + 1 : facing
         let first: FieldEdit | null = null
         for (let k = 0; k < (here?.kind === tool ? 3 : 4); k++) {
             const edit = fitted([...others, { col, row, kind: tool, dir: (from + k) % 4 as FieldDir }])
@@ -115,4 +118,35 @@ export function addFieldExit(t: CustomTrack, spot: SectionSpot, port: FieldPort)
     }
     const branches = [...t.branches ?? [], { sections: [], from: { ...spot, port }, to: null }]
     return ok(withField({ ...t, branches }, spot, plan))
+}
+
+/** The edges a field can grow from: its entry edge has the road coming in. */
+export type GrowEdge = Exclude<FieldEdge, 'entry'>
+
+/** Which tile of the new field's entry edge meets `tile` of edge `edge` when the two sit flush: a side edge turns the new field a quarter. */
+const flushEntry = (edge: GrowEdge, tile: number, tiles: number) => edge === 'right' ? tiles - 1 - tile : tile
+
+/**
+ * A new field laid flush against `edge` of the field at `spot`, as big as that edge and as deep as the field,
+ * so a grid of them drives as one; the road leaves through that edge, as near its middle as fits, and carries on from the new field.
+ */
+export function growField(t: CustomTrack, spot: SectionSpot, edge: GrowEdge): FieldEdit {
+    if (!isFieldSection(t, spot)) return no('that isn\'t a field')
+    const plan = fieldPlanAt(t, spot)
+    const tiles = edgeTiles(plan, edge)
+    const middle = (tiles - 1) / 2
+    const order = Array.from({ length: tiles }, (_, i) => i).sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle) || a - b)
+    const exit = order.map(tile => ({ edge, tile })).find(port => {
+        const next = { ...plan, exit: port }
+        return !planFault(t, spot, next, fieldPorts(t, spot, next))
+    })
+    if (!exit) return no('clear a tile on that edge first')
+    const grown = { ...defaultFieldPlan(edgeLength(plan, edge), edge === 'exit' ? plan.length : plan.width), entry: flushEntry(edge, exit.tile, tiles) }
+    const at = { branch: spot.branch, at: spot.at + 1 }
+    const next = withField(withField(insertSection(t, spot.branch, at.at, 'field'), spot, { ...plan, exit }), at, grown)
+    if (sectionCount(next) > MAX_SECTIONS) return no('the track is full')
+    const fields = walkedFields(next, walkForks(next).walks)
+    const added = fields.find(f => f.spot.branch === at.branch && f.spot.at === at.at)
+    if (added && fields.some(f => f !== added && Math.abs(f.y - added.y) < MIN_CLEARANCE && fieldsOverlap(f, added))) return no('there\'s no room for a field there')
+    return ok(next)
 }

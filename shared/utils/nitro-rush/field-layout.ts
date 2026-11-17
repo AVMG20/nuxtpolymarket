@@ -1,4 +1,4 @@
-import { alongEdge, edgeAt, edgePoint, fieldBox, fieldLocal, fieldAxes, openingsFault, tileInside, walledOffFault, type FieldDef, type FieldMouth, type FieldPlacement } from './field'
+import { alongEdge, edgeAt, edgePoint, fieldLocal, fieldAxes, fieldsOverlap, openingsFault, tileInside, walledOffFault, type FieldDef, type FieldMouth, type FieldPlacement } from './field'
 import type { LayoutWalk, Pose } from './layout'
 import { MIN_CLEARANCE } from './road-checks'
 import { wallFoot } from './track-line'
@@ -138,11 +138,8 @@ const EDGE_CLEARANCE = 1.5
 /** Why roads and fields share ground, or null; a road may pass over or under a field, and level fields may meet edge to edge. */
 export function fieldClearanceFault(fields: readonly FieldDef[], lines: readonly FieldClearanceLine[]): string | null {
     for (const [i, a] of fields.entries()) {
-        const box = fieldBox(a)
         for (const b of fields.slice(i + 1)) {
-            if (Math.abs(a.y - b.y) >= MIN_CLEARANCE) continue
-            const o = fieldBox(b)
-            if (Math.min(box.x1, o.x1) - Math.max(box.x0, o.x0) > 0.01 && Math.min(box.z1, o.z1) - Math.max(box.z0, o.z0) > 0.01) return 'two fields overlap'
+            if (Math.abs(a.y - b.y) < MIN_CLEARANCE && fieldsOverlap(a, b)) return 'two fields overlap'
         }
         const { width: w, length: len } = a.plan
         for (const [l, line] of lines.entries()) {

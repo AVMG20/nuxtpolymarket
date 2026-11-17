@@ -22,9 +22,9 @@ const emit = defineEmits<{
 
 const {
     draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-    fieldTargets, fieldSpot, fieldPlan, fieldMouths, fieldError,
+    fieldTargets, fieldSpot, fieldPlan, fieldGroup, fieldGrows, fieldArrivals, fieldError,
     walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
-    fieldTool, resizeFieldTo, moveFieldExit, addExit
+    fieldTool, resizeFieldTo, moveFieldExit, addExit, growFieldAt
 } = useNitroRushTrackDraft(toRef(props, 'track'))
 
 /** The roads leaving the highlighted field through its edges, by line. */
@@ -269,15 +269,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
 
       <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
         <NitroRushBuilderField
-          v-if="fieldPlan"
+          v-if="fieldPlan && fieldSpot && fieldGroup.length"
           :plan="fieldPlan"
+          :group="fieldGroup"
+          :selected="fieldSpot"
           :ports="fieldPorts"
-          :mouths="fieldMouths"
+          :arrivals="fieldArrivals"
+          :grows="fieldGrows"
           :error="fieldError"
           @tool="fieldTool"
           @resize="resizeFieldTo"
           @exit="addExit"
           @road="moveFieldExit"
+          @grow="growFieldAt"
         />
         <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" :fault="fault" @pick="pick" @build="build">
           <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">

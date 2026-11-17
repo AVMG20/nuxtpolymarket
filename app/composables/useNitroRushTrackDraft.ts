@@ -1,9 +1,10 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
-import { compileCustomTrack, forkShape, isFieldSection, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, walkedField, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
+import { compileCustomTrack, forkShape, isFieldSection, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
 import { branchEnding, canJoin, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
-import { addFieldExit, fieldPlanAt, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit, type FieldTool } from '#shared/utils/nitro-rush/field-edit'
-import { defaultFieldPlan, fieldLocal, type FieldPort } from '#shared/utils/nitro-rush/field'
+import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit, type FieldTool, type GrowEdge } from '#shared/utils/nitro-rush/field-edit'
+import { defaultFieldPlan, type FieldDir, type FieldPort } from '#shared/utils/nitro-rush/field'
+import { fieldGroup, walkedFields } from '#shared/utils/nitro-rush/field-group'
 
 const MAX_UNDO = 100
 
@@ -63,15 +64,16 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         return cursor.value >= 0 && isFieldSection(road.value, spot) ? spot : null
     })
     const fieldPlan = computed(() => fieldSpot.value && fieldPlanAt(road.value, fieldSpot.value))
-    /** Where every road meets the highlighted field as walked, in its (u, v), with the line it's on: a branch into it shows where it lands. */
-    const fieldMouths = computed(() => {
-        const spot = fieldSpot.value
-        const field = spot && walkedField(forks.value.walks, spot)
-        const placement = field?.placement
-        if (!placement) return []
-        return forks.value.walks.flatMap((w, l) => w.fields.filter(f => f.id === field.id).flatMap(f => f.mouths.map((m) => {
+    /** The highlighted field with every field joined to it edge to edge, which drive as one, in course order. */
+    const fieldGroupNow = computed(() => fieldSpot.value ? fieldGroup(walkedFields(road.value, forks.value.walks), fieldSpot.value) : [])
+    /** Whether the highlighted field may grow: not when its road runs straight into another field, which growing would move. */
+    const fieldGrows = computed(() => !!fieldSpot.value && lineSections(draft.value, fieldSpot.value.branch)[fieldSpot.value.at + 1] !== 'field')
+    /** Where roads from other lines drive into that group, in the world, with their line. */
+    const fieldArrivals = computed(() => {
+        const ids = new Set(fieldGroupNow.value.map(f => f.id))
+        return forks.value.walks.flatMap((w, line) => w.fields.filter(f => f.kind === 'in' && ids.has(f.id)).flatMap(f => f.mouths.map((m) => {
             const [x, z] = w.pts[m] ?? [w.end.x, w.end.z]
-            return { line: l, ...fieldLocal(placement, x, z) }
+            return { line, x, z }
         })))
     })
     /** Metres of road laid so far, over every line. */
@@ -163,9 +165,17 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         if (result.track !== draft.value) edit(result.track, nextLine, nextCursor)
     }
 
-    /** Uses `tool` on a tile of the highlighted field; a drag paints, so it never turns what's there. */
-    function fieldTool(col: number, row: number, tool: FieldTool, painting = false) {
-        if (fieldSpot.value) editField(useFieldTool(draft.value, fieldSpot.value, col, row, tool, !painting))
+    /** Uses `tool` on a tile of the field at `spot`, which it highlights; a drag paints, so it never turns what's there. */
+    function fieldTool(spot: SectionSpot, col: number, row: number, tool: FieldTool, painting = false, facing: FieldDir = 0) {
+        if (!isFieldSection(draft.value, spot)) return
+        select(spot.at, spot.branch)
+        editField(useFieldTool(draft.value, spot, col, row, tool, !painting, facing))
+    }
+
+    /** Lays a matching field flush against `edge` of the highlighted one, and highlights it. */
+    function growFieldAt(edge: GrowEdge) {
+        const spot = fieldSpot.value
+        if (spot) editField(growField(draft.value, spot, edge), spot.branch, spot.at + 1)
     }
 
     function resizeFieldTo(width: number, length: number) {
@@ -221,8 +231,8 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
 
     return {
         draft, closed, line, cursor, forks, lines, walk, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-        fieldTargets, fieldSpot, fieldPlan, fieldMouths, fieldError,
+        fieldTargets, fieldSpot, fieldPlan, fieldGroup: fieldGroupNow, fieldGrows, fieldArrivals, fieldError,
         walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
-        fieldTool, resizeFieldTo, moveFieldExit, addExit
+        fieldTool, resizeFieldTo, moveFieldExit, addExit, growFieldAt
     }
 }

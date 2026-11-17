@@ -3,8 +3,9 @@ import { draftTrackDef } from '#shared/utils/nitro-rush/custom-draft'
 import { compileCustomTrack, MAX_BRANCHES, PALETTE_SECTIONS, SECTION_CATEGORIES, walkCustomTrack, type CustomBranch, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
 import { branchEnding, canJoin, draftForkedDef, insertSection, walkForks } from '#shared/utils/nitro-rush/custom-forks'
-import { addFieldExit, fieldPlanAt, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit } from '#shared/utils/nitro-rush/field-edit'
-import { defaultFieldPlan, FIELD_MAX_ITEMS, type FieldTile } from '#shared/utils/nitro-rush/field'
+import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit } from '#shared/utils/nitro-rush/field-edit'
+import { defaultFieldPlan, FIELD_MAX_ITEMS, fieldBox, type FieldTile } from '#shared/utils/nitro-rush/field'
+import { fieldGroup, quarterTurns, walkedFields } from '#shared/utils/nitro-rush/field-group'
 import { Track } from '#shared/utils/nitro-rush/track'
 
 const ROAD: SectionId[] = ['straight-20', 'start', 'field', 'finish', 'straight-200']
@@ -146,5 +147,60 @@ describe('branches into a field', () => {
         const track = new Track(def)
         expect(track.fields).toHaveLength(1)
         expect(track.fields[0]!.mouths.map(m => m.edge)).toEqual(['entry', 'exit'])
+    })
+})
+
+describe('growing a field', () => {
+    const walked = (t: CustomTrack) => walkedFields(t, walkForks(t).walks)
+    const spotAt = (at: number) => ({ branch: 0, at })
+
+    it('lays a matching field flush past the far edge, the road carrying on from it', () => {
+        const t = done(growField(course(), SPOT, 'exit'))
+        expect(t.sections).toEqual(['straight-20', 'start', 'field', 'field', 'finish', 'straight-200'])
+        expect(fieldPlanAt(t, spotAt(3))).toEqual(defaultFieldPlan())
+        const [a, b] = walked(t)
+        expect(fieldBox(b!).z1).toBeCloseTo(fieldBox(a!).z0)
+        expect(fieldBox(b!).x0).toBeCloseTo(fieldBox(a!).x0)
+        expect(fieldGroup(walked(t), SPOT)).toHaveLength(2)
+        expect(compileCustomTrack(t).error).toBeNull()
+    })
+
+    it('turns a quarter off a side edge, as long as that edge, and lines up with it', () => {
+        const t = done(growField(course({ fields: [field({ width: 100, length: 60, exit: { edge: 'exit', tile: 2 } })] }), SPOT, 'right'))
+        expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'right', tile: 1 })
+        expect(fieldPlanAt(t, spotAt(3))).toMatchObject({ width: 60, length: 100, entry: 1 })
+        const [a, b] = walked(t)
+        expect(quarterTurns(a!, b!)).toBe(1)
+        expect(fieldBox(b!).x0).toBeCloseTo(fieldBox(a!).x1)
+        expect(fieldBox(b!).z0).toBeCloseTo(fieldBox(a!).z0)
+        expect(fieldBox(b!).z1).toBeCloseTo(fieldBox(a!).z1)
+    })
+
+    it('steps the road off a branch in the middle of the edge and still sits flush', () => {
+        const out: CustomBranch = { sections: [], from: { ...SPOT, port: { edge: 'left', tile: 2 } }, to: null }
+        const t = done(growField(course({ branches: [out] }), SPOT, 'left'))
+        expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'left', tile: 0 })
+        const [a, b] = walked(t)
+        expect(fieldBox(b!).x1).toBeCloseTo(fieldBox(a!).x0)
+        expect(fieldBox(b!).z0).toBeCloseTo(fieldBox(a!).z0)
+    })
+
+    it('builds a square of four that drives as one, and refuses a fifth on top of the first', () => {
+        let t = done(growField(course(), SPOT, 'exit'))
+        t = done(growField(t, spotAt(3), 'right'))
+        t = done(growField(t, spotAt(4), 'right'))
+        expect(fieldGroup(walked(t), SPOT)).toHaveLength(4)
+        expect(growField(t, spotAt(5), 'right').error).toMatch(/no room/)
+        expect(compileCustomTrack(t).error).toBeNull()
+    })
+
+    it('refuses an edge with no tile a road fits through', () => {
+        const narrow = course({ fields: [field({ width: 20, length: 60, entry: 0, exit: { edge: 'right', tile: 1 } })] })
+        expect(growField(narrow, SPOT, 'exit').error).toBeNull()
+        expect(growField(done(useFieldTool(narrow, SPOT, 0, 2, 'block')), SPOT, 'exit').error).toMatch(/clear a tile/)
+    })
+
+    it('starts a new pad facing the way asked when it fits', () => {
+        expect(tiles(done(useFieldTool(course(), SPOT, 1, 1, 'boost', true, 3)))).toEqual([{ col: 1, row: 1, kind: 'boost', dir: 3 }])
     })
 })

@@ -312,11 +312,21 @@ export function fieldBox(f: Pick<FieldPlacement, 'x' | 'z' | 'heading' | 'plan'>
     return { x0: Math.min(ax, bx), x1: Math.max(ax, bx), z0: Math.min(az, bz), z1: Math.max(az, bz) }
 }
 
+/** Whether two placed fields cover some of the same ground; touching edge to edge isn't overlapping. */
+export function fieldsOverlap(a: Pick<FieldPlacement, 'x' | 'z' | 'heading' | 'plan'>, b: Pick<FieldPlacement, 'x' | 'z' | 'heading' | 'plan'>) {
+    const p = fieldBox(a)
+    const q = fieldBox(b)
+    return Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) > 0.01 && Math.min(p.z1, q.z1) - Math.max(p.z0, q.z0) > 0.01
+}
+
 /** Metres two fields' heights may differ by and still meet edge to edge. */
 export const LEVEL_TOLERANCE = 0.05
 
+/** A placed field and its surface's height: all that edge sharing looks at. */
+export type LevelField = Pick<FieldDef, 'x' | 'z' | 'heading' | 'plan' | 'y'>
+
 /** Where `a` touches another field edge to edge at its height: each stretch of its edges they share, which no wall closes. */
-export function sharedEdges(a: FieldDef, all: readonly FieldDef[]): EdgeOpening[] {
+export function sharedEdges(a: LevelField, all: readonly LevelField[]): EdgeOpening[] {
     const out: EdgeOpening[] = []
     const box = fieldBox(a)
     for (const b of all) {
