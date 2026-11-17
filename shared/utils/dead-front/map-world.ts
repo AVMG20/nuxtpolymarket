@@ -308,8 +308,8 @@ function buildWorld(): DfMapWorld {
         const rim = big ? 2.3 : 1.5
         disc(cx, cz, rim, (d, i, k) => (d < hole1 ? P.crater : dfHash3(i, 0, k, 14) < 0.7 ? P.mud3 : P.crater))
     }
-    // Burnt ground: the wreck, a burnt-out cart, the haystacks, the ramparts' fire barrels.
-    for (const [cx, cz, r] of [[-8, -25, 3.6], [13, 10, 2.6], [-23.4, 31, 2.4], [31.5, 32, 2.0], [8.9, 32.3, 1.9]] as const) {
+    // Burnt ground: a burnt-out cart, the haystacks, the ramparts' fire barrels.
+    for (const [cx, cz, r] of [[13, 10, 2.6], [-23.4, 31, 2.4], [31.5, 32, 2.0], [8.9, 32.3, 1.9]] as const) {
         disc(cx, cz, r, (d, i, k) => (d < r * 0.55 || dfHash3(i, 0, k, 15) < 1 - (d / r) * 0.9 ? P.scorch : g.data[g.index(i, 0, k)]!))
     }
     // The square's main street: a flagstone lane between the two doors, and a ring round the fountain.
@@ -689,10 +689,9 @@ function buildWorld(): DfMapWorld {
     prop('cart', -44.5, 22, 1)
     prop('crate', 44, -14)
 
-    // Story pieces. Churchyard: the crashed biplane, the field hospital, the bell
+    // Story pieces. Churchyard: the field hospital, the bell
     // from the shelled tower, fresh graves. Craters, hedgehogs at the chokepoints,
     // signposts at the crossings, the angel in the cemetery, the windmill's sails.
-    prop('biplane', -8, -25, 0, 0, { yaw: -0.35 })
     prop('bell', -13.2, -23.2, 0, 0, { yaw: 0.6 })
     prop('tent', -5.5, -17.2)
     prop('cot', -2.4, -16.6, 0, 0, { variant: 0 })
@@ -935,8 +934,7 @@ function buildWorld(): DfMapWorld {
         { pos: v(37.5, 7.6, 35.5), color: ARC, intensity: 2.4, distance: 22, power: true },
         { pos: v(31.5, 1.3, 32), color: FIRE, intensity: 1.8, distance: 9, flicker: true },
         { pos: v(31, 7.9, 13.2), color: LAMP, intensity: 1.7, distance: 15, flicker: true },
-        // the wreck still burns; the field hospital's lantern; the windmill's lit slit
-        { pos: v(-5.6, 1.0, -24.6), color: FIRE, intensity: 1.7, distance: 10, flicker: true },
+        // the field hospital's lantern; the windmill's lit slit
         { pos: v(-5.5, 2.0, -14.4), color: LAMP, intensity: 1.5, distance: 10, flicker: true },
         { pos: v(-35.4, 6.2, -5.5), color: BULB, intensity: 1.2, distance: 9, flicker: true }
     ]
