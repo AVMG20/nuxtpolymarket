@@ -622,7 +622,7 @@ function buildWorld(): DfMapWorld {
     prop('rubble', 7, 3.2)
     prop('rubble', -2.5, 3)
     // Farm.
-    for (const [x, z] of [[-34, -2], [-27, -2], [-20, -2], [-34, 5], [-27, 5], [-20, 6]] as const) prop('tree', x, z)
+    for (const [x, z] of [[-34, -2], [-27, -2], [-20, -2], [-27, 5]] as const) prop('tree', x, z)
     prop('hay', -38, 20)
     prop('hay', -38, 21.2)
     prop('hay', -36.5, 24.3, 1)
