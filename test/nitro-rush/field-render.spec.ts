@@ -10,6 +10,7 @@ import { worldKit } from '../../app/utils/nitro-rush/world-kit'
 import { compileCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { defaultFieldPlan, GATE_SPAN, type FieldTile } from '#shared/utils/nitro-rush/field'
 import { Track } from '#shared/utils/nitro-rush/track'
+import { growField } from '#shared/utils/nitro-rush/field-edit'
 
 // Canvas textures need a browser; the geometry doesn't.
 vi.mock('../../app/utils/nitro-rush/textures', async (original) => {
@@ -105,6 +106,7 @@ describe('rendering a field', () => {
         expect(f!.gates).toHaveLength(1)
         expect(plan.road.match(/M/g)!.length).toBe(2)
     })
+
 })
 
 describe('pillars round a field', () => {
@@ -134,4 +136,33 @@ describe('pillars round a field', () => {
         expect(pillarsUnder(line, []).some(onField)).toBe(true)
         expect(pillarsUnder(line, [], [ground]).some(onField)).toBe(false)
     })
+})
+
+describe('hazard panels on a field', () => {
+    /** Each field's hazard panels, in its own (u, v, height): the one mesh lit amber. */
+    function stripes(sections: SectionId[], fields: Parameters<typeof compileCustomTrack>[0]['fields'], grow = false) {
+        let course: Parameters<typeof compileCustomTrack>[0] = { id: 'custom-test', name: 'Test', closed: false, sections, fields }
+        if (grow) course = growField(course, { branch: 0, at: 3 }, 'exit').track!
+        const { def, error } = compileCustomTrack(course)
+        expect(error).toBeNull()
+        const group = new THREE.Group()
+        const owned: { dispose(): void }[] = []
+        buildFields(worldKit(new Track(def!), group, owned), new THREE.MeshBasicMaterial(), new THREE.Texture())
+        const out = group.children.map((g) => {
+            const mesh = g.children.find(m => m instanceof THREE.Mesh && (m.material as THREE.MeshStandardMaterial).emissive?.getHex() === 0x332a08) as THREE.Mesh | undefined
+            const pos = mesh?.geometry.getAttribute('position')
+            return pos ? Array.from({ length: pos.count }, (_, i) => ({ u: pos.getX(i), y: pos.getY(i), v: -pos.getZ(i) })) : []
+        })
+        for (const o of owned) o.dispose()
+        return out
+    }
+
+    it('stands none where two fields meet, as no wall does', () => {
+        const [first, second] = stripes(ROAD, [{ at: { branch: 0, at: 3 }, ...defaultFieldPlan() }], true)
+        // The first's way out and the second's way in are on the edge they share; only the road in and out get panels.
+        expect(first!.length).toBeGreaterThan(0)
+        expect(first!.every(p => p.v < 1)).toBe(true)
+        expect(second!.every(p => p.v > 99)).toBe(true)
+    })
+
 })

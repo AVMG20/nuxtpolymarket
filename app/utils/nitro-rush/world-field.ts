@@ -5,7 +5,7 @@ import { JERSEY, wallMaterial } from './world-road'
 import { BOOST_TILE_LENGTH, chevronTexture, concreteTexture } from './textures'
 import { jumpArrowTexture } from './signs'
 import type { WorldKit } from './world-kit'
-import { edgeLength, edgePoint, edgeWalls, FIELD_TILE, PILLAR_RADIUS, sharedEdges, type FieldDef, type WallSegment } from '#shared/utils/nitro-rush/field'
+import { alongEdge, edgeAt, edgeLength, edgePoint, edgeWalls, FIELD_TILE, PILLAR_RADIUS, sharedEdges, type FieldDef, type FieldEdge, type WallSegment } from '#shared/utils/nitro-rush/field'
 import { WALL_BASE_HALF, type CourseField, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** Fields in the world, each in its own frame where field (u, v) is local (u, y, -v); gate arches are the venue's. */
@@ -152,7 +152,7 @@ function buildField(kit: WorldKit, field: CourseField, defs: readonly FieldDef[]
         mesh(jersey.build(), mats.wall)
         mesh(band.build(), mats.band)
     }
-    const hazard = mouthPanels(field)
+    const hazard = mouthPanels(field, walls)
     if (!hazard.empty) mesh(hazard.build(), mats.hazard)
     tiles(kit, group, field, mats)
     if (field.y > 0.3) deck(kit, group, field, mats.wall)
@@ -181,21 +181,35 @@ function sweepWall(jersey: Quads, band: Quads, s: WallSegment) {
     band.add([inner(0, 0.16, 0.46), inner(1, 0.16, 0.46), inner(1, 0.19, 0.72), inner(0, 0.19, 0.72)], [[0, 0], [1, 0], [1, 1], [0, 1]], dirOf(s.nx, s.nz))
 }
 
-/** Hazard stripes on the walls either side of each mouth, so a way out reads from across the field. */
-function mouthPanels(field: CourseField) {
+/** Each stretch of `edge` a wall stands on, as metres along it. */
+function wallSpans(plan: FieldDef['plan'], walls: readonly WallSegment[], edge: FieldEdge): [number, number][] {
+    return walls.flatMap((w) => {
+        const on = edgeAt(plan, (w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)
+        if (on?.edge !== edge) return []
+        const a = alongEdge(edge, w.x0, w.z0)
+        const b = alongEdge(edge, w.x1, w.z1)
+        return [[Math.min(a, b), Math.max(a, b)] as [number, number]]
+    })
+}
+
+/** Hazard stripes on the walls either side of each mouth, so a way out reads from across the field; none where fields meet and no wall stands. */
+function mouthPanels(field: CourseField, walls: readonly WallSegment[]) {
     const q = new Quads()
     const plan = field.def.plan
     for (const m of field.mouths) {
         const len = edgeLength(plan, m.edge)
+        const spans = wallSpans(plan, walls, m.edge)
+        const inward = edgeInward(m.edge)
+        const off = (pt: { u: number, v: number }, y: number) => at(pt.u + inward[0] * 0.03, pt.v + inward[1] * 0.03, y)
         for (const [a, b] of [[m.at - m.half - MOUTH_PANEL, m.at - m.half], [m.at + m.half, m.at + m.half + MOUTH_PANEL]] as const) {
-            const from = Math.max(0, a)
-            const to = Math.min(len, b)
-            if (to - from < 0.5) continue
-            const p = edgePoint(plan, m.edge, from)
-            const r = edgePoint(plan, m.edge, to)
-            const inward = edgeInward(m.edge)
-            const off = (pt: { u: number, v: number }, y: number) => at(pt.u + inward[0] * 0.03, pt.v + inward[1] * 0.03, y)
-            q.add([off(p, 0.1), off(r, 0.1), off(r, 0.8), off(p, 0.8)], [[0, 0], [to - from, 0], [to - from, 0.7], [0, 0.7]], dirOf(...inward))
+            for (const [wa, wb] of spans) {
+                const from = Math.max(0, a, wa)
+                const to = Math.min(len, b, wb)
+                if (to - from < 0.5) continue
+                const p = edgePoint(plan, m.edge, from)
+                const r = edgePoint(plan, m.edge, to)
+                q.add([off(p, 0.1), off(r, 0.1), off(r, 0.8), off(p, 0.8)], [[0, 0], [to - from, 0], [to - from, 0.7], [0, 0.7]], dirOf(...inward))
+            }
         }
     }
     return q
