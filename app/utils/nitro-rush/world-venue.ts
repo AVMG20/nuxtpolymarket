@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { bannerTexture } from './signs'
 import { LAMP_SPACING, lampSlot } from './trackside-spots'
-import { NEON_PINK } from './config'
+import { LINE_COLORS, NEON_PINK } from './config'
 import { radialTexture } from './textures'
 import { CLEAR_HEIGHT, fieldClearance, roadAbove, roadLevelWith } from './road-geometry'
 import type { WorldKit } from './world-kit'
@@ -104,6 +104,8 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     }
     const legGeo = own(new THREE.CylinderGeometry(ARCH_TUBE, ARCH_TUBE, 1, 10))
     const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
+    // A checkpoint's neon is its own colour, so it doesn't pass for the pink walls round it.
+    const checkpointNeon = own(new THREE.MeshBasicMaterial({ color: LINE_COLORS.checkpoint }))
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
     const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
     const lightGeo = own(new THREE.CylinderGeometry(0.3, 0.3, 0.15, 20).rotateX(Math.PI / 2))
@@ -126,7 +128,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
             }
         }
         for (const face of [1, -1]) {
-            const neon = new THREE.Mesh(neonGeo, neonMat)
+            const neon = new THREE.Mesh(neonGeo, l.kind === 'checkpoint' ? checkpointNeon : neonMat)
             neon.position.z = face * ARCH_TUBE
             g.add(neon)
         }

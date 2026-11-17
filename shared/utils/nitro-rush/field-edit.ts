@@ -63,11 +63,13 @@ export function useFieldTool(t: CustomTrack, spot: SectionSpot, col: number, row
     let tiles = others
     if (tool === 'boost' || tool === 'checkpoint') {
         if (here?.kind === tool && !turn) return ok(t)
-        // It turns on to the next way that fits, so a gate on a road's tile skips the ways across it.
+        // A gate counts either way through, so it only stands along or across.
+        const ways = tool === 'checkpoint' ? 2 : 4
+        // It turns on to the next way that fits, so a gate on a road's tile skips the way across it.
         const from = here?.kind === tool ? here.dir + 1 : facing
         let first: FieldEdit | null = null
-        for (let k = 0; k < (here?.kind === tool ? 3 : 4); k++) {
-            const edit = fitted([...others, { col, row, kind: tool, dir: (from + k) % 4 as FieldDir }])
+        for (let k = 0; k < (here?.kind === tool ? ways - 1 : ways); k++) {
+            const edit = fitted([...others, { col, row, kind: tool, dir: (from + k) % ways as FieldDir }])
             if (!edit.error) return edit
             first ??= edit
         }

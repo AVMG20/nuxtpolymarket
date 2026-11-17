@@ -15,7 +15,7 @@ import { growField } from '#shared/utils/nitro-rush/field-edit'
 // Canvas textures need a browser; the geometry doesn't.
 vi.mock('../../app/utils/nitro-rush/textures', async (original) => {
     const THREE = await import('three')
-    return { ...await original<object>(), concreteTexture: () => new THREE.Texture(), chevronTexture: () => new THREE.Texture() }
+    return { ...await original<object>(), concreteTexture: () => new THREE.Texture(), chevronTexture: () => new THREE.Texture(), radialTexture: () => new THREE.Texture() }
 })
 vi.mock('../../app/utils/nitro-rush/signs', async (original) => {
     const THREE = await import('three')
@@ -64,8 +64,8 @@ describe('rendering a field', () => {
         buildFields(worldKit(track, group, owned), new THREE.MeshBasicMaterial(), new THREE.Texture())
         const meshes: THREE.Mesh[] = []
         group.traverse(o => o instanceof THREE.Mesh && meshes.push(o))
-        // Floor, grid, walls, bands, hazard panels, blocks, bollards, pads and arrows; the gate's arch is the venue's.
-        expect(meshes.length).toBe(9)
+        // Floor, grid, walls, bands, hazard stripes, blocks, bollards, pads, and the gate's glow and line; its arch is the venue's.
+        expect(meshes.length).toBe(10)
         for (const m of meshes) {
             const pos = m.geometry.getAttribute('position')
             for (let i = 0; i < pos.array.length; i++) expect(Number.isFinite(pos.array[i])).toBe(true)
@@ -138,8 +138,8 @@ describe('pillars round a field', () => {
     })
 })
 
-describe('hazard panels on a field', () => {
-    /** Each field's hazard panels, in its own (u, v, height): the one mesh lit amber. */
+describe('hazard stripes on a field', () => {
+    /** Each field's hazard stripes, in its own (u, v, height): the one mesh lit amber. */
     function stripes(sections: SectionId[], fields: Parameters<typeof compileCustomTrack>[0]['fields'], grow = false) {
         let course: Parameters<typeof compileCustomTrack>[0] = { id: 'custom-test', name: 'Test', closed: false, sections, fields }
         if (grow) course = growField(course, { branch: 0, at: 3 }, 'exit').track!
@@ -165,4 +165,12 @@ describe('hazard panels on a field', () => {
         expect(second!.every(p => p.v > 99)).toBe(true)
     })
 
+    it('runs round a block\'s faces onto the open field', () => {
+        const blocks: FieldTile[] = [{ col: 1, row: 2, kind: 'block' }, { col: 2, row: 2, kind: 'block' }]
+        const [field] = stripes(ROAD, [{ at: { branch: 0, at: 3 }, ...defaultFieldPlan(), tiles: blocks }])
+        const onBlock = field!.filter(p => p.u > 19 && p.u < 61 && p.v > 39 && p.v < 61)
+        // Four faces round the merged pair, none on the seam between them.
+        expect(onBlock).toHaveLength(16)
+        expect(onBlock.some(p => Math.abs(p.u - 40) < 0.1)).toBe(false)
+    })
 })

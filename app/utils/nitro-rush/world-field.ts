@@ -1,11 +1,10 @@
 import * as THREE from 'three'
-import { NEON_PINK } from './config'
+import { LINE_COLORS, NEON_PINK } from './config'
 import { DECK_DEPTH, fieldClearance, roadBelow } from './road-geometry'
 import { JERSEY, wallMaterial } from './world-road'
-import { BOOST_TILE_LENGTH, chevronTexture, concreteTexture } from './textures'
-import { jumpArrowTexture } from './signs'
+import { BOOST_TILE_LENGTH, chevronTexture, concreteTexture, radialTexture } from './textures'
 import type { WorldKit } from './world-kit'
-import { alongEdge, edgeAt, edgeLength, edgePoint, edgeWalls, FIELD_TILE, PILLAR_RADIUS, sharedEdges, type FieldDef, type FieldEdge, type WallSegment } from '#shared/utils/nitro-rush/field'
+import { alongEdge, blockWalls, edgeAt, edgeLength, edgePoint, edgeWalls, FIELD_TILE, GATE_SPAN, PILLAR_RADIUS, sharedEdges, type FieldDef, type FieldEdge, type WallSegment } from '#shared/utils/nitro-rush/field'
 import { WALL_BASE_HALF, type CourseField, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** Fields in the world, each in its own frame where field (u, v) is local (u, y, -v); gate arches are the venue's. */
@@ -16,9 +15,12 @@ const BOLLARD_HEIGHT = 1.2
 const JERSEY_BASE = JERSEY[1]![0]
 /** Hazard panels run this far along the wall either side of a mouth. */
 const MOUTH_PANEL = 4
-/** Pads and arrows stop short of their tile's edges, so neighbours read apart. */
+/** Pads stop short of their tile's edges, so neighbours read apart. */
 const TILE_INSET = 1
-const ARROW_SIZE = 8
+/** The glowing line across the floor between a gate's posts, its width along the way through. */
+const GATE_LINE = 0.6
+/** Hazard stripes along a block's faces: their foot and top, under the block's own top edge. */
+const BLOCK_STRIPE: [number, number] = [0.25, 0.95]
 const PILLAR_SPACING = FIELD_TILE * 2
 
 type Vec3 = [number, number, number]
@@ -116,13 +118,15 @@ export function buildFields(kit: WorldKit, padMaterial: THREE.Material, concrete
         band: own(new THREE.MeshBasicMaterial({ color: NEON_PINK, side: THREE.DoubleSide })),
         hazard: own(new THREE.MeshStandardMaterial({ map: own(chevronTexture()), roughness: 0.55, emissive: 0x332a08, polygonOffset: true, polygonOffsetFactor: -2 })),
         pad: padMaterial,
-        arrow: own(new THREE.MeshStandardMaterial({ map: own(jumpArrowTexture()), emissive: 0xffffff, emissiveIntensity: 0.3, roughness: 0.6, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))
+        gateLine: own(new THREE.MeshBasicMaterial({ color: LINE_COLORS.checkpoint, polygonOffset: true, polygonOffsetFactor: -2 })),
+        // A soft pool of the gate's colour over its tile, so it reads against the floor from across the field.
+        gateGlow: own(new THREE.MeshBasicMaterial({ map: own(radialTexture()), color: LINE_COLORS.checkpoint, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))
     }
     const defs = track.fields.map(f => f.def)
     for (const field of track.fields) buildField(kit, field, defs, mats)
 }
 
-type FieldMats = Record<'floor' | 'grid' | 'wall' | 'bollard' | 'band' | 'hazard' | 'pad' | 'arrow', THREE.Material>
+type FieldMats = Record<'floor' | 'grid' | 'wall' | 'bollard' | 'band' | 'hazard' | 'pad' | 'gateLine' | 'gateGlow', THREE.Material>
 
 function buildField(kit: WorldKit, field: CourseField, defs: readonly FieldDef[], mats: FieldMats) {
     const { own } = kit
@@ -153,6 +157,7 @@ function buildField(kit: WorldKit, field: CourseField, defs: readonly FieldDef[]
         mesh(band.build(), mats.band)
     }
     const hazard = mouthPanels(field, walls)
+    blockStripes(hazard, field)
     if (!hazard.empty) mesh(hazard.build(), mats.hazard)
     tiles(kit, group, field, mats)
     if (field.y > 0.3) deck(kit, group, field, mats.wall)
@@ -215,10 +220,20 @@ function mouthPanels(field: CourseField, walls: readonly WallSegment[]) {
     return q
 }
 
+/** Hazard stripes round every block's outline, facing the open field, so blocks stand out from the floor. */
+function blockStripes(q: Quads, field: CourseField) {
+    const [lo, hi] = BLOCK_STRIPE
+    for (const s of blockWalls(field.def.plan)) {
+        const len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0)
+        const off = (u: number, v: number, y: number) => at(u + s.nx * 0.03, v + s.nz * 0.03, y)
+        q.add([off(s.x0, s.z0, lo), off(s.x1, s.z1, lo), off(s.x1, s.z1, hi), off(s.x0, s.z0, hi)], [[0, 0], [len, 0], [len, hi - lo], [0, hi - lo]], dirOf(s.nx, s.nz))
+    }
+}
+
 /** The unit (du, dv) from an edge into its field. */
 const edgeInward = (edge: string): [number, number] => edge === 'entry' ? [0, 1] : edge === 'exit' ? [0, -1] : edge === 'left' ? [1, 0] : [-1, 0]
 
-/** Blocks, bollards, pads and gate arrows on their tiles. */
+/** Blocks, bollards, pads, and the line and glow under each gate, on their tiles. */
 function tiles(kit: WorldKit, group: THREE.Group, field: CourseField, mats: FieldMats) {
     const { own } = kit
     const plan = field.def.plan
@@ -236,7 +251,8 @@ function tiles(kit: WorldKit, group: THREE.Group, field: CourseField, mats: Fiel
     instanced(bollard(), mats.bollard, pillars)
 
     const pads = new Quads()
-    const arrows = new Quads()
+    const gateLines = new Quads()
+    const gateGlows = new Quads()
     const half = FIELD_TILE / 2 - TILE_INSET
     for (const t of plan.tiles) {
         if (t.kind !== 'boost' && t.kind !== 'checkpoint') continue
@@ -250,9 +266,10 @@ function tiles(kit: WorldKit, group: THREE.Group, field: CourseField, mats: Fiel
             pads.add([corner(-half, -half, 0.03), corner(-half, half, 0.03), corner(half, half, 0.03), corner(half, -half, 0.03)], [[0, 0], [1, 0], [1, tiles], [0, tiles]], [0, 1, 0])
             continue
         }
-        const a = ARROW_SIZE / 2
-        // Leading up to the arch, pointing through it.
-        arrows.add([corner(-a - 2, -a, 0.03), corner(-a - 2, a, 0.03), corner(a - 2, a, 0.03), corner(a - 2, -a, 0.03)], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, 1, 0])
+        // No arrow: a field gate counts whichever way it's driven through.
+        const w = GATE_LINE / 2
+        gateLines.add([corner(-w, -GATE_SPAN, 0.04), corner(-w, GATE_SPAN, 0.04), corner(w, GATE_SPAN, 0.04), corner(w, -GATE_SPAN, 0.04)], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, 1, 0])
+        gateGlows.add([corner(-half, -half, 0.035), corner(-half, half, 0.035), corner(half, half, 0.035), corner(half, -half, 0.035)], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, 1, 0])
     }
     const add = (q: Quads, mat: THREE.Material) => {
         if (q.empty) return
@@ -260,7 +277,8 @@ function tiles(kit: WorldKit, group: THREE.Group, field: CourseField, mats: Fiel
         group.add(mesh)
     }
     add(pads, mats.pad)
-    add(arrows, mats.arrow)
+    add(gateGlows, mats.gateGlow)
+    add(gateLines, mats.gateLine)
 }
 
 /** A striped bollard, its stripes a metre apart round it. */

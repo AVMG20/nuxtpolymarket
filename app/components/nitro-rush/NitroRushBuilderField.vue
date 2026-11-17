@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { SectionSpot } from '#shared/utils/nitro-rush/custom'
 import type { FieldTool, GrowEdge } from '#shared/utils/nitro-rush/field-edit'
-import { FIELD_TILE, type FieldDir, type FieldEdge, type FieldPlan, type FieldPort } from '#shared/utils/nitro-rush/field'
+import { FIELD_TILE, GATE_SPAN, type FieldDir, type FieldEdge, type FieldPlan, type FieldPort } from '#shared/utils/nitro-rush/field'
 import type { WalkedFieldSection } from '#shared/utils/nitro-rush/field-group'
 import { fieldEditorPicture, pictureTile } from '~/utils/nitro-rush/field-editor'
 
@@ -31,7 +31,7 @@ const emit = defineEmits<{
 type Tool = FieldTool | 'exit' | 'road'
 const TOOLS: { id: Tool, icon: string, label: string, hint: string }[] = [
     { id: 'boost', icon: 'i-lucide-chevrons-up', label: 'Boost', hint: 'Tap a tile for a boost pad; tap it again to turn it.' },
-    { id: 'checkpoint', icon: 'i-lucide-milestone', label: 'Gate', hint: 'Tap a tile for a checkpoint gate; tap it again to turn it.' },
+    { id: 'checkpoint', icon: 'i-lucide-milestone', label: 'Gate', hint: 'Tap a tile for a checkpoint gate, which counts either way through; tap it again to turn it.' },
     { id: 'block', icon: 'i-lucide-square', label: 'Block', hint: 'Tap or drag across tiles to wall them off.' },
     { id: 'pillar', icon: 'i-lucide-circle-dot', label: 'Pillar', hint: 'Tap a tile for a pillar to steer round.' },
     { id: 'erase', icon: 'i-lucide-eraser', label: 'Erase', hint: 'Tap or drag across tiles to clear them.' },
@@ -148,8 +148,10 @@ function onSlot(edge: FieldEdge, tile: number) {
             <path d="M -5 2 L 0 -4 L 5 2 M -5 7 L 0 1 L 5 7" class="nr-field-arrow" />
           </template>
           <template v-else>
-            <line x1="-10" y1="0" x2="10" y2="0" class="nr-field-gate" />
-            <path d="M -4 0 L 0 -6 L 4 0" class="nr-field-arrow is-gate" />
+            <rect x="-9" y="-9" width="18" height="18" rx="2" class="nr-field-gate-tile" />
+            <line :x1="-GATE_SPAN" y1="0" :x2="GATE_SPAN" y2="0" class="nr-field-gate" />
+            <circle :cx="-GATE_SPAN" cy="0" r="1.6" class="nr-field-gate-post" />
+            <circle :cx="GATE_SPAN" cy="0" r="1.6" class="nr-field-gate-post" />
           </template>
         </g>
       </g>

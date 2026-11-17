@@ -40,11 +40,10 @@ describe('editing a field', () => {
     it('keeps the tiles at a mouth clear and nothing walled off', () => {
         expect(useFieldTool(course(), SPOT, 2, 0, 'block').error).toMatch(/clear/)
         expect(useFieldTool(course(), SPOT, 2, 4, 'pillar').error).toMatch(/clear/)
-        // A gate on a mouth's tile goes along the road, so turning it skips the ways with a post in the road.
+        // A gate on a mouth's tile goes along the road, and can't turn across it with a post in the road.
         const gated = done(useFieldTool(course(), SPOT, 2, 0, 'checkpoint'))
-        const turned = done(useFieldTool(gated, SPOT, 2, 0, 'checkpoint'))
-        expect(tiles(turned)).toEqual([{ col: 2, row: 0, kind: 'checkpoint', dir: 2 }])
-        expect(tiles(done(useFieldTool(turned, SPOT, 2, 0, 'checkpoint')))).toEqual([{ col: 2, row: 0, kind: 'checkpoint', dir: 0 }])
+        expect(tiles(gated)).toEqual([{ col: 2, row: 0, kind: 'checkpoint', dir: 0 }])
+        expect(useFieldTool(gated, SPOT, 2, 0, 'checkpoint').error).toMatch(/clear/)
         // A wall of blocks across the field, short of the gate behind it.
         let t = done(useFieldTool(course(), SPOT, 0, 4, 'checkpoint'))
         for (const col of [0, 1, 2, 3]) t = done(useFieldTool(t, SPOT, col, 3, 'block'))
@@ -198,6 +197,12 @@ describe('growing a field', () => {
         const narrow = course({ fields: [field({ width: 20, length: 60, entry: 0, exit: { edge: 'right', tile: 1 } })] })
         expect(growField(narrow, SPOT, 'exit').error).toBeNull()
         expect(growField(done(useFieldTool(narrow, SPOT, 0, 2, 'block')), SPOT, 'exit').error).toMatch(/clear a tile/)
+    })
+
+    it('turns a gate between along and across only, as it counts either way through', () => {
+        const gate = done(useFieldTool(course(), SPOT, 1, 1, 'checkpoint', true, 3))
+        expect(tiles(gate)).toEqual([{ col: 1, row: 1, kind: 'checkpoint', dir: 1 }])
+        expect(tiles(done(useFieldTool(gate, SPOT, 1, 1, 'checkpoint')))).toEqual([{ col: 1, row: 1, kind: 'checkpoint', dir: 0 }])
     })
 
     it('starts a new pad facing the way asked when it fits', () => {
