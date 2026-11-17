@@ -333,6 +333,7 @@ export function dfInterpZombies(sample: DfSample, pool: DfZombieSnap[], out: DfZ
         z.tell = zb.tell
         z.crawl = zb.crawl
         z.masked = zb.masked
+        z.burning = zb.burning
         const vel = z.vel ?? (z.vel = { x: 0, y: 0, z: 0 })
         vel.x = zb.vel?.x ?? 0
         vel.y = zb.vel?.y ?? 0

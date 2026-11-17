@@ -1,3 +1,4 @@
+import { dfPapPerks } from '#shared/utils/dead-front/gunplay'
 import type { DfWeaponId } from '#shared/utils/dead-front/types'
 import { DF_WEAPON_IDS } from '#shared/utils/dead-front/weapons'
 import type { DfAudio, DfSoundOpts, DfSynth } from '../context'
@@ -14,7 +15,16 @@ import { clickTrain, crackle, fmBell, metal, noiseBurst, noiseSwell, scatter } f
 // spatialisation on each voice itself.
 
 export const DF_WSND = {
-    fire: (id: DfWeaponId, pap: number, suppressed = false) => `w:${id}:fire${pap > 0 ? ':pap' : suppressed ? ':sup' : ''}`,
+    /** A report; every Pack-a-Punch tier has its own (`:pap1`..`:pap3`), layered with its perks. */
+    fire: (id: DfWeaponId, pap: number, suppressed = false) => `w:${id}:fire${pap > 0 ? `:pap${Math.min(3, Math.floor(pap))}` : suppressed ? ':sup' : ''}`,
+    /** A rarity's layer on top of the local player's own shots (tiers 1..3). */
+    rarity: (tier: number) => `w:rarity:${Math.max(1, Math.min(3, Math.floor(tier)))}`,
+    /** The fanfare of a weapon reaching a rarity tier (1..3). */
+    upgrade: (tier: number) => `w:upgrade:${Math.max(1, Math.min(3, Math.floor(tier)))}`,
+    /** A packed shotgun's one-motion reload: a clatter of shells thumbed in together. */
+    quadLoad: 'w:quad-load',
+    /** Most of a shotgun's pellets landing in one zombie: a meaty slap. */
+    pelletHit: 'w:pellet-hit',
     dry: 'w:dry',
     magOut: 'w:mag-out',
     magIn: 'w:mag-in',
@@ -77,6 +87,12 @@ export interface DfGunVoice {
     slam?: number
     /** Tail level multiplier: very fast guns keep their tails short and low so a burst stays a rattle. */
     tailGain?: number
+    /** A sub-bass boom under the body (shotguns, heavy rifles): level. */
+    sub?: number
+    /** The muzzle blast's sharp front edge on a loud subsonic gun (a shotgun's "crack"): level. */
+    blastCrack?: number
+    /** A second, later slapback off the far ruins: level relative to the first. */
+    echo2?: number
 }
 
 /** Per-weapon voicing. Exported for the spec (every weapon has a distinct report). */
@@ -85,10 +101,11 @@ export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder' | 'flam
     m1911: { body: 210, bodyEnd: 70, bodyDur: 0.11, blast: 2400, blastDur: 0.09, crack: 0, tail: 0.5, echo: 0.35, mech: 2900, mechAt: 0.045, mechGain: 0.12, drive: 1.6, gain: 0.8 },
     // 7.63 Mauser: small, fast, snappy crack and a bright toggle.
     c96: { body: 260, bodyEnd: 90, bodyDur: 0.08, blast: 3400, blastDur: 0.07, crack: 3200, tail: 0.45, echo: 0.3, mech: 3600, mechAt: 0.035, mechGain: 0.12, drive: 1.4, gain: 0.72 },
-    // 12-gauge trench gun: a big low boom with a long roll.
-    m1897: { body: 120, bodyEnd: 38, bodyDur: 0.24, blast: 1500, blastDur: 0.22, crack: 0, tail: 1.2, echo: 0.6, mech: 0, mechAt: 0, mechGain: 0, drive: 2.2, gain: 0.74 },
+    // 12-gauge trench gun: a sharp crack on the front of a big low boom, a sub thump you feel and a
+    // tail that rolls off the ruins twice.
+    m1897: { body: 120, bodyEnd: 36, bodyDur: 0.26, blast: 1700, blastDur: 0.24, crack: 0, tail: 1.4, echo: 0.75, mech: 0, mechAt: 0, mechGain: 0, drive: 2.5, gain: 0.86, sub: 0.75, blastCrack: 0.42, echo2: 0.55 },
     // 8 mm Mauser rifle: a hard supersonic crack and a long valley echo.
-    kar98k: { body: 150, bodyEnd: 45, bodyDur: 0.16, blast: 2800, blastDur: 0.13, crack: 2900, tail: 1.5, echo: 0.7, mech: 0, mechAt: 0, mechGain: 0, drive: 2, gain: 0.78 },
+    kar98k: { body: 150, bodyEnd: 45, bodyDur: 0.16, blast: 2800, blastDur: 0.13, crack: 2900, tail: 1.5, echo: 0.7, mech: 0, mechAt: 0, mechGain: 0, drive: 2, gain: 0.8, sub: 0.35, echo2: 0.5 },
     // .45 Tommy gun: thick and round, short tail for the fast cycle.
     thompson: { body: 190, bodyEnd: 65, bodyDur: 0.08, blast: 2000, blastDur: 0.07, crack: 0, tail: 0.3, echo: 0.2, mech: 2300, mechAt: 0.02, mechGain: 0.07, drive: 1.8, gain: 0.66 },
     // 9 mm MP18: tighter and lighter than the Thompson, with a tinny bolt.
@@ -98,15 +115,15 @@ export const DF_GUN_VOICES: Record<Exclude<DfWeaponId, 'xray' | 'wunder' | 'flam
     // reads as a buzzing rattle, not a roar.
     ppsh: { body: 300, bodyEnd: 115, bodyDur: 0.038, blast: 3800, blastDur: 0.032, crack: 4100, tail: 0.16, echo: 0.08, mech: 3700, mechAt: 0.008, mechGain: 0.06, drive: 1.45, gain: 0.52, bark: 1550, ring: 2350, slam: 0.11, tailGain: 0.6 },
     // .30-06 BAR: heavy rifle report with a solid bolt slam.
-    bar: { body: 140, bodyEnd: 45, bodyDur: 0.13, blast: 2600, blastDur: 0.11, crack: 2700, tail: 0.9, echo: 0.5, mech: 1900, mechAt: 0.03, mechGain: 0.1, drive: 2, gain: 0.74 },
+    bar: { body: 140, bodyEnd: 45, bodyDur: 0.13, blast: 2600, blastDur: 0.11, crack: 2700, tail: 0.9, echo: 0.5, mech: 1900, mechAt: 0.03, mechGain: 0.1, drive: 2, gain: 0.74, sub: 0.2 },
     // .303 Lewis gun: a drier rifle bark with a ratchety cocking click.
     lewis: { body: 160, bodyEnd: 50, bodyDur: 0.11, blast: 2300, blastDur: 0.1, crack: 2500, tail: 0.75, echo: 0.45, mech: 2100, mechAt: 0.028, mechGain: 0.1, drive: 1.9, gain: 0.72 },
     // .455 Webley: a fat, slow, heavy boom, more cannon than pistol, and the cylinder's click.
-    webley: { body: 165, bodyEnd: 52, bodyDur: 0.15, blast: 1900, blastDur: 0.12, crack: 0, tail: 0.8, echo: 0.5, mech: 2500, mechAt: 0.06, mechGain: 0.1, drive: 2.1, gain: 0.8 },
+    webley: { body: 165, bodyEnd: 52, bodyDur: 0.15, blast: 1900, blastDur: 0.12, crack: 0, tail: 0.8, echo: 0.5, mech: 2500, mechAt: 0.06, mechGain: 0.1, drive: 2.1, gain: 0.82, sub: 0.3, blastCrack: 0.2 },
     // 10-gauge coach gun: the deepest, widest boom on the field with a long rolling tail.
-    sawnoff: { body: 100, bodyEnd: 32, bodyDur: 0.3, blast: 1300, blastDur: 0.26, crack: 0, tail: 1.5, echo: 0.75, mech: 0, mechAt: 0, mechGain: 0, drive: 2.5, gain: 0.8 },
+    sawnoff: { body: 96, bodyEnd: 30, bodyDur: 0.32, blast: 1400, blastDur: 0.3, crack: 0, tail: 1.7, echo: 0.85, mech: 0, mechAt: 0, mechGain: 0, drive: 2.8, gain: 0.9, sub: 0.95, blastCrack: 0.36, echo2: 0.7 },
     // .30-40 Krag lever gun: a bright rifle crack, a little lighter than the Mauser.
-    win1895: { body: 165, bodyEnd: 50, bodyDur: 0.14, blast: 3000, blastDur: 0.12, crack: 3100, tail: 1.3, echo: 0.65, mech: 0, mechAt: 0, mechGain: 0, drive: 1.9, gain: 0.76 },
+    win1895: { body: 165, bodyEnd: 50, bodyDur: 0.14, blast: 3000, blastDur: 0.12, crack: 3100, tail: 1.3, echo: 0.65, mech: 0, mechAt: 0, mechGain: 0, drive: 1.9, gain: 0.76, echo2: 0.4 },
     // 8 mm Lebel Chauchat: a slow hammering rifle report and the long recoil's clank.
     chauchat: { body: 135, bodyEnd: 42, bodyDur: 0.14, blast: 2400, blastDur: 0.12, crack: 2600, tail: 0.9, echo: 0.5, mech: 1500, mechAt: 0.05, mechGain: 0.16, drive: 2.1, gain: 0.74, ring: 1300, slam: 0.14 }
 }
@@ -142,10 +159,11 @@ function scrape(r: Rt, f0: number, f1: number, dur: number, gainV: number): void
     noiseSwell(r, { kind: 'pink', type: 'bandpass', freq: f0, freqEnd: f1, q: 2.2, gain: gainV, dur, peakAt: 0.6 })
 }
 
-/** PaP shimmer: a quick, soft sparkle of high bell partials and a low violet whum. */
-function papShimmer(r: Rt): void {
-    const notes = [1568, 2093, 2637]
-    notes.forEach((f, i) => fmBell(at(r, 0.008 + i * 0.022), { freq: f * rnd(0.995, 1.005), dur: 0.42, gain: 0.05, ratio: 3.01, index: 0.5, bite: 0.05 }))
+/** PaP shimmer: a quick, soft sparkle of high bell partials and a low violet whum; each tier rings one note more, higher. */
+function papShimmer(r: Rt, tier = 1): void {
+    const notes = [1568, 2093, 2637, 3136].slice(0, Math.min(4, 2 + tier))
+    const up = tier >= 3 ? 1.06 : tier === 2 ? 1.03 : 1
+    notes.forEach((f, i) => fmBell(at(r, 0.008 + i * 0.022), { freq: f * up * rnd(0.995, 1.005), dur: 0.42, gain: 0.05, ratio: 3.01, index: 0.5, bite: 0.05 }))
     const { ctx, t } = r
     const g = gainNode(ctx, 0, r.out)
     const lp = filterNode(ctx, 'lowpass', 1400, 1.2, g)
@@ -159,12 +177,50 @@ function papShimmer(r: Rt): void {
     decayEnv(g.gain, t, 0.06 * r.vol, 0.01, 0.32)
 }
 
-function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
+/** What a Pack-a-Punch perk adds to a report (gunplay.ts). */
+type DfPapFlavour = 'fire' | 'shock' | 'blast' | 'heavy' | null
+
+function papFlavour(id: DfWeaponId, tier: number): DfPapFlavour {
+    const perks = dfPapPerks(id, tier)
+    if (perks.includes('dragon') || perks.includes('napalm')) return 'fire'
+    if (perks.includes('chain')) return 'shock'
+    if (perks.includes('blast')) return 'blast'
+    if (perks.includes('stopping')) return 'heavy'
+    return null
+}
+
+/**
+ * The perk's own voice under a packed report: a roar of burning powder (Dragon's
+ * Breath), a crackling zap (Chain Lightning), a low detonation (Blast Rounds) or
+ * an extra sub punch with a ringing anvil (Stopping Power).
+ */
+function papPerkLayer(r: Rt, flavour: DfPapFlavour, remote: boolean): void {
+    if (flavour === 'fire') {
+        noiseSwell(r, { kind: 'brown', type: 'lowpass', freq: 900, freqEnd: 300, q: 0.7, gain: 0.32, dur: 0.38, peakAt: 0.12 })
+        noiseSwell(r, { kind: 'pink', type: 'bandpass', freq: 1700, freqEnd: 900, q: 0.9, gain: 0.12, dur: 0.3, peakAt: 0.2 })
+        if (!remote) crackle(at(r, 0.03), 0.3, 0.1, 50)
+    } else if (flavour === 'shock') {
+        crackle(at(r, 0.01), 0.18, remote ? 0.12 : 0.18, 110)
+        const { ctx, t } = r
+        const g = gainNode(ctx, 0, r.out)
+        const bp = filterNode(ctx, 'bandpass', 1500 * r.rate, 2, g)
+        oscNode(ctx, 'sawtooth', 160 * r.rate, t, 0.2, bp)
+        decayEnv(g.gain, t, 0.16, 0.002, 0.16)
+    } else if (flavour === 'blast') {
+        thump(at(r, 0.012), 90, 30, 0.32, 0.5)
+        noiseBurst(at(r, 0.01), { kind: 'brown', type: 'lowpass', freq: 700, freqEnd: 120, q: 0.6, gain: 0.3, dur: 0.4 })
+    } else if (flavour === 'heavy') {
+        thump(r, 70, 30, 0.22, 0.55)
+        if (!remote) metal(at(r, 0.01), { base: 820, ratios: [1, 1.52, 2.31], decay: 0.22, gain: 0.05, strike: 0.1 })
+    }
+}
+
+function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap', tier = 0, flavour: DfPapFlavour = null): DfSynth {
     return (ctx, out, o) => {
         const remote = !!o.pos
         const r = rtOf(ctx, out, o)
         const pap = mode === 'pap'
-        const lvl = v.gain * (pap ? 1.05 : 1)
+        const lvl = v.gain * (pap ? 1.04 + tier * 0.02 : 1)
         // Body + blast through a soft saturator so the transient is fat, not spiky.
         const punchOut = gainNode(ctx, lvl, out)
         const sat = shaperNode(ctx, mode === 'sup' ? 0.6 : v.drive, punchOut)
@@ -191,6 +247,10 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
         thump(p, v.body * body, v.bodyEnd, v.bodyDur, 0.95)
         thump(p, v.body * 0.5 * body, v.bodyEnd * 0.7, v.bodyDur * 1.4, 0.35, 'triangle')
         noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: v.blast, freqEnd: v.blast * 0.22, q: 0.7, gain: 0.9, dur: v.blastDur, attack: 0.0008 })
+        // The sub boom: felt more than heard, straight to the output (the saturator would smear it).
+        if (v.sub) thump({ ...r, out: punchOut }, 58, 26, v.bodyDur * 2.2, v.sub * (remote ? 0.6 : 0.9))
+        // A loud subsonic gun still cracks at the muzzle: a bright, wide-band front edge to the boom.
+        if (v.blastCrack) noiseBurst({ ...r, out: punchOut }, { kind: 'white', type: 'highpass', freq: 1800, q: 0.6, gain: v.blastCrack * (remote ? 0.5 : 1), dur: 0.022, attack: 0.0004 })
         // Stamped-steel guns bark through the middle: a tight resonant band that cuts through the mix.
         if (v.bark) noiseBurst(p, { kind: 'pink', type: 'bandpass', freq: v.bark, freqEnd: v.bark * 0.8, q: 2.6, gain: remote ? 0.5 : 0.38, dur: 0.03, attack: 0.0006 })
         // Supersonic crack: short and band-limited so it snaps without fizzing.
@@ -204,11 +264,15 @@ function gunshot(v: DfGunVoice, mode: 'plain' | 'sup' | 'pap'): DfSynth {
         if (v.echo > 0) {
             const e = at(dry, rnd(0.13, 0.24))
             noiseBurst(e, { kind: 'pink', type: 'lowpass', freq: v.blast * 0.3, freqEnd: 200, q: 0.6, gain: v.echo * 0.12, dur: v.tail * 0.5, attack: 0.01 })
+            if (v.echo2) noiseBurst(at(dry, rnd(0.38, 0.55)), { kind: 'pink', type: 'lowpass', freq: v.blast * 0.22, freqEnd: 160, q: 0.6, gain: v.echo * v.echo2 * 0.09, dur: v.tail * 0.6, attack: 0.02 })
         }
         if (!remote && v.mechGain > 0) tick(at(dry, v.mechAt), v.mech, v.mechGain)
         if (!remote && v.ring) metal(at(dry, 0.004), { base: v.ring, ratios: [1, 1.41, 2.13], decay: 0.045, gain: 0.045, strike: 0 })
         if (!remote && v.slam) clack(at(dry, v.mechAt + 0.026), v.mech * 0.55, v.slam)
-        if (pap) papShimmer(dry)
+        if (pap) {
+            papPerkLayer(dry, flavour, remote)
+            papShimmer(dry, tier)
+        }
     }
 }
 
@@ -330,27 +394,29 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
     for (const id of DF_WEAPON_IDS) {
         if (id === 'xray') {
             audio.register(DF_WSND.fire(id, 0), xray(false))
-            audio.register(DF_WSND.fire(id, 1), xray(true))
+            for (const t of [1, 2, 3]) audio.register(DF_WSND.fire(id, t), xray(true))
             audio.register(DF_WSND.fire(id, 0, true), xray(false))
         } else if (id === 'wunder') {
             audio.register(DF_WSND.fire(id, 0), wunder(false))
-            audio.register(DF_WSND.fire(id, 1), wunder(true))
+            for (const t of [1, 2, 3]) audio.register(DF_WSND.fire(id, t), wunder(true))
             audio.register(DF_WSND.fire(id, 0, true), wunder(false))
         } else if (id === 'flammen') {
             audio.register(DF_WSND.fire(id, 0), flame(false))
-            audio.register(DF_WSND.fire(id, 1), flame(true))
+            for (const t of [1, 2, 3]) audio.register(DF_WSND.fire(id, t), flame(true))
             audio.register(DF_WSND.fire(id, 0, true), flame(false))
         } else {
             const v = DF_GUN_VOICES[id as keyof typeof DF_GUN_VOICES]
             audio.register(DF_WSND.fire(id, 0), gunshot(v, 'plain'))
             audio.register(DF_WSND.fire(id, 0, true), gunshot(v, 'sup'))
-            audio.register(DF_WSND.fire(id, 1), id === 'm1911' ? launcher : gunshot(v, 'pap'))
+            for (const t of [1, 2, 3]) audio.register(DF_WSND.fire(id, t), id === 'm1911' ? launcher : gunshot(v, 'pap', t, papFlavour(id, t)))
         }
         // Rapid fire: the oldest tails give way so automatics never pile up.
-        for (const name of [DF_WSND.fire(id, 0), DF_WSND.fire(id, 1), DF_WSND.fire(id, 0, true)]) limit(name, 4)
+        for (const name of [DF_WSND.fire(id, 0), DF_WSND.fire(id, 1), DF_WSND.fire(id, 2), DF_WSND.fire(id, 3), DF_WSND.fire(id, 0, true)]) limit(name, 4)
     }
+    registerGunplaySounds(audio, limit)
     // the lent launcher isn't in DF_WEAPON_IDS (never in the armory)
-    for (const name of [DF_WSND.fire('granatwerfer', 0), DF_WSND.fire('granatwerfer', 1), DF_WSND.fire('granatwerfer', 0, true)]) audio.register(name, mortar)
+    for (const t of [0, 1, 2, 3]) audio.register(DF_WSND.fire('granatwerfer', t), mortar)
+    audio.register(DF_WSND.fire('granatwerfer', 0, true), mortar)
 
     const r = (name: string, recipe: (r: Rt, o: DfSoundOpts) => void, gainV = 1) => audio.register(name, (ctx, out, o) => {
         recipe(rtOf(ctx, gainV === 1 ? out : gainNode(ctx, gainV, out), o, 0.03), o)
@@ -557,4 +623,69 @@ export function registerDfWeaponSoundsImpl(audio: DfAudio): void {
         metal(p, { base: f, ratios: [1, 1.34, 1.87], decay: 0.12, gain: 0.05, strike: 0 })
         metal(at(p, rnd(0.07, 0.11)), { base: f * 1.02, ratios: [1, 1.34], decay: 0.07, gain: 0.025, strike: 0 })
     })
+}
+
+/**
+ * Rarity layers on the local player's shots, the rarity upgrade fanfare, the
+ * packed shotgun's one-motion reload and the multi-pellet slap.
+ */
+function registerGunplaySounds(audio: DfAudio, limit: (name: string, max: number) => void): void {
+    const r = (name: string, recipe: (r: Rt, o: DfSoundOpts) => void, gainV = 1) => audio.register(name, (ctx, out, o) => {
+        recipe(rtOf(ctx, gainV === 1 ? out : gainNode(ctx, gainV, out), o, 0.03), o)
+    })
+
+    // Rare: a bright glint on the tail of each shot.
+    r(DF_WSND.rarity(1), (p) => {
+        fmBell(at(p, 0.02), { freq: 2637 * rnd(0.99, 1.01), dur: 0.16, gain: 0.03, ratio: 3.01, index: 0.4, bite: 0.04 })
+    })
+    // Epic: a violet two-note sparkle and a breath of air.
+    r(DF_WSND.rarity(2), (p) => {
+        fmBell(at(p, 0.015), { freq: 1976 * rnd(0.99, 1.01), dur: 0.2, gain: 0.035, ratio: 2.41, index: 0.9, bite: 0.04 })
+        fmBell(at(p, 0.045), { freq: 2960 * rnd(0.99, 1.01), dur: 0.18, gain: 0.025, ratio: 2.41, index: 0.7, bite: 0.04 })
+        noiseSwell(p, { kind: 'pink', type: 'bandpass', freq: 3200, freqEnd: 2400, q: 1.4, gain: 0.03, dur: 0.14, peakAt: 0.3 })
+    })
+    // Legendary: a golden bell over a warm low whump.
+    r(DF_WSND.rarity(3), (p) => {
+        fmBell(at(p, 0.012), { freq: 1568 * rnd(0.995, 1.005), dur: 0.3, gain: 0.04, ratio: 2.01, index: 1.1, bite: 0.05 })
+        fmBell(at(p, 0.03), { freq: 2349 * rnd(0.995, 1.005), dur: 0.26, gain: 0.03, ratio: 2.01, index: 0.8, bite: 0.04 })
+        thump(p, 110, 45, 0.14, 0.18)
+    })
+    for (const t of [1, 2, 3]) limit(DF_WSND.rarity(t), 3)
+
+    // The upgrade: a hammer on the bench, a rising arpeggio (longer per tier) and a swelling
+    // shimmer; Legendary lands on a full chord with a sub boom.
+    const ARP = [[523, 659, 784], [523, 659, 784, 1047], [523, 659, 784, 1047, 1319]] as const
+    for (const tier of [1, 2, 3]) {
+        r(DF_WSND.upgrade(tier), (p) => {
+            clack(p, 1500, 0.5)
+            metal(p, { base: 980, ratios: [1, 1.48, 2.21, 3.1], decay: 0.5, gain: 0.08, strike: 0.25 })
+            const notes = ARP[tier - 1]!
+            notes.forEach((f, i) => fmBell(at(p, 0.12 + i * 0.075), { freq: f * 1.5, dur: 0.6, gain: 0.07, ratio: 2.01, index: 0.9, bite: 0.05 }))
+            const end = 0.12 + notes.length * 0.075
+            noiseSwell(at(p, 0.08), { kind: 'pink', type: 'highpass', freq: 3000, q: 0.7, gain: 0.04 + tier * 0.015, dur: end + 0.3, peakAt: 0.7 })
+            if (tier >= 2) {
+                for (const f of [784, 988, 1175]) fmBell(at(p, end), { freq: f * (tier === 3 ? 1.5 : 1), dur: 1.1, gain: 0.05, ratio: 3.01, index: 0.6, bite: 0.03 })
+            }
+            if (tier === 3) {
+                thump(at(p, end), 80, 30, 0.6, 0.6)
+                noiseSwell(at(p, end), { kind: 'brown', type: 'lowpass', freq: 600, freqEnd: 120, q: 0.6, gain: 0.25, dur: 1.2, peakAt: 0.05 })
+            }
+        })
+    }
+
+    // Four shells thumbed into the tube in one sweep, then a solid seat.
+    r(DF_WSND.quadLoad, (p) => {
+        scrape(p, 700, 1200, 0.18, 0.14)
+        clickTrain(at(p, 0.02), [0, 0.045, 0.09, 0.135], { freq: 1500, q: 2, gain: 0.26, len: 0.012, gains: [1, 0.9, 0.95, 0.85], jitter: 0.1 })
+        clack(at(p, 0.2), 1250, 0.45)
+        thump(at(p, 0.2), 180, 80, 0.07, 0.22)
+    })
+
+    // A load of buckshot landing in one body: a wet, heavy slap under the hitmarker.
+    r(DF_WSND.pelletHit, (p) => {
+        thump(p, 140, 50, 0.12, 0.55)
+        noiseBurst(p, { kind: 'pink', type: 'lowpass', freq: 1100, freqEnd: 250, q: 0.9, gain: 0.45, dur: 0.12 })
+        clickTrain(p, scatter(6, 0.03, 1), { freq: 1800, q: 1.2, gain: 0.1, len: 0.006, jitter: 0.5 })
+    })
+    limit(DF_WSND.pelletHit, 2)
 }

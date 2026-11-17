@@ -179,6 +179,9 @@ export function dfSoundRule(name: string, spatial: boolean): DfSoundRule {
                 : { cat: 'weapon', priority: 4, interval: 0.012, dur: 1, duck: DF_DUCK_SHOT }
         }
         if (name === 'w:explode') return { cat: 'weapon', priority: 3, interval: 0.06, dur: 2, duck: DF_DUCK_BOOM }
+        // the rarity fanfare is a jingle; a rarity's shot layer sits under the report
+        if (name.startsWith('w:upgrade:')) return { cat: 'music', priority: 3, interval: 0.3, dur: 2.2, duck: DF_DUCK_JINGLE }
+        if (name.startsWith('w:rarity:')) return { cat: 'weapon', priority: 1, interval: 0.03, dur: 0.35 }
         if (name === 'w:casing') return { cat: 'weapon', priority: 0.5, interval: 0.05, dur: 0.15 }
         return { cat: 'weapon', priority: spatial ? 2 : 2.5, interval: 0.02, dur: spatial ? 0.6 : 0.4 }
     }

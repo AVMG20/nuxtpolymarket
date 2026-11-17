@@ -93,6 +93,8 @@ export interface DfHudState {
         infinite: boolean
         /** Rarity tier 0..3 (rarity.ts): the name shows in its colour. */
         rarity?: number
+        /** Names of the weapon's Pack-a-Punch perks (gunplay.ts). */
+        perks?: string[]
     }
     grenades: number
     perks: DfHudPerk[]
@@ -120,7 +122,10 @@ export interface DfHudState {
         distance: number
         hasTarget: boolean
     }
-    hitmarker: { key: number, kind: 'hit' | 'kill' | 'head' }
+    /** `n`: pellets of one shot in the worst-hit zombie (a shotgun's marker grows with it). */
+    hitmarker: { key: number, kind: 'hit' | 'kill' | 'head', n?: number }
+    /** A weapon just reached a rarity tier: the screen flashes its colour and stamps its name. */
+    rarityFlash?: { key: number, color: string, name: string }
     killKey: number
     /** The last kill was a headshot (the kill skull's colour; the hitmarker kind moves on with the next hit). */
     killHead: boolean
@@ -319,6 +324,7 @@ export function dfCreateHudState(): DfHudState {
         prompt: null,
         objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, rods: null, rodTimer: null, label: '', distance: 0, hasTarget: false },
         hitmarker: { key: 0, kind: 'hit' },
+        rarityFlash: { key: 0, color: '#ffffff', name: '' },
         killKey: 0,
         killHead: false,
         damage: [],

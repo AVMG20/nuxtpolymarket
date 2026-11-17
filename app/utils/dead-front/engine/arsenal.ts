@@ -471,7 +471,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 case 'rarity': {
                     if (ev.p !== me) return
                     const r = dfRarity(ev.rarity)
-                    ctx.audio.play(DF_ARSENAL_SND.challengeDone, { volume: 0.7, rate: 0.9 + ev.rarity * 0.08 })
+                    // a kit or the bench plays the upgrade fanfare (engine); a box pull only chimes
+                    if (ev.how === 'box') ctx.audio.play(DF_ARSENAL_SND.challengeDone, { volume: 0.7, rate: 0.9 + ev.rarity * 0.08 })
                     if (ev.how !== 'box') callout(`${r.name} ${dfWeaponDisplayName(ev.weapon)}`, ev.how === 'kit' ? 'Upgrade kit applied' : 'Upgraded at the workbench', 'gold')
                     return
                 }

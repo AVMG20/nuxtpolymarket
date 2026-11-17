@@ -365,15 +365,19 @@ export interface DfRecoilProfile {
     delay: number
     /** Camera shake per radian of kick. */
     shake: number
+    /** Camera punch per shot: the FOV widens (degrees) and the view rolls (radians), springing back. */
+    punch: number
+    roll: number
 }
 
 export const DF_RECOIL: Record<DfWeaponClass, DfRecoilProfile> = {
-    pistol: { up: 1, side: 0.35, drift: 0, cap: 0.2, rise: 0.03, recover: 10, delay: 0.06, shake: 1.2 },
-    smg: { up: 1, side: 0.55, drift: 0.12, cap: 0.15, rise: 0.028, recover: 8, delay: 0.08, shake: 0.8 },
-    rifle: { up: 1, side: 0.3, drift: 0.05, cap: 0.26, rise: 0.04, recover: 6.5, delay: 0.09, shake: 1.3 },
-    shotgun: { up: 1, side: 0.45, drift: 0, cap: 0.28, rise: 0.045, recover: 6, delay: 0.1, shake: 1.5 },
-    lmg: { up: 1, side: 0.7, drift: -0.08, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9 },
-    special: { up: 1, side: 0.3, drift: 0, cap: 0.2, rise: 0.035, recover: 8, delay: 0.07, shake: 1 }
+    pistol: { up: 1, side: 0.35, drift: 0, cap: 0.2, rise: 0.03, recover: 10, delay: 0.06, shake: 1.2, punch: 0.5, roll: 0.006 },
+    smg: { up: 1, side: 0.55, drift: 0.12, cap: 0.15, rise: 0.028, recover: 8, delay: 0.08, shake: 0.8, punch: 0.22, roll: 0.004 },
+    rifle: { up: 1, side: 0.3, drift: 0.05, cap: 0.26, rise: 0.04, recover: 6.5, delay: 0.09, shake: 1.3, punch: 1.4, roll: 0.012 },
+    // the trench gun: a hard shove into the shoulder, the muzzle thrown high and the view rocked
+    shotgun: { up: 1.25, side: 0.45, drift: 0, cap: 0.32, rise: 0.04, recover: 5.5, delay: 0.11, shake: 2.1, punch: 3.4, roll: 0.03 },
+    lmg: { up: 1, side: 0.7, drift: -0.08, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9, punch: 0.45, roll: 0.006 },
+    special: { up: 1, side: 0.3, drift: 0, cap: 0.2, rise: 0.035, recover: 8, delay: 0.07, shake: 1, punch: 0.6, roll: 0.005 }
 }
 
 /**
@@ -384,15 +388,23 @@ export const DF_RECOIL: Record<DfWeaponClass, DfRecoilProfile> = {
  * trembles.
  */
 export const DF_RECOIL_ID: Partial<Record<DfWeaponId, DfRecoilProfile>> = {
-    ppsh: { up: 0.85, side: 0.8, drift: 0.04, cap: 0.13, rise: 0.022, recover: 9, delay: 0.07, shake: 0.6 },
-    webley: { up: 1.25, side: 0.2, drift: 0, cap: 0.24, rise: 0.035, recover: 8.5, delay: 0.07, shake: 1.6 },
-    sawnoff: { up: 1.3, side: 0.4, drift: 0, cap: 0.32, rise: 0.05, recover: 5.5, delay: 0.1, shake: 1.8 },
-    win1895: { up: 1, side: 0.25, drift: 0, cap: 0.24, rise: 0.04, recover: 7, delay: 0.09, shake: 1.3 },
-    chauchat: { up: 1.1, side: 0.45, drift: 0.22, cap: 0.24, rise: 0.045, recover: 5, delay: 0.12, shake: 1.2 },
-    lewis: { up: 1, side: 0.7, drift: -0.12, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9 },
-    flammen: { up: 1, side: 1, drift: 0, cap: 0.03, rise: 0.06, recover: 9, delay: 0.05, shake: 0.4 },
+    ppsh: { up: 0.85, side: 0.8, drift: 0.04, cap: 0.13, rise: 0.022, recover: 9, delay: 0.07, shake: 0.6, punch: 0.14, roll: 0.003 },
+    // the C96 snaps up and settles fast; the Webley bucks straight up like a small cannon
+    c96: { up: 1.05, side: 0.3, drift: 0.02, cap: 0.18, rise: 0.026, recover: 11, delay: 0.05, shake: 1, punch: 0.4, roll: 0.005 },
+    webley: { up: 1.35, side: 0.2, drift: 0, cap: 0.26, rise: 0.035, recover: 8, delay: 0.08, shake: 1.8, punch: 1.3, roll: 0.014 },
+    sawnoff: { up: 1.45, side: 0.4, drift: 0, cap: 0.36, rise: 0.045, recover: 5, delay: 0.12, shake: 2.4, punch: 4.4, roll: 0.04 },
+    // bolt guns: one big shove per round
+    kar98k: { up: 1.1, side: 0.25, drift: 0, cap: 0.28, rise: 0.04, recover: 6, delay: 0.1, shake: 1.5, punch: 1.8, roll: 0.015 },
+    win1895: { up: 1, side: 0.25, drift: 0, cap: 0.24, rise: 0.04, recover: 7, delay: 0.09, shake: 1.3, punch: 1.3, roll: 0.012 },
+    // the Thompson's heavy bolt climbs steadily, the MP18 barely walks
+    thompson: { up: 1.05, side: 0.45, drift: 0.08, cap: 0.17, rise: 0.03, recover: 7.5, delay: 0.08, shake: 0.9, punch: 0.28, roll: 0.005 },
+    mp18: { up: 0.9, side: 0.4, drift: -0.04, cap: 0.13, rise: 0.028, recover: 9, delay: 0.07, shake: 0.7, punch: 0.18, roll: 0.003 },
+    bar: { up: 1.1, side: 0.4, drift: 0.1, cap: 0.22, rise: 0.035, recover: 6, delay: 0.1, shake: 1.2, punch: 0.7, roll: 0.008 },
+    chauchat: { up: 1.1, side: 0.45, drift: 0.22, cap: 0.24, rise: 0.045, recover: 5, delay: 0.12, shake: 1.2, punch: 0.8, roll: 0.01 },
+    lewis: { up: 1, side: 0.7, drift: -0.12, cap: 0.18, rise: 0.035, recover: 5.5, delay: 0.1, shake: 0.9, punch: 0.45, roll: 0.006 },
+    flammen: { up: 1, side: 1, drift: 0, cap: 0.03, rise: 0.06, recover: 9, delay: 0.05, shake: 0.4, punch: 0, roll: 0.001 },
     // the lent launcher heaves up on every shell
-    granatwerfer: { up: 1.5, side: 0.3, drift: 0, cap: 0.36, rise: 0.06, recover: 4.5, delay: 0.12, shake: 2.2 }
+    granatwerfer: { up: 1.5, side: 0.3, drift: 0, cap: 0.36, rise: 0.06, recover: 4.5, delay: 0.12, shake: 2.2, punch: 3, roll: 0.02 }
 }
 
 /** The recoil profile a weapon fires with: its own when it has one, else its class's. */
@@ -414,6 +426,11 @@ export class DfRecoil {
     yaw = 0
     private targetPitch = 0
     private targetYaw = 0
+    /** Camera punch: FOV widening (degrees) and roll (radians), added to the view. */
+    fov = 0
+    roll = 0
+    private targetFov = 0
+    private targetRoll = 0
     private lastShot = -10
     private shots = 0
     private profile: DfRecoilProfile = DF_RECOIL.pistol
@@ -421,10 +438,11 @@ export class DfRecoil {
     /**
      * Kicks for one shot. `amount` is the weapon's recoil already scaled by
      * perks, aiming and stance; `jitter` is a number in [0, 1) (cosmetic);
-     * `id` picks the weapon's own pattern (`DF_RECOIL_ID`) over its class's.
+     * `id` picks the weapon's own pattern (`DF_RECOIL_ID`) over its class's;
+     * `punch` scales the camera punch (less down the sights).
      * Returns the camera shake to apply.
      */
-    kick(now: number, cls: DfWeaponClass, auto: boolean, amount: number, jitter: number, id?: DfWeaponId): number {
+    kick(now: number, cls: DfWeaponClass, auto: boolean, amount: number, jitter: number, id?: DfWeaponId, punch = 1): number {
         const p = dfRecoilProfile(cls, id)
         this.profile = p
         if (now - this.lastShot > 0.4 || this.targetPitch < 0.002) this.shots = 0
@@ -443,7 +461,12 @@ export class DfRecoil {
         // keep the sideways wander bounded
         const yawCap = p.cap * 0.6
         this.targetYaw = Math.max(-yawCap, Math.min(yawCap, this.targetYaw))
-        return Math.min(0.12, up * p.shake)
+        // the punch: a shove that doesn't stack past half again one shot's (autos stay a buzz)
+        const k = Math.max(0, punch)
+        this.targetFov = Math.min(p.punch * 1.5 * k, this.targetFov + p.punch * k)
+        this.targetRoll += (jitter < 0.5 ? -1 : 1) * p.roll * k
+        this.targetRoll = Math.max(-p.roll * 1.5, Math.min(p.roll * 1.5, this.targetRoll))
+        return Math.min(0.14, up * p.shake)
     }
 
     update(dt: number, now: number): void {
@@ -458,6 +481,13 @@ export class DfRecoil {
         this.yaw += (this.targetYaw - this.yaw) * f
         if (Math.abs(this.targetPitch) < 1e-5 && Math.abs(this.pitch) < 1e-5) this.targetPitch = this.pitch = 0
         if (Math.abs(this.targetYaw) < 1e-5 && Math.abs(this.yaw) < 1e-5) this.targetYaw = this.yaw = 0
+        // the punch lands in a frame or two and springs back within a fifth of a second
+        const decay = Math.exp(-dt * 13)
+        this.targetFov *= decay
+        this.targetRoll *= decay
+        const g = 1 - Math.exp(-dt / 0.018)
+        this.fov += (this.targetFov - this.fov) * g
+        this.roll += (this.targetRoll - this.roll) * g
     }
 
     /**
@@ -475,6 +505,7 @@ export class DfRecoil {
 
     reset(): void {
         this.pitch = this.yaw = this.targetPitch = this.targetYaw = 0
+        this.fov = this.roll = this.targetFov = this.targetRoll = 0
         this.shots = 0
     }
 }

@@ -12,6 +12,8 @@ import type {
 } from '#shared/utils/dead-front/protocol'
 import type { DfAttachmentChoice, DfHitZone, DfPlayerEffects, DfProfileView, DfWeaponId, Vec3 } from '#shared/utils/dead-front/types'
 import { DF_WEAPONS, dfWeaponStats } from '#shared/utils/dead-front/weapons'
+import { DF_PAP_PERKS, dfPapNewPerks, dfPapPerks, dfShotgunBlast } from '#shared/utils/dead-front/gunplay'
+import { dfClampRarity, dfRarity, dfRarityHex } from '#shared/utils/dead-front/rarity'
 import type { DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import { randomFloat } from '#shared/utils/random'
 import {
@@ -142,6 +144,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     const vmMuzzle = new THREE.PointLight(0xffb060, 0, 3, 2)
     vmMuzzle.position.set(0.15, -0.05, -0.7)
     vmScene.add(vmMuzzle)
+    // A rarity's glow on the gun in hand: a coloured rim light that breathes (flares on an upgrade).
+    const vmRarity = new THREE.PointLight(0xffffff, 0, 1.6, 2)
+    vmRarity.position.set(0.32, 0.12, -0.3)
+    vmScene.add(vmRarity)
+    let rarityFlare = 0
     rr.setScenes(scene, camera, vmScene, vmCamera)
     renderer.shadowMap.autoUpdate = false
     let shadowTick = 0
@@ -282,6 +289,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     // scratch
     const tmpV = new THREE.Vector3()
     const tmpV2 = new THREE.Vector3()
+    const flashCol = new THREE.Color()
+    const tmpCol = new THREE.Color()
+    const UP_V = new THREE.Vector3(0, 1, 0)
     const aim = { x: 0, y: 0, z: -1 }
     const shotDir = { x: 0, y: 0, z: 0 }
     const eye = { x: 0, y: 0, z: 0 }
@@ -355,6 +365,13 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         stats = s
         heldKey = weaponKey(w)
+        // the same weapon back from the Pack-a-Punch at a higher tier: name its new perks
+        if (lastHeld && lastHeld.id === w.id && w.pap > lastHeld.pap) {
+            const perks = dfPapNewPerks(w.id, w.pap).map(k => DF_PAP_PERKS[k].name)
+            if (perks.length) announce(s.name, perks.join(' · '), 'gold')
+        }
+        lastHeld = { id: w.id, pap: w.pap }
+        heldRarity = dfClampRarity(w.rarity)
         hud.swapKey++
         const raise = safe('equip', () => viewmodel.equip({ id: w.id, pap: w.pap, attachments: w.attachments ?? {} }, effects.swapMult), 0.4)
         gun.setWeapon(w, s, now, Math.max(0.05, raise))
@@ -383,6 +400,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         hud.damage.push({ id: ++damageId, angle, born: time })
         if (hud.damage.length > 5) hud.damage.shift()
     }
+
+    /** The weapon last equipped (a Pack-a-Punch upgrade announces its new perks) and its rarity. */
+    let lastHeld: { id: DfWeaponId, pap: number } | null = null
+    let hudPerkKey = ''
+    let heldRarity = 0
 
     function announce(title: string, sub: string, tone: 'gold' | 'red' | 'pale'): void {
         hud.announce = { key: (hud.announce?.key ?? 0) + 1, title, sub, tone }
@@ -712,7 +734,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
      * whether it kills; a predicted kill hides the zombie and plays the death
      * right now. Brute helmets soak head hits like the server's.
      */
-    function predictHit(z: DfZombieSnap, dmg: number, zone: DfHitZone, shot: number, melee: boolean): { points: number, kill: boolean } {
+    function predictHit(z: DfZombieSnap, dmg: number, zone: DfHitZone, shot: number, melee: boolean, gib = false): { points: number, kill: boolean } {
         if (predictedDead.has(z.id)) return { points: 0, kill: false }
         // the warlord ignores the insta-kill and caps every hit: its death comes from the server
         if (z.boss) return { points: DF_POINTS.hit, kill: false }
@@ -723,14 +745,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (!list) pendingDamage.set(z.id, list = [])
         list.push({ dmg, shot, at: time, ack: seq + 1 })
         if (!insta && left - dmg > 0) return { points: DF_POINTS.hit, kill: false }
-        predictKill(z, zone, melee ? 'knife' : gun.id)
+        predictKill(z, zone, melee ? 'knife' : gun.id, gib)
         return { points: dfKillPoints(zone, melee), kill: true }
     }
 
-    function predictKill(z: DfZombieSnap, zone: DfHitZone, weapon: Extract<DfEvent, { k: 'kill' }>['weapon']): void {
+    function predictKill(z: DfZombieSnap, zone: DfHitZone, weapon: Extract<DfEvent, { k: 'kill' }>['weapon'], gib = false): void {
         predictedDead.set(z.id, { at: time, ack: seq + 1 })
         try {
-            zombieView.onEvent({ k: 'kill', z: z.id, p: me, zone, weapon, pos: { x: z.pos.x, y: z.pos.y, z: z.pos.z } })
+            zombieView.onEvent({ k: 'kill', z: z.id, p: me, zone, weapon, pos: { x: z.pos.x, y: z.pos.y, z: z.pos.z }, gib: gib || undefined })
         } catch (e) {
             console.error('[dead-front] zombie view predicted kill', e)
         }
@@ -905,6 +927,21 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 }
                 break
             }
+            case 'rarity': {
+                // the upgrade moment (the arsenal posts the callout): a stinger, a flash of the
+                // tier's colour, sparks off the gun and a look at it
+                if (ev.p !== me || ev.how === 'box') break
+                const r = dfRarity(ev.rarity)
+                audio.play(DF_WSND.upgrade(ev.rarity), { volume: 0.9 })
+                hud.rarityFlash = { key: (hud.rarityFlash?.key ?? 0) + 1, color: r.color, name: r.name }
+                rarityFlare = 1
+                killPunch = Math.max(killPunch, 0.8)
+                viewmodel.muzzleWorld(camera, tmpV2)
+                fx.burst('pap', tmpV2, { scale: 0.6 + ev.rarity * 0.2, color: r.color })
+                fx.flash(tmpV2, r.color, 18 + ev.rarity * 6, 0.4)
+                window.setTimeout(() => safe('vm inspect', () => viewmodel.inspect?.(), undefined), 450)
+                break
+            }
             case 'chat': {
                 hud.chat.push({ id: ++chatId, name: ev.name, text: ev.text, born: time })
                 if (hud.chat.length > 6) hud.chat.shift()
@@ -997,6 +1034,23 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         if (hit && Math.abs(hit.dist - d) < 0.35) surfaceFx(hit.point, hit.normal, hit.mat)
     }
 
+    /** Zombies on fire (Dragon's Breath, Napalm) shed flames and embers. */
+    let burnFxIn = 0
+    function updateBurning(dt: number): void {
+        burnFxIn -= dt
+        if (burnFxIn > 0) return
+        burnFxIn = 0.12
+        let n = 0
+        for (const z of zList) {
+            if (!z.burning || predictedDead.has(z.id)) continue
+            if (n++ >= 10) break
+            const h = DF_ENEMIES[z.type]?.height ?? 1.8
+            tmpV.set(z.pos.x, z.pos.y + h * 0.55, z.pos.z)
+            fx.burst('flame', tmpV, { normal: UP_V, scale: 0.35, count: 1 })
+            fx.burst('embers', tmpV, { count: 1, scale: 0.5 })
+        }
+    }
+
     /** A gas round's pockets roll with mustard fog, and standing in one makes you cough. */
     function updateGas(dt: number): void {
         const sp = latest?.world.special
@@ -1051,6 +1105,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         const hitscan = s.shot === 'hitscan'
         const flame = !!DF_WEAPONS[gun.id]?.flame
         let tracerEnd: Vec3 | null = null
+        /** Where a shotgun's other pellets ended, for their tracers. */
+        const pelletEnds: Vec3[] = []
         let claimed = false
         for (let i = 0; i < pellets; i++) {
             dfConeDir(aim, spread, randomFloat(), randomFloat(), shotDir)
@@ -1081,22 +1137,40 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 if (!flame) surfaceFx(wh.point, wh.normal, wh.mat)
                 else if (i === 0 && wh.dist < 6 && shotCount % 4 === 0) fx.decal(wh.point, wh.normal, 'scorch', 0.35)
                 if (i === 0) tracerEnd = wh.point
-            } else if (i === 0) {
-                const d = stopped ? cands[n - 1]!.dist : maxRange
-                tracerEnd = { x: eye.x + dir.x * d, y: eye.y + dir.y * d, z: eye.z + dir.z * d }
+                else if (pellets > 2 && pelletEnds.length < 6) pelletEnds.push(wh.point)
+            } else {
+                // stray pellets streak a short way; the first round's tracer runs the full range
+                const d = stopped ? cands[n - 1]!.dist : i === 0 ? maxRange : Math.min(maxRange, 24)
+                const end = { x: eye.x + dir.x * d, y: eye.y + dir.y * d, z: eye.z + dir.z * d }
+                if (i === 0) tracerEnd = end
+                else if (pellets > 2 && pelletEnds.length < 6) pelletEnds.push(end)
             }
         }
         // predict every hit now: damage, kills (the zombie drops on this frame) and points
         const shot = ++shotSeq
         let base = 0
         let killed = false
+        // pellets per zombie and the nearest: a shotgun up close blows a zombie apart (gunplay.ts, as the server)
+        const cls = DF_WEAPONS[gun.id]?.class
+        const pelletOn = new Map<number, { n: number, dist: number }>()
+        for (const h of hits) {
+            const e = pelletOn.get(h.z)
+            if (e) {
+                e.n++
+                e.dist = Math.min(e.dist, h.dist)
+            } else {
+                pelletOn.set(h.z, { n: 1, dist: h.dist })
+            }
+        }
         // one number per zombie per shot (a shotgun's pellets add up), at its first hit
         const pops = new Map<number, { at: Vec3, amount: number, kind: 'hit' | 'kill' | 'head' }>()
         for (let i = 0; i < hits.length; i++) {
             const h = hits[i]!
             const z = zList.find(q => q.id === h.z)
             if (!z) continue
-            const r = predictHit(z, dfBulletDamage(s, effects, h.zone, h.dist, life === 'down'), h.zone, shot, false)
+            const on = pelletOn.get(h.z)
+            const gib = !!on && dfShotgunBlast(cls, on.n, pellets, on.dist, true) === 'gib'
+            const r = predictHit(z, dfBulletDamage(s, effects, h.zone, h.dist, life === 'down'), h.zone, shot, false, gib)
             // a flame jet pays its +10 per zombie every DF_FLAME_POINT_INTERVAL, like the server
             if (flame && !r.kill && !dfFlameHitPays(flamePaid, z.id, time)) r.points = 0
             const pts = scalePoints(r.points)
@@ -1143,15 +1217,32 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // recoil
         const ads = viewmodel.adsBlend
         const kick = Math.max(0, s.recoil) * effects.recoilMult * (1 - ads * 0.35) * (player.crouched ? 0.85 : 1)
-        fx.shake(recoil.kick(now, gun.cls, gun.auto, kick, Math.random(), gun.id))
+        // camera punch: softer down the sights and crouched
+        const punch = (1 - ads * 0.55) * (player.crouched ? 0.85 : 1)
+        fx.shake(recoil.kick(now, gun.cls, gun.auto, kick, Math.random(), gun.id, punch))
         // muzzle light in both scenes
         viewmodel.muzzleWorld(camera, tmpV2)
         // candela: has to beat the ~5-12 cd lantern pools to visibly light the surroundings
-        // (one pooled light per shot; Pack-a-Punched guns flash in their tier colour)
-        const flashColor = dfMuzzleFlashColor(gun.id, gun.pap)
-        fx.flash(tmpV2, flashColor, flame ? 16 : 28, flame ? 0.12 : 0.06)
-        vmMuzzle.color.set(flashColor)
-        vmMuzzle.intensity = flame ? 2.2 : s.shot === 'hitscan' ? 3 : 1.5
+        // (one pooled light per shot; Pack-a-Punched guns flash in their tier colour, a rare gun
+        // takes a tint of its rarity)
+        const shotgunBlast = cls === 'shotgun' && pellets > 2
+        const rarity = heldRarity
+        flashCol.set(dfMuzzleFlashColor(gun.id, gun.pap))
+        if (gun.pap === 0 && rarity > 0 && !flame) flashCol.lerp(tmpCol.set(dfRarityHex(rarity)), 0.25 + rarity * 0.1)
+        fx.flash(tmpV2, flashCol, flame ? 16 : shotgunBlast ? 46 : 28, flame ? 0.12 : shotgunBlast ? 0.09 : 0.06)
+        vmMuzzle.color.copy(flashCol)
+        vmMuzzle.intensity = flame ? 2.2 : shotgunBlast ? 5 : s.shot === 'hitscan' ? 3 : 1.5
+        if (rarity > 0) rarityFlare = Math.max(rarityFlare, 0.35)
+        // a rarity's layer on our own report (every other round on the automatics)
+        if (rarity > 0 && !flame && (!gun.auto || shotCount % 2 === 0)) audio.play(DF_WSND.rarity(rarity), { volume: gun.auto ? 0.5 : 0.85 })
+        if (shotgunBlast) {
+            // a wide muzzle blast: burning powder sprays out ahead of a thick cloud
+            fx.burst('sparks', tmpV2, { normal: aim, scale: 0.75, count: 14, color: gun.pap > 0 ? flashCol : undefined })
+            fx.burst('muzzle-smoke', tmpV2, { normal: aim, scale: 1.5, count: 6 })
+        }
+        const perks = gun.pap > 0 ? dfPapPerks(gun.id, gun.pap) : []
+        if (!flame && (perks.includes('dragon') || perks.includes('napalm'))) fx.burst('flame', tmpV2, { normal: aim, scale: shotgunBlast ? 0.9 : 0.45, count: shotgunBlast ? 4 : 1 })
+        if (perks.includes('chain') && shotCount % 3 === 0) fx.burst('electric', tmpV2, { normal: aim, scale: 0.35 })
         // burning: embers lick off whatever the jet touched
         if (flame) {
             let n = 0
@@ -1160,19 +1251,31 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 fx.burst('embers', pop.at, { count: 2, scale: 0.6 })
             }
         }
-        // tracers on some rounds
+        // tracers on some rounds (every round on a Legendary), in the Pack-a-Punch or rarity colour;
+        // a shotgun shows a fan of its pellets
         if (hitscan && tracerEnd && !flame) {
-            const every = gun.auto ? 3 : pellets > 1 ? 1 : 2
-            if (shotCount % every === 0) fx.tracer(tmpV2, tracerEnd)
+            const every = gun.auto ? (rarity >= 3 ? 2 : 3) : pellets > 1 || rarity >= 3 ? 1 : 2
+            const tc = gun.pap > 0 ? dfMuzzleFlashColor(gun.id, gun.pap) : rarity > 0 ? dfRarityHex(rarity) : undefined
+            if (shotCount % every === 0) fx.tracer(tmpV2, tracerEnd, tc)
+            for (const e of pelletEnds) fx.tracer(tmpV2, e, tc)
         }
         if (claimed) {
             predictedHitAt = time
             const head = hits.some(h => h.zone === 'head')
+            let most = 0
+            for (const e of pelletOn.values()) most = Math.max(most, e.n)
+            // a load of buckshot in one body: a meaty slap and a jolt
+            if (shotgunBlast && most >= 3) {
+                audio.play(DF_WSND.pelletHit, { volume: Math.min(1, 0.45 + most * 0.07) })
+                fx.shake(Math.min(0.08, 0.012 * most))
+            }
             // a predicted kill already set the kill marker and sound
             if (!killed) {
-                hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit' }
+                hud.hitmarker = { key: hud.hitmarker.key + 1, kind: 'hit', n: most }
                 audio.play(head ? DF_SND.head : DF_SND.hit, { volume: 0.7 })
                 if (head) predictedHeadAt = time
+            } else {
+                hud.hitmarker.n = most
             }
         }
         if (gun.mag <= 0) reloadEmptyPending = true
@@ -1832,6 +1935,15 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             console.error('[dead-front] viewmodel update', e)
         }
         vmMuzzle.intensity *= Math.exp(-dt * 40)
+        // the rarity glow breathes on the gun in hand
+        rarityFlare *= Math.exp(-dt * 3)
+        if (heldRarity > 0 && stats && life !== 'dead') {
+            vmRarity.color.setHex(dfRarityHex(heldRarity))
+            vmRarity.intensity = (0.25 + heldRarity * 0.22) * (0.8 + 0.2 * Math.sin(time * 2.4)) + rarityFlare * 4
+        } else {
+            vmRarity.intensity = rarityFlare * 4
+        }
+        updateBurning(dt)
         mark(8)
 
         // feedback: low health, downed, damage
@@ -1983,14 +2095,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         camera.rotation.set(
             player.pitch + recoil.pitch + fx.shakePitch - landOff * 0.02,
             player.yaw + recoil.yaw + fx.shakeYaw,
-            fx.shakeRoll + downRoll + strafeRoll + slideRoll + bobX * 0.3,
+            fx.shakeRoll + downRoll + strafeRoll + slideRoll + bobX * 0.3 + recoil.roll,
             'YXZ'
         )
 
         // FOV: sprint kick, ADS zoom
         sprintFov += ((sprint || player.sliding ? 1 : 0) - sprintFov) * Math.min(1, dt * 6)
         killPunch *= Math.exp(-dt * 11)
-        const base = dfVerticalFov(settings.fov, camera.aspect) + sprintFov * 5 - killPunch * 1.6
+        const base = dfVerticalFov(settings.fov, camera.aspect) + sprintFov * 5 - killPunch * 1.6 + recoil.fov
         const zoom = 1 + ((stats?.adsZoom ?? 1) - 1) * ads
         setFov(base / zoom)
     }
@@ -2094,6 +2206,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             hud.ammo.magSize = st?.magSize ?? 0
             hud.ammo.reserve = gun.reserve
             hud.ammo.pap = gun.pap
+            const perkKey = st ? `${gun.id}:${gun.pap}` : ''
+            if (perkKey !== hudPerkKey) {
+                hudPerkKey = perkKey
+                hud.ammo.perks = st && gun.pap > 0 ? dfPapPerks(gun.id, gun.pap).map(k => DF_PAP_PERKS[k].name) : []
+            }
             const rar = st && mine ? mine.weapons[localSlot]?.rarity ?? 0 : 0
             if (hud.ammo.rarity !== rar) hud.ammo.rarity = rar
             hud.ammo.reloading = gun.reloading
