@@ -770,6 +770,322 @@ def decor_bricks(n):
         box(r, sz, (x, y, z), m, rot=(rnd.uniform(-0.15, 0.15), rnd.uniform(-0.15, 0.15), rnd.uniform(0, math.pi)), bevel=0.015, seg=1)
 
 
+# ---------------------------------------------------------------- set dressing (map story pieces)
+
+CANVAS = mat('canvas', 0xc9bd96)
+CANVAS_D = mat('canvas-dark', 0xa4986f)
+CROSS_RED = mat('cross-red', 0xb3302a)
+BRONZE = mat('bronze', 0x9a7838)
+BRONZE_D = mat('bronze-dark', 0x6b5224)
+WOOL = mat('wool', 0x5d6850)
+SHEET = mat('sheet', 0xd8d2bf)
+DOPE_BLUE = mat('roundel-blue', 0x2f4f93)
+STAIN = mat('stain', 0x6d2a24)
+SOOT = mat('soot', 0x1d1814)
+MUD_R = mat('mud-ring', 0x5a4632)
+MUD_RD = mat('mud-ring-dark', 0x3f3226)
+OLIVE_L = mat('olive-light', 0x6e7550)
+CHALK = mat('chalk', 0xe6e0cc)
+SIGN_RED = mat('sign-red', 0x9c3a2c)
+SIGN_BLUE = mat('sign-blue', 0x35557e)
+SIGN_GREEN = mat('sign-green', 0x4b6a3a)
+
+
+def plate(parent, pts, thick, loc, material, rot=(0, 0, 0), bevel=0.015):
+    """A flat plate: polygon pts in the (Blender x, z) plane, extruded `thick` along Blender y."""
+    bm = bmesh.new()
+    f = [bm.verts.new((x, -thick / 2, z)) for x, z in pts]
+    b = [bm.verts.new((x, thick / 2, z)) for x, z in pts]
+    bm.faces.new(list(reversed(f)))
+    bm.faces.new(b)
+    for i in range(len(pts)):
+        k = (i + 1) % len(pts)
+        bm.faces.new((f[i], f[k], b[k], b[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bmesh.ops.triangulate(bm, faces=[x for x in bm.faces if len(x.verts) > 4])
+    return _finish('plate', bm, material, parent, loc, rot, smooth=30, bevel=bevel, seg=1)
+
+
+def biplane():
+    """A crashed biplane lying on its belly, nose to +x; one lower wing stub, the upper wing fallen against the fuselage."""
+    r = root('biplane')
+    rnd = random.Random(31)
+    # Soot scar under the wreck.
+    blob(r, (2.5, 1.5, 0.03), (-0.1, 0.0, 0.0), SOOT, rnd, subdiv=2, noise=0.25, flat_bottom=-0.0)
+    # Fuselage: canvas skin over a wooden frame, torn open behind the cockpit.
+    pillow(r, (3.7, 0.86, 0.84), (-0.2, 0, 0.55), CANVAS, e=0.42, seg=14, rings=8, rnd=rnd)
+    for x in (-1.5, -1.0, -0.5, 0.0, 0.5):
+        box(r, (0.05, 0.8, 0.05), (x, 0, 0.93), WOOD_D, bevel=0.01)
+    box(r, (1.0, 0.5, 0.14), (-0.15, 0, 0.93), INK, bevel=0.0)  # cockpit
+    box(r, (0.4, 0.5, 0.18), (0.45, 0, 1.0), WOOD_D, rot=(0, -0.3, 0), bevel=0.01)  # broken windscreen frame
+    # Radial engine: cowling ring, exposed cylinders, a hub, one snapped blade up and a stub.
+    cyl(r, 0.46, 0.5, (1.95, 0, 0.58), IRON_L, rot=(0, math.pi / 2, 0), seg=16, bevel=0.02)
+    for a in range(7):
+        ang = a / 7 * math.tau
+        d = Vector((0, math.cos(ang), math.sin(ang)))
+        cyl(r, 0.07, 0.2, Vector((2.18, 0, 0.58)) + d * 0.4, IRON, rot=(0, math.pi / 2, 0), seg=8)
+    cyl(r, 0.12, 0.2, (2.32, 0, 0.58), BRONZE, rot=(0, math.pi / 2, 0), seg=10)
+    box(r, (0.06, 0.17, 1.15), (2.38, 0.05, 1.18), WOOD, rot=(0.0, 0.0, 0.12), bevel=0.015, taper=(0.7, 1.0))
+    box(r, (0.06, 0.17, 0.32), (2.38, 0.0, 0.32), WOOD, rot=(0.0, 0.0, -0.1), bevel=0.015)
+    blob(r, (0.13, 0.13, 0.1), (2.5, 0.0, 0.5), EMBER, rnd, subdiv=1, noise=0.4)
+    # Tail boom, fin and a one-armed tailplane.
+    tube(r, [(-1.9, 0, 0.55), (-2.6, 0, 0.58), (-3.3, 0, 0.7)], [0.3, 0.18, 0.1], CANVAS, sides=8)
+    plate(r, [(-0.35, 0), (0.35, 0), (0.1, 0.8)], 0.05, (-3.15, 0, 0.7), CANVAS, rot=(0, 0, 0))
+    box(r, (0.55, 1.4, 0.04), (-3.15, 0.0, 0.62), CANVAS, rot=(-0.25, 0, 0), bevel=0.01)
+    # Lower wing stub on +y (the tip digs in), exposed ribs, fabric over the root half, roundel.
+    for sgn, ln, tilt in ((1, 2.0, -0.2), (-1, 0.7, 0.2)):
+        c = sgn * (0.4 + ln / 2)
+        for x in (-0.65, 0.65):
+            box(r, (0.06, ln, 0.06), (x, c, 0.5 - sgn * 0.0), WOOD_D, rot=(tilt, 0, 0), bevel=0.01)
+        for i in range(0, int(ln / 0.4) + 1):
+            y = sgn * (0.4 + i * 0.4)
+            box(r, (1.4, 0.03, 0.04), (0.0, y, 0.5 + math.tan(tilt) * (y)), WOOD, bevel=0.008)
+        box(r, (1.4, min(ln, 1.2), 0.04), (0.0, sgn * (0.4 + min(ln, 1.2) / 2), 0.5 + math.tan(tilt) * sgn * 0.7), CANVAS, rot=(tilt, 0, 0), bevel=0.008)
+    cyl(r, 0.28, 0.05, (0.0, 1.0, 0.5 - 0.2 * 1.0 + 0.14), DOPE_BLUE, rot=(-0.2, 0, 0), seg=16)
+    cyl(r, 0.18, 0.06, (0.0, 1.0, 0.5 - 0.2 * 1.0 + 0.145), CROSS_RED, rot=(-0.2, 0, 0), seg=16)
+    # Upper wing: fallen from the struts, leaning across the fuselage to the -y ground.
+    for x in (-0.65, 0.65):
+        box(r, (0.06, 2.6, 0.06), (x, -1.3, 0.92), WOOD_D, rot=(0.5, 0, 0), bevel=0.01)
+    box(r, (1.4, 2.5, 0.04), (0.0, -1.25, 0.95), CANVAS, rot=(0.5, 0, 0), bevel=0.01)
+    box(r, (1.4, 0.9, 0.05), (0.0, -2.0, 0.55), CANVAS_D, rot=(0.5, 0, 0), bevel=0.01)
+    cyl(r, 0.3, 0.05, (0.0, -1.0, 1.0), DOPE_BLUE, rot=(0.5, 0, 0), seg=16)
+    cyl(r, 0.19, 0.06, (0.0, -1.0, 1.0), CROSS_RED, rot=(0.5, 0, 0), seg=16)
+    # Landing gear: one wheel still on a bent strut, rubber tyre.
+    tube(r, [(0.7, 0.3, 0.55), (0.9, 0.55, 0.35), (0.95, 0.7, 0.28)], [0.04, 0.04, 0.04], WOOD_D, sides=5, cap=False)
+    wheel(r, (0.95, 0.75, 0.3), 0.3, 0.09, 'y', INK, WOOD_D, spokes=8)
+    # Wires hanging off the broken struts.
+    tube(r, [(0.45, -0.3, 0.9), (0.55, -0.6, 0.7), (0.4, -0.9, 0.35)], [0.008] * 3, IRON_L, sides=3, cap=False)
+
+
+def tent():
+    """A field hospital ridge tent, red cross on the gable, door flaps tied back."""
+    r = root('tent')
+    hw, hl, wall, ridge = 1.7, 2.1, 1.05, 2.35
+    prof = [(-hw, 0.0), (hw, 0.0), (hw, wall), (0.0, ridge), (-hw, wall)]
+    bm = bmesh.new()
+    front = [bm.verts.new((x, -hl, z)) for x, z in prof]
+    back = [bm.verts.new((x, hl, z)) for x, z in prof]
+    bm.faces.new(list(reversed(front)))
+    bm.faces.new(back)
+    for i in range(len(prof)):
+        k = (i + 1) % len(prof)
+        bm.faces.new((front[i], front[k], back[k], back[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    _finish('canvas', bm, CANVAS, r, (0, 0, 0), (0, 0, 0), smooth=0, bevel=0.03, seg=2)
+    box(r, (0.06, hl * 2 + 0.5, 0.06), (0, 0, ridge + 0.02), WOOD_D, bevel=0.01)
+    # Door: dark opening, flaps swept aside, poles.
+    plate(r, [(-0.5, 0), (0.5, 0), (0.5, 0.95), (0.0, 1.55), (-0.5, 0.95)], 0.03, (0, -hl - 0.012, 0.0), INK, bevel=0.0)
+    for s in (-1, 1):
+        plate(r, [(0, 0), (0.45, 0), (0.45, 1.0), (0.12, 1.5), (0, 1.5)], 0.04, (s * 0.52 + (0.0 if s > 0 else -0.45), -hl - 0.03, 0.0), CANVAS, rot=(0, 0, s * 0.18))
+        tube(r, [(s * 0.55, -hl - 0.35, 0.0), (s * 0.5, -hl - 0.3, 1.5)], [0.035, 0.03], WOOD_D, sides=5, cap=False)
+    # Red cross on a white disc over the door, and on both long sides.
+    cyl(r, 0.4, 0.02, (0, -hl - 0.03, 1.72), SHEET, rot=(math.pi / 2, 0, 0), seg=18)
+    box(r, (0.54, 0.02, 0.15), (0, -hl - 0.045, 1.72), CROSS_RED, bevel=0.0)
+    box(r, (0.15, 0.02, 0.54), (0, -hl - 0.045, 1.72), CROSS_RED, bevel=0.0)
+    for s in (-1, 1):
+        cyl(r, 0.4, 0.02, (s * (hw + 0.03), 0.0, 0.62), SHEET, rot=(0, math.pi / 2, 0), seg=18)
+        box(r, (0.02, 0.54, 0.15), (s * (hw + 0.045), 0.0, 0.62), CROSS_RED, bevel=0.0)
+        box(r, (0.02, 0.15, 0.54), (s * (hw + 0.045), 0.0, 0.62), CROSS_RED, bevel=0.0)
+    # Guy ropes and pegs.
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            tube(r, [(sx * hw, sy * (hl - 0.1), wall), (sx * (hw + 0.55), sy * (hl + 0.35), 0.5), (sx * (hw + 1.0), sy * (hl + 0.7), 0.05)], [0.012] * 3, TWINE, sides=3, cap=False)
+            cyl(r, 0.03, 0.22, (sx * (hw + 1.0), sy * (hl + 0.7), 0.1), WOOD_D, seg=5)
+
+
+def hedgehog():
+    """A czech hedgehog: three angle-iron beams riveted at the middle."""
+    r = root('hedgehog')
+    base = Matrix.Rotation(0.62, 3, 'X') @ Matrix.Rotation(0.62, 3, 'Y')
+    c = Vector((0, 0, 0.5))
+    for i, axis in enumerate(((1, 0, 0), (0, 1, 0), (0, 0, 1))):
+        d = base @ Vector(axis)
+        tube(r, [c - d * 0.62, c, c + d * 0.62], [0.045, 0.05, 0.045], IRON_L if i != 1 else RUST, sides=4, cap=True)
+        tube(r, [c - d * 0.55, c + d * 0.55], [0.07, 0.07], IRON, sides=4, cap=False)
+    cyl(r, 0.09, 0.1, c, IRON, seg=8)
+    # A twist of wire caught on it.
+    tube(r, [c + Vector((0.3, 0.2, 0.0)), c + Vector((0.1, 0.4, 0.2)), c + Vector((-0.3, 0.2, 0.1)), c + Vector((-0.4, -0.2, 0.0))], [0.008] * 4, IRON_L, sides=3, cap=False)
+
+
+def bell():
+    """A church bell fallen on its side with the beam that held it."""
+    r = root('bell')
+    holder = bpy.data.objects.new('bell-lean', None)
+    SCENE.collection.objects.link(holder)
+    holder.parent = r
+    holder.location = (0.0, 0.0, 0.58)
+    holder.rotation_euler = Euler((1.3, 0.0, 0.5))
+    prof = [(0.64, -0.5), (0.58, -0.42), (0.47, -0.25), (0.4, 0.05), (0.3, 0.4), (0.2, 0.56), (0.1, 0.62), (0.0, 0.64)]
+    lathe(holder, prof, (0, 0, 0), BRONZE, seg=18, cap_bottom=False, smooth=60)
+    lathe(holder, [(0.64, -0.5), (0.7, -0.5), (0.7, -0.44), (0.62, -0.42)], (0, 0, 0), BRONZE_D, seg=18, cap_bottom=False, cap_top=False, smooth=40)
+    lathe(holder, [(0.52, -0.44), (0.4, 0.2), (0.0, 0.3)], (0, 0, 0), INK, seg=18, cap_bottom=False, smooth=60)
+    for z in (0.12, -0.12):
+        lathe(holder, [(0.38 + (0.05 if z > 0 else 0.1) * 0.0 + (0.4 - z) * 0.0, z - 0.02), (0.55 - z * 0.7 + 0.01, z), (0.38, z + 0.02)], (0, 0, 0), BRONZE_D, seg=18, cap_top=False, cap_bottom=False, smooth=60)
+    # Clapper hanging out of the mouth.
+    tube(holder, [(0, 0, 0.3), (0, 0, -0.3), (0.05, 0.0, -0.62)], [0.025, 0.03, 0.05], IRON, sides=6)
+    # Headstock beam, splintered, and a few stones.
+    box(r, (1.9, 0.22, 0.2), (-0.1, 0.45, 0.14), WOOD_D, rot=(0, 0, 0.35), bevel=0.03)
+    box(r, (0.7, 0.2, 0.18), (0.9, -0.6, 0.12), WOOD_D, rot=(0, 0.1, -0.7), bevel=0.03)
+    rnd = random.Random(14)
+    for i in range(4):
+        a = rnd.uniform(0, math.tau)
+        blob(r, (0.22, 0.18, 0.14), (math.cos(a) * 0.95, math.sin(a) * 0.9, 0.06), STONE if i % 2 else STONE_D, rnd, subdiv=1, noise=0.3, flat_bottom=-0.03)
+
+
+def angel():
+    """A weeping angel on a plinth: bowed head, folded arms, one wing snapped off."""
+    r = root('angel')
+    rnd = random.Random(17)
+    box(r, (1.15, 1.15, 0.25), (0, 0, 0.125), STONE_D, bevel=0.03)
+    box(r, (0.92, 0.92, 0.75), (0, 0, 0.62), STONE, bevel=0.04)
+    box(r, (1.0, 1.0, 0.14), (0, 0, 1.07), STONE_L, bevel=0.03)
+    box(r, (0.78, 0.78, 0.12), (0, 0, 1.2), STONE, bevel=0.03)
+    # Inscription slab on the front.
+    box(r, (0.5, 0.03, 0.3), (0, -0.47, 0.65), CARVE, bevel=0.0)
+    for z in (0.7, 0.62, 0.55):
+        box(r, (0.36, 0.035, 0.025), (0, -0.485, z), STONE_L, bevel=0.0)
+    # Robe, shoulders, bowed head.
+    lathe(r, [(0.34, 1.26), (0.36, 1.4), (0.27, 1.95), (0.23, 2.35), (0.2, 2.55), (0.12, 2.68)], (0, 0, 0), STONE_L, seg=14)
+    for s in (-1, 1):
+        blob(r, (0.1, 0.1, 0.11), (s * 0.2, 0.0, 2.52), STONE_L, rnd, subdiv=1, noise=0.05)
+        tube(r, [(s * 0.2, 0.0, 2.5), (s * 0.27, -0.12, 2.25), (s * 0.06, -0.24, 2.1)], [0.07, 0.065, 0.055], STONE_L, sides=6)
+    blob(r, (0.125, 0.14, 0.16), (0, -0.06, 2.78), STONE_L, rnd, subdiv=2, noise=0.05)
+    box(r, (0.3, 0.12, 0.04), (0, -0.18, 2.62), STONE, rot=(0.5, 0, 0), bevel=0.01)  # veil
+    # Wings: the left whole, the right snapped at the root.
+    pillow(r, (0.09, 0.55, 1.55), (-0.3, 0.3, 2.6), STONE_L, rot=(0.42, 0.0, 0.22), e=0.3, seg=10, rings=7)
+    for i in range(5):
+        box(r, (0.02, 0.04, 1.1 - i * 0.12), (-0.34, 0.37 + i * 0.015, 2.65 - i * 0.04), STONE, rot=(0.42, 0.0, 0.22), bevel=0.0)
+    pillow(r, (0.09, 0.4, 0.6), (0.3, 0.12, 2.28), STONE_L, rot=(0.4, 0.0, -0.3), e=0.3, seg=8, rings=5)
+    # The fallen wing at the base, moss and chips.
+    pillow(r, (0.12, 0.5, 1.0), (0.65, -0.4, 0.07), STONE_L, rot=(0.0, math.pi / 2 - 0.1, 0.9), e=0.3, seg=8, rings=5)
+    blob(r, (0.22, 0.1, 0.08), (-0.35, -0.5, 0.06), MOSS, rnd, subdiv=1, noise=0.3)
+    blob(r, (0.18, 0.1, 0.07), (0.3, -0.46, 1.27), MOSS, rnd, subdiv=1, noise=0.3)
+    # A wreath and a rusted helmet left on the plinth step.
+    lathe(r, [(0.2, 1.26), (0.2, 1.3), (0.15, 1.3), (0.15, 1.26)], (0.0, -0.3, 0.0), SHADE_GREEN, seg=14, smooth=40)
+    lathe(r, [(0.0, 0.11), (0.08, 0.1), (0.13, 0.06), (0.15, 0.02), (0.2, 0.0), (0.2, -0.015), (0.0, -0.01)], (0.28, -0.2, 1.27), OLIVE, seg=14, rot=(0.0, 0, 0))
+
+
+def signpost():
+    """A crossroads signpost: three arrow boards, painted in zone colours, one hanging by a nail."""
+    r = root('signpost')
+    cyl(r, 0.065, 2.8, (0, 0, 1.4), WOOD_D, seg=8, bevel=0.0)
+    box(r, (0.22, 0.22, 0.12), (0, 0, 0.06), STONE_D, bevel=0.02)
+    cyl(r, 0.1, 0.12, (0, 0, 2.84), WOOD_D, seg=8)
+    arrow = [(0.0, -0.13), (0.95, -0.13), (1.22, 0.0), (0.95, 0.13), (0.0, 0.13)]
+    # (heading, height, material, stripe, droop)
+    for h, z, m, droop in ((0.0, 2.55, SIGN_RED, 0.0), (2.2, 2.2, SIGN_BLUE, 0.0), (-2.1, 1.85, SIGN_GREEN, 0.28)):
+        plate(r, arrow, 0.04, (math.cos(h) * 0.06, math.sin(h) * 0.06, z), m, rot=(0, droop, h), bevel=0.01)
+        for k, ln in enumerate((0.6, 0.45)):
+            plate(r, [(0.18, -0.025 + k * 0.0), (0.18 + ln, -0.025), (0.18 + ln, 0.012), (0.18, 0.012)], 0.045, (math.cos(h) * 0.06, math.sin(h) * 0.06, z + (0.04 if k == 0 else -0.04)), CHALK, rot=(0, droop, h), bevel=0.0)
+    # Bullet holes and a splinter.
+    box(r, (0.03, 0.03, 0.03), (0.4, -0.03, 2.58), INK, bevel=0.0)
+
+
+def sails():
+    """Windmill sails, axle along +x: four lattice arms, one snapped, cloth on some."""
+    r = root('sails')
+    cyl(r, 0.28, 0.5, (0.1, 0, 0), WOOD_D, rot=(0, math.pi / 2, 0), seg=10, bevel=0.03)
+    cyl(r, 0.12, 0.9, (0.25, 0, 0), IRON, rot=(0, math.pi / 2, 0), seg=8)
+    for k in range(4):
+        holder = bpy.data.objects.new(f'sail-{k}', None)
+        SCENE.collection.objects.link(holder)
+        holder.parent = r
+        holder.location = (0.28, 0, 0)
+        holder.rotation_euler = Euler((k * math.pi / 2 + 0.28, 0, 0))
+        L = 5.4 if k != 2 else 3.0
+        box(holder, (0.12, 0.12, L), (0, 0, L / 2), WOOD_D, bevel=0.02)
+        top = L - 0.2
+        for y in (0.08, 1.12):
+            box(holder, (0.07, 0.07, top - 0.9), (0.0, y, 0.9 + (top - 0.9) / 2), WOOD, bevel=0.01)
+        z = 0.95
+        while z < top:
+            box(holder, (0.05, 1.1, 0.05), (0.0, 0.6, z), WOOD, bevel=0.008)
+            z += 0.42
+        if k != 2:
+            for z0 in ((1.1, 3.3) if k == 0 else (2.2,) if k == 1 else (1.4, 3.8)):
+                box(holder, (0.02, 1.0, 1.0), (0.04, 0.6, z0 + 0.5), CANVAS if k != 3 else CANVAS_D, bevel=0.0)
+        else:
+            tube(holder, [(0, 0, L), (0.05, 0.1, L + 0.5), (0.0, 0.5, L + 0.7)], [0.05, 0.04, 0.03], WOOD_D, sides=5)
+
+
+def cot(n):
+    """A field cot, long axis along three z: bare with a rumpled blanket, or sheeted."""
+    r = root(f'cot-{n}')
+    rnd = random.Random(50 + n)
+    for x in (-0.33, 0.33):
+        for y in (-0.92, 0.92):
+            box(r, (0.04, 0.04, 0.36), (x, y, 0.18), IRON, bevel=0.005)
+        box(r, (0.035, 1.92, 0.04), (x, 0, 0.36), IRON_L, bevel=0.005)
+    for y in (-0.92, 0.92):
+        box(r, (0.7, 0.04, 0.04), (0, y, 0.36), IRON_L, bevel=0.005)
+    pillow(r, (0.66, 1.85, 0.07), (0, 0, 0.39), CANVAS_D, e=0.3, seg=8, rings=5)
+    if n == 0:
+        pillow(r, (0.6, 1.2, 0.13), (0, 0.25, 0.47), WOOL, rot=(0, 0, 0.05), e=0.35, sag=0.2, rnd=rnd)
+        pillow(r, (0.45, 0.4, 0.1), (0.0, -0.68, 0.48), SHEET, e=0.4, sag=0.3, rnd=rnd)
+    else:
+        pillow(r, (0.52, 1.55, 0.2), (0, 0.1, 0.5), SHEET, e=0.4, sag=0.15, rnd=rnd)
+        blob(r, (0.16, 0.18, 0.14), (0, -0.62, 0.58), SHEET, rnd, subdiv=2, noise=0.1)
+        blob(r, (0.2, 0.2, 0.03), (0.08, 0.15, 0.6), STAIN, rnd, subdiv=1, noise=0.3)
+
+
+def crater(n):
+    """The raised rim of a shell crater (the hole is painted in the ground): lumpy earth, stones, splintered beams, a bent stake."""
+    r = root(f'crater-{n}')
+    rnd = random.Random(70 + n)
+    R, cnt = (1.6, 14) if n == 0 else (2.4, 21)
+    for i in range(cnt):
+        a = i / cnt * math.tau + rnd.uniform(-0.1, 0.1)
+        rad = R + rnd.uniform(-0.15, 0.2)
+        sz = rnd.uniform(0.3, 0.46)
+        blob(r, (sz * 1.5, sz, sz * 0.5), (math.cos(a) * rad, math.sin(a) * rad, 0.02), MUD_R if i % 3 else MUD_RD, rnd, subdiv=1, noise=0.3, rot=(0, 0, a + math.pi / 2), flat_bottom=-0.02)
+    for i in range(3):
+        a = rnd.uniform(0, math.tau)
+        rad = R + rnd.uniform(-0.2, 0.3)
+        blob(r, (0.2, 0.17, 0.13), (math.cos(a) * rad, math.sin(a) * rad, 0.1), STONE if i % 2 else STONE_D, rnd, subdiv=1, noise=0.3, flat_bottom=-0.03)
+    for i in range(2):
+        a = rnd.uniform(0, math.tau)
+        rad = R * rnd.uniform(0.7, 1.0)
+        box(r, (0.9, 0.09, 0.09), (math.cos(a) * rad, math.sin(a) * rad, 0.14), WOOD_D, rot=(rnd.uniform(-0.2, 0.2), rnd.uniform(-0.3, 0.3), a + 1.2), bevel=0.015)
+    a = rnd.uniform(0, math.tau)
+    tube(r, [(math.cos(a) * R, math.sin(a) * R, 0.0), (math.cos(a) * (R + 0.1), math.sin(a) * (R + 0.1), 0.5), (math.cos(a) * (R - 0.3), math.sin(a) * (R - 0.3), 0.75)], [0.03, 0.025, 0.018], IRON, sides=5)
+
+
+def tank():
+    """A Mark IV tank wreck: rhomboid tracks, a split sponson, the cupola blown off."""
+    r = root('tank')
+    track = [(-2.9, 0.12), (2.3, 0.12), (3.7, 1.55), (2.3, 2.85), (-2.6, 2.85), (-4.1, 1.45)]
+    for s in (-1, 1):
+        y = s * 1.35
+        plate(r, track, 0.55, (0, y, 0), IRON, bevel=0.03)
+        inner = [(x * 0.92, 0.12 + (z - 0.12) * 0.88 + 0.05) for x, z in track]
+        plate(r, inner, 0.1, (0, y + s * 0.3, 0.0), RUST, bevel=0.01)
+        for i in range(24):
+            t = i / 24
+            # track plates around the rhomboid: short ribs on the outer face
+            x = -2.9 + 5.2 * t if t < 0.5 else 2.3
+            box(r, (0.1, 0.57, 0.3), (-2.8 + 5.1 * t, y, 0.18), IRON_L, bevel=0.01)
+            box(r, (0.1, 0.57, 0.3), (-2.4 + 4.8 * t, y, 2.85 - 0.12), IRON_L, bevel=0.01)
+        for x in (-1.9, -0.6, 0.7, 1.9):
+            cyl(r, 0.2, 0.1, (x, y + s * 0.3, 0.45), OLIVE_D, rot=(math.pi / 2, 0, 0), seg=10)
+    box(r, (5.4, 2.3, 1.45), (0, 0, 1.55), OLIVE, bevel=0.05, seg=3)
+    box(r, (5.5, 2.35, 0.1), (0, 0, 0.8), OLIVE_D, bevel=0.03)
+    # Sponsons with gun stubs, the right one split open.
+    for s in (-1, 1):
+        box(r, (1.55, 0.95, 1.3), (0.7, s * 1.85, 1.1), OLIVE_L, bevel=0.06, seg=3)
+        cyl(r, 0.07, 1.05, (0.9, s * 2.28, 1.1), IRON, rot=(math.pi / 2, 0, 0), seg=8)
+    box(r, (0.6, 0.06, 0.8), (0.95, 2.35, 1.1), INK, bevel=0.0)
+    # Cab on top, roof torn.
+    box(r, (1.5, 1.35, 0.75), (-0.5, 0, 2.5), OLIVE_L, bevel=0.05, seg=3)
+    box(r, (1.2, 1.0, 0.12), (-0.6, 0.1, 2.9), OLIVE_D, rot=(0.2, -0.15, 0.1), bevel=0.02)
+    # Shell holes and a hatch left open.
+    for x, y, z in ((1.4, 1.17, 1.8), (-1.6, -1.17, 1.9)):
+        cyl(r, 0.16, 0.06, (x, y, z), INK, rot=(math.pi / 2, 0, 0), seg=10)
+    # Unditching beam strapped across the top, and a broken tail wheel frame.
+    box(r, (4.8, 0.32, 0.22), (0.0, 0.5, 3.1), WOOD_D, rot=(0, 0.0, 0.05), bevel=0.04)
+    tube(r, [(-3.5, 0.5, 1.2), (-4.7, 0.5, 0.6), (-4.8, 0.5, 0.15)], [0.08, 0.07, 0.06], IRON, sides=5)
+    cyl(r, 0.4, 0.14, (-4.8, 0.5, 0.4), IRON_L, rot=(math.pi / 2, 0, 0), seg=14)
+
+
 # ---------------------------------------------------------------- build
 
 for n in (0, 1):
@@ -778,6 +1094,8 @@ for n in (0, 1):
     cross(n)
     tree(n)
     dead_tree(n)
+    cot(n)
+    crater(n)
 sandbags()
 barrel()
 cart()
@@ -788,6 +1106,14 @@ pew()
 fieldgun()
 wire()
 rubble()
+biplane()
+tent()
+hedgehog()
+bell()
+angel()
+signpost()
+sails()
+tank()
 lamp_lantern()
 lamp_candles()
 lamp_brazier()
