@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkpointRoles } from '../../app/utils/nitro-rush/builder-forks'
 import { compileCustomTrack, MAX_SECTIONS, roadKey, sameRoad, sanitizeCustomTrack, sectionCount, sectionWalk, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
-import { branchEnding, canJoin, draftForkedDef, insertSection, joinCandidates, moveSection, removeBranch, removeSection, sectionPartner, setJoin, walkForks } from '#shared/utils/nitro-rush/custom-forks'
+import { branchEnding, canJoin, draftForkedDef, inletRoad, inletStub, insertSection, joinCandidates, moveSection, openInlets, removeBranch, removeSection, sectionPartner, setJoin, walkForks } from '#shared/utils/nitro-rush/custom-forks'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { Track } from '#shared/utils/nitro-rush/track'
 
@@ -77,6 +77,33 @@ describe('split and join sections', () => {
         expect(inlet.end.heading).toBeCloseTo(own.heading)
         expect(sectionPartner('straight-20')).toBeNull()
     })
+
+    it('lay a join\'s inlet as road ending on the join\'s end, as high and wide as it, for every shape', () => {
+        for (const id of ['join-y', 'join-left', 'join-right'] as const) {
+            const t: CustomTrack = { id: 'inlet', name: 'Inlet', closed: false, sections: ['start', 'slope-up', 'straight-60', 'slope-flat', 'width-wide', id, 'straight-60', 'finish', 'straight-100'] }
+            const [j] = walkForks(t).joins
+            expect(j!.y).toBeGreaterThan(0)
+            const road = inletRoad(j!)
+            expect(Math.hypot(road.end.x - j!.end.x, road.end.z - j!.end.z)).toBeLessThan(0.01)
+            expect(road.end.heading).toBeCloseTo(j!.end.heading)
+            expect(road.end.y).toBeCloseTo(j!.y)
+            expect(road.ys.every(y => Math.abs(y - j!.y) < 1e-9)).toBe(true)
+            expect(road.end.halfWidth).toBe(j!.halfWidth)
+            // It sets off on the diagonal, and the map's stub follows the same line.
+            expect(road.pts[0]).toEqual(inletStub(j!)[0])
+            expect(road.states[0]!.halfWidth).toBe(j!.halfWidth)
+        }
+    })
+
+
+
+
+    it('leave out the inlet of a join a branch already comes into', () => {
+        const { joins } = walkForks(LOOP)
+        expect(joins[0]!.branch).toBe(1)
+        expect(openInlets(joins, [false, true])).toEqual([])
+        expect(openInlets(joins, [false, false])).toEqual(joins)
+    })
 })
 
 describe('storing a forked course', () => {
@@ -100,6 +127,7 @@ describe('storing a forked course', () => {
         expect(bad({ to: { branch: 1, at: 0 } })).toBeNull()
         expect(bad({ sections: ['nope'] })).toBeNull()
     })
+
 
     it('rejects two branches coming into one join', () => {
         const t = { ...LOOP, sections: ['split-right', ...MAIN], branches: [{ ...LOOP.branches![0]!, from: { branch: 0, at: 2 }, to: { branch: 0, at: 4 } }, { sections: BOW, from: { branch: 0, at: 0 }, to: { branch: 0, at: 4 } }] }
@@ -134,6 +162,7 @@ describe('editing a forked course', () => {
         expect(removeSection(ins, 0, 1).branches).toEqual(LOOP.branches)
         expect(insertSection(LOOP, 1, 0, 'straight-10').branches![0]!.to).toEqual({ branch: 0, at: 3 })
     })
+
 
     it('keeps each split and join with its branch when sections move', () => {
         const moved = moveSection(LOOP, 0, 3, 5)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
-import { inletStub, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
+import { inletStub, openInlets, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 import { FIELD_TILE, fieldLocal, fieldPoint, type FieldPlacement } from '#shared/utils/nitro-rush/field'
 import { STEP } from '#shared/utils/nitro-rush/road-checks'
@@ -107,7 +107,7 @@ function pieceOf(starts: readonly number[], i: number) {
 }
 
 /** The way into each join no branch has come into yet, which a branch has to get onto. */
-const inlets = computed(() => props.joins.filter(j => j.branch === null || !props.ended[j.branch]).map(j => ({ path: inletStub(j), j })))
+const inlets = computed(() => openInlets(props.joins, props.ended).map(j => ({ path: inletStub(j), j })))
 
 function roadColor(y: number) {
     const t = Math.min(1, Math.max(0, y / TOP))

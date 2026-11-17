@@ -2,7 +2,7 @@ import { inletOf, joinInlet, joinMerge, meetInlet, splitArm, type Inlet } from '
 import { draftTrackDef } from './custom-draft'
 import { customLayout, fieldArrivals, forkMerges, forkShape, isFieldSection, lineSections, sectionWalk, shapeAt, walkedField, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
 import { draftFieldDefs, fieldApproach } from './field-layout'
-import { FORK_RADIUS, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose } from './layout'
+import { FORK_RADIUS, mapWalkHeights, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose, type RoadState } from './layout'
 import { Track, TrackGraphError, TrackLine, type BranchDef, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
@@ -88,9 +88,14 @@ export function branchEnding(t: CustomTrack, forks: ForkedLines, line: number): 
 }
 
 /** The diagonal a road comes into a join on and its bend in, from `inlet`, as a walk. */
-function inletWalk(shape: ForkShape, inlet: Pose) {
+function inletWalk(shape: ForkShape, inlet: Pose, from: Partial<RoadState> = {}) {
     const origin = { x: inlet.x - Math.sin(inlet.heading) * STUB_LEAD, z: inlet.z + Math.cos(inlet.heading) * STUB_LEAD, heading: inlet.heading }
-    return walkLayout({ id: 'inlet', name: '', group: 'sprints', ...ROAD, origin, pieces: joinMerge(shape, { runIn: STUB_LEAD, radius: FORK_RADIUS }) })
+    return walkLayout({ id: 'inlet', name: '', group: 'sprints', ...ROAD, origin, pieces: joinMerge(shape, { runIn: STUB_LEAD, radius: FORK_RADIUS }) }, from)
+}
+
+/** The way a road comes into a join as road of its own, as high and wide as the join, ending where it ends. */
+export function inletRoad(inlet: Inlet): LayoutWalk {
+    return mapWalkHeights(inletWalk(inlet.shape, inlet, { halfWidth: inlet.halfWidth }), y => y + inlet.y)
 }
 
 /** The way a road comes into a join, as points on the map. */
@@ -98,6 +103,9 @@ export function inletStub(inlet: JoinInlet): [number, number][] {
     const w = inletWalk(inlet.shape, inlet)
     return [...w.pts, [w.end.x, w.end.z]]
 }
+
+/** The joins no branch has come into yet, which a branch still has to get onto; `ended` is per line. */
+export const openInlets = (joins: readonly JoinInlet[], ended: readonly boolean[]) => joins.filter(j => j.branch === null || !ended[j.branch])
 
 /** A split's second arm, or the road coming into a join, as it lies beside the section laid on its own; null for any other section. */
 export function sectionPartner(id: SectionId): LayoutWalk | null {
