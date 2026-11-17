@@ -35,6 +35,8 @@ const props = defineProps<{
     votes: Record<string, NrTrackVotes>
     /** Courses with a vote in flight. */
     voting: Set<string>
+    /** Players driving each public course right now, by id. */
+    racing: Record<string, number>
 }>()
 defineEmits<{ back: [], select: [id: string], car: [id: CarId], garage: [open: boolean], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
 
@@ -58,14 +60,15 @@ const hasLap = (id: string) => !!props.records[id]?.ghost
 const lapTooLong = (id: string) => !hasLap(id) && (props.records[id]?.bestLap ?? 0) > GHOST_MAX_SECONDS
 
 const votesOf = (id: string) => props.votes[id] ?? NO_VOTES
-/** The selected course as the side panel shows it: a built-in or another player's can be voted on, the player's own only shows its score. */
+/** The selected course as the side panel shows it: any public course can be voted on, the player's own included. */
 const selected = computed((): { author: string | null, votes: NrTrackVotes | null, canVote: boolean } => {
     if (findTrack(props.trackId)) return { author: null, votes: votesOf(props.trackId), canVote: true }
-    const theirs = props.communityTracks.find(c => c.track.id === props.trackId)
-    if (theirs) return { author: theirs.track.author, votes: votesOf(props.trackId), canVote: true }
+    const listed = props.communityTracks.find(c => c.track.id === props.trackId)
+    if (listed) return { author: listed.mine ? 'you' : listed.track.author, votes: votesOf(props.trackId), canVote: true }
     const own = props.customTracks.find(c => c.playId === props.trackId)
     // A private course has no votes.
-    return { author: own ? 'you' : null, votes: own?.published?.id === props.trackId ? votesOf(props.trackId) : null, canVote: false }
+    const published = own?.published?.id === props.trackId
+    return { author: own ? 'you' : null, votes: published ? votesOf(props.trackId) : null, canVote: published }
 })
 </script>
 
@@ -94,8 +97,8 @@ const selected = computed((): { author: string | null, votes: NrTrackVotes | nul
           </button>
         </div>
         <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
-          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
-          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :votes="votes" :racing="racing" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :votes="votes" :racing="racing" :medal-on="medalOn" @select="$emit('select', $event)" />
           <NitroRushGarage v-else-if="tab === 'garage'" :car="car" :paint="paint" @select="$emit('car', $event)" @paint="$emit('paint', $event)" @open="$emit('garage', $event)" />
           <NitroRushMyTracks
             v-else
@@ -131,6 +134,7 @@ const selected = computed((): { author: string | null, votes: NrTrackVotes | nul
           :board="board"
           :board-loading="boardLoading"
           :best="best(trackId)"
+          :racing="racing[trackId] ?? 0"
           @vote="$emit('vote', trackId, $event)"
         />
         <button class="nr-play self-center" @click="$emit('start')">

@@ -10,6 +10,8 @@ import type { TrackDef } from '#shared/utils/nitro-rush/track'
 const props = defineProps<{
     trackId: string
     summaries: Record<string, NrTrackSummary>
+    /** Players driving each public course right now, by id. */
+    racing: Record<string, number>
     votes: Record<string, NrTrackVotes>
     /** The medal the viewer's best holds on a course. */
     medalOn: (id: string, def: TrackDef) => Medal | null
@@ -53,6 +55,7 @@ watch([sort, () => Object.keys(props.votes).length, () => Object.keys(props.summ
             :medal="medalOn(t.id, t)"
             :votes="votes[t.id]"
             :plays="summaries[t.id]?.plays"
+            :racing="racing[t.id]"
             @select="$emit('select', t.id)"
           />
         </div>
@@ -70,6 +73,7 @@ watch([sort, () => Object.keys(props.votes).length, () => Object.keys(props.summ
         :group="groupName(t)"
         :votes="votes[t.id]"
         :plays="summaries[t.id]?.plays"
+        :racing="racing[t.id]"
         @select="$emit('select', t.id)"
       />
     </div>

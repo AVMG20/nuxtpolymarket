@@ -25,6 +25,8 @@ const props = defineProps<{
     boardLoading: boolean
     /** The viewer's best here, in seconds. */
     best: number | null
+    /** Players driving it right now. */
+    racing: number
 }>()
 defineEmits<{ vote: [value: NrVote] }>()
 
@@ -64,7 +66,13 @@ const medalOf = (ms: number) => fresh.value ? medalFor(ms / 1000, medalTimes.val
       <NitroRushTrackVote v-if="votes && canVote" :votes="votes" :busy="voting" @vote="$emit('vote', $event)" />
       <NitroRushScore v-else-if="votes" :votes="votes" />
     </div>
-    <div class="nr-track-holder">{{ meta }}</div>
+    <div class="nr-track-holder mt-1.5">
+      {{ meta }}
+      <span v-if="racing" class="nr-live ml-2 whitespace-nowrap">
+        <span class="nr-live-dot" aria-hidden="true" />
+        {{ formatNumber(racing) }} RACING NOW
+      </span>
+    </div>
 
     <div v-if="medalTimes !== null" class="nr-medals mt-3">
       <div v-for="m in MEDALS" :key="m" class="nr-medals-tier" :class="[`medal-${m}`, { 'is-earned': m === earned }]">

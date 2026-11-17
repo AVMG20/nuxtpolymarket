@@ -1,9 +1,9 @@
 import type { Ref } from 'vue'
-import { BoardCache } from '~/utils/nitro-rush/board'
+import { BoardCache, boardSummary, mergeSummaries } from '~/utils/nitro-rush/board'
 import type { TrackRecord } from '~/utils/nitro-rush/types'
 import type { NrBoard, NrTrackSummary } from '#server/utils/nitro-rush'
 import type { NrTrackVotes } from '#server/utils/nitro-rush-tracks'
-import { NO_PLAYS } from '#shared/utils/nitro-rush/popularity'
+import { NO_PLAYS, type TrackPlays } from '#shared/utils/nitro-rush/popularity'
 import { isCustomTrackId } from '#shared/utils/nitro-rush/custom'
 
 /** A board this recent is shown without asking the server again. */
@@ -29,14 +29,9 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
     let boardTimer: ReturnType<typeof setTimeout> | undefined
     const cache = new BoardCache(BOARD_CACHE_LIMIT)
 
-    /** A fresher board than the menu summary was built from; the plays stay as the summary had them. */
-    function noteBoard(b: NrBoard) {
-        const top = b.top[0]
-        const plays = summaries.value[b.trackId]?.plays ?? NO_PLAYS
-        summaries.value = {
-            ...summaries.value,
-            [b.trackId]: { trackId: b.trackId, entries: b.entries, record: top ? { name: top.name, lapMs: top.lapMs, mine: top.you } : null, myLapMs: b.me?.lapMs ?? null, plays }
-        }
+    /** A fresher board than the menu summary was built from; without `plays` they stay as the summary had them. */
+    function noteBoard(b: NrBoard, plays?: TrackPlays) {
+        summaries.value = { ...summaries.value, [b.trackId]: boardSummary(b, plays ?? summaries.value[b.trackId]?.plays ?? NO_PLAYS) }
     }
 
     /** Shows the track's board from the cache at once, and asks for a fresh one once the selection settles. */
@@ -80,9 +75,9 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
         }
     }
 
-    /** Summaries from a menu list; a board loaded since stays, being fresher. */
+    /** Summaries from a menu list; a board loaded since keeps its record and times, being fresher. */
     function addSummaries(list: NrTrackSummary[]) {
-        summaries.value = { ...summaries.value, ...Object.fromEntries(list.filter(t => t.trackId !== boardTrack || !board.value).map(t => [t.trackId, t])) }
+        summaries.value = mergeSummaries(summaries.value, list, board.value ? boardTrack : null)
     }
 
     async function loadSummaries() {
@@ -95,16 +90,20 @@ export function useNitroRushBoard(records: Ref<Record<string, TrackRecord>>, onS
         }
     }
 
-    async function submitLap(trackId: string, seconds: number) {
-        if (isCustomTrackId(trackId)) return
+    /** Sends every finished lap, which counts towards the course's plays; answers whether it set the player's best on the board. */
+    async function submitLap(trackId: string, seconds: number, best: boolean): Promise<boolean> {
+        if (isCustomTrackId(trackId)) return false
         try {
             const res = await apiPost('/api/nitro-rush/lap', { trackId, lapMs: Math.round(seconds * 1000) })
             // Stamped on arrival: every fetch started before now may hold the board from before this lap.
             cache.keep(res.board, cache.stamp())
             if (trackId === boardTrack) board.value = res.board
-            noteBoard(res.board)
+            noteBoard(res.board, res.plays)
+            return res.improved
         } catch (e) {
-            toast.add({ title: apiErrorMessage(e, 'Your lap could not be saved to the leaderboard'), color: 'warning' })
+            // Only a best is worth a warning; a slower lap lost costs the board nothing.
+            if (best) toast.add({ title: apiErrorMessage(e, 'Your lap could not be saved to the leaderboard'), color: 'warning' })
+            return false
         }
     }
 
