@@ -45,6 +45,7 @@
                 </svg>
                 <b>{{ a.scrap }}</b>
             </span>
+            <span v-if="a.salvageGain > 0" class="gain">+{{ a.salvageGain }}<small v-if="a.salvageLabel">{{ a.salvageLabel }}</small></span>
         </div>
     </div>
 </template>
@@ -166,6 +167,7 @@ const ICONS: Record<string, Runs> = {
 }
 
 .salvage {
+    position: relative;
     display: flex;
     gap: 12px;
     padding: 3px 9px;
@@ -175,6 +177,31 @@ const ICONS: Record<string, Runs> = {
 
 .salvage.pop {
     animation: df-ars-pop 0.35s ease-out;
+}
+
+/* the scrap that just came in, rising off the counter */
+.salvage .gain {
+    position: absolute;
+    right: calc(100% + 8px);
+    top: 50%;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
+    font-family: var(--df-font-stencil);
+    font-size: 1.15rem;
+    color: #ffc66a;
+    text-shadow: var(--df-outline);
+    opacity: 0;
+    animation: df-ars-gain 1.6s ease-out;
+}
+
+.salvage .gain small {
+    font-family: var(--df-font-type);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--df-chalk);
 }
 
 .salvage .item {
@@ -202,6 +229,13 @@ const ICONS: Record<string, Runs> = {
 @keyframes df-ars-pop {
     0% { transform: scale(1.18); }
     100% { transform: scale(1); }
+}
+
+@keyframes df-ars-gain {
+    0% { opacity: 0; transform: translateY(-20%) scale(1.5); }
+    12% { opacity: 1; transform: translateY(-50%) scale(1); }
+    70% { opacity: 1; transform: translateY(-65%); }
+    100% { opacity: 0; transform: translateY(-110%); }
 }
 
 @keyframes df-ars-glow {

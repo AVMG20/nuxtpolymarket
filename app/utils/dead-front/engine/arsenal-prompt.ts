@@ -58,6 +58,10 @@ export interface DfHudArsenal {
     challenge: { text: string, n: number, goal: number, done: boolean } | null
     /** Bumps on every pickup (the counter pops). */
     salvageKey: number
+    /** The scrap that just came in (pickups close together add up), shown as "+N" at the counter. */
+    salvageGain: number
+    /** Where it came from when it wasn't picked up ("Round survived", "Challenge"). */
+    salvageLabel: string
     /** Holding Q / X: what is being placed or called in. */
     targeting: string | null
 }

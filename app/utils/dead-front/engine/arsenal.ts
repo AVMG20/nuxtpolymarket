@@ -63,6 +63,8 @@ export interface DfArsenalClient {
 }
 
 const HOLD = 0.6
+/** Pickups this close together (seconds) add up in one "+N" at the scrap counter. */
+const GAIN_WINDOW = 1.6
 /** Keys that close the shop (Esc lets go of the pointer lock, which closes it too). */
 const SHOP_LEAVE = ['Escape', 'Mouse2']
 
@@ -84,6 +86,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
     let lastBench = ''
     let benchKey = ''
     let shop = false
+    let gainAt = -Infinity
     const target = new THREE.Vector3()
     const aimV = { x: 0, y: 0, z: -1 }
 
@@ -172,6 +175,15 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         shop = false
         benchAt = null
         holdProgress = 0
+    }
+
+    /** Scrap came in: the counter pops a "+N" (pickups close together add up). */
+    function gain(n: number, label: string): void {
+        const a = hud.arsenal
+        a.salvageGain = clock - gainAt < GAIN_WINDOW ? a.salvageGain + n : n
+        a.salvageLabel = label
+        gainAt = clock
+        a.salvageKey++
     }
 
     return {
@@ -397,7 +409,10 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         onEvent(ev) {
             switch (ev.k) {
                 case 'salvage':
-                    if (ev.p === me) hud.arsenal.salvageKey++
+                    if (ev.p === me) gain(ev.n, '')
+                    return
+                case 'scrap':
+                    if (ev.p === me) gain(ev.n, ev.why === 'round' ? 'Round survived' : 'Challenge')
                     return
                 case 'crate': {
                     if (ev.p !== me) return
@@ -437,7 +452,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                         ctx.audio.play(DF_ARSENAL_SND.challenge, { volume: 0.7 })
                     } else if (ev.what === 'done') {
                         ctx.audio.play(DF_ARSENAL_SND.challengeDone, { volume: 0.9 })
-                        callout('Challenge complete', `${ev.text} · salvage and points for everyone`, 'gold')
+                        callout('Challenge complete', `${ev.text} · scrap and points for everyone`, 'gold')
                     }
             }
         },
