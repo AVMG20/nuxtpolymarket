@@ -84,6 +84,8 @@ const TOON_RIM = /* glsl */`#include <lights_fragment_end>
         float dfUp = 0.55 + 0.45 * saturate( dot( normal, normalize( ( viewMatrix * vec4( -0.42, 0.6, 0.68, 0.0 ) ).xyz ) ) * 2.0 );
         float dfRimBand = step( 0.58, dfFres ) * 0.7 + step( 0.8, dfFres ) * 0.5;
         reflectedLight.directDiffuse += vec3( 0.2, 0.3, 0.62 ) * ( diffuseColor.rgb * 0.7 + 0.3 ) * dfRimBand * dfUp * uRim;
+        // a small cool lift so a zombie standing in shadow keeps its colours
+        reflectedLight.directDiffuse += diffuseColor.rgb * vec3( 0.07, 0.08, 0.13 ) * uRim;
         totalEmissiveRadiance += diffuseColor.rgb * max( vDfTint - 1.0, vec3( 0.0 ) ) * 0.55;
     }
 }`
