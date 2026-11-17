@@ -4,6 +4,7 @@ import { poseCar } from '../../app/utils/nitro-rush/car-pose'
 import { GhostRecorder } from '../../app/utils/nitro-rush/ghost'
 import { botInput, createCar, crossesLines, stepCar, type CarInput, type CarState } from '../../app/utils/nitro-rush/physics'
 import { compileCustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
 import { decodeGhost, encodeGhost, type Ghost, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track, type Route } from '#shared/utils/nitro-rush/track'
@@ -18,8 +19,8 @@ export const RECTANGLE: SectionId[] = ['start', 'straight-100', 'right-tight', '
 export const LONG_RECTANGLE: SectionId[] = RECTANGLE.map(s => s === 'straight-100' ? 'straight-200' : s)
 export const STUNT_SPRINT: SectionId[] = ['straight-20', 'start', 'straight-100', 'jump', 'straight-100', 'looping-right', 'straight-100', 'bank-left', 'corkscrew-left', 'bank-flat', 'straight-100', 'right-spiral-up', 'straight-100', 'left-banked', 'straight-60', 'right-hairpin', 'straight-100', 'big-jump', 'straight-100', 'finish', 'straight-200']
 
-export function trackOf(closed: boolean, sections: SectionId[]) {
-    const { def, error } = compileCustomTrack({ id: 'custom-drive', name: 'Drive', closed, sections })
+export function trackOf(closed: boolean, sections: SectionId[], fields?: CustomField[]) {
+    const { def, error } = compileCustomTrack({ id: 'custom-drive', name: 'Drive', closed, sections, fields })
     if (!def) throw new Error(error ?? 'no track')
     return new Track(def)
 }
@@ -69,6 +70,6 @@ function recordRun(track: Track, car: CarState, input: (car: CarState) => CarInp
 }
 
 /** The bot's lap on a course as the client sends it to publish: a loop's standing first lap, or a sprint's run. */
-export function publishLap(closed: boolean, sections: SectionId[]): { ghost: StoredGhost, standing: boolean } {
-    return { ghost: encodeGhost(drive(trackOf(closed, sections)))!, standing: closed }
+export function publishLap(closed: boolean, sections: SectionId[], fields?: CustomField[]): { ghost: StoredGhost, standing: boolean } {
+    return { ghost: encodeGhost(drive(trackOf(closed, sections, fields)))!, standing: closed }
 }

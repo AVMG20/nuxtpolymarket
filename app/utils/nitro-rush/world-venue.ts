@@ -2,10 +2,11 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { bannerTexture } from './signs'
 import { LAMP_SPACING, lampSlot } from './trackside-spots'
-import { NEON_PINK } from './config'
+import { LINE_COLORS, NEON_PINK } from './config'
 import { radialTexture } from './textures'
-import { CLEAR_HEIGHT, roadAbove, roadLevelWith } from './road-geometry'
+import { CLEAR_HEIGHT, fieldClearance, roadAbove, roadLevelWith } from './road-geometry'
 import type { WorldKit } from './world-kit'
+import { GATE_SPAN } from '#shared/utils/nitro-rush/field'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
 import { headingOf, WALL_BASE_HALF, type LapLine } from '#shared/utils/nitro-rush/track'
 
@@ -56,13 +57,15 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
                 const p = line.pointAt(s)
                 const lat = side * (line.wallAt(s) + WALL_BASE_HALF)
                 // A lamp stands on a plain wall, not on a looping, a corkscrew, a bank, over a gap or where the side is open onto another road.
-                if (!line.plainRoadAt(s) || line.openAt(s, side)) continue
+                if (!line.walledRoadAt(s) || line.openAt(s, side)) continue
                 // Under another level the pole would run through its deck.
                 if (elevated && roadAbove(lines, p.x, p.y, p.z, 6, MIN_CLEARANCE / 2, LAMP_HEIGHT + 2)) continue
                 const px = p.x - p.tz * lat
                 const pz = p.z + p.tx * lat
                 // Where two walls run together past a nose, the pole would stand on the other road.
                 if (roadLevelWith(others, px, p.y, pz, 0, MIN_CLEARANCE / 2)) continue
+                // Beside a field's mouth the pole would stand in its wall.
+                if (fieldClearance(track.fields, px, pz) < 1) continue
                 // Local -x is the arm; turn it to point across the track.
                 const inX = p.tz * side
                 const inZ = -p.tx * side
@@ -84,13 +87,13 @@ export function buildLamps({ track, own, instanced }: WorldKit) {
     return { lens, poolMat, heads }
 }
 
-/** A low arch over each line, from foot to foot outside the walls, with a banner under its crown; the start one carries the five lights, which it returns. */
+/** An arch over each line with a banner under its crown, a field gate's on its posts; returns the start arch's five lights. */
 export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Material) {
     const startLights: THREE.MeshStandardMaterial[] = []
-    // One arch per road width a line sits on; lines on the same width share it.
+    // One arch per span a line needs; lines on the same road width, and every field gate, share one.
     const arches = new Map<number, { span: number, archGeo: THREE.TubeGeometry, neonGeo: THREE.TubeGeometry }>()
-    const archFor = (wall: number) => {
-        const span = Math.round((wall + 1.2) * 100) / 100
+    const archFor = (wide: number) => {
+        const span = Math.round(wide * 100) / 100
         let arch = arches.get(span)
         if (!arch) {
             const curve = new THREE.CatmullRomCurve3(Array.from({ length: 25 }, (_, i) => new THREE.Vector3(Math.cos(Math.PI * i / 24) * span, Math.sin(Math.PI * i / 24) * ARCH_HEIGHT, 0)))
@@ -101,31 +104,31 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     }
     const legGeo = own(new THREE.CylinderGeometry(ARCH_TUBE, ARCH_TUBE, 1, 10))
     const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
+    // A checkpoint's neon is its own colour, so it doesn't pass for the pink walls round it.
+    const checkpointNeon = own(new THREE.MeshBasicMaterial({ color: LINE_COLORS.checkpoint }))
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
     const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
     const lightGeo = own(new THREE.CylinderGeometry(0.3, 0.3, 0.15, 20).rotateX(Math.PI / 2))
     const panelGeo = own(new THREE.BoxGeometry(START_LIGHTS * LIGHT_SPACING + 0.3, 0.8, 0.2))
     const panelMat = own(new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.6, metalness: 0.4 }))
     const name = track.def.name.toUpperCase()
-    const buildGantry = ({ branch, s }: LapLine, sub: string, lights: boolean) => {
-        const line = track.branches[branch]!
-        const p = line.pointAt(s)
-        const { span, archGeo, neonGeo } = archFor(line.wallAt(s))
+    const buildGantry = (l: LapLine, sub: string, lights: boolean) => {
+        const { span, archGeo, neonGeo } = archFor(l.field === undefined ? track.branches[l.branch]!.wallAt(l.s) + 1.2 : GATE_SPAN)
         const g = new THREE.Group()
-        g.position.set(p.x, p.y, p.z)
-        g.rotation.y = headingOf(p.tx, p.tz)
+        g.position.set(l.x, l.y, l.z)
+        g.rotation.y = headingOf(l.tx, l.tz)
         g.add(new THREE.Mesh(archGeo, steel))
-        // The feet stand outside the walls, so on raised road they'd hang in the air.
-        if (p.y > 0) {
+        // The feet stand outside the walls, so on raised road they'd hang in the air; a field gate's stand on its floor.
+        if (l.y > 0 && l.field === undefined) {
             for (const side of [1, -1]) {
                 const leg = new THREE.Mesh(legGeo, steel)
-                leg.scale.y = p.y
-                leg.position.set(side * span, -p.y / 2, 0)
+                leg.scale.y = l.y
+                leg.position.set(side * span, -l.y / 2, 0)
                 g.add(leg)
             }
         }
         for (const face of [1, -1]) {
-            const neon = new THREE.Mesh(neonGeo, neonMat)
+            const neon = new THREE.Mesh(neonGeo, l.kind === 'checkpoint' ? checkpointNeon : neonMat)
             neon.position.z = face * ARCH_TUBE
             g.add(neon)
         }

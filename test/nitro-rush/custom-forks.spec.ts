@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkpointRoles } from '../../app/utils/nitro-rush/builder-forks'
-import { compileCustomTrack, MAX_SECTIONS, sameRoad, sanitizeCustomTrack, sectionCount, sectionWalk, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
-import { branchEnding, canJoin, draftForkedDef, insertSection, joinCandidates, moveSection, removeBranch, removeSection, sectionPartner, setJoin, walkForks } from '#shared/utils/nitro-rush/custom-forks'
+import { compileCustomTrack, MAX_SECTIONS, PALETTE_SECTIONS, roadKey, sameRoad, sanitizeCustomTrack, sectionCount, sectionWalk, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { branchEnding, canJoin, draftForkedDef, flipSection, inletRoad, inletStub, insertSection, joinCandidates, moveSection, openInlets, removeBranch, removeSection, sectionPartner, setJoin, walkForks } from '#shared/utils/nitro-rush/custom-forks'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { Track } from '#shared/utils/nitro-rush/track'
 
@@ -77,6 +77,67 @@ describe('split and join sections', () => {
         expect(inlet.end.heading).toBeCloseTo(own.heading)
         expect(sectionPartner('straight-20')).toBeNull()
     })
+
+    it('lay a join\'s inlet as road ending on the join\'s end, as high and wide as it, for every shape', () => {
+        for (const id of ['join-y', 'join-y-flip', 'join-left', 'join-right'] as const) {
+            const t: CustomTrack = { id: 'inlet', name: 'Inlet', closed: false, sections: ['start', 'slope-up', 'straight-60', 'slope-flat', 'width-wide', id, 'straight-60', 'finish', 'straight-100'] }
+            const [j] = walkForks(t).joins
+            expect(j!.y).toBeGreaterThan(0)
+            const road = inletRoad(j!)
+            expect(Math.hypot(road.end.x - j!.end.x, road.end.z - j!.end.z)).toBeLessThan(0.01)
+            expect(road.end.heading).toBeCloseTo(j!.end.heading)
+            expect(road.end.y).toBeCloseTo(j!.y)
+            expect(road.ys.every(y => Math.abs(y - j!.y) < 1e-9)).toBe(true)
+            expect(road.end.halfWidth).toBe(j!.halfWidth)
+            // It sets off on the diagonal, and the map's stub follows the same line.
+            expect(road.pts[0]).toEqual(inletStub(j!)[0])
+            expect(road.states[0]!.halfWidth).toBe(j!.halfWidth)
+        }
+    })
+
+    it('lay a flipped Y as the mirror image of a Y, its second road on the other side', () => {
+        for (const [id, mirror] of [['split-y', 'split-y-flip'], ['join-y', 'join-y-flip']] as const) {
+            const a = sectionWalk(id).end
+            const b = sectionWalk(mirror).end
+            expect(b.x).toBeCloseTo(-a.x)
+            expect(b.z).toBeCloseTo(a.z)
+            expect(b.heading).toBeCloseTo(-a.heading)
+            const p = sectionPartner(id)!.end
+            const q = sectionPartner(mirror)!.end
+            expect(q.x).toBeCloseTo(-p.x)
+            expect(q.z).toBeCloseTo(p.z)
+            expect(q.heading).toBeCloseTo(-p.heading)
+        }
+    })
+
+    it('bring a branch into a flipped Y join from the left, the side a Y join has its road on', () => {
+        const on = (id: SectionId): CustomTrack => ({ id: 'inlet', name: 'Inlet', closed: false, sections: ['start', 'straight-60', id, 'straight-60', 'finish', 'straight-100'] })
+        const [y] = walkForks(on('join-y')).joins
+        const [flip] = walkForks(on('join-y-flip')).joins
+        // The road the join is on comes in from the left of a Y and the right of a flipped one; the branch takes the other side.
+        expect(y!.x).toBeGreaterThan(y!.end.x)
+        expect(flip!.x).toBeLessThan(flip!.end.x)
+        const road = inletRoad(flip!)
+        expect(Math.hypot(road.end.x - flip!.end.x, road.end.z - flip!.end.z)).toBeLessThan(0.01)
+    })
+
+    it('compile a sprint whose arms meet in a flipped Y join, the main road coming in from the right', () => {
+        const t: CustomTrack = {
+            id: 'custom-y', name: 'Y', closed: false,
+            sections: ['straight-20', 'start', 'split-y', 'straight-60', 'straight-20', 'straight-20', 'straight-60', 'right-medium', 'straight-20', 'right-medium', 'straight-20', 'join-y-flip', 'finish', 'straight-60'],
+            branches: [{ sections: ['straight-60', 'straight-60', 'straight-20', 'straight-20', 'left-medium', 'straight-20', 'left-medium'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 11 } }]
+        }
+        expect(compileCustomTrack(t).error).toBeNull()
+        // A plain Y join there takes the branch in on the wrong side.
+        expect(compileCustomTrack(flipSection(t, 0, 11)).error).toBe('branch 1 doesn\'t reach its join')
+    })
+
+    it('leave out the inlet of a join a branch already comes into', () => {
+        const { joins } = walkForks(LOOP)
+        expect(joins[0]!.branch).toBe(1)
+        expect(openInlets(joins, [false, true])).toEqual([])
+        expect(openInlets(joins, [false, false])).toEqual(joins)
+    })
 })
 
 describe('storing a forked course', () => {
@@ -99,6 +160,13 @@ describe('storing a forked course', () => {
         expect(bad({ to: { branch: 0, at: 1 } })).toBeNull()
         expect(bad({ to: { branch: 1, at: 0 } })).toBeNull()
         expect(bad({ sections: ['nope'] })).toBeNull()
+    })
+
+    it('keeps flipped Ys through sanitize, off the palette', () => {
+        const t: CustomTrack = { ...LOOP, sections: MAIN.map(id => id === 'split-left' ? 'split-y-flip' : id === 'join-left' ? 'join-y-flip' : id) }
+        expect(sanitizeCustomTrack(JSON.parse(JSON.stringify(t)))).toEqual(t)
+        expect(PALETTE_SECTIONS.map(([id]) => id)).not.toContain('split-y-flip')
+        expect(PALETTE_SECTIONS.map(([id]) => id)).not.toContain('join-y-flip')
     })
 
     it('rejects two branches coming into one join', () => {
@@ -135,11 +203,34 @@ describe('editing a forked course', () => {
         expect(insertSection(LOOP, 1, 0, 'straight-10').branches![0]!.to).toEqual({ branch: 0, at: 3 })
     })
 
+    it('flips a Y split or join in place, its branch still leaving from and coming into it', () => {
+        const t: CustomTrack = { ...LOOP, sections: MAIN.map(id => id === 'split-left' ? 'split-y' : id === 'join-left' ? 'join-y' : id) }
+        const split = flipSection(t, 0, 1)
+        expect(split.sections[1]).toBe('split-y-flip')
+        expect(split.branches).toEqual(t.branches)
+        const both = flipSection(split, 0, 3)
+        expect(both.sections[3]).toBe('join-y-flip')
+        expect(both.branches).toEqual(t.branches)
+        expect(flipSection(flipSection(both, 0, 1), 0, 3)).toEqual(t)
+        // Only a Y has a mirror image.
+        expect(flipSection(LOOP, 0, 1)).toBe(LOOP)
+        expect(flipSection(LOOP, 0, 2)).toBe(LOOP)
+    })
+
     it('keeps each split and join with its branch when sections move', () => {
         const moved = moveSection(LOOP, 0, 3, 5)
         expect(moved.sections[5]).toBe('join-left')
         expect(moved.branches![0]!.to).toEqual({ branch: 0, at: 5 })
         expect(moved.branches![0]!.from).toEqual({ branch: 0, at: 1 })
+    })
+
+    it('keeps fields in course order when one moves past another, as the published copy stores them', () => {
+        const plan = (width: number) => ({ width, length: 100, entry: 0, exit: { edge: 'exit' as const, tile: 0 }, tiles: [] })
+        const t: CustomTrack = { id: 'custom-fields', name: 'Fields', closed: false, sections: ['start', 'field', 'straight-100', 'field', 'finish'], fields: [{ at: { branch: 0, at: 1 }, ...plan(40) }, { at: { branch: 0, at: 3 }, ...plan(60) }] }
+        const moved = moveSection(t, 0, 1, 4)
+        expect(moved.fields!.map(f => f.at.at)).toEqual([2, 4])
+        expect(moved.fields!.map(f => f.width)).toEqual([60, 40])
+        expect(roadKey(sanitizeCustomTrack(moved)!)).toBe(roadKey(moved))
     })
 
     it('takes a split\'s branch, and every branch off it, away with it', () => {

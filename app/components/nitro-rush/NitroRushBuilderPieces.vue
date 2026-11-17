@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SECTIONS, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { flippedId, SECTIONS, type SectionId } from '#shared/utils/nitro-rush/custom'
 
 /** The course's sections in driving order; the selected one is where new sections go in after. Drag a grip to move a section. */
 const props = defineProps<{
@@ -10,7 +10,7 @@ const props = defineProps<{
     /** What the row before the first section stands for: where the road starts, or where a branch forks off. */
     startLabel: string
 }>()
-const emit = defineEmits<{ select: [i: number], move: [from: number, to: number], remove: [i: number] }>()
+const emit = defineEmits<{ select: [i: number], move: [from: number, to: number], flip: [i: number], remove: [i: number] }>()
 
 /** Within this of the list's top or bottom edge, a drag scrolls it. */
 const EDGE_PX = 28
@@ -112,6 +112,9 @@ const dropAfterLast = (i: number) => !!drag.value && i === props.sections.length
         </button>
         <button class="nr-piece-tool" :disabled="i === sections.length - 1" aria-label="Move later" @click="$emit('move', i, i + 1)">
           <UIcon name="i-lucide-arrow-down" class="size-3.5" />
+        </button>
+        <button v-if="flippedId(id)" class="nr-piece-tool" aria-label="Flip" title="Flip" @click="$emit('flip', i)">
+          <UIcon name="i-lucide-flip-horizontal-2" class="size-3.5" />
         </button>
         <button class="nr-piece-tool is-danger" aria-label="Remove section" @click="$emit('remove', i)">
           <UIcon name="i-lucide-trash-2" class="size-3.5" />

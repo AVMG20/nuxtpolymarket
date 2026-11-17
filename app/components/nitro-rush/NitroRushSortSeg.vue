@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TrackSort } from '~/utils/nitro-rush/community'
+import { TRACK_SORTS, type TrackSort } from '~/utils/nitro-rush/community'
 
 /** The order a course list shows in; each list names its own order. */
 defineProps<{
@@ -9,13 +9,12 @@ defineProps<{
 const sort = defineModel<TrackSort>({ required: true })
 
 const label = (id: TrackSort, listed: string) => id === 'listed' ? listed : id === 'top' ? 'TOP' : 'POPULAR'
-const SORTS: readonly TrackSort[] = ['listed', 'top', 'popular']
 </script>
 
 <template>
   <div class="nr-seg" role="radiogroup" aria-label="Sort tracks">
     <button
-      v-for="s in SORTS"
+      v-for="s in TRACK_SORTS"
       :key="s"
       class="nr-seg-btn"
       :class="{ 'is-active': sort === s }"

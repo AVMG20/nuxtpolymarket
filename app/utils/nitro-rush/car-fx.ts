@@ -114,7 +114,8 @@ export class CarEffects {
 
     /** Sparks where the car meets the wall, and a shockwave on a hard hit. */
     wallHit(s: CarState, k: number, hard: boolean) {
-        const side = Math.sign(s.proj.lateral)
+        // On a field the wall can be anywhere round the car, so the sparks fly from its middle.
+        const side = s.proj.field >= 0 ? 0 : Math.sign(s.proj.lateral)
         const cx = s.x - s.proj.tz * side * 1.1
         const cz = s.z + s.proj.tx * side * 1.1
         this.sparks.emit(cx, s.proj.y + 0.4, cz, Math.round(10 + k * 50), {

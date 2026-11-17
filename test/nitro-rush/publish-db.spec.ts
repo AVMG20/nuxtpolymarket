@@ -6,7 +6,9 @@ import { nitroRushPlays, nitroRushTracks } from '#server/database/schema'
 import { nrGhost, nrLeaderboard, nrRecordGhost, recordNrPlay, saveNrGhost, submitNrLap } from '#server/utils/nitro-rush'
 import { nrPublishedTracks, nrTrackDef, publishNrTrack, unpublishNrTrack } from '#server/utils/nitro-rush-tracks'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount } from '#shared/utils/nitro-rush/ghost'
-import { MAX_CUSTOM_TRACKS, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { MAX_CUSTOM_TRACKS, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
+import { publishedCourse } from '../../app/utils/nitro-rush/community'
 import { LONG_RECTANGLE, publishLap, RECTANGLE } from './bot-lap'
 
 const tag = Date.now().toString(36)
@@ -210,6 +212,22 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         } finally {
             await db.delete(nitroRushTracks).where(sql`${nitroRushTracks.id} like ${`pub-play-filler-%-${tag}`}`)
         }
+    })
+
+    it('stores a course\'s fields and serves them back', async () => {
+        const sections: SectionId[] = RECTANGLE.map((s, i) => i === 4 ? 'field' : s)
+        const fields: CustomField[] = [{ at: { branch: 0, at: 4 }, width: 40, length: 100, entry: 1, exit: { edge: 'exit', tile: 1 }, tiles: [{ col: 0, row: 2, kind: 'pillar' }] }]
+        const c: CustomTrack = { ...course('field', sections), fields }
+        const id = await publishNrTrack(H, c, publishLap(true, sections, fields))
+        expect((await nrTrackDef(id))?.fields?.[0]?.plan.tiles).toEqual(fields[0]!.tiles)
+        const row = (await nrPublishedTracks(H)).mine.find(t => t.id === id)!
+        expect(row.fields).toEqual(fields)
+        expect(publishedCourse(row).fields).toEqual(fields)
+        // The same road unpublished and published again finds its board; a moved item makes a new one.
+        await unpublishNrTrack(H, c.id)
+        expect(await publishNrTrack(H, c)).toBe(id)
+        const moved = { ...c, fields: [{ ...fields[0]!, tiles: [{ col: 1, row: 2, kind: 'pillar' as const }] }] }
+        await expect(publishNrTrack(H, moved)).rejects.toMatchObject({ statusCode: 400 })
     })
 
     it('caps how many tracks one player may publish', async () => {

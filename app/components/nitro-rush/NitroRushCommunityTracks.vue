@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { sortTracks, type TrackSort } from '~/utils/nitro-rush/community'
+import { rememberedSort, rememberSort, sortTracks, type TrackSort } from '~/utils/nitro-rush/community'
 import type { CommunityTrackEntry } from '~/utils/nitro-rush/types'
 import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
@@ -19,7 +19,9 @@ const props = defineProps<{
 }>()
 defineEmits<{ select: [id: string] }>()
 
-const sort = ref<TrackSort>('listed')
+// Read in setup: the game only renders on the client, like the builder's remembered view.
+const sort = ref<TrackSort>(rememberedSort('community'))
+watch(sort, s => rememberSort('community', s))
 const sorted = shallowRef<CommunityTrackEntry[]>([])
 // Ranked when the list or the sort changes, not on every vote, so a card doesn't jump away from the tap.
 watch([() => props.tracks, sort], ([tracks, by]) => {

@@ -8,7 +8,8 @@ export const STORAGE_KEYS = {
     ghost: 'nitro-rush:ghost',
     track: 'nitro-rush:track',
     customTracks: 'nitro-rush:custom-tracks',
-    builderView: 'nitro-rush:builder-view'
+    builderView: 'nitro-rush:builder-view',
+    sort: 'nitro-rush:sort'
 } as const
 
 // Bests and ghosts from before a board wipe: kept, they'd block slower new laps from counting and re-upload the old ghost.

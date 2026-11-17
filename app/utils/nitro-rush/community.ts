@@ -1,4 +1,5 @@
 import type { CustomTrackEntry } from './types'
+import { readStorage, STORAGE_KEYS, writeStorage } from './storage'
 import type { NrPublishedTrack, NrTrackVotes, NrVote } from '#server/utils/nitro-rush-tracks'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
 import { byPlays, NO_PLAYS, PLAY_WINDOW_DAYS, type TrackPlays } from '#shared/utils/nitro-rush/popularity'
@@ -9,6 +10,7 @@ import type { TrackDef } from '#shared/utils/nitro-rush/track'
 export function publishedCourse(p: NrPublishedTrack, id = p.id): CustomTrack {
     const track: CustomTrack = { id, name: p.name, closed: p.closed, sections: p.sections }
     if (p.branches?.length) track.branches = p.branches
+    if (p.fields?.length) track.fields = p.fields
     return track
 }
 
@@ -47,6 +49,20 @@ export function ownTrackEntries(
 
 /** A course list's own order (newest first, or by series), or ranked by votes or by how much it is raced. */
 export type TrackSort = 'listed' | 'top' | 'popular'
+export const TRACK_SORTS: readonly TrackSort[] = ['listed', 'top', 'popular']
+
+/** The lists that each remember their own sort. */
+export type SortedList = 'builtIn' | 'community'
+
+/** The sort this browser last picked for `list`; anything stale or unknown opens in the list's own order. */
+export function rememberedSort(list: SortedList): TrackSort {
+    const stored = readStorage<Partial<Record<SortedList, unknown>>>(STORAGE_KEYS.sort, {})[list]
+    return TRACK_SORTS.find(s => s === stored) ?? 'listed'
+}
+
+export function rememberSort(list: SortedList, sort: TrackSort) {
+    writeStorage(STORAGE_KEYS.sort, { ...readStorage(STORAGE_KEYS.sort, {}), [list]: sort })
+}
 
 /** Net votes, which the chips show and TOP sorts by. */
 export const voteScore = (v: NrTrackVotes) => v.up - v.down

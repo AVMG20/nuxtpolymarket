@@ -61,6 +61,8 @@ export interface LineDef {
     /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
     gaps?: [number, number][]
     boosts?: BoostPadDef[]
+    /** Point ranges, [from, to), that cross a field, and which of the course's fields. */
+    onFields?: { range: [number, number], field: number }[]
 }
 
 /** Which part of the road's width a boost pad covers. */
@@ -96,6 +98,8 @@ export interface Projection {
     y: number
     /** Rise per metre in the driving direction. */
     grade: number
+    /** The course's field the car is on, -1 on road; on one, `branch` and `s` are the nearest spot on a road across it. */
+    field: number
 }
 
 /** The road at a distance: its centre, and the unit tangent, right and up of its surface. */
@@ -150,7 +154,7 @@ export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU
 /** The heading that faces along (dx, dz); heading 0 faces -z. */
 export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 
-export const newProjection = (): Projection => ({ branch: 0, seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 })
+export const newProjection = (): Projection => ({ branch: 0, seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0, field: -1 })
 export const newTrackPoint = (): TrackPoint => ({ x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 })
 export const newTrackFrame = (): TrackFrame => ({ x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: -1, rx: 1, ry: 0, rz: 0, ux: 0, uy: 1, uz: 0 })
 
@@ -200,6 +204,8 @@ export class TrackLine {
     /** Distance ranges driven on rails, and with no road. */
     readonly rails: readonly (readonly [number, number])[]
     readonly gaps: readonly (readonly [number, number])[]
+    /** Distance ranges across a field, which draws its own ground and walls. */
+    readonly fielded: readonly (readonly [number, number])[]
     readonly boostPads: readonly BoostPad[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
@@ -251,6 +257,7 @@ export class TrackLine {
         }
         this.rails = toDistance(this.cum, def.rails)
         this.gaps = toDistance(this.cum, def.gaps)
+        this.fielded = (def.onFields ?? []).map(({ range: [a, b] }) => [this.cum[a]!, this.cum[Math.min(b, n)]!] as const)
         this.boostPads = (def.boosts ?? []).map(({ range: [a, b], lane }) => ({
             from: this.cum[a]!,
             to: this.cum[b]!,
@@ -374,10 +381,20 @@ export class TrackLine {
         return this.plainAt(i) && this.plainAt((i + 1) % this.n) && !this.gapAt(s)
     }
 
-    /** Road at `s` that stands on pillars when raised: no rails or gap, though it may bank. */
+    /** Plain road with walls of its own at `s`, not across a field: where scenery can stand beside it. */
+    walledRoadAt(s: number) {
+        return this.plainRoadAt(s) && !this.fieldedAt(s)
+    }
+
+    /** Road at `s` that stands on pillars when raised: no rails, gap or field, though it may bank. */
     solidRoadAt(s: number) {
         const i = this.segmentAt(s)
-        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s)
+        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s) && !this.fieldedAt(s)
+    }
+
+    /** True across a field, where the road has no surface or walls of its own. */
+    fieldedAt(s: number) {
+        return this.fielded.length > 0 && within(this.fielded, this.wrapS(s))
     }
 
     /** Whether a car `lateral` across the road at `s` is on a boost pad. */
@@ -539,6 +556,7 @@ export class TrackLine {
         const s = this.cum[i]! + len * t
         if (this.gapAt(s)) return top
         out.branch = this.branch
+        out.field = -1
         out.seg = i
         out.s = s
         out.tx = tx
@@ -636,15 +654,18 @@ export class TrackLine {
         return distance <= this.walls[p.seg]! + 4
     }
 
-    /** The nearest point on the whole line, into `out`, `y` weighing height against stacked roads; returns its score. */
-    projectAll(x: number, z: number, out: Projection, y = Number.NaN): number {
+    /**
+     * The nearest point on the whole line, into `out`, `y` weighing height against stacked roads; returns its score.
+     * With `runOn` false an open line's ends stop where the road does, so a spot ahead of a stretch run on can't outscore road beside it.
+     */
+    projectAll(x: number, z: number, out: Projection, y = Number.NaN, runOn = true): number {
         let best = Infinity
-        for (let i = 0; i < this.segments; i++) best = this.scoreSegment(i, x, z, y, best, out)
+        for (let i = 0; i < this.segments; i++) best = this.scoreSegment(i, x, z, y, best, out, runOn)
         return best
     }
 
     /** Segment `i`'s nearest point to (x, z), written to `out` when it scores under `best`; returns the lower score. A finite `y` adds height. */
-    scoreSegment(i: number, x: number, z: number, y: number, best: number, out: Projection): number {
+    scoreSegment(i: number, x: number, z: number, y: number, best: number, out: Projection, runOn = true): number {
         const j = (i + 1) % this.n
         const last = this.segments - 1
         const ax = this.xs[i]!
@@ -652,8 +673,8 @@ export class TrackLine {
         const dx = this.xs[j]! - ax
         const dz = this.zs[j]! - az
         const len2 = dx * dx + dz * dz || 1
-        const lo = !this.closed && i === 0 ? -Infinity : 0
-        const hi = !this.closed && i === last ? Infinity : 1
+        const lo = runOn && !this.closed && i === 0 ? -Infinity : 0
+        const hi = runOn && !this.closed && i === last ? Infinity : 1
         const t = Math.min(hi, Math.max(lo, ((x - ax) * dx + (z - az) * dz) / len2))
         const cx = ax + dx * t
         const cz = az + dz * t
@@ -664,6 +685,7 @@ export class TrackLine {
         if (!(d2 < best)) return best
         const len = Math.sqrt(len2)
         out.branch = this.branch
+        out.field = -1
         out.seg = i
         out.s = this.cum[i]! + len * t
         out.tx = dx / len

@@ -3,6 +3,7 @@ import type * as THREE from 'three'
 import { minimapPlan } from '../../app/utils/nitro-rush/minimap'
 import { ribbon, roadClearance, roadLeft, roadRight, sweep } from '../../app/utils/nitro-rush/road-geometry'
 import { bridgeSprintDef, forkLoopDef, forkSprintDef, Path } from './fork-courses'
+import { compileCustomTrack } from '#shared/utils/nitro-rush/custom'
 import { trackClearanceFault } from '#shared/utils/nitro-rush/road-checks'
 import { Track, TrackLine, type TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -99,6 +100,24 @@ describe('Nitro Rush scenery round a line\'s ends', () => {
         const line = new TrackLine({ points: [[0, 0], [0, -50], [0, -100]], halfWidth: 9, wallOffset: 10.6, closed: false, runUp: 0, runOff: 0 })
         expect(roadClearance([line], 0, -160)).toBeCloseTo(60 - 10.6)
         expect(roadClearance([line], 30, -50)).toBeCloseTo(30 - 10.6)
+    })
+
+    it('counts road an open line\'s last stretch points back at', () => {
+        // A Y split and flipped Y join with the finish straight heading back at the start, as a player built it.
+        const { def } = compileCustomTrack({
+            id: 'custom-heart', name: 'Heart', closed: false,
+            sections: ['straight-20', 'start', 'split-y', 'straight-60', 'straight-20', 'straight-20', 'straight-60', 'right-medium', 'straight-20', 'right-medium', 'straight-20', 'join-y-flip', 'finish', 'straight-60'],
+            branches: [{ sections: ['straight-60', 'straight-60', 'straight-20', 'straight-20', 'left-medium', 'straight-20', 'left-medium'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 11 } }]
+        })
+        const course = new Track(def!)
+        for (const line of course.branches) {
+            for (let s = 0; s <= line.length; s += 2) {
+                const p = line.pointAt(s)
+                for (const lat of [-line.halfWidthAt(s), 0, line.halfWidthAt(s)]) {
+                    expect(roadClearance(course.branches, p.x - p.tz * lat, p.z + p.tx * lat)).toBeLessThan(0)
+                }
+            }
+        }
     })
 })
 

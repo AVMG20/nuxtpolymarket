@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { FACADE_TILE, facadeTextures, type FacadeKind } from './textures'
-import { roadClearance } from './road-geometry'
+import { fieldClearance, roadClearance } from './road-geometry'
 import type { WorldKit } from './world-kit'
 
 /** A building's walls (facade texture tiled at a fixed scale) and its roof, as separate geometries for merging. */
@@ -68,7 +68,7 @@ export function buildCity({ track, own, add, instanced }: WorldKit) {
             const x = gx * CELL + (Math.random() - 0.5) * 10
             const z = gz * CELL + (Math.random() - 0.5) * 10
             const clear = roadClearance(track.branches, x, z)
-            if (clear < 42 || clear > 330) continue
+            if (clear < 42 || clear > 330 || fieldClearance(track.fields, x, z) < 42) continue
             const w = 14 + Math.random() * 14
             const d = 14 + Math.random() * 14
             const h = 12 + Math.random() * Math.random() * 110
