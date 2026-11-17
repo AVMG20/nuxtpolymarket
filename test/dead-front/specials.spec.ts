@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { DF_POINTS } from '#shared/utils/dead-front/constants'
-import { DF_ENEMIES, dfCrawlGeometry, dfRoundZombieCount, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
+import { DF_ENEMIES, dfCrawlGeometry, dfRoundZombieCount, dfZombieBaseHealth, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
 import { DF_MAP, dfInteractables } from '#shared/utils/dead-front/map'
 import type { DfMapDef } from '#shared/utils/dead-front/map'
 import { dfMapTraps } from '#shared/utils/dead-front/map-traps'
 import { dfBodyFits, dfBuildCollision } from '#shared/utils/dead-front/physics'
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import {
-    DF_STREAK, DF_TRAP, dfGasRoundCount, dfGasSchedule, dfInTrap, dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick
+    DF_STREAK, DF_TRAP, DF_WARLORD, dfGasRoundCount, dfGasSchedule, dfInTrap, dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick,
+    dfWarlordHealth, dfWarlordHit, dfWarlordSchedule
 } from '#shared/utils/dead-front/specials'
 import type { DfTrapRun } from '#shared/utils/dead-front/specials'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
@@ -248,5 +249,107 @@ describe('kill streaks', () => {
         expect(sim.zombies.includes(a) || sim.zombies.includes(b)).toBe(false)
         expect(events.filter(e => e.k === 'streak')).toEqual([{ k: 'streak', p: 0, kind: 'double', n: 2, bonus: 50 }])
         expect(p.points - pts).toBe(DF_POINTS.killBody * 2 + 50)
+    })
+})
+
+describe('the iron warlord', () => {
+    it('schedule: milestone rounds, pushed past a gas round, catching up after a jump', () => {
+        expect(dfWarlordSchedule(9, 10, false)).toEqual({ boss: false, next: 10 })
+        expect(dfWarlordSchedule(10, 10, false)).toEqual({ boss: true, next: 10 + DF_WARLORD.every })
+        // the gas takes the round: the warlord comes the round after
+        expect(dfWarlordSchedule(10, 10, true)).toEqual({ boss: false, next: 11 })
+        expect(dfWarlordSchedule(11, 11, false)).toEqual({ boss: true, next: 11 + DF_WARLORD.every })
+        // jumped from round 3 to 25
+        expect(dfWarlordSchedule(25, 10, false)).toEqual({ boss: false, next: 26 })
+    })
+
+    it('health scales with the squad and one hit takes at most a slice', () => {
+        expect(dfWarlordHealth(1000, 1)).toBe(1000 * DF_WARLORD.healthMult)
+        expect(dfWarlordHealth(1000, 3)).toBe(Math.round(1000 * DF_WARLORD.healthMult * (1 + 2 * DF_WARLORD.perPlayer)))
+        expect(dfWarlordHit(50, 1000)).toBe(50)
+        expect(dfWarlordHit(1e9, 1000)).toBe(1000 * DF_WARLORD.maxHitShare)
+    })
+
+    it('joins its round, survives insta-kill and the nuke, enrages, and pays out when it falls', () => {
+        const { sim } = makeSim()
+        sim.dev(0, { k: 'god', on: true })
+        sim.dev(0, { k: 'special', what: 'boss' })
+        sim.dev(0, { k: 'round', round: 3 })
+        expect(sim.snapshot().world.warlord).toBe(true)
+        let boss = sim.zombies.find(z => z.boss)
+        for (let i = 0; i < 4000 && !boss; i++) {
+            sim.step(0.05)
+            boss = sim.zombies.find(z => z.boss)
+        }
+        expect(boss).toBeDefined()
+        const z = boss!
+        expect(z.type).toBe('brute')
+        expect(z.maxHp).toBe(dfWarlordHealth(Math.round(dfZombieBaseHealth(3) * DF_ENEMIES.brute.healthMult), 1))
+        expect(sim.zombies.filter(x => x.boss)).toHaveLength(1)
+        const snapZ = sim.snapshot().zombies.find(x => x.id === z.id)!
+        expect(snapZ.boss).toBe(true)
+
+        // insta-kill and a nuke: everything else drops, the warlord walks on
+        const p = sim.player(0)!
+        sim.dropPowerup('insta', { ...p.pos })
+        sim.step(0.05)
+        sim.dropPowerup('nuke', { ...p.pos })
+        sim.step(0.05)
+        expect(sim.zombies).toEqual([z])
+        expect(z.hp).toBeGreaterThan(0)
+
+        // stand it in front of the player, inside, helmet off
+        z.state = 'stagger'
+        z.timer = 5
+        z.inside = true
+        z.helmet = 0
+        z.pos = { x: p.pos.x, y: p.pos.y, z: p.pos.z - 4 }
+        z.hp = z.maxHp * DF_WARLORD.enrageAt + 1
+        sim.snapshot()
+        const origin = { x: p.pos.x, y: p.pos.y + 1.1, z: p.pos.z }
+        sim.fire(0, { origin, dirs: [{ x: 0, y: 0, z: -1 }], hits: [{ z: z.id, zone: 'body', dist: 4 }] })
+        sim.step(0.05)
+        const ev1 = sim.snapshot().events
+        expect(ev1.some(e => e.k === 'boss' && e.what === 'enrage')).toBe(true)
+        expect(z.enraged).toBe(true)
+        expect(z.gait).toBe('sprint')
+
+        // the last of it: a kill pays everyone the bounty and drops a Max Ammo
+        z.hp = 1
+        z.state = 'stagger'
+        z.timer = 5
+        const pts = p.points
+        sim.step(0.5)
+        sim.fire(0, { origin, dirs: [{ x: 0, y: 0, z: -1 }], hits: [{ z: z.id, zone: 'body', dist: 4 }] })
+        sim.step(0.05)
+        const ev2 = sim.snapshot().events
+        expect(ev2.some(e => e.k === 'boss' && e.what === 'kill' && e.p === 0)).toBe(true)
+        expect(sim.zombies.includes(z)).toBe(false)
+        expect(p.points - pts).toBeGreaterThanOrEqual(DF_WARLORD.bounty + DF_POINTS.killBody)
+        expect(sim.powerups.some(pu => pu.kind === 'maxammo')).toBe(true)
+        expect(sim.snapshot().world.warlord).toBeUndefined()
+    })
+
+    it('a recycled warlord comes back as hurt as it left', () => {
+        const { sim } = makeSim()
+        sim.dev(0, { k: 'god', on: true })
+        sim.dev(0, { k: 'special', what: 'boss' })
+        sim.dev(0, { k: 'round', round: 3 })
+        let boss = sim.zombies.find(z => z.boss)
+        for (let i = 0; i < 4000 && !boss; i++) {
+            sim.step(0.05)
+            boss = sim.zombies.find(z => z.boss)
+        }
+        const hp = Math.round(boss!.maxHp * 0.3)
+        boss!.hp = hp
+        boss!.pos.y = -100 // fell out of the world
+        let back = sim.zombies.find(z => z.boss && z !== boss)
+        for (let i = 0; i < 4000 && !back; i++) {
+            sim.step(0.05)
+            back = sim.zombies.find(z => z.boss && z !== boss)
+        }
+        expect(back).toBeDefined()
+        expect(back!.hp).toBe(hp)
+        expect(sim.zombies.filter(z => z.boss)).toHaveLength(1)
     })
 })

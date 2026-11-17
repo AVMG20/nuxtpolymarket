@@ -30,6 +30,7 @@ import { DfArsenal } from './salvage'
 import { dfBoxKitRoll, dfBoxRarityRoll, dfClampRarity, dfRarityApplies } from '#shared/utils/dead-front/rarity'
 import type { DfRarity } from '#shared/utils/dead-front/rarity'
 import { DfSpecials } from './specials'
+import { DF_WARLORD, dfWarlordHit } from '#shared/utils/dead-front/specials'
 import {
     dfBoxChoices, dfBoxRoll, dfBulletDamage, dfClaimSane, dfEggAdvance, dfEggTick, dfKillClaimHonoured, dfKillPoints,
     dfRayPointApproach, dfScalePoints
@@ -1472,6 +1473,8 @@ export class DfMatchSim {
     }
 
     private pickType(): DfEnemyType {
+        const forced = this.specials.forcedType(this.spawnedThisRound)
+        if (forced) return forced
         if (this.specials.gas) return 'ghoul'
         if (this.bruteAt.includes(this.spawnedThisRound)) return 'brute'
         const chances = dfSpecialChances(this.round)
@@ -1849,9 +1852,9 @@ export class DfMatchSim {
         z.anim = 'sprint'
         const blocked = this.dashStep(z, dt, targets, C.damage, false)
         if (blocked || this.time >= z.dash!.until) {
-            z.chargeReadyAt = this.time + C.cooldown * (0.85 + randomFloat() * 0.3)
-            // slamming into a wall winds it for longer
-            this.endDash(z, C.recover * (blocked ? 1.4 : 1))
+            z.chargeReadyAt = this.time + (z.boss ? this.specials.bossChargeCooldown(z) : C.cooldown) * (0.85 + randomFloat() * 0.3)
+            // slamming into a wall winds it for longer; the warlord gets its breath back sooner
+            this.endDash(z, C.recover * (blocked ? 1.4 : 1) * (z.boss ? DF_WARLORD.recoverMult : 1))
         }
     }
 
@@ -2355,6 +2358,7 @@ export class DfMatchSim {
         const idx = this.zombies.indexOf(z)
         if (idx < 0) return
         this.zombies.splice(idx, 1)
+        this.specials.onRecycle(z)
         this.toSpawn++
         this.spawnTimer = Math.min(this.spawnTimer, 0.5)
     }
@@ -2539,7 +2543,9 @@ export class DfMatchSim {
     private damageZombie(z: SimZombie, p: SimPlayer | null, dmg: number, zone: DfHitZone, src: DamageSource): boolean {
         if (z.hp <= 0 || !(dmg > 0)) return false
         const at = src.at ?? zChest(z)
-        if (this.insta > 0) {
+        // the warlord shrugs off the insta-kill and never loses more than a slice to one hit
+        if (z.boss) dmg = dfWarlordHit(dmg, z.maxHp)
+        if (this.insta > 0 && !z.boss) {
             z.hp = 0
         } else if (zone === 'head' && z.helmet > 0 && !src.explosive) {
             // The iron helmet soaks head hits until it breaks.
@@ -2558,6 +2564,7 @@ export class DfMatchSim {
         }
         if (z.hp > 0) {
             this.specials.onWound(z, dmg, zone, src.explosive === true)
+            this.specials.onBossWound(z)
             if (p) {
                 this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
                 if (src.hitPoints !== false) this.addPoints(p, DF_POINTS.hit)
@@ -2660,7 +2667,8 @@ export class DfMatchSim {
                 break
             case 'nuke':
                 this.emit({ k: 'explode', pos: rv(pu.pos), radius: 60, kind: 'nuke' })
-                for (const z of [...this.zombies]) this.killZombie(z, p, 'body', { weapon: 'grenade', credit: null }, { noPoints: true, noDrop: true })
+                // the warlord walks through it
+                for (const z of [...this.zombies]) if (!z.boss) this.killZombie(z, p, 'body', { weapon: 'grenade', credit: null }, { noPoints: true, noDrop: true })
                 for (const q of this.players) if (q.life !== 'dead') this.addPoints(q, DF_POINTS.nuke)
                 break
             case 'carpenter':

@@ -131,6 +131,10 @@ export interface DfZombieSnap {
     crawl?: boolean
     /** A gas-masked ghoul of a gas round. */
     masked?: boolean
+    /** The Iron Warlord, a milestone round's champion brute (specials.ts `DF_WARLORD`). */
+    boss?: boolean
+    /** The warlord is below half health and running. */
+    enraged?: boolean
 }
 
 /**
@@ -238,6 +242,8 @@ export interface DfWorldSnap {
     insta: number
     /** A special round in progress (mustard gas), with the thickest pockets of gas. */
     special?: DfSpecialSnap
+    /** A warlord round whose warlord hasn't fallen yet (specials.ts `DF_WARLORD`). */
+    warlord?: boolean
     /** Electric traps (map.traps). */
     traps?: DfTrapSnap[]
     /** Salvage, workbench gear, sentries and support (salvage.ts, support.ts). */
@@ -294,6 +300,8 @@ export type DfEvent =
     | { k: 'chat', name: string, text: string }
     /** A multi-kill tier reached or a headshot streak milestone (`n` kills), worth `bonus` points. */
     | { k: 'streak', p: number, kind: 'double' | 'triple' | 'multi' | 'massacre' | 'head', n: number, bonus: number }
+    /** The Iron Warlord joins the round, enrages below half health, or falls (`p` the killer, -1 for none). */
+    | { k: 'boss', what: 'spawn' | 'enrage' | 'kill', z: number, pos: Vec3, p?: number }
     /** Salvage, crafting, sentries, support, supply crates and round challenges (salvage.ts). */
     | DfArsenalEvent
 
@@ -428,7 +436,7 @@ export type DfDevOp
          * zombie's legs, `traps` resets the trap cooldowns, `spawn` drops a zombie
          * (`type`) a few metres in front of you.
          */
-        | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn', type?: DfEnemyType }
+        | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn' | 'boss', type?: DfEnemyType }
         /** Arsenal: `salvage` fills your salvage, `support` hands you three support items, `crate` drops a supply crate (`item`, else random) at your feet. */
         | { k: 'arsenal', what: 'salvage' | 'support' | 'crate', item?: string }
 
