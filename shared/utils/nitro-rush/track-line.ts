@@ -654,15 +654,18 @@ export class TrackLine {
         return distance <= this.walls[p.seg]! + 4
     }
 
-    /** The nearest point on the whole line, into `out`, `y` weighing height against stacked roads; returns its score. */
-    projectAll(x: number, z: number, out: Projection, y = Number.NaN): number {
+    /**
+     * The nearest point on the whole line, into `out`, `y` weighing height against stacked roads; returns its score.
+     * With `runOn` false an open line's ends stop where the road does, so a spot ahead of a stretch run on can't outscore road beside it.
+     */
+    projectAll(x: number, z: number, out: Projection, y = Number.NaN, runOn = true): number {
         let best = Infinity
-        for (let i = 0; i < this.segments; i++) best = this.scoreSegment(i, x, z, y, best, out)
+        for (let i = 0; i < this.segments; i++) best = this.scoreSegment(i, x, z, y, best, out, runOn)
         return best
     }
 
     /** Segment `i`'s nearest point to (x, z), written to `out` when it scores under `best`; returns the lower score. A finite `y` adds height. */
-    scoreSegment(i: number, x: number, z: number, y: number, best: number, out: Projection): number {
+    scoreSegment(i: number, x: number, z: number, y: number, best: number, out: Projection, runOn = true): number {
         const j = (i + 1) % this.n
         const last = this.segments - 1
         const ax = this.xs[i]!
@@ -670,8 +673,8 @@ export class TrackLine {
         const dx = this.xs[j]! - ax
         const dz = this.zs[j]! - az
         const len2 = dx * dx + dz * dz || 1
-        const lo = !this.closed && i === 0 ? -Infinity : 0
-        const hi = !this.closed && i === last ? Infinity : 1
+        const lo = runOn && !this.closed && i === 0 ? -Infinity : 0
+        const hi = runOn && !this.closed && i === last ? Infinity : 1
         const t = Math.min(hi, Math.max(lo, ((x - ax) * dx + (z - az) * dz) / len2))
         const cx = ax + dx * t
         const cz = az + dz * t

@@ -258,14 +258,20 @@ export function fieldClearance(fields: readonly CourseField[], x: number, z: num
 
 const clearanceScratch = newProjection()
 
+/** Whether the nearest point found, `d2` away on the plan, is point `i` itself; by geometry, as `s` can fall a rounding short of the length. */
+function atPoint(line: TrackLine, i: number, x: number, z: number, d2: number) {
+    return Math.abs((x - line.xs[i]!) ** 2 + (z - line.zs[i]!) ** 2 - d2) <= 1e-9 * Math.max(1, d2)
+}
+
 /** Metres on the ground from (x, z) out past the nearest road's wall; an open line stops at its ends rather than running on past them. */
 export function roadClearance(lines: readonly TrackLine[], x: number, z: number) {
     const p = clearanceScratch
     let least = Infinity
     for (const line of lines) {
-        line.projectAll(x, z, p)
-        const past = line.closed ? 0 : Math.max(0, -p.s, p.s - line.length)
-        least = Math.min(least, Math.hypot(p.lateral, past) - line.wallAt(Math.min(Math.max(p.s, 0), line.length)))
+        const d2 = line.projectAll(x, z, p, Number.NaN, false)
+        // Off an end, the distance to it; elsewhere straight across, which the city's spacing was set by.
+        const end = !line.closed && ((p.seg === 0 && atPoint(line, 0, x, z, d2)) || (p.seg === line.segments - 1 && atPoint(line, line.segments, x, z, d2)))
+        least = Math.min(least, (end ? Math.sqrt(d2) : Math.abs(p.lateral)) - line.wallAt(p.s))
     }
     return least
 }
