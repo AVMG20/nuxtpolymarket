@@ -91,7 +91,7 @@
         <!-- the workbench shop, centred while it is open -->
         <Transition name="df-fade">
             <div v-if="shopOpen && hud.arsenal.bench" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
-                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" />
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" @close="emit('closeBench')" />
             </div>
         </Transition>
         <!-- placing gear / calling in support, and short arsenal notices -->
@@ -244,6 +244,10 @@ import DfHudRound from './DfHudRound.vue'
 import DfHudScoreboard from './DfHudScoreboard.vue'
 
 const props = defineProps<{ hud: DfHudState }>()
+const emit = defineEmits<{
+    /** The workbench's close button. */
+    closeBench: []
+}>()
 
 const RING = 24
 

@@ -2,12 +2,11 @@
     <div
         ref="rootEl"
         class="df-game df-theme fixed inset-0 overflow-hidden bg-black select-none"
-        :class="{ 'cursor-none': hud.locked || hud.benchEscaped }"
-        @click="hud.benchEscaped && play()"
+        :class="{ 'cursor-none': hud.locked || (hud.benchEscaped && !hud.arsenal.bench) }"
     >
         <div ref="canvasEl" class="absolute inset-0" />
 
-        <DfHud :hud="hud" />
+        <DfHud :hud="hud" @close-bench="closeBench" />
 
         <!-- squad chat: T or Enter to talk, Enter sends, Escape drops it -->
         <form v-if="chatOpen" class="df-chat-box absolute" @submit.prevent="sendChat">
@@ -138,6 +137,10 @@ function play(): void {
     engine?.lock()
 }
 
+function closeBench(): void {
+    engine?.closeBench()
+}
+
 function leave(): void {
     engine?.unlock()
     emit('leave')
@@ -174,8 +177,9 @@ function onBlur(): void {
 
 function onKeyDown(e: KeyboardEvent): void {
     // (an Escape that closed the chat box is spent)
+    // (nor is the Escape that closed the workbench, which can arrive after the pointer lock went)
     if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && hud.benchEscaped && !hud.locked) {
-        engine?.pause()
+        engine?.pause(true)
         return
     }
     if (chatOpen.value || (!hud.locked && !hud.benchEscaped) || e.repeat) return

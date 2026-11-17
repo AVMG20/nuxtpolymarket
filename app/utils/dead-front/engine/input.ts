@@ -79,7 +79,9 @@ export class DfInput {
         on(window, 'mousedown', (e: MouseEvent) => {
             this.onGesture?.()
             // a click while typing only closes the chat box: it doesn't shoot
-            if (!this.locked || this.typing) return
+            if ((!this.locked && !this.unlockedPlay) || this.typing) return
+            // a click is a user gesture: the moment to take the pointer back
+            if (!this.locked) this.relock()
             const code = `Mouse${e.button}`
             const fresh = !this.down.has(code)
             if (fresh) this.pressedSet.add(code)
@@ -92,7 +94,7 @@ export class DfInput {
             this.down.delete(code)
         })
         on(window, 'wheel', (e: WheelEvent) => {
-            if (!this.locked || this.typing || Math.abs(e.deltaY) < 1) return
+            if ((!this.locked && !this.unlockedPlay) || this.typing || Math.abs(e.deltaY) < 1) return
             // a notch with smooth scrolling, or a trackpad flick and its inertia, fires a burst
             // of events: count the burst once so it moves one weapon, not back and forth
             const fresh = e.timeStamp - this.wheelAt > WHEEL_GESTURE_GAP_MS
@@ -108,7 +110,7 @@ export class DfInput {
             }
         }, { passive: true })
         on(window, 'contextmenu', (e: Event) => {
-            if (this.locked) e.preventDefault()
+            if (this.locked || this.unlockedPlay) e.preventDefault()
         })
         on(window, 'blur', () => this.clear())
         on(document, 'pointerlockchange', () => {

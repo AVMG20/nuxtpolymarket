@@ -15,15 +15,17 @@ import type { DfNet } from '../net'
 import { DF_ARSENAL_SND, registerDfArsenalSounds } from './arsenal-sounds'
 import { DF_BENCH_COLS, DF_BENCH_PICKS, dfBenchItem, dfBenchList, dfCratePrompt, dfHeldOf, dfKitPrompt, dfWeaponDisplayName } from './arsenal-prompt'
 import type { DfBenchPick } from './arsenal-prompt'
+import { dfBenchExit } from './bench-exit'
+import type { DfBenchClose } from './bench-exit'
 import type { DfHudState } from './hud'
 import type { DfInput } from './input'
 import type { DfPrompt } from './prompt'
 import { DF_SND } from './sounds'
 
 // The local player's side of salvage, the workbench, crafted gear, upgrade
-// kits, supply crates and support: the bench (F opens its shop: the wheel, the
-// arrows or WASD pick, hold F or the left button to make it; Esc or the right
-// button closes it), placing gear (hold Q to aim, release to place), calling in support
+// kits, supply crates and support: the bench (F opens its shop: the wheel or
+// the arrows pick, hold F or the left button to make it; a tap of F, Esc, the
+// right button, walking off or taking a hit closes it, bench-exit.ts), placing gear (hold Q to aim, release to place), calling in support
 // (hold X or 4 to mark, release to call it in), taking upgrade kits off the
 // ground, the HUD state and the callouts. The server decides; nothing here
 // changes value on its own.
@@ -49,6 +51,10 @@ export interface DfArsenalClient {
     readonly holdProgress: number
     /** The workbench shop is open: the player stands still, the wheel and keys browse it. */
     readonly shopOpen: boolean
+    /** Ms since Escape closed the shop (Infinity when it didn't). */
+    readonly sinceShopEscape: number
+    /** Closes the shop (its close button; Escape when the pointer lock went with it). */
+    closeShop(why?: DfBenchClose): void
     /** An upgrade kit on the ground in reach and in front, as a prompt (null: none). */
     prompt(me: DfPlayerSnap, world: DfWorldSnap): DfPrompt | null
     /** Keys for this frame (call while alive and acting). */
@@ -65,8 +71,6 @@ export interface DfArsenalClient {
 const HOLD = 0.6
 /** Pickups this close together (seconds) add up in one "+N" at the scrap counter. */
 const GAIN_WINDOW = 1.6
-/** Keys that close the shop (Esc lets go of the pointer lock, which closes it too). */
-const SHOP_LEAVE = ['Escape', 'Mouse2']
 
 function ringMaterial(color: number): THREE.MeshBasicMaterial {
     return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
@@ -86,6 +90,10 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
     let lastBench = ''
     let benchKey = ''
     let shop = false
+    /** When the F press now held in the shop began (null: none, or the one that opened it). */
+    let tapAt: number | null = null
+    let lastHealth = 0
+    let escapedAt = -Infinity
     let gainAt = -Infinity
     const target = new THREE.Vector3()
     const aimV = { x: 0, y: 0, z: -1 }
@@ -171,9 +179,12 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
 
     const callout = (title: string, sub: string, tone: 'gold' | 'red' | 'pale' = 'gold') => o.announce(title, sub, tone)
 
-    function closeShop(): void {
+    function closeShop(why?: DfBenchClose): void {
+        if (shop && why === 'escape') escapedAt = performance.now()
+        if (shop && why && why !== 'escape') ctx.audio.play(DF_SND.reviveTick, { volume: 0.6, rate: 0.75 })
         shop = false
         benchAt = null
+        tapAt = null
         holdProgress = 0
     }
 
@@ -196,6 +207,12 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         get shopOpen() {
             return shop
         },
+        get sinceShopEscape() {
+            return performance.now() - escapedAt
+        },
+        closeShop(why = 'button') {
+            closeShop(why)
+        },
 
         prompt(meP, world) {
             const k = nearestKit(meP, world)
@@ -206,7 +223,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
         },
 
         input(now, prompt, meP, world) {
-            // ---- the workbench: F opens its shop; pick with the wheel, the arrows or WASD, hold F or the left button to make it
+            // ---- the workbench: F opens its shop; pick with the wheel or the arrows, hold F or the left button to make it
             if (prompt?.kind === 'bench' && meP && world) {
                 if (prompt.id !== lastBench) {
                     lastBench = prompt.id
@@ -215,17 +232,31 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 if (!shop) {
                     if (input.pressed('KeyF')) {
                         shop = true
+                        // (this press opened it: letting it go is no tap)
+                        tapAt = null
+                        benchAt = null
                         ctx.audio.play(DF_SND.reviveTick, { volume: 0.8, rate: 0.9 })
                     }
-                } else if (SHOP_LEAVE.some(k => input.pressed(k))) {
-                    closeShop()
+                    lastHealth = meP.health
                 } else {
-                    // the wheel, the arrows or WASD (the player stands still while it is open)
+                    // a tap of F, Esc, the right button, a step away or a hit closes it
+                    const why = dfBenchExit({
+                        pressed: c => input.pressed(c), interactReleased: input.released('KeyF'), interactAt: tapAt, now,
+                        crafted: benchSent, health: meP.health, lastHealth
+                    })
+                    lastHealth = meP.health
+                    if (input.pressed('KeyF')) tapAt = now
+                    else if (!input.has('KeyF')) tapAt = null
+                    if (why) {
+                        closeShop(why)
+                        return
+                    }
+                    // the wheel or the arrows (the player stands still while it is open)
                     let step = input.scroll
-                    if (input.pressed('ArrowRight') || input.pressed('KeyD')) step++
-                    if (input.pressed('ArrowLeft') || input.pressed('KeyA')) step--
-                    if (input.pressed('ArrowDown') || input.pressed('KeyS')) step += DF_BENCH_COLS
-                    if (input.pressed('ArrowUp') || input.pressed('KeyW')) step -= DF_BENCH_COLS
+                    if (input.pressed('ArrowRight')) step++
+                    if (input.pressed('ArrowLeft')) step--
+                    if (input.pressed('ArrowDown')) step += DF_BENCH_COLS
+                    if (input.pressed('ArrowUp')) step -= DF_BENCH_COLS
                     // the ends stop the selection: a long scroll doesn't wrap round and spin through the cards
                     const at = DF_BENCH_PICKS.indexOf(pick)
                     const to = Math.max(0, Math.min(DF_BENCH_PICKS.length - 1, at + step))
@@ -264,7 +295,7 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                     }
                 }
             } else {
-                closeShop()
+                closeShop('away')
                 lastBench = ''
             }
 
@@ -356,8 +387,8 @@ export function createDfArsenalClient(o: DfArsenalClientOpts): DfArsenalClient {
                 for (let i = 0; same && i < mine.support.length; i++) same = a.support[i]!.id === mine.support[i]
                 if (!same) a.support = mine.support.map(id => ({ id, name: DF_SUPPORT[id].name }))
             }
-            // the shop while it is open (Esc drops the pointer lock, and that closes it too)
-            if (shop && (!meP || !input.locked)) closeShop()
+            // the shop while it is open (Esc drops the pointer lock, and that closes it too; going down as well)
+            if (shop && (!meP || !(input.locked || input.playsUnlocked))) closeShop()
             if (shop && meP && world && lastBench) {
                 const items = dfBenchList({ world: world!, me: meP! }, pick)
                 const key = items.map(i => `${i.key}${i.ok ? 1 : 0}${i.selected ? 1 : 0}${i.name}${i.why}`).join('|')
