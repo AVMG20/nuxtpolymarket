@@ -3,9 +3,9 @@ import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
 import { dfVoxMaterial } from '../voxel/material'
 import type { DfVoxMaterial } from '../voxel/material'
 
-// Weapon materials: one shared voxel material for plain guns, one per
-// Pack-a-Punch tier whose camo voxels breathe (uGlow pulsed on render), and
-// the scope reticle. Shared materials are never disposed by models; call
+// Weapon materials: one shared toon material for plain guns, one per
+// Pack-a-Punch tier whose camo breathes (uGlow pulsed on render), and the
+// scope reticle. Shared materials are never disposed by models; call
 // `disposeDfWeaponMaterials` when the whole game unloads.
 
 let base: DfVoxMaterial | null = null
@@ -14,10 +14,12 @@ const pap: (DfVoxMaterial | null)[] = [null, null, null]
 const papTime = { value: 0 }
 
 /**
- * Pack-a-Punch camo shimmer on top of the voxel glow: a bright band sweeps
- * down the gun's length every couple of seconds (lighting the glowing camo
- * voxels it crosses) and a tier-coloured sheen rims the silhouette. All the
- * shader inputs are clamped; the rim is a cube, not a pow().
+ * Pack-a-Punch camo on top of the glow: the steel (vertices flagged `aPap`)
+ * takes a wavy damascus of two tones, a bright band sweeps down the gun's
+ * length every couple of seconds (lighting the glowing trim it crosses) and a
+ * tier-coloured sheen rims the silhouette. All the shader inputs are clamped;
+ * the rim is a cube, not a pow(). The damascus fades to its mean where its
+ * bands get thinner than a pixel.
  */
 function patchPapShimmer(m: DfVoxMaterial, tier: number): void {
     const col = new THREE.Color(DF_PAP_COLORS[tier - 1] ?? '#a04dff')
@@ -29,17 +31,24 @@ function patchPapShimmer(m: DfVoxMaterial, tier: number): void {
         shader.uniforms.uPapTime = papTime
         shader.uniforms.uPapCol = uCol
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\nvarying vec3 vPapPos;')
-            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPapPos = position;')
+            .replace('#include <common>', '#include <common>\nattribute float aPap;\nvarying vec3 vPapPos;\nvarying float vPapMetal;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPapPos = position;\nvPapMetal = aPap;')
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\nuniform float uPapTime;\nuniform vec3 uPapCol;\nvarying vec3 vPapPos;')
+            .replace('#include <common>', '#include <common>\nuniform float uPapTime;\nuniform vec3 uPapCol;\nvarying vec3 vPapPos;\nvarying float vPapMetal;')
+            .replace('#include <color_fragment>', [
+                '#include <color_fragment>',
+                'float papWave = vPapPos.y * 34.0 + sin(vPapPos.z * 41.0 + vPapPos.x * 64.0) * 0.4;',
+                'float papEdge = clamp(fwidth(papWave) * 4.0, 0.04, 1.0);',
+                'float papDamascus = smoothstep(-papEdge, papEdge, abs(fract(papWave) - 0.5) * 4.0 - 1.0) * clamp(vPapMetal, 0.0, 1.0);',
+                'diffuseColor.rgb = mix(diffuseColor.rgb, uPapCol, 0.24 * papDamascus);'
+            ].join('\n'))
             .replace('#include <emissivemap_fragment>', [
                 '#include <emissivemap_fragment>',
                 `float papSweep = fract(uPapTime * ${(speed / 4).toFixed(3)} - vPapPos.z * 0.9 - vPapPos.y * 0.6);`,
                 'float papBand = clamp(1.0 - abs(papSweep - 0.5) * 9.0, 0.0, 1.0);',
                 'float papRim = clamp(1.0 - abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0);',
                 'totalEmissiveRadiance += diffuseColor.rgb * clamp(vGlow, 0.0, 2.0) * papBand * 2.2;',
-                'totalEmissiveRadiance += uPapCol * (papRim * papRim * papRim) * 0.22 + uPapCol * papBand * 0.05;'
+                'totalEmissiveRadiance += uPapCol * (papRim * papRim * papRim) * 0.22 + uPapCol * papBand * 0.05 + uPapCol * papDamascus * 0.03;'
             ].join('\n'))
     }
     const prevKey = m.customProgramCacheKey.bind(m)
