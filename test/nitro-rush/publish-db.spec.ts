@@ -103,10 +103,10 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         expect((await nrLeaderboard(id, A)).entries).toBe(1)
     })
 
-    it('lists the viewer\'s own tracks apart from everyone else\'s', async () => {
+    it('lists the viewer\'s own tracks on their own and in the community list', async () => {
         const mine = await nrPublishedTracks(A)
         expect(mine.mine.map(t => t.sourceId)).toContain(course('ring').id)
-        expect(mine.community.some(t => t.sourceId === course('ring').id)).toBe(false)
+        expect(mine.community.filter(t => t.sourceId === course('ring').id)).toHaveLength(1)
         const theirs = await nrPublishedTracks(B)
         expect(theirs.community.find(t => t.sourceId === course('ring').id)).toMatchObject({ author: 'concurrency test user', closed: true, sections: RECTANGLE })
         expect(theirs.mine).toEqual([])

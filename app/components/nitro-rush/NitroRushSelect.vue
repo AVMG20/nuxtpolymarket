@@ -60,14 +60,15 @@ const hasLap = (id: string) => !!props.records[id]?.ghost
 const lapTooLong = (id: string) => !hasLap(id) && (props.records[id]?.bestLap ?? 0) > GHOST_MAX_SECONDS
 
 const votesOf = (id: string) => props.votes[id] ?? NO_VOTES
-/** The selected course as the side panel shows it: a built-in or another player's can be voted on, the player's own only shows its score. */
+/** The selected course as the side panel shows it: any public course can be voted on, the player's own included. */
 const selected = computed((): { author: string | null, votes: NrTrackVotes | null, canVote: boolean } => {
     if (findTrack(props.trackId)) return { author: null, votes: votesOf(props.trackId), canVote: true }
-    const theirs = props.communityTracks.find(c => c.track.id === props.trackId)
-    if (theirs) return { author: theirs.track.author, votes: votesOf(props.trackId), canVote: true }
+    const listed = props.communityTracks.find(c => c.track.id === props.trackId)
+    if (listed) return { author: listed.mine ? 'you' : listed.track.author, votes: votesOf(props.trackId), canVote: true }
     const own = props.customTracks.find(c => c.playId === props.trackId)
     // A private course has no votes.
-    return { author: own ? 'you' : null, votes: own?.published?.id === props.trackId ? votesOf(props.trackId) : null, canVote: false }
+    const published = own?.published?.id === props.trackId
+    return { author: own ? 'you' : null, votes: published ? votesOf(props.trackId) : null, canVote: published }
 })
 </script>
 

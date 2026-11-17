@@ -6,7 +6,7 @@ import type { NrTrackSummary } from '#server/utils/nitro-rush'
 import type { NrTrackVotes } from '#server/utils/nitro-rush-tracks'
 import type { TrackDef } from '#shared/utils/nitro-rush/track'
 
-/** Other players' published courses, newest, best voted or most raced first; the info panel takes the votes. */
+/** Published courses, the viewer's own among them, newest, best voted or most raced first; the info panel takes the votes. */
 const props = defineProps<{
     trackId: string
     tracks: CommunityTrackEntry[]
@@ -31,7 +31,7 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
   <div>
     <div class="mb-1.5 flex items-center gap-3">
       <h3 class="nr-group">COMMUNITY</h3>
-      <span class="nr-blurb hidden flex-1 truncate text-right sm:block">Tracks by other players</span>
+      <span class="nr-blurb hidden flex-1 truncate text-right sm:block">Tracks built by players</span>
       <span class="flex-1 sm:hidden" />
       <NitroRushSortSeg v-if="tracks.length > 1" v-model="sort" listed="NEWEST" />
     </div>
@@ -44,7 +44,7 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
         has-board
         :record="summaries[c.track.id]?.record ?? null"
         :medal="medalOn(c.track.id, c.def)"
-        :author="c.track.author"
+        :author="c.mine ? 'you' : c.track.author"
         :votes="votes[c.track.id] ?? c.track.votes"
         :plays="summaries[c.track.id]?.plays"
         :racing="racing[c.track.id]"

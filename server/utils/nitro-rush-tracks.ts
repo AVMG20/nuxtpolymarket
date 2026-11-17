@@ -187,7 +187,7 @@ export async function unpublishNrTrack(userId: string, sourceId: unknown) {
 const upCount = sql<number>`(count(*) filter (where ${nitroRushTrackVotes.value} > 0))::int`
 const downCount = sql<number>`(count(*) filter (where ${nitroRushTrackVotes.value} < 0))::int`
 
-/** Sets the player's vote on a built-in course or another player's published one to `vote`, so a repeat lands on the same state. */
+/** Sets the player's vote on a built-in or published course to `vote`, so a repeat lands on the same state; authors may vote on their own. */
 export async function voteNrTrack(userId: string, trackId: unknown, vote: unknown): Promise<NrTrackVotes & { trackId: string }> {
     if (typeof trackId !== 'string' || trackId.length > TRACK_ID_MAX) throw createError({ statusCode: 400, statusMessage: 'Invalid track' })
     const builtIn = !!findTrack(trackId)
@@ -196,10 +196,9 @@ export async function voteNrTrack(userId: string, trackId: unknown, vote: unknow
     return db.transaction(async (tx) => {
         if (!builtIn) {
             // Holds a removal off until the vote lands, so a course deleted mid-vote leaves no vote behind; a hidden one keeps its votes anyway.
-            const [track] = await tx.select({ authorId: nitroRushTracks.authorId }).from(nitroRushTracks)
+            const [track] = await tx.select({ id: nitroRushTracks.id }).from(nitroRushTracks)
                 .where(and(eq(nitroRushTracks.id, trackId), isLive)).for('key share')
             if (!track) throw createError({ statusCode: 404, statusMessage: 'Track was removed' })
-            if (track.authorId === userId) throw createError({ statusCode: 403, statusMessage: 'Can\'t vote on your own track' })
         }
         if (vote === 0) {
             await tx.delete(nitroRushTrackVotes).where(and(eq(nitroRushTrackVotes.userId, userId), eq(nitroRushTrackVotes.trackId, trackId)))
@@ -226,8 +225,8 @@ export async function nrTrackVotes(userId: string, ids: string[]): Promise<Map<s
 }
 
 /**
- * The viewer's own published and unpublished courses, and from everyone else the newest plus the best voted and most played
- * (newest first), each with its record and the viewer's best. The last two are there so TOP and POPULAR reach past the newest.
+ * The viewer's own published and unpublished courses, and a community list of their published ones plus everyone else's newest,
+ * best voted and most played (newest first), each with its record and the viewer's best. TOP and POPULAR need the last two.
  */
 export async function nrPublishedTracks(userId: string): Promise<{ community: NrPublishedTrack[], mine: NrPublishedTrack[], hidden: NrPublishedTrack[] }> {
     const columns = {
@@ -259,9 +258,10 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
             .orderBy(desc(racers), desc(nitroRushTracks.publishedAt))
             .limit(COMMUNITY_LIMIT)
     ])
-    const community = [...new Map([...newest, ...voted, ...played].map(t => [t.id, t])).values()]
+    const live = own.filter(t => !t.unpublishedAt)
+    const community = [...new Map([...live, ...newest, ...voted, ...played].map(t => [t.id, t])).values()]
         .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
-    const ids = [...own, ...community].map(t => t.id)
+    const ids = [...new Set([...own, ...community].map(t => t.id))]
     const [summaries, votes] = await Promise.all([nrTrackSummaries(userId, ids), nrTrackVotes(userId, ids)])
     const withSummary = ({ publishedAt: _, unpublishedAt: __, ...t }: typeof own[number]): NrPublishedTrack => ({
         ...t,
@@ -270,7 +270,7 @@ export async function nrPublishedTracks(userId: string): Promise<{ community: Nr
     })
     return {
         community: community.map(withSummary),
-        mine: own.filter(t => !t.unpublishedAt).map(withSummary),
+        mine: live.map(withSummary),
         hidden: own.filter(t => t.unpublishedAt).map(withSummary)
     }
 }

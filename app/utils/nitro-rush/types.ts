@@ -131,4 +131,6 @@ export interface CustomTrackEntry {
 export interface CommunityTrackEntry {
     track: NrPublishedTrack
     def: TrackDef
+    /** The viewer published it, so it shows as theirs; My Tracks still holds its tools. */
+    mine: boolean
 }
