@@ -1100,7 +1100,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 if (i === 0) tracerEnd = wh.point
                 else if (pellets > 2 && pelletEnds.length < 6) pelletEnds.push(wh.point)
             } else {
-                const d = stopped ? cands[n - 1]!.dist : Math.min(maxRange, 24)
+                // stray pellets streak a short way; the first round's tracer runs the full range
+                const d = stopped ? cands[n - 1]!.dist : i === 0 ? maxRange : Math.min(maxRange, 24)
                 const end = { x: eye.x + dir.x * d, y: eye.y + dir.y * d, z: eye.z + dir.z * d }
                 if (i === 0) tracerEnd = end
                 else if (pellets > 2 && pelletEnds.length < 6) pelletEnds.push(end)
