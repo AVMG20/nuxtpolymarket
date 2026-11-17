@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { sortTracks, withVote, type TrackStats } from '../../app/utils/nitro-rush/community'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { rememberedSort, rememberSort, sortTracks, withVote, type TrackStats } from '../../app/utils/nitro-rush/community'
+import { STORAGE_KEYS } from '../../app/utils/nitro-rush/storage'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
 
 const summary = (trackId: string, racers: number, laps: number): NrTrackSummary => ({ trackId, entries: 0, record: null, myLapMs: null, plays: { racers, laps } })
@@ -32,5 +33,45 @@ describe('Nitro Rush track sorting', () => {
         expect(withVote({ up: 3, down: 1, myVote: 1 }, -1)).toEqual({ up: 2, down: 2, myVote: -1 })
         expect(withVote({ up: 3, down: 1, myVote: -1 }, 0)).toEqual({ up: 3, down: 0, myVote: 0 })
         expect(withVote({ up: 0, down: 0, myVote: 0 }, 1)).toEqual({ up: 1, down: 0, myVote: 1 })
+    })
+})
+
+describe('Nitro Rush remembered sort', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    function stubStorage() {
+        const items = new Map<string, string>()
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => items.get(key) ?? null,
+            setItem: (key: string, value: string) => void items.set(key, value)
+        })
+        return items
+    }
+
+    it('opens in the list\'s own order until a sort is picked', () => {
+        stubStorage()
+        expect(rememberedSort('builtIn')).toBe('listed')
+    })
+
+    it('remembers each list\'s sort on its own', () => {
+        stubStorage()
+        rememberSort('builtIn', 'top')
+        rememberSort('community', 'popular')
+        expect(rememberedSort('builtIn')).toBe('top')
+        expect(rememberedSort('community')).toBe('popular')
+    })
+
+    it('falls back to the list\'s own order for an unknown or broken value', () => {
+        const items = stubStorage()
+        items.set(STORAGE_KEYS.sort, JSON.stringify({ builtIn: 'fastest', community: 3 }))
+        expect(rememberedSort('builtIn')).toBe('listed')
+        expect(rememberedSort('community')).toBe('listed')
+        items.set(STORAGE_KEYS.sort, '{not json')
+        expect(rememberedSort('builtIn')).toBe('listed')
+    })
+
+    it('opens in the list\'s own order when storage is blocked', () => {
+        vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked') } })
+        expect(rememberedSort('community')).toBe('listed')
     })
 })

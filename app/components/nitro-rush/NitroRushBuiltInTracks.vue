@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { sortTracks, type TrackSort } from '~/utils/nitro-rush/community'
+import { rememberedSort, rememberSort, sortTracks, type TrackSort } from '~/utils/nitro-rush/community'
 import { TRACK_GROUPS, TRACKS } from '#shared/utils/nitro-rush/tracks'
 import type { Medal } from '~/utils/nitro-rush/medals'
 import type { NrTrackSummary } from '#server/utils/nitro-rush'
@@ -24,7 +24,9 @@ const trackGroups = TRACK_GROUPS
 const groupName = (t: TrackDef) => TRACK_GROUPS.find(g => g.id === t.group)?.name
 
 const BLURBS: Record<TrackSort, string> = { listed: 'The game\'s own tracks', top: 'Best voted first', popular: 'Most raced lately first' }
-const sort = ref<TrackSort>('listed')
+// Read in setup: the game only renders on the client, like the builder's remembered view.
+const sort = ref<TrackSort>(rememberedSort('builtIn'))
+watch(sort, s => rememberSort('builtIn', s))
 const sorted = shallowRef<TrackDef[]>([])
 // Ranked when the sort changes or the counts first arrive, not on every vote or lap, so a card doesn't jump away from the tap.
 watch([sort, () => Object.keys(props.votes).length, () => Object.keys(props.summaries).length], ([by]) => {
