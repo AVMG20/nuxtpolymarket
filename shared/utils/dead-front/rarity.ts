@@ -14,13 +14,19 @@ export interface DfRarityDef {
     color: string
     /** Damage multiplier (bullets and splash). */
     damage: number
+    /** Reload time multiplier (magazines and shells). */
+    reload: number
+    /** Recoil multiplier. */
+    recoil: number
+    /** Time-to-aim multiplier. */
+    ads: number
 }
 
 export const DF_RARITIES: readonly DfRarityDef[] = [
-    { tier: 0, name: 'Common', color: '#ece6d6', damage: 1 },
-    { tier: 1, name: 'Rare', color: '#5fd35a', damage: 1.25 },
-    { tier: 2, name: 'Epic', color: '#b46cff', damage: 1.55 },
-    { tier: 3, name: 'Legendary', color: '#ff9a26', damage: 2 }
+    { tier: 0, name: 'Common', color: '#ece6d6', damage: 1, reload: 1, recoil: 1, ads: 1 },
+    { tier: 1, name: 'Rare', color: '#5fd35a', damage: 1.25, reload: 0.94, recoil: 0.92, ads: 0.95 },
+    { tier: 2, name: 'Epic', color: '#b46cff', damage: 1.55, reload: 0.88, recoil: 0.84, ads: 0.9 },
+    { tier: 3, name: 'Legendary', color: '#ff9a26', damage: 2, reload: 0.8, recoil: 0.75, ads: 0.85 }
 ]
 
 export const DF_RARITY_MAX: DfRarity = 3
@@ -38,6 +44,11 @@ export function dfRarity(r: unknown): DfRarityDef {
 /** Does rarity apply to this weapon? (The wunderweapon is one of a kind; the lent launcher is only lent.) */
 export function dfRarityApplies(id: string): boolean {
     return id !== 'wunder' && id !== 'granatwerfer'
+}
+
+/** A tier's colour as a number (tracers, lights, particles). */
+export function dfRarityHex(r: unknown): number {
+    return Number.parseInt(dfRarity(r).color.slice(1), 16)
 }
 
 /** Damage multiplier of a tier on a weapon. */

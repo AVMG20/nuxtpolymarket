@@ -131,13 +131,15 @@ export interface DfZombieSnap {
     crawl?: boolean
     /** A gas-masked ghoul of a gas round. */
     masked?: boolean
+    /** On fire (Dragon's Breath, Napalm): drawn burning. */
+    burning?: boolean
 }
 
 /**
  * A zombie on the wire: `[id, type, x, y, z, yaw, hp, anim, vx, vy, vz, rest]`.
  * Half the bytes of the object form, and zombies are most of a snapshot.
  * The velocity is left off (with `rest`) for a zombie standing still, `rest`
- * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`)
+ * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`, `burning`)
  * and is left off when there are none. The match loop packs, `DfNet` unpacks.
  */
 export type DfWireZombie = [number, DfEnemyType, number, number, number, number, number, DfZombieAnim, number?, number?, number?, Partial<DfZombieSnap>?]
