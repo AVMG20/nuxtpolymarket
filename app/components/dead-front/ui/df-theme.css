@@ -126,7 +126,7 @@
     color: var(--df-ink);
     border-radius: var(--df-r);
     background:
-        var(--df-dots) 0 0 / 7px 7px,
+        var(--df-dots),
         var(--df-fibre),
         linear-gradient(180deg, rgba(255, 250, 230, 0.4), transparent 10px),
         linear-gradient(180deg, var(--df-paper), var(--df-paper-2));
@@ -206,13 +206,12 @@
     text-transform: uppercase;
     line-height: 1;
     color: var(--df-btn-fg);
-    background: var(--df-btn-bg);
+    background: var(--df-dots), var(--df-btn-bg);
     border: none;
     border-radius: 0;
     cursor: pointer;
     user-select: none;
     border-radius: var(--df-r);
-    background-image: var(--df-dots);
     background-blend-mode: soft-light;
     text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
     box-shadow:
