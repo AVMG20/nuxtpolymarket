@@ -151,7 +151,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let rarityFlare = 0
     rr.setScenes(scene, camera, vmScene, vmCamera)
     renderer.shadowMap.autoUpdate = false
-    let shadowTick = 0
+    // Starts odd so the first frame renders the shadow map: until it exists three
+    // binds an unallocated texture to the shadow sampler and every lit draw fails
+    // with GL_INVALID_OPERATION (texture format / sampler type mismatch).
+    let shadowTick = 1
     // image-based fill: metals (steel, brass, iron) need something to reflect or they render black
     const envRt = createDfEnvMap(renderer)
     vmScene.environment = envRt.texture
