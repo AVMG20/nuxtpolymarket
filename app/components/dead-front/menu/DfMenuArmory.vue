@@ -22,13 +22,13 @@
                     <span
                         v-if="w.unlocked"
                         class="df-rack-xp"
-                        :class="{ max: w.nextXp === null }"
-                        :style="{ '--p': w.frac }"
+                        :class="{ max: w.level >= maxLevel }"
+                        :style="{ '--p': w.level / maxLevel }"
                         role="progressbar"
-                        :aria-label="w.nextXp === null ? 'Mastered' : `Level ${w.level + 1} progress`"
-                        :aria-valuenow="Math.round(w.frac * 100)"
+                        :aria-label="`Service level ${w.level} of ${maxLevel}`"
+                        :aria-valuenow="w.level"
                         aria-valuemin="0"
-                        aria-valuemax="100"
+                        :aria-valuemax="maxLevel"
                     />
                 </button>
             </li>
@@ -437,7 +437,7 @@ async function save(attachments: DfLoadout['attachments']) {
     text-transform: uppercase;
 }
 
-/* xp toward the next service level, along the card's bottom edge (full once mastered) */
+/* service level out of the max, along the card's bottom edge (full once mastered) */
 .df-rack-xp {
     position: absolute;
     right: 0;
