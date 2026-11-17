@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
+import { tracksideLayout } from '../../app/utils/nitro-rush/trackside-spots'
 import { createCar, slipAngle, stepCar, type CarInput } from '../../app/utils/nitro-rush/physics'
 import { drive, driveFlatOut } from './bot-lap'
 import { compileCustomTrack, exportCustomTrack, importCustomTrack, roadKey, sanitizeCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
@@ -243,5 +244,21 @@ describe('ghosts and obstacles', () => {
         expect(ghostDrivesTrack(trackWith(on('barrel', 100), on('oil', 160)), straight)).toBe(true)
         const blocked = trackWith(on('block', 100, -4), on('tyres', 190, 5))
         expect(ghostDrivesTrack(blocked, drive(blocked))).toBe(true)
+    })
+})
+
+describe('danger boards', () => {
+    it('warns on both walls before each bunch of obstacles, once per bunch', () => {
+        const track = trackWith(on('barrel', 100), on('cones', 110, 3), on('block', 20, 0, { at: 3 }))
+        const line = track.branches[0]!
+        const firsts = [line.obstacles[0]!.s, line.obstacles[2]!.s]
+        const boards = tracksideLayout(track).hazardSigns
+        for (const first of firsts) {
+            const before = boards.filter(f => f.s < first && f.s > first - 50)
+            expect(new Set(before.map(f => f.side)).size).toBe(2)
+        }
+        // The barrel and the cone ten metres on share one warning.
+        expect(boards.filter(f => f.s > line.obstacles[0]!.s && f.s < line.obstacles[1]!.s)).toHaveLength(0)
+        expect(tracksideLayout(trackWith()).hazardSigns).toHaveLength(0)
     })
 })

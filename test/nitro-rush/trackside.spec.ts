@@ -17,12 +17,12 @@ const loop = (id: string, radius: number) => new Track(buildTrack({ ...base, id,
 
 /** Every piece of a course's signage as a column: where it stands, its foot and its top. */
 function columns(track: Track) {
-    const { billboards, chevrons, jumpSigns, hoardings, flags, overheads } = tracksideLayout(track)
+    const { billboards, chevrons, jumpSigns, hazardSigns, hoardings, flags, overheads } = tracksideLayout(track)
     // A wall fixture's own road is the surface under the wall it stands on.
     const on = (f: Fixture, h: number) => ({ x: f.x, z: f.z, foot: f.y, top: f.y + f.up[1] * h, road: f.y - f.up[1] * WALL_HEIGHT, own: f })
     return [
         ...billboards.map(b => ({ x: b.x, z: b.z, foot: Math.min(0, b.base), top: b.base + BILLBOARD_BOTTOM + BILLBOARD_HEIGHT, road: b.base, own: null })),
-        ...[...chevrons, ...jumpSigns].map(c => on(c, CHEVRON_LIFT + CHEVRON_HEIGHT)),
+        ...[...chevrons, ...jumpSigns, ...hazardSigns].map(c => on(c, CHEVRON_LIFT + CHEVRON_HEIGHT)),
         ...hoardings.flat().map(h => on(h, HOARDING_HEIGHT)),
         ...flags.flat().map(f => on(f, FLAG_POLE)),
         ...overheads.map(o => ({ x: o.x, z: o.z, foot: o.y, top: o.y + CLEAR_HEIGHT, road: o.y, own: o as Fixture }))
