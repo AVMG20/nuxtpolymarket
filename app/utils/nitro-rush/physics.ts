@@ -4,7 +4,8 @@ import {
     NITRO_PER_DRIFT_SECOND, NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_FRICTION, WALL_HARD_IMPACT, WALL_KEEP_MIN, WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_TOUCH_KEEP, WALL_RESTITUTION, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
-import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type Projection, type Route, type Track, type TrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
+import { OBSTACLE_KINDS, type ObstacleKind } from '#shared/utils/nitro-rush/obstacles'
+import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type ObstacleBody, type Projection, type Route, type Track, type TrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
  * The car, as a point with a heading. Pure and deterministic: the engine
@@ -66,6 +67,10 @@ export interface CarState {
     rel: number
     /** Seconds left in which the car still counts as pressed on a side wall it last hit. */
     wallPress: number
+    /** Obstacles knocked away this run, by id: gone until the engine clears them. */
+    knocked: Set<number>
+    /** Seconds of low grip left from an oil slick. */
+    oilTime: number
 }
 
 export interface CarInput {
@@ -100,6 +105,14 @@ export interface StepEvents {
     boosted: boolean
     /** A nitro burn began this step. */
     nitroStarted: boolean
+    /** Obstacles knocked away this step, by id. */
+    knocked: number[]
+    /** One of them was an explosive. */
+    blasted: boolean
+    /** The solid obstacle hit this step, if any. */
+    obstacleHit: ObstacleKind | null
+    /** Rolled onto an oil slick this step. */
+    oiled: boolean
 }
 
 /** Held steer the drift button needs to be paired with to throw the car into a drift. */
@@ -130,7 +143,8 @@ export function createCar(track: Track, s: number, lateral = 0, branch = 0): Car
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroOn: false, boostTime: 0, onBoostPad: false,
-        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftBranch: line.branch, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftBranch: line.branch, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0,
+        knocked: new Set(), oilTime: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.locate(x, z, line.branch, line.segmentAt(s), car.proj)
@@ -199,7 +213,7 @@ function stepNitro(car: CarState, held: boolean, dt: number, ev: StepEvents) {
 }
 
 export function stepCar(car: CarState, input: CarInput, track: Track, dt: number): StepEvents {
-    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false, nitroStarted: false }
+    const ev: StepEvents = { wallImpact: 0, wallTouched: false, scraping: false, driftStarted: false, driftEnded: 0, nitroEarned: 0, tookOff: false, landed: 0, fell: false, boosted: false, nitroStarted: false, knocked: [], blasted: false, obstacleHit: null, oiled: false }
     stepNitro(car, !!input.nitro, dt, ev)
 
     // The wheel eases toward the input, and back to centre a little quicker.
@@ -248,6 +262,8 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         ev.driftStarted = true
     }
 
+    car.oilTime = Math.max(0, car.oilTime - dt)
+    const grip = car.oilTime > 0 ? OBSTACLE_KINDS.oil.grip : 1
     if (car.drifting) {
         const d = car.driftDir
         const into = left * d
@@ -255,16 +271,19 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         const target = DRIFT_SLIP_MID + into * (into >= 0 ? DRIFT_SLIP_IN - DRIFT_SLIP_MID : DRIFT_SLIP_MID - DRIFT_SLIP_WIDE)
         let slip = slipAngle(car)
         // The path bends toward the nose, as hard as the sliding tyres allow.
-        const turn = Math.sign(slip) * Math.min(Math.abs(slip) * DRIFT_ALIGN, DRIFT_LATERAL / Math.max(car.speed, 1))
+        const turn = Math.sign(slip) * Math.min(Math.abs(slip) * DRIFT_ALIGN, DRIFT_LATERAL * grip / Math.max(car.speed, 1))
         car.travel = wrapAngle(car.travel + turn * dt)
         slip += (target * d - slip) * (1 - Math.exp(-DRIFT_SLIP_RESPONSE * dt))
         car.heading = wrapAngle(car.travel + slip)
         car.driftTime += dt
         if (!input.drift || car.speed < DRIFT_MIN_SPEED * 0.6) endDrift(car, ev, true)
     } else if (grounded) {
-        car.travel = wrapAngle(car.travel + gripTurn(car.speed, left) * dt)
-        const slip = slipAngle(car) * Math.exp(-GRIP_ALIGN * dt)
-        car.heading = wrapAngle(car.travel + slip)
+        const wants = gripTurn(car.speed, left)
+        const turn = gripTurn(car.speed, left, grip)
+        car.travel = wrapAngle(car.travel + turn * dt)
+        const slip = slipAngle(car) * Math.exp(-GRIP_ALIGN * grip * grip * dt)
+        // On oil the nose still swings to the wheel, but the path can't follow it: the car slides.
+        car.heading = wrapAngle(car.travel + slip + (wants - turn) * dt)
         // Nosed up to a wall the car can't roll, and the wheel needs it rolling to turn: gas and wheel pivot it off instead.
         // Only while it's on the wall, not through the press's hold, or the nose keeps going once it's free.
         if (car.wallPress === WALL_PRESS_HOLD && input.throttle > 0 && Math.abs(car.speed) < WALL_PIVOT_SPEED) {
@@ -299,6 +318,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
         p.s = line.length - reach
     }
     hitCushions(car, track, ev)
+    if (track.allObstacles.length) hitObstacles(car, track, ev)
     stepHeight(car, track, dt, ev)
     const now = lineOf(car, track)
     stepBoostPad(car, now, ev)
@@ -355,6 +375,107 @@ function hitCushions(car: CarState, track: Track, ev: StepEvents) {
     }
 }
 
+/** Metres east and west of the car an obstacle may stand and still touch it: the car's half diagonal and the biggest footprint's. */
+const OBSTACLE_REACH = 6
+/** A road this far below the car's wheels, or more, holds obstacles it can't touch. */
+const OBSTACLE_BELOW = 2
+
+/**
+ * The obstacles on the road, met by the car's body on the plan: knocked away, bounced off or slid over.
+ * A car in the air above one clears it; one knocked away this run is gone.
+ */
+function hitObstacles(car: CarState, track: Track, ev: StepEvents) {
+    const list = track.allObstacles
+    const fx = -Math.sin(car.heading)
+    const fz = -Math.cos(car.heading)
+    for (let i = track.obstacleFrom(car.x - OBSTACLE_REACH); i < list.length; i++) {
+        const o = list[i]!
+        if (o.x > car.x + OBSTACLE_REACH) break
+        if (Math.abs(o.z - car.z) > OBSTACLE_REACH || car.knocked.has(o.id)) continue
+        if (car.y > o.y + o.top || car.y < o.y - OBSTACLE_BELOW) continue
+        const touch = overlap(car, fx, fz, o)
+        if (!touch) continue
+        const spec = OBSTACLE_KINDS[o.kind]
+        if (spec.mechanic === 'slick') {
+            if (!car.airborne) {
+                if (car.oilTime === 0) ev.oiled = true
+                car.oilTime = spec.slickTime
+            }
+        } else if (spec.mechanic === 'knock') {
+            car.knocked.add(o.id)
+            ev.knocked.push(o.id)
+            car.speed *= 1 - spec.slow
+            if (o.kind === 'explosive') ev.blasted = true
+            if (spec.kickTurn) {
+                // Thrown away from the side the blast came from.
+                const side = (o.x - car.x) * -fz + (o.z - car.z) * fx >= 0 ? 1 : -1
+                car.travel = wrapAngle(car.travel + side * spec.kickTurn)
+            }
+            if (spec.kickUp && !car.airborne) {
+                car.airborne = true
+                car.vy = spec.kickUp
+                car.leftBranch = car.proj.branch
+                car.leftS = car.proj.s
+                car.leftY = car.y
+                if (car.drifting) endDrift(car, ev, false)
+            }
+        } else {
+            ev.obstacleHit = o.kind
+            hitBarrier(car, ev, touch.nx, touch.nz, touch.push, spec)
+        }
+    }
+}
+
+const contact = { nx: 0, nz: 0, push: 0 }
+
+/** How the car's body overlaps obstacle `o` on the plan: the normal out of `o` toward the car and how deep; null when apart. */
+function overlap(car: CarState, fx: number, fz: number, o: ObstacleBody): typeof contact | null {
+    const dx = car.x - o.x
+    const dz = car.z - o.z
+    if (o.round) {
+        // The nearest point of the car's box to the post's centre, in the car's frame.
+        const a = -(dx * fx + dz * fz)
+        const b = -(dx * -fz + dz * fx)
+        const ca = Math.max(-CAR_HALF_LENGTH, Math.min(CAR_HALF_LENGTH, a))
+        const cb = Math.max(-CAR_HALF_WIDTH, Math.min(CAR_HALF_WIDTH, b))
+        if (ca !== a || cb !== b) {
+            const d = Math.hypot(a - ca, b - cb)
+            if (d >= o.halfAlong) return null
+            // From the post to the car is minus the car's direction to the post.
+            const na = (ca - a) / (d || 1)
+            const nb = (cb - b) / (d || 1)
+            contact.nx = na * fx + nb * -fz
+            contact.nz = na * fz + nb * fx
+            contact.push = o.halfAlong - d
+            return contact
+        }
+        // The post's centre inside the car: out the nearest face.
+        const len = Math.hypot(dx, dz) || 1
+        contact.nx = dx / len
+        contact.nz = dz / len
+        contact.push = o.halfAlong + Math.min(CAR_HALF_LENGTH - Math.abs(a), CAR_HALF_WIDTH - Math.abs(b))
+        return contact
+    }
+    // Two boxes: the axis they overlap least on pushes them apart.
+    const axes = [[o.ax, o.az], [-o.az, o.ax], [fx, fz], [-fz, fx]] as const
+    let best = Infinity
+    for (const [ux, uz] of axes) {
+        const carReach = CAR_HALF_LENGTH * Math.abs(fx * ux + fz * uz) + CAR_HALF_WIDTH * Math.abs(-fz * ux + fx * uz)
+        const obReach = o.halfAlong * Math.abs(o.ax * ux + o.az * uz) + o.halfAcross * Math.abs(-o.az * ux + o.ax * uz)
+        const gap = dx * ux + dz * uz
+        const depth = carReach + obReach - Math.abs(gap)
+        if (depth <= 0) return null
+        if (depth < best) {
+            best = depth
+            const sign = gap >= 0 ? 1 : -1
+            contact.nx = ux * sign
+            contact.nz = uz * sign
+            contact.push = depth
+        }
+    }
+    return contact
+}
+
 /** Whether the wall beside the car is in its way: not over a gap, which has none, nor in the air above it or past it. */
 function meetsWall(car: CarState, track: TrackLine) {
     const p = car.proj
@@ -380,9 +501,9 @@ function stepBoostPad(car: CarState, track: TrackLine, ev: StepEvents) {
 }
 
 /** How fast the grip steering turns the car's path, in radians per second, `left` -1 to 1. */
-function gripTurn(speed: number, left: number) {
+function gripTurn(speed: number, left: number, grip = 1) {
     const angle = MAX_STEER_ANGLE / (1 + Math.abs(speed) / STEER_FALLOFF_SPEED) * left
-    const cap = GRIP_LATERAL / Math.max(Math.abs(speed), 1)
+    const cap = GRIP_LATERAL * grip / Math.max(Math.abs(speed), 1)
     // Past the tyres' limit the path can't bend any tighter: the car washes wide.
     return Math.max(-cap, Math.min(cap, speed * Math.tan(angle) / WHEELBASE))
 }
@@ -475,8 +596,17 @@ function scrapeWall(car: CarState, ev: StepEvents, offset: number, limit: number
     car.speed *= Math.exp(-WALL_SCRAPE * dt)
 }
 
+/** How a barrier gives back a hit: a wall's by default; tyres and bumpers are softer or springier. */
+interface Bounce {
+    restitution: number
+    friction: number
+    touchKeep: number
+}
+
+const WALL_BOUNCE: Bounce = { restitution: WALL_RESTITUTION, friction: WALL_FRICTION, touchKeep: WALL_TOUCH_KEEP }
+
 /** Pushes the car `push` metres out along the barrier's normal (n points away from it) and bounces it off. */
-function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push: number) {
+function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push: number, bounce: Bounce = WALL_BOUNCE) {
     car.x += nx * push
     car.z += nz * push
     let vx = car.speed * -Math.sin(car.travel)
@@ -488,14 +618,14 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
     // Or-ed, as a corner can hit a side wall and an end barrier in one step.
     ev.wallTouched ||= car.wallPress === 0
     car.wallPress = WALL_PRESS_HOLD
-    vx -= (1 + WALL_RESTITUTION) * vn * nx
-    vz -= (1 + WALL_RESTITUTION) * vn * nz
+    vx -= (1 + bounce.restitution) * vn * nx
+    vz -= (1 + bounce.restitution) * vn * nz
     // Along the barrier's face, which is the normal turned a quarter.
     const tx = -nz
     const tz = nx
     const along = vx * tx + vz * tz
     const across = vx * nx + vz * nz
-    const kept = Math.max(WALL_KEEP_MIN, 1 - WALL_FRICTION * impact / Math.max(Math.abs(along), 1))
+    const kept = Math.max(WALL_KEEP_MIN, 1 - bounce.friction * impact / Math.max(Math.abs(along), 1))
     vx = tx * along * kept + nx * across
     vz = tz * along * kept + nz * across
     const forward = car.speed >= 0
@@ -515,7 +645,7 @@ function hitBarrier(car: CarState, ev: StepEvents, nx: number, nz: number, push:
         }
         if (speed > 0.01) car.travel = forward ? headingOf(vx, vz) : headingOf(-vx, -vz)
     }
-    if (ev.wallTouched) car.speed *= WALL_TOUCH_KEEP
+    if (ev.wallTouched) car.speed *= bounce.touchKeep
     if (car.drifting && impact > WALL_HARD_IMPACT) endDrift(car, ev, false)
 }
 
@@ -529,6 +659,31 @@ function endDrift(car: CarState, ev: StepEvents, clean: boolean) {
         ev.nitroEarned = earned
     }
     car.driftTime = 0
+}
+
+/** Metres before and after an obstacle the bot steers round it. */
+const DODGE_WINDOW = 14
+/** Room the bot leaves between its side and an obstacle it steers round. */
+const DODGE_ROOM = 1
+
+/** The bot's aim `across` the road at `s` moved out round any obstacle there it would hit, to whichever side is nearer and fits. */
+function dodge(car: CarState, line: TrackLine, s: number, across: number) {
+    for (const o of line.obstacles) {
+        if (OBSTACLE_KINDS[o.kind].mechanic === 'slick' || car.knocked.has(o.id)) continue
+        let d = o.s - s
+        if (line.closed) d -= Math.round(d / line.length) * line.length
+        if (Math.abs(d) > DODGE_WINDOW + o.halfAlong) continue
+        const clear = o.halfAcross + CAR_HALF_WIDTH + DODGE_ROOM
+        if (Math.abs(across - o.lateral) >= clear) continue
+        const room = line.wallAt(o.s) - CAR_HALF_WIDTH - 0.3
+        const left = o.lateral - clear
+        const right = o.lateral + clear
+        const fitsLeft = left >= -room
+        const fitsRight = right <= room
+        if (fitsLeft && (!fitsRight || across - left <= right - across)) across = left
+        else if (fitsRight) across = right
+    }
+    return across
 }
 
 /** A tidy grip driver for the demo laps, the medals and the tests; on a forked course it follows `route`, the main one when left out. */
@@ -548,7 +703,7 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
         ahead.x += ahead.tx * (aheadS - rail[0])
         ahead.z += ahead.tz * (aheadS - rail[0])
     } else {
-        const across = line.racingOffsetAt(aheadS, track.racingOn(way, line.branch))
+        const across = dodge(car, line, aheadS, line.racingOffsetAt(aheadS, track.racingOn(way, line.branch)))
         ahead.x -= ahead.tz * across
         ahead.z += ahead.tx * across
     }

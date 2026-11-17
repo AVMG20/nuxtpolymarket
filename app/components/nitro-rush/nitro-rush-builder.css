@@ -326,3 +326,49 @@
     color: var(--nr-green);
     border-color: rgb(77 255 138 / 0.4);
 }
+
+/* The pointer's build settings, over the view's corner. */
+.nr-root .nr-place-hud {
+    display: flex;
+    gap: 6px;
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    color: rgb(255 255 255 / 0.8);
+}
+
+.nr-root .nr-place-hud > span {
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: rgb(5 5 20 / 0.7);
+    border: 1px solid rgb(255 255 255 / 0.15);
+}
+
+.nr-root .nr-keys {
+    font-family: system-ui, sans-serif;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: rgb(255 255 255 / 0.45);
+}
+
+.nr-root .nr-keys b { color: rgb(255 255 255 / 0.75); }
+
+.nr-root .nr-handle {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    background: rgb(5 5 20 / 0.85);
+    border: 2px solid #3df2ff;
+    color: #3df2ff;
+    box-shadow: 0 0 10px rgb(61 242 255 / 0.5);
+    cursor: pointer;
+    translate: -50% -50%;
+}
+
+.nr-root .nr-handle:hover {
+    background: #3df2ff;
+    color: #05051a;
+}

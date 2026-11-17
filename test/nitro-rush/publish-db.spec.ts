@@ -51,6 +51,18 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         await expect(publish(A, { ...course('bad'), id: 'polytown-oval' })).rejects.toMatchObject({ statusCode: 400 })
     })
 
+    it('publishes a course with obstacles and races it with them, on a fresh board when they change', async () => {
+        const plain = await publish(H, course('things'))
+        const things = { ...course('things'), obstacles: [{ kind: 'barrel' as const, line: 0, at: 1, along: 50, lateral: 3 }] }
+        // A lap from before the obstacles still drives round a barrel; the road changed, so it's a new board.
+        const id = await publishNrTrack(H, things, LAPS.get(RECTANGLE))
+        expect(id).not.toBe(plain)
+        expect((await nrTrackDef(id))?.obstacles).toHaveLength(1)
+        expect((await nrPublishedTracks(H)).mine.find(t => t.id === id)?.obstacles).toEqual(things.obstacles)
+        const [row] = await db.select({ obstacles: nitroRushTracks.obstacles }).from(nitroRushTracks).where(eq(nitroRushTracks.id, plain))
+        expect(row).toBeUndefined()
+    })
+
     it('keeps one published copy per course under a burst of publishes', async () => {
         const ids = await Promise.all(Array.from({ length: 8 }, () => publish(A, course('burst'))))
         expect(new Set(ids).size).toBe(1)

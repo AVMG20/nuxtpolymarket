@@ -8,6 +8,7 @@ import { buildSky } from './world-sky'
 import { buildGantries, buildLamps, LAMP_HEIGHT } from './world-venue'
 import { buildSignage } from './world-trackside'
 import { worldKit } from './world-kit'
+import { ObstacleMeshes } from './world-obstacles'
 import type { Track } from '#shared/utils/nitro-rush/track'
 
 /** Tiles per second a boost pad's chevrons run along the road. */
@@ -35,6 +36,7 @@ export class World {
     private readonly wetUniforms: WetUniforms
     private readonly hidden: THREE.Object3D[] = []
     private readonly boostPads: THREE.Texture
+    private readonly obstacles: ObstacleMeshes | null
     private time = 0
 
     constructor(scene: THREE.Scene, track: Track, reflectionSize: { w: number, h: number }) {
@@ -55,6 +57,7 @@ export class World {
         this.boostPads = own(boostPadTexture())
         addBoostPads(kit, own(boostPadMaterial(this.boostPads)))
         addJumpMarks(kit)
+        this.obstacles = track.allObstacles.length ? new ObstacleMeshes(kit) : null
         const concrete = own(concreteTexture(150))
         concrete.repeat.set(0.5, 0.5)
         buildBarriers(kit, concrete)
@@ -111,6 +114,16 @@ export class World {
         this.starMat.size = 2 * pr
     }
 
+    /** Sends obstacle `id` flying off a car moving (vx, vz). */
+    knockObstacle(id: number, vx: number, vz: number) {
+        this.obstacles?.knock(id, vx, vz)
+    }
+
+    /** Every knocked obstacle back on the road. */
+    resetObstacles() {
+        this.obstacles?.reset()
+    }
+
     /** `lit` red lights, or all of them green once the race is on. */
     setStartLights(lit: number, green: boolean) {
         this.startLights.forEach((m, i) => {
@@ -150,6 +163,7 @@ export class World {
         this.skyGroup.position.set(camera.position.x, 0, camera.position.z)
         this.beacons.emissiveIntensity = Math.sin(this.time * 3) > 0.6 ? 5 : 0.3
         this.boostPads.offset.y = -this.time * BOOST_SCROLL % 1
+        this.obstacles?.update(dt)
     }
 
     dispose() {

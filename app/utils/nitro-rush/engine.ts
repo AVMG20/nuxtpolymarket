@@ -320,6 +320,7 @@ export class NitroRushEngine {
         this.nitroReadyAnnounced = true
         this.wrongWayTime = 0
         this.fx.clear()
+        this.world.resetObstacles()
         this.placeCar()
         this.cam.cut(this.state.heading)
     }
@@ -328,6 +329,7 @@ export class NitroRushEngine {
     private lineUpDemo() {
         this.demoRoute = this.track.forked ? this.demoPicks.randomPick(this.track.routes) : null
         this.state = createCar(this.track, this.gridS)
+        this.world.resetObstacles()
         this.fx.clearSkids()
         this.placeCar()
     }
@@ -349,6 +351,8 @@ export class NitroRushEngine {
         const nitro = s.nitro
         this.state = createCar(this.track, to.s, 0, to.branch)
         this.state.nitro = nitro
+        // What the car knocked away stays gone: a respawn isn't a new run.
+        this.state.knocked = s.knocked
         this.timer?.rewind(this.tookOffAt, to.legs, this.state.x, this.state.y, this.state.z)
         // A lap with a jump back in it makes no ghost.
         this.ghosts.restartLap()
@@ -402,6 +406,7 @@ export class NitroRushEngine {
                 this.motion.keep(this.state)
                 const racing = this.phase === 'racing'
                 const ev = stepCar(this.state, this.stepInput(), this.track, STEP)
+                for (const id of ev.knocked) this.world.knockObstacle(id, -Math.sin(this.state.travel) * this.state.speed, -Math.cos(this.state.travel) * this.state.speed)
                 if (ev.tookOff && this.timer) this.tookOffAt = this.timer.clock
                 if (ev.fell) this.respawn()
                 if (racing) this.feedback.step(ev, this.state)
@@ -474,6 +479,11 @@ export class NitroRushEngine {
             this.awardMedal(e.time, rec.bestLap)
             // The lap and medal popups already fill the line, so the meter alone shows the refill.
             if (refillAtLine(this.state, this.track.closed)) this.nitroReadyAnnounced = true
+            // Each lap of a loop meets every obstacle again, so every lap drives the same road.
+            if (this.track.closed && this.state.knocked.size) {
+                this.state.knocked.clear()
+                this.world.resetObstacles()
+            }
             if (!this.track.closed) {
                 this.phase = 'finished'
                 this.finishedAt = this.time

@@ -1,5 +1,6 @@
 /** The course's plan scaled into the HUD minimap's square view box, north up as the camera sees it from above. */
 
+import { isSolid } from '#shared/utils/nitro-rush/obstacles'
 import type { Track, TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** The minimap's view box side, in its own units. */
@@ -30,6 +31,8 @@ export interface MinimapPlan {
     start: MinimapLine
     /** Every finish; none on a loop, where the finish is the start. */
     finishes: MinimapLine[]
+    /** Every obstacle, solid ones marked so they read as walls. */
+    obstacles: { x: number, y: number, solid: boolean }[]
 }
 
 /** Fits the points of every set into the view box with their aspect kept, centred. */
@@ -76,7 +79,11 @@ export function minimapPlan(track: Track): MinimapPlan {
         fit,
         road: track.branches.map(line => linePath(line, fit)).join(''),
         start: lineAcross(track, fit, track.startS),
-        finishes: track.lapLines.filter(l => l.kind === 'finish').map(l => lineAcross(track.branches[l.branch]!, fit, l.s))
+        finishes: track.lapLines.filter(l => l.kind === 'finish').map(l => lineAcross(track.branches[l.branch]!, fit, l.s)),
+        obstacles: track.allObstacles.map((o) => {
+            const [x, y] = toMap(fit, o.x, o.z)
+            return { x: num(x), y: num(y), solid: isSolid(o.kind) }
+        })
     }
 }
 

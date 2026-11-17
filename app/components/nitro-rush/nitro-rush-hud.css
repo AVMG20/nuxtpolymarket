@@ -118,6 +118,8 @@
 .nr-root .nr-minimap-line { stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
 
 .nr-root .nr-minimap-line.is-finish { stroke: var(--nr-gold); }
+.nr-root .nr-minimap-obstacle { fill: #ffb347; opacity: 0.8; }
+.nr-root .nr-minimap-obstacle.is-solid { fill: #ff4d5e; opacity: 1; }
 
 .nr-root .nr-minimap-ghost { opacity: 0.8; stroke: rgb(0 0 0 / 0.5); stroke-width: 0.8; }
 
