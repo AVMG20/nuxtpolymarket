@@ -16,6 +16,18 @@ import { DfInkPass } from './toon-ink'
 // the HDR buffer before bloom and grading, so it gets the same look and its
 // muzzle flashes bloom over the ink.
 
+// NaN and Inf have every exponent bit set. A single such pixel (one bad
+// fragment on one GPU) is blurred by every bloom mip into a NaN block that
+// covers half the screen, and the grade's max() turns it black (Windows/D3D,
+// 2026-11-17). The bloom input and the grade read through this, so a bad pixel
+// stays one pixel. Bit tests, because a compiler may fold isnan() away.
+const DF_FINITE_GLSL = /* glsl */`
+    vec4 dfFinite(vec4 c) {
+        bvec4 bad = equal(floatBitsToUint(c) & 0x7f800000u, uvec4(0x7f800000u));
+        return vec4(bad.x ? 0.0 : c.x, bad.y ? 0.0 : c.y, bad.z ? 0.0 : c.z, bad.w ? 0.0 : c.w);
+    }
+`
+
 const GRADE_SHADER = {
     uniforms: {
         tDiffuse: { value: null as THREE.Texture | null },
@@ -38,6 +50,10 @@ const GRADE_SHADER = {
     `,
     fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse;
+        ${DF_FINITE_GLSL}
+        vec4 dfTex(vec2 uv) {
+            return dfFinite(texture2D(tDiffuse, uv));
+        }
         uniform float uTime;
         uniform vec2 uRes;
         uniform float uPr;
@@ -90,15 +106,15 @@ const GRADE_SHADER = {
                 float j = hash(gl_FragCoord.xy + uTime);
                 for (int i = 0; i < 8; i++) {
                     float k = (float(i) + j) / 8.0;
-                    acc += texture2D(tDiffuse, uv - fromC * k * 0.05 * uDown).rgb;
+                    acc += dfTex(uv - fromC * k * 0.05 * uDown).rgb;
                 }
                 hdr = acc / 8.0;
             } else if (uDamage > 0.02) {
                 // a little chromatic split on hits
                 vec2 o = fromC * 0.006 * uDamage;
-                hdr = vec3(texture2D(tDiffuse, uv + o).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - o).b);
+                hdr = vec3(dfTex(uv + o).r, dfTex(uv).g, dfTex(uv - o).b);
             } else {
-                hdr = texture2D(tDiffuse, uv).rgb;
+                hdr = dfTex(uv).rgb;
             }
             hdr = max(hdr, vec3(0.0)) * uExposure * (1.0 + uFlash);
             vec3 c = dfToSrgb(dfTone(hdr * 1.3));
@@ -256,6 +272,9 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     let inks: DfInkPass[] = []
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.38, 0.92)
     bloom.enabled = quality === 'high'
+    bloom.materialHighPassFilter.fragmentShader = bloom.materialHighPassFilter.fragmentShader
+        .replace('void main() {', `${DF_FINITE_GLSL}\nvoid main() {`)
+        .replace('texture2D( tDiffuse, vUv )', 'dfFinite( texture2D( tDiffuse, vUv ) )')
     const grade = new ShaderPass(GRADE_SHADER)
     const gu = grade.uniforms as typeof GRADE_SHADER.uniforms
 
