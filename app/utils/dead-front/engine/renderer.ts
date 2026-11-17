@@ -74,6 +74,12 @@ const GRADE_SHADER = {
             p3 += dot(p3, p3.yzx + 33.33);
             return fract((p3.x + p3.y) * p3.z);
         }
+        float vnoise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+        }
         void main() {
             vec2 uv = vUv;
             vec2 fromC = uv - 0.5;
@@ -113,6 +119,10 @@ const GRADE_SHADER = {
             float hr = 0.46 * (1.0 - smoothstep(0.015, 0.11, l));
             float dots = 1.0 - smoothstep(hr - 0.09, hr + 0.09, hd);
             c *= 1.0 - dots * 0.3;
+            // pen hatching in the mid-shadows (below the dots): fine 45 degree strokes
+            float hatchBand = smoothstep(0.36, 0.14, l) * smoothstep(0.03, 0.12, l);
+            float hatch = (1.0 - smoothstep(0.07, 0.13, abs(fract((css.x - css.y) / 5.5) - 0.5))) * hatchBand;
+            c *= 1.0 - hatch * 0.16;
 
             float desat = max(uLowHealth * 0.6, uDown * 0.9);
             c = mix(c, vec3(l) * vec3(1.02, 0.99, 0.96), desat);
@@ -123,10 +133,38 @@ const GRADE_SHADER = {
             float vig = smoothstep(0.45, 1.15, r);
             c *= 1.0 - vig * (0.32 + uDown * 0.45);
 
-            // blood at the edges with damage and low health, pulsing with the heartbeat when low
+            // blood at the edges with damage and low health, pulsing with the heartbeat when low:
+            // a hard-edged ink splatter that creeps in from the corners, inked along its inner edge,
+            // dotted where it thins
             float pulse = 0.85 + 0.15 * sin(uTime * 7.0);
-            float red = clamp(uLowHealth * 0.75 * pulse + uDamage * 0.9, 0.0, 1.0) * smoothstep(0.2, 0.95, r);
-            c = mix(c, vec3(0.32, 0.015, 0.01) * (0.6 + 0.4 * l), red * 0.85);
+            float bloodI = clamp(uLowHealth * 0.6 * pulse + uDamage * 0.85, 0.0, 1.0);
+            if (bloodI > 0.01) {
+                vec2 sp = q * 2.2;
+                float nz = vnoise(sp * 1.7 + 3.0) * 0.6 + vnoise(sp * 4.1 - 1.0) * 0.3 + vnoise(sp * 9.0) * 0.1;
+                float edge = r + (nz - 0.5) * 0.55;
+                float t = mix(1.22, 0.6, bloodI);
+                float w = max(fwidth(edge), 0.003);
+                float fill = smoothstep(t - w, t + w, edge);
+                float rim = smoothstep(t - 0.03 - w, t - 0.03 + w, edge) * (1.0 - fill);
+                float inner = 1.0 - step(t + 0.1, edge);
+                float dotsMask = 1.0 - smoothstep(0.28, 0.38, length(fract(hp * 1.6) - 0.5));
+                vec3 fillCol = mix(vec3(0.56, 0.04, 0.03), vec3(0.25, 0.012, 0.014), step(t + 0.1, edge));
+                fillCol = mix(fillCol, vec3(0.82, 0.12, 0.08), dotsMask * inner * 0.85);
+                c = mix(c, vec3(0.02, 0.0, 0.01), rim * 0.85);
+                c = mix(c, fillCol, fill * 0.94);
+            }
+
+            // manga speed lines: ink rays from the edges when downed, a flicker of them on a hard hit
+            float lineK = max(uDown * 0.85, uDamage * 0.4);
+            if (lineK > 0.02) {
+                float ang = atan(q.y, q.x + 1e-4);
+                float sl = ang * 24.0 + floor(uTime * 12.0) * 5.0;
+                float h = hash(vec2(floor(sl), 3.0));
+                float wid = mix(0.05, 0.3, smoothstep(0.4, 1.0, r));
+                float stroke = 1.0 - smoothstep(wid - 0.03, wid, abs(fract(sl) - 0.5));
+                float reach = smoothstep(0.42 + 0.25 * h, 0.62 + 0.25 * h, r);
+                c = mix(c, vec3(0.015, 0.0, 0.01), step(0.55, h) * stroke * reach * lineK);
+            }
 
             // paper: a still, fibrous grain the ink sits on, plus a faint live grain
             float paper = hash(floor(css * 0.5)) * 0.5 + hash(floor(css)) * 0.3 + hash(floor(css * vec2(0.12, 1.0))) * 0.2;
@@ -303,6 +341,11 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             if (next !== pr) {
                 pr = next
                 apply()
+            }
+            if (import.meta.dev) {
+                // dev: window.__dfGrade = { lowHealth, damage, down, flash } pins the grade inputs
+                const o = (window as unknown as { __dfGrade?: Partial<DfGradeInput> }).__dfGrade
+                if (o) g = { ...g, ...o }
             }
             gu.uTime.value = time % 1000
             gu.uLowHealth.value = g.lowHealth

@@ -2489,6 +2489,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
         const api = {
             three: { THREE, scene, camera, renderer, vmScene, vmCamera, viewmodel },
+            /** The particle / flash system, to trigger effects by hand. */
+            fx,
             /** Objects under a screen point (NDC -1..1), nearest first. */
             pick(x = 0, y = 0) {
                 const rc = new THREE.Raycaster()

@@ -50,6 +50,8 @@ interface Fixture {
     flameBase: THREE.Vector3[]
     /** Electric trap id: lit only while that trap runs. */
     trap?: string
+    /** Index of this fixture's glow halo (-1: none). */
+    halo: number
 }
 
 interface Slot {
@@ -175,7 +177,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         const kind = kindOf(l)
         const onPost = virtualSet.has(l) || lampposts.some(p => Math.hypot(p.x - l.pos.x, p.z - l.pos.z) < 0.7)
         const trap = trapOf.get(l)
-        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power || trap ? 0 : 1, delay: kit.powerDelay(l.pos.x, l.pos.z), score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [], trap }
+        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power || trap ? 0 : 1, delay: kit.powerDelay(l.pos.x, l.pos.z), score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [], trap, halo: -1 }
         if (!onPost) {
             byKind[kind].push(f)
             const o = l.pos
@@ -239,6 +241,87 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         flames.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
         for (let i = 0; i < flameCount; i++) flames.setColorAt(i, new THREE.Color(1, 1, 1))
         add(flames)
+    }
+
+    // Glow halos: a camera-facing, hard-banded comic glow with a four point glint over
+    // every real lamp (additive, depth tested, so a wall still hides it). Flicker rides
+    // on the fixture's level.
+    const HALO_SIZE: Record<FixtureKind, number> = { lantern: 1.0, candle: 0.5, fire: 1.8, bulb: 0.95, arc: 1.5 }
+    const haloFix = fixtures.filter(f => !virtualSet.has(f.light) && !f.trap)
+    let halos: THREE.Mesh | null = null
+    let haloMat: THREE.ShaderMaterial | null = null
+    let haloGeo: THREE.InstancedBufferGeometry | null = null
+    let haloAttr: THREE.InstancedBufferAttribute | null = null
+    if (haloFix.length) {
+        const plane = new THREE.PlaneGeometry(1, 1)
+        haloGeo = new THREE.InstancedBufferGeometry()
+        haloGeo.index = plane.index
+        haloGeo.setAttribute('position', plane.getAttribute('position'))
+        const pos = new Float32Array(haloFix.length * 3)
+        const info = new Float32Array(haloFix.length * 3) // size, level, seed
+        const col = new Float32Array(haloFix.length * 3)
+        haloFix.forEach((f, i) => {
+            f.halo = i
+            pos.set([f.light.pos.x, f.light.pos.y + models[f.kind].y, f.light.pos.z], i * 3)
+            info.set([HALO_SIZE[f.kind], 0, f.seed], i * 3)
+            col.set([f.color.r, f.color.g, f.color.b], i * 3)
+        })
+        haloAttr = new THREE.InstancedBufferAttribute(info, 3).setUsage(THREE.DynamicDrawUsage)
+        haloGeo.setAttribute('iPos', new THREE.InstancedBufferAttribute(pos, 3))
+        haloGeo.setAttribute('iHalo', haloAttr)
+        haloGeo.setAttribute('iCol', new THREE.InstancedBufferAttribute(col, 3))
+        haloGeo.instanceCount = haloFix.length
+        haloMat = new THREE.ShaderMaterial({
+            uniforms: { uTime: { value: 0 } },
+            vertexShader: /* glsl */`
+                attribute vec3 iPos;
+                attribute vec3 iHalo;
+                attribute vec3 iCol;
+                varying vec2 vP;
+                varying vec3 vCol;
+                varying vec2 vInfo;
+                void main() {
+                    vec4 mv = viewMatrix * vec4(iPos, 1.0);
+                    float depth = max(-mv.z, 0.01);
+                    // gone right at the lens, and a little dimmer far off
+                    float k = smoothstep(0.6, 2.4, depth) * (1.0 - 0.5 * smoothstep(30.0, 90.0, depth));
+                    // nudged toward the eye so the fixture's own mesh doesn't swallow the hot core
+                    mv.z += 0.3;
+                    mv.xy += position.xy * iHalo.x;
+                    gl_Position = projectionMatrix * mv;
+                    vP = position.xy * 2.0;
+                    vCol = iCol;
+                    vInfo = vec2(iHalo.y * k, iHalo.z);
+                }
+            `,
+            fragmentShader: /* glsl */`
+                uniform float uTime;
+                varying vec2 vP;
+                varying vec3 vCol;
+                varying vec2 vInfo;
+                void main() {
+                    float r = length(vP);
+                    float core = 1.0 - smoothstep(0.1, 0.13, r);
+                    float b1 = (1.0 - smoothstep(0.28, 0.31, r)) * 0.4;
+                    float b2 = (1.0 - smoothstep(0.55, 0.58, r)) * 0.14;
+                    vec2 q = abs(vP) * 1.4;
+                    float star = (1.0 - smoothstep(0.92, 1.0, sqrt(q.x) + sqrt(q.y))) * (0.4 + 0.15 * sin(uTime * 2.1 + vInfo.y));
+                    float v = (core * 1.7 + b1 + b2 + star) * vInfo.x;
+                    if (v < 0.004) discard;
+                    gl_FragColor = vec4(vCol * v, 1.0);
+                }
+            `,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            fog: false
+        })
+        halos = new THREE.Mesh(haloGeo, haloMat)
+        halos.frustumCulled = false
+        halos.renderOrder = 6
+        halos.name = 'df-lamp-halos'
+        root.add(halos)
+        plane.dispose()
     }
 
     // Pool of real lights. Each costs every lit fragment, so keep it small.
@@ -305,6 +388,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
                     level = f.light.flicker ? dfFlicker(time * (f.kind === 'candle' ? 1.4 : 1), f.seed) : 1
                 }
                 f.level = level
+                if (haloAttr && f.halo >= 0) (haloAttr.array as Float32Array)[f.halo * 3 + 1] = level
                 const inst = kindMeshes[f.kind]
                 if (inst && f.inst >= 0) {
                     const k = 0.25 + Math.max(0.05, level) * 0.85
@@ -322,6 +406,10 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
                         flames.setColorAt(f.flames[i]!, tint)
                     }
                 }
+            }
+            if (haloAttr && haloMat) {
+                haloAttr.needsUpdate = true
+                haloMat.uniforms.uTime!.value = time % 1000
             }
             for (const inst of Object.values(kindMeshes)) if (inst.instanceColor) inst.instanceColor.needsUpdate = true
             if (flames) {
@@ -345,6 +433,9 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
                 m.dispose()
             }
             for (const g of geos) g.dispose()
+            halos?.removeFromParent()
+            haloGeo?.dispose()
+            haloMat?.dispose()
             for (const s of slots) s.light.removeFromParent()
         }
     }

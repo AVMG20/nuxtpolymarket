@@ -57,20 +57,9 @@ const INK_FRAG = /* glsl */`
     float dfQ(vec2 uv) {
         return uFar / (uFar - uNear) - texture2D(tDepth, uv).r;
     }
-    void main() {
-        float A = uFar / (uFar - uNear);
-        float qMin = uNear / (uFar - uNear);
-        vec2 css = gl_FragCoord.xy / uPr;
-        // the stroke swells and thins along its length
-        float swell = 0.62 + 0.76 * dfInkNoise(css * 0.03 + 11.0);
-        vec2 uv = vUv;
-        float qc = dfQ(uv);
-
-        // heavy line: taps on a ring of radius r. Whole pixels and mirrored pairs only:
-        // the depth texture is point sampled, and a lopsided pair reads a slope as an edge
-        float zc = uNear * A / max(qc, 1e-7);
-        float thin = mix(1.0, 0.6, smoothstep(6.0, 45.0, zc * uFade));
-        float r = max(1.0, floor(uWidth * uPr * swell * thin + 0.5));
+    // Heavy-line measure on a ring of whole-pixel radius r: (edge strength, nearest q in the ring).
+    // Mirrored pairs only: the depth texture is point sampled, and a lopsided pair reads a slope as an edge.
+    vec2 dfRing(vec2 uv, float qc, float r) {
         float rd2 = max(1.0, floor(r * 0.7071 + 0.5));
         vec2 o = uTexel * r;
         vec2 od = uTexel * rd2;
@@ -84,6 +73,35 @@ const INK_FRAG = /* glsl */`
         float qi = dfQ(uv - vec2(od.x, -od.y));
         float qNear = max(max(max(qa, qb), max(qd, qe)), max(max(qf, qg), max(qh, qi)));
         qNear = max(qNear, qc);
+        float lap = max(max(abs(qa + qb - 2.0 * qc), abs(qd + qe - 2.0 * qc)), max(abs(qf + qg - 2.0 * qc), abs(qh + qi - 2.0 * qc)) * (r / (rd2 * 1.4142)));
+        // normalise by the nearest surface in the ring, so the line belongs to the thing in front
+        return vec2(lap / (qNear * uPixAngle * r), qNear);
+    }
+    void main() {
+        float A = uFar / (uFar - uNear);
+        float qMin = uNear / (uFar - uNear);
+        vec2 css = gl_FragCoord.xy / uPr;
+        // the stroke swells and thins along its length
+        float swell = 0.62 + 0.76 * dfInkNoise(css * 0.03 + 11.0);
+        vec2 uv = vUv;
+        float qc = dfQ(uv);
+
+        // heavy line. The width is a fraction of a pixel: two rings (the whole pixels either side)
+        // blend by it, so a stroke that widens with distance or swell grows smoothly instead of
+        // stepping a pixel at a time (which shimmers while moving)
+        float zc = uNear * A / max(qc, 1e-7);
+        float thin = mix(1.0, 0.6, smoothstep(6.0, 45.0, zc * uFade));
+        float rw = max(1.0, uWidth * uPr * swell * thin);
+        float r0 = floor(rw);
+        float fr = rw - r0;
+        vec2 e0 = dfRing(uv, qc, r0);
+        float heavy = smoothstep(2.2, 3.4, e0.x);
+        float qNear = e0.y;
+        if (fr > 0.03) {
+            vec2 e1 = dfRing(uv, qc, r0 + 1.0);
+            heavy = mix(heavy, smoothstep(2.2, 3.4, e1.x), fr);
+            qNear = max(qNear, e1.y);
+        }
         // nothing but sky (or nothing of the viewmodel) around: no line
         if (qNear <= qMin * 1.0001) {
             #ifdef DF_INK_COPY
@@ -93,10 +111,6 @@ const INK_FRAG = /* glsl */`
             #endif
             return;
         }
-        float lap = max(max(abs(qa + qb - 2.0 * qc), abs(qd + qe - 2.0 * qc)), max(abs(qf + qg - 2.0 * qc), abs(qh + qi - 2.0 * qc)) * (r / (rd2 * 1.4142)));
-        // normalise by the nearest surface in the ring, so the line belongs to the thing in front
-        float m = lap / (qNear * uPixAngle * r);
-        float heavy = smoothstep(2.2, 3.4, m);
 
         // thin line: a tight cross, catches creases the ring is too coarse for
         vec2 t = uTexel;
