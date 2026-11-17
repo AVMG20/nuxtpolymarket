@@ -61,6 +61,11 @@ export function dfDecorPlacements(): DfDecorPlacement[] {
         p('beam', -29.6, 0, -33.2, 0.55),
         p('beam', -27.3, 0, -35.1, 2.1),
         p('wreath', -2, 0.55, -32, N),
+        p('shells', -3.6, 0, -36.2, 0.4),
+        p('ammo-b', -4.2, 0, -39.4, 0),
+        p('ammo-a', -2.9, 0, -39.3, 0.3),
+        p('bucket', -3.0, 0, -19.5, 0.4),
+        p('sacks', -9.6, 0, -19.6, 0.5),
         // ---------------------------------------------------- farm: barn, farmhouse, well, field
         p('workbench', -40, 0, 14.3, E),
         p('tool-rack', -33.5, 0.7, 25, S),

@@ -19,7 +19,8 @@ const CHUNK = 48 // cells
 /** Surface families, in shader id order (id = index + 1, 0 = air). */
 export const DF_SURFS = [
     'mud', 'crater', 'grass', 'cobble', 'gutter', 'gravel', 'flag', 'stone', 'moss', 'ashlar', 'brick', 'plaster',
-    'roof', 'slate', 'planks', 'beam', 'hay', 'metal', 'rust', 'marble', 'water', 'rubble', 'pane', 'lit', 'glass'
+    'roof', 'slate', 'planks', 'beam', 'hay', 'metal', 'rust', 'marble', 'water', 'rubble', 'pane', 'lit', 'glass',
+    'scorch', 'carpet'
 ] as const
 export type DfSurf = typeof DF_SURFS[number]
 
@@ -36,6 +37,7 @@ const SURF_OF: Record<string, DfSurf> = {
     wood1: 'planks', wood2: 'planks', plank: 'planks', beam: 'beam', sill: 'beam',
     hay1: 'hay', hay2: 'hay', iron: 'metal', rust: 'rust', marble1: 'marble', marble2: 'marble',
     water: 'water', rubble1: 'rubble', rubble2: 'rubble',
+    scorch: 'scorch', carpet: 'carpet',
     pane: 'pane', lit: 'lit', glassBlue: 'glass', glassRed: 'glass', glassGold: 'glass'
 }
 
@@ -70,7 +72,9 @@ const SURF_TONES: Record<DfSurf, [number, number, number, number]> = {
     rubble: [0x6f6a5f, 0x5c5850, 0x837d70, 0x2a2622],
     pane: [0x1e2633, 0x151b24, 0x56677e, 0x2e2117],
     lit: [0xffb45c, 0xe58d3c, 0xffdca6, 0x24180e],
-    glass: [0x5d72e0, 0xc8463f, 0xe2b24f, 0x15151b]
+    glass: [0x5d72e0, 0xc8463f, 0xe2b24f, 0x15151b],
+    scorch: [0x2d2824, 0x211c19, 0x4f4740, 0x0f0c0a],
+    carpet: [0x7d2e2c, 0x652422, 0x95403a, 0x2e100f]
 }
 
 /**
@@ -78,7 +82,7 @@ const SURF_TONES: Record<DfSurf, [number, number, number, number]> = {
  * squares (a bitmask: families sharing a bit blend).
  */
 const SURF_BLEND: Partial<Record<DfSurf, number>> = {
-    mud: 1, crater: 1, grass: 1, cobble: 1, gutter: 1, gravel: 1, rubble: 1, hay: 1 | 4, planks: 4,
+    mud: 1, crater: 1, scorch: 1, grass: 1, cobble: 1, gutter: 1, gravel: 1, rubble: 1, hay: 1 | 4, planks: 4,
     plaster: 2, brick: 2, stone: 8, moss: 2 | 8
 }
 
