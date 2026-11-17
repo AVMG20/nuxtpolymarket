@@ -114,6 +114,14 @@
             </div>
         </Transition>
 
+        <!-- the Iron Warlord's health -->
+        <Transition name="df-drop">
+            <div v-if="hud.boss" class="df-boss absolute left-1/2" :class="{ enraged: hud.boss.enraged }">
+                <div class="name">The Iron Warlord<span v-if="hud.boss.enraged"> · enraged</span></div>
+                <div class="bar"><i :style="{ transform: `scaleX(${hud.boss.hp})` }" /></div>
+            </div>
+        </Transition>
+
         <!-- first-match coaching -->
         <div class="df-hint-wrap absolute inset-x-0 flex justify-center px-4">
             <Transition name="df-hint">
@@ -616,6 +624,60 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-last span {
     margin-left: 0.3rem;
+}
+
+/* the Iron Warlord's health, top centre */
+.df-boss {
+    top: calc(var(--edge) + 4.6rem);
+    width: min(26rem, 70vw);
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.df-boss .name {
+    font-size: 0.85rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #f1e8cf;
+    text-shadow: var(--df-outline);
+}
+
+.df-boss .name span {
+    color: #ff6a4d;
+}
+
+.df-boss .bar {
+    width: 100%;
+    height: 10px;
+    background: var(--df-hud-bg);
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5);
+    border-radius: var(--df-r-sm);
+    overflow: hidden;
+}
+
+.df-boss .bar i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(#e2412f, #9c2416);
+    transform-origin: left center;
+    transition: transform 0.25s ease-out;
+}
+
+.df-boss.enraged .bar i {
+    animation: df-boss-throb 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes df-boss-throb {
+    from {
+        filter: brightness(1);
+    }
+
+    to {
+        filter: brightness(1.6);
+    }
 }
 
 /* first-match coaching: quiet, lower centre */
