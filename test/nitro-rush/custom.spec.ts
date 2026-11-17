@@ -38,6 +38,10 @@ describe('custom track sections', () => {
             branches: [{ sections: ['left-eighth', 'straight-100', 'straight-60', 'straight-20', 'left-tight'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 5 } }]
         },
         {
+            ...sprint(['straight-20', 'start', 'split-y-flip', 'left-eighth', 'straight-200', 'join-y-flip', 'straight-100', 'finish', 'straight-200']),
+            branches: [{ sections: ['right-eighth', 'straight-100', 'straight-60', 'straight-20', 'right-tight'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 5 } }]
+        },
+        {
             ...sprint(['straight-20', 'start', 'split-right', 'straight-200', 'join-right', 'straight-100', 'split-left', 'straight-200', 'join-left', 'straight-100', 'finish', 'straight-200']),
             branches: [
                 { sections: ['left-eighth', 'straight-100', 'straight-10', 'left-eighth'], from: { branch: 0, at: 2 }, to: { branch: 0, at: 4 } },

@@ -1,6 +1,6 @@
 import { inletOf, joinInlet, joinMerge, meetInlet, splitArm, type Inlet } from './fork-pieces'
 import { draftTrackDef } from './custom-draft'
-import { customLayout, fieldArrivals, forkMerges, forkShape, isFieldSection, lineSections, sectionWalk, shapeAt, walkedField, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
+import { customLayout, fieldArrivals, flippedId, forkMerges, forkShape, isFieldSection, lineSections, sectionWalk, shapeAt, walkedField, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
 import { draftFieldDefs, fieldApproach } from './field-layout'
 import { FORK_RADIUS, mapWalkHeights, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose, type RoadState } from './layout'
 import { Track, TrackGraphError, TrackLine, type BranchDef, type TrackDef } from './track'
@@ -140,6 +140,12 @@ export function insertSection(t: CustomTrack, line: number, index: number, id: S
     const next = moveSpots(withLineSections(t, line, sections), s => s.branch === line && s.at >= index ? { ...s, at: s.at + 1 } : s)
     if (!forkShape(id, 'split')) return next
     return { ...next, branches: [...next.branches ?? [], { sections: [], from: { branch: line, at: index }, to: null }] }
+}
+
+/** Section `index` on line `line` swapped for its mirror image, its branches kept; `t` itself when it has none. */
+export function flipSection(t: CustomTrack, line: number, index: number): CustomTrack {
+    const flipped = flippedId(lineSections(t, line)[index])
+    return flipped ? withLineSections(t, line, lineSections(t, line).map((id, k) => k === index ? flipped : id)) : t
 }
 
 /** `t` without lines `gone` (never the main road), the others renumbered; a branch heading into a join on one of them is left open. */

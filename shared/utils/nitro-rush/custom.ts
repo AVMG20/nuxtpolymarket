@@ -24,6 +24,8 @@ export interface Section {
     from?: Partial<RoadState>
     /** Off the palette; saved courses still lay it. */
     retired?: true
+    /** A Y mirrored, also off the palette: the builder's Flip turns the Y into it. */
+    flipped?: true
 }
 
 export const SECTION_CATEGORIES: readonly { id: SectionCategory, name: string }[] = [
@@ -157,6 +159,8 @@ export const SECTIONS = {
     'join-y': fork('Y join', 'i-lucide-merge', 'join', 'y'),
     'join-left': fork('Join from left', 'i-lucide-git-merge', 'join', 'left'),
     'join-right': fork('Join from right', 'i-lucide-git-merge', 'join', 'right'),
+    'split-y-flip': { ...fork('Flipped Y split', 'i-lucide-split', 'split', 'y-flip'), flipped: true },
+    'join-y-flip': { ...fork('Flipped Y join', 'i-lucide-merge', 'join', 'y-flip'), flipped: true },
     'start': { label: 'Start line', category: 'lines', icon: 'i-lucide-flag-triangle-right', piece: start },
     'checkpoint': { label: 'Checkpoint', category: 'lines', icon: 'i-lucide-milestone', piece: checkpoint },
     'finish': { label: 'Finish line', category: 'lines', icon: 'i-lucide-flag', piece: finish },
@@ -166,9 +170,15 @@ export const SECTIONS = {
 export type SectionId = keyof typeof SECTIONS
 
 /** What a player can pick from, in palette order. */
-export const PALETTE_SECTIONS = (Object.entries(SECTIONS) as [SectionId, Section][]).filter(([, s]) => !s.retired)
+export const PALETTE_SECTIONS = (Object.entries(SECTIONS) as [SectionId, Section][]).filter(([, s]) => !s.retired && !s.flipped)
 
 export const isSectionId = (id: unknown): id is SectionId => typeof id === 'string' && Object.hasOwn(SECTIONS, id)
+
+/** Each Y and its mirror image, both ways. */
+const FLIPS: Partial<Record<SectionId, SectionId>> = { 'split-y': 'split-y-flip', 'split-y-flip': 'split-y', 'join-y': 'join-y-flip', 'join-y-flip': 'join-y' }
+
+/** The mirror image of section `id`, or null when it has none. */
+export const flippedId = (id: SectionId | undefined): SectionId | null => id ? FLIPS[id] ?? null : null
 
 /** Sections since replaced, and what a saved course lays in their place. */
 const REPLACED: Record<string, SectionId> = { 'straight-50': 'straight-60' }

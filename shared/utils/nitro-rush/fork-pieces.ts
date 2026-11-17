@@ -1,4 +1,4 @@
-import { corner, FORK_RADIUS, straight, type ForkShape, type LayoutWalk, type Pose, type RoadState, type TrackPiece } from './layout'
+import { corner, FORK_RADIUS, forkSide, straight, type ForkShape, type LayoutWalk, type Pose, type RoadState, type TrackPiece } from './layout'
 import { wrapAngle } from './track'
 
 /** What a split or join section lays beyond its own road: a split's second arm, a join's road coming in and where it comes in from. */
@@ -6,11 +6,8 @@ import { wrapAngle } from './track'
 /** Shorter than this, the run up to a join's bend is left out rather than laid as a sliver. */
 const MIN_RUN_IN = 0.05
 
-/** The bend a split's second arm sets off on: the right side of a Y, or the side the split sends it. */
-export const splitArm = (shape: ForkShape): TrackPiece => corner(shape === 'left' ? 'left' : 'right', FORK_RADIUS, 45)
-
-/** Which way a road coming into a join bends onto it: in from the right of a Y, or from the side the join takes it in on. */
-const mergeSide = (shape: ForkShape) => shape === 'left' ? -1 : 1
+/** The bend a split's second arm sets off on: the side the split sends it. */
+export const splitArm = (shape: ForkShape): TrackPiece => corner(forkSide(shape) < 0 ? 'left' : 'right', FORK_RADIUS, 45)
 
 /** The radii a bend into a join may take, as the tightest and widest eighths have: enough to fit any diagonal lane the grid gives. */
 const MIN_MERGE_RADIUS = 40
@@ -24,18 +21,18 @@ export interface Merge {
 
 /** The road coming into a join, as `merge` lays it. */
 export function joinMerge(shape: ForkShape, { runIn, radius }: Merge = { runIn: 0, radius: FORK_RADIUS }): TrackPiece[] {
-    const bend: TrackPiece = { type: 'corner', turn: mergeSide(shape) > 0 ? 'right' : 'left', radius, angle: 45, exact: true }
+    const bend: TrackPiece = { type: 'corner', turn: forkSide(shape) > 0 ? 'right' : 'left', radius, angle: 45, exact: true }
     return runIn >= MIN_RUN_IN ? [straight(runIn), bend] : [bend]
 }
 
 /** The heading a road comes into a join on, from the heading the join ends on. */
-const inletHeading = (shape: ForkShape, heading: number) => heading - mergeSide(shape) * Math.PI / 4
+const inletHeading = (shape: ForkShape, heading: number) => heading - forkSide(shape) * Math.PI / 4
 
 /** Where a bend of `radius` into a join that ends at `end` starts. */
 function bendStart(shape: ForkShape, end: Pose, radius = FORK_RADIUS): Pose {
     const heading = inletHeading(shape, end.heading)
     // A bend from heading a to b moves r * side * (right(a) - right(b)), right(h) being (cos h, sin h).
-    const r = radius * mergeSide(shape)
+    const r = radius * forkSide(shape)
     return {
         x: end.x - r * (Math.cos(heading) - Math.cos(end.heading)),
         z: end.z - r * (Math.sin(heading) - Math.sin(end.heading)),
@@ -80,7 +77,7 @@ function solveMerge(at: Pose, inlet: Inlet): Merge | null {
     if (Math.abs(wrapAngle(at.heading - inlet.heading)) > HEADING_TOLERANCE) return null
     // The join's end is the run in along the diagonal plus the bend's sweep per metre of radius; solved for both.
     const a = [Math.sin(inlet.heading), -Math.cos(inlet.heading)] as const
-    const side = mergeSide(inlet.shape)
+    const side = forkSide(inlet.shape)
     const v = [side * (Math.cos(inlet.heading) - Math.cos(inlet.end.heading)), side * (Math.sin(inlet.heading) - Math.sin(inlet.end.heading))] as const
     const d = [inlet.end.x - at.x, inlet.end.z - at.z] as const
     const det = a[0] * v[1] - a[1] * v[0]

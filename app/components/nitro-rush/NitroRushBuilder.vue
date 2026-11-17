@@ -23,7 +23,7 @@ const emit = defineEmits<{
 const {
     draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
     fieldTargets, fieldSpot, fieldPlan, fieldGroup, fieldGrows, fieldArrivals, fieldError,
-    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+    walkUpTo, insert, removeAt, moveTo, flip, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
     fieldTool, resizeFieldTo, moveFieldExit, addExit, growFieldAt
 } = useNitroRushTrackDraft(toRef(props, 'track'))
 
@@ -313,7 +313,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           @remove="removeLine"
         />
         <div class="max-h-64 min-h-0 flex-1 overflow-y-auto lg:max-h-none">
-          <NitroRushBuilderPieces :sections="lineSections" :tags="tags" :cursor="cursor" :start-label="line ? 'Fork' : 'Start of the road'" @select="select" @move="moveTo" @remove="removeAt" />
+          <NitroRushBuilderPieces :sections="lineSections" :tags="tags" :cursor="cursor" :start-label="line ? 'Fork' : 'Start of the road'" @select="select" @move="moveTo" @flip="flip" @remove="removeAt" />
         </div>
         <div class="flex items-baseline justify-between text-[11px] text-white/60 tabular-nums">
           <span>{{ (length / 1000).toFixed(2) }} KM</span>

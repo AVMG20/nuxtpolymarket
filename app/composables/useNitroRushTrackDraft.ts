@@ -1,7 +1,7 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { compileCustomTrack, forkShape, isFieldSection, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
-import { branchEnding, canJoin, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
+import { branchEnding, canJoin, flipSection, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
 import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit, type FieldTool, type GrowEdge } from '#shared/utils/nitro-rush/field-edit'
 import { defaultFieldPlan, type FieldDir, type FieldPort } from '#shared/utils/nitro-rush/field'
 import { fieldGroup, walkedFields } from '#shared/utils/nitro-rush/field-group'
@@ -120,6 +120,12 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         edit(removeSection(draft.value, line.value, i), line.value, i - 1)
     }
 
+    /** Mirrors the Y split or join at `i`; it stays selected. */
+    function flip(i: number) {
+        const next = flipSection(draft.value, line.value, i)
+        if (next !== draft.value) edit(next, line.value, i)
+    }
+
     /** Takes the section at `from` out and puts it back in at `to`, counted after it's out; it stays selected. */
     function moveTo(from: number, to: number) {
         const n = lineSectionIds.value.length
@@ -232,7 +238,7 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     return {
         draft, closed, line, cursor, forks, lines, walk, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
         fieldTargets, fieldSpot, fieldPlan, fieldGroup: fieldGroupNow, fieldGrows, fieldArrivals, fieldError,
-        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+        walkUpTo, insert, removeAt, moveTo, flip, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
         fieldTool, resizeFieldTo, moveFieldExit, addExit, growFieldAt
     }
 }

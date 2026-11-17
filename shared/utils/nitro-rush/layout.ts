@@ -70,7 +70,13 @@ export type TrackPiece =
     | { type: 'field-in', id: number, hub: [number, number] }
 
 /** Where a split's second arm goes, or a join's second road comes in from: both sides of a Y, or one side of road that runs on straight. */
-export type ForkShape = 'y' | 'left' | 'right'
+export type ForkShape = 'y' | 'y-flip' | 'left' | 'right'
+
+/** The side a fork's second road leaves or comes in on, -1 left and 1 right: a Y's on the right, a flipped Y's on the left. */
+export const forkSide = (shape: ForkShape) => shape === 'left' || shape === 'y-flip' ? -1 : 1
+
+/** A Y bends the road it's on away from its second road; a left or right fork runs it on straight. */
+const isY = (shape: ForkShape) => shape === 'y' || shape === 'y-flip'
 
 export interface TrackLayout {
     id: string
@@ -541,10 +547,10 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, a
             if (!(piece.length >= 100)) fail('a corkscrew needs at least 100 m')
             screw(piece.turn === 'right' ? 1 : -1, piece.length)
         } else if (piece.type === 'split') {
-            if (piece.shape === 'y') bend(-1, FORK_RADIUS, 1)
+            if (isY(piece.shape)) bend(-forkSide(piece.shape), FORK_RADIUS, 1)
             else run(SPLIT_LENGTH)
         } else if (piece.type === 'join') {
-            if (piece.shape === 'y') bend(-1, FORK_RADIUS, 1)
+            if (isY(piece.shape)) bend(-forkSide(piece.shape), FORK_RADIUS, 1)
             else run(JOIN_LENGTH)
         } else if (piece.type === 'boost') {
             const margin = (BOOST_PIECE_LENGTH - BOOST_PAD_LENGTH) / 2
