@@ -7,7 +7,7 @@ import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfDevOp, DfEvent } from '#shared/utils/dead-front/protocol'
 import {
     DF_CHALLENGES, DF_CRATE, DF_DECOY, DF_RECIPES, DF_SALVAGE, DF_SENTRY,
-    dfChallengeCounts, dfChallengeGoal, dfChallengeReward, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfCrateBlocked, dfDecoyDamage,
+    dfChallengeCounts, dfChallengeGoal, dfChallengeReward, dfChallengePool, dfCraftBlocked, dfCraftSpend, dfCrateBlocked, dfDecoyDamage, dfRoundPayout,
     dfSalvageBonus, dfSalvageFade, dfSalvageRoll, dfSentryDamage, dfSentryPick, dfTurnToward, dfYawGap
 } from '#shared/utils/dead-front/salvage'
 import type {
@@ -407,10 +407,13 @@ export class DfArsenal {
         this.host.emit({ k: 'challenge', what: 'new', id, text: DF_CHALLENGES[id].text, goal })
     }
 
+    /** Round end: the challenge lapses and everyone is paid for the round survived. */
     roundEnd(): void {
         const c = this.challenge
         if (c && !c.done) this.host.emit({ k: 'challenge', what: 'failed', id: c.id, text: DF_CHALLENGES[c.id].text, goal: c.goal })
         this.challenge = null
+        const pay = dfRoundPayout(this.host.round)
+        for (const q of this.host.players) this.pay(q, pay, 'round')
     }
 
     /** After every kill: salvage drops (and the odd supply crate) and the round challenge. */
@@ -432,7 +435,7 @@ export class DfArsenal {
         // everyone gets the reward in their own pack
         const reward = dfChallengeReward(this.host.round)
         for (const q of this.host.players) {
-            this.grant(q, reward.scrap)
+            this.pay(q, reward.scrap, 'challenge')
             if (q.life !== 'dead') this.hooks.points(q, reward.points)
         }
         this.host.emit({ k: 'challenge', what: 'done', id: c.id, text: DF_CHALLENGES[c.id].text, goal: c.goal })
@@ -450,12 +453,24 @@ export class DfArsenal {
         pool.scrap = Math.min(DF_SALVAGE.maxScrap, pool.scrap + n)
     }
 
+    /** Scrap straight into a player's pool, and the word of it to them alone. */
+    private pay(p: SimPlayer, n: number, why: 'round' | 'challenge'): void {
+        if (n <= 0) return
+        this.grant(p, n)
+        this.emitTo(p.pid, { k: 'scrap', p: p.pid, n, why })
+    }
+
     /** A kill's salvage drops for `owner` (the killer; for a trap or a wipe, the nearest soldier standing). */
     private dropSalvage(z: SimZombie, owner: SimPlayer | null, bonus: number): void {
         const to = owner ?? this.nearestStanding(z.pos)
         if (!to) return
-        const scrap = dfSalvageRoll(z.type, this.host.round, randomFloat, bonus, this.host.players.length)
-        if (scrap > 0) this.addDrop(to.pid, scrap, z.pos)
+        if (z.type === 'brute') {
+            // a brute's pile lands for everyone, each rolled on their own
+            for (const q of this.host.players) this.addDrop(q.pid, dfSalvageRoll('brute', this.host.round, randomFloat), z.pos)
+        } else {
+            const scrap = dfSalvageRoll(z.type, this.host.round, randomFloat, bonus, this.host.players.length)
+            if (scrap > 0) this.addDrop(to.pid, scrap, z.pos)
+        }
         // the rare find: a supply crate with a bench item in it
         if (this.rng.chance(DF_CRATE.chance * dfSalvageFade(this.host.round))) this.addCrate(to.pid, this.rng.pick(DF_CRATE.items), z.pos)
     }

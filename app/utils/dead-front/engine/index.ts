@@ -48,6 +48,7 @@ import type { DfSettings } from './settings'
 import { DF_SND, registerDfEngineSounds } from './sounds'
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
 import { createDfArsenalClient } from './arsenal'
+import { dfEscapePauses, dfLockLossPlaysOn } from './bench-exit'
 import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_STREAK_TITLES, dfGasDepth } from '#shared/utils/dead-front/specials'
 
@@ -71,8 +72,14 @@ export interface DfEngine {
     /** Request pointer lock (from a click). */
     lock(): void
     unlock(): void
-    /** Escape after Escape closed the workbench: now it is the pause. */
-    pause(): void
+    /**
+     * Pauses the unlocked play that follows an Escape at the workbench (the
+     * window lost focus). With `key`, an Escape key asks: it is refused when
+     * that Escape is the one closing the workbench. True when it paused.
+     */
+    pause(key?: boolean): boolean
+    /** Closes the workbench shop (its close button). */
+    closeBench(): void
     /** Chat box open: the keyboard types instead of playing (held keys are let go). */
     setTyping(on: boolean): void
     applySettings(s: DfSettings): void
@@ -263,6 +270,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let currentPrompt: DfPrompt | null = null
     let reloadEmptyPending = false
     let wasLocked = false
+    /** When the play without the pointer lock began (ms): the Escape that closed the workbench. */
+    let benchEscapedAt = -Infinity
     /** We paused a solo match: the snapshot silence that follows isn't a lost connection. */
     let pausedByMe = false
 
@@ -1439,7 +1448,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     function onTriggerEvent(code: string): void {
-        if (code !== 'Mouse0' || disposed || !spawned || !input.locked || life === 'dead' || !mine || arsenal.shopOpen) return
+        if (code !== 'Mouse0' || disposed || !spawned || !(input.locked || input.playsUnlocked) || life === 'dead' || !mine || arsenal.shopOpen) return
         applyLook()
         pressHandled = true
         pullTrigger(eventTime())
@@ -1471,7 +1480,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         const alive = life !== 'dead'
         const canAct = playing && alive && spawned
-        // the open workbench shop holds the player still (WASD browse it)
+        // the open workbench shop holds the player still (a movement key closes it first)
         const shop = arsenal.shopOpen
         const walk = canAct && !shop
         // movement intent
@@ -2361,7 +2370,15 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // Escape at the workbench closes it: the browser drops the pointer lock on Escape, but that is no pause
         // (leaving the window, alt-tab, still pauses)
         // Escape out of the chat box is no pause either
-        hud.benchEscaped = !locked && document.hasFocus() && (arsenal.shopOpen || hud.benchEscaped || input.typedJustNow)
+        // (the key and the lock change come in either order: bench-exit.ts)
+        const playsOn = !locked && dfLockLossPlaysOn({
+            focused: document.hasFocus(), shopOpen: arsenal.shopOpen, sinceShopEscape: arsenal.sinceShopEscape,
+            playingOn: hud.benchEscaped, typedJustNow: input.typedJustNow
+        })
+        if (playsOn && !hud.benchEscaped) benchEscapedAt = performance.now()
+        hud.benchEscaped = playsOn
+        // Escape closes the shop even when the browser keeps the key to itself
+        if (!locked && arsenal.shopOpen) arsenal.closeShop('escape')
         hud.locked = locked
         wasLocked = locked
         // solo: the pause menu (Escape) or a lost pointer lock (alt-tab) pauses the match; co-op keeps running
@@ -2623,11 +2640,17 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             audio.unlock()
             input.lock()
         },
-        pause() {
+        pause(key = false) {
+            if (!hud.benchEscaped || input.locked) return false
+            if (key && !dfEscapePauses({ sincePlayingOn: performance.now() - benchEscapedAt, shopOpen: arsenal.shopOpen })) return false
             hud.benchEscaped = false
             input.setPlaysUnlocked(false)
             input.clear()
             if (solo && spawned) sendPause(true)
+            return true
+        },
+        closeBench() {
+            arsenal.closeShop()
         },
         unlock() {
             input.unlock()

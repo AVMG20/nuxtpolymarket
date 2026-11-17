@@ -120,13 +120,14 @@ export function dfKitName(tier: unknown): string {
 
 /**
  * Scrap to raise a weapon from tier `from` to `from + 1` (null at the top).
- * Putting every scrap into one weapon makes it Rare around round 9, Epic
- * around 17 and Legendary around 25, solo or in a squad.
+ * Putting most of the scrap into one weapon makes it Rare around round 4,
+ * Epic around 8 and Legendary around 13, solo or in a squad
+ * (scripts/dead-front-salvage.ts).
  */
 export const DF_RARITY_UPGRADE: readonly { scrap: number }[] = [
-    { scrap: 120 },
-    { scrap: 330 },
-    { scrap: 650 }
+    { scrap: 80 },
+    { scrap: 220 },
+    { scrap: 460 }
 ]
 
 export function dfRarityUpgradeCost(from: unknown): { scrap: number } | null {

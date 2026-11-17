@@ -67,6 +67,8 @@ function setup() {
         denyKey: 0,
         challenge: { text: 'Headshot kills', n: 4, goal: 7, done: false },
         salvageKey: 0,
+        salvageGain: 0,
+        salvageLabel: '',
         targeting: 'Release X to call in the Bomber Run'
     }
 }
