@@ -155,6 +155,8 @@ export interface DfHudState {
     ammoHint: string | null
     /** Zombies left when the round is down to its last few (1-3) and nothing more spawns; 0 otherwise. */
     lastZombies: number
+    /** The Iron Warlord on the field: its health (0..1) and whether it is enraged; null otherwise. */
+    boss: { hp: number, enraged: boolean } | null
     /**
      * Off-screen-aware markers (up to DF_HUD_MARKERS): the last zombies of a round and downed
      * teammates. Marker i is positioned every frame through CSS variables on the HUD root:
@@ -250,6 +252,10 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
             return ev.p === c.me ? line('gold', null, `Pack-a-Punch returned your ${c.weaponName(ev.weapon)}`) : null
         case 'powerup':
             return line('gold', ev.p, `grabbed ${c.powerupName(ev.kind)}`)
+        case 'boss':
+            if (ev.what === 'enrage') return line('red', null, 'The Iron Warlord is enraged')
+            if (ev.what === 'kill') return ev.p !== undefined && ev.p >= 0 ? line('gold', ev.p, 'brought down the Iron Warlord') : line('gold', null, 'The Iron Warlord fell')
+            return line('red', null, 'The Iron Warlord is here')
         case 'buy': {
             if (ev.what.startsWith('door:')) {
                 const label = c.doorLabel(ev.what.slice(5))
@@ -335,6 +341,7 @@ export function dfCreateHudState(): DfHudState {
         hint: null,
         ammoHint: null,
         lastZombies: 0,
+        boss: null,
         markers: [],
         arsenal: dfNewHudArsenal()
     }

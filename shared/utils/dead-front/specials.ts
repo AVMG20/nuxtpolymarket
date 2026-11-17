@@ -256,3 +256,64 @@ export function dfStreakKill(st: DfStreakState, time: number, head: boolean): Df
     if (head && st.heads % DF_STREAK.heads === 0) out.push({ kind: 'head', n: st.heads, bonus: DF_STREAK.headBonus })
     return out
 }
+
+// ---------------------------------------------------------------- the warlord
+
+/**
+ * Milestone rounds bring the Iron Warlord: one champion brute, much tougher,
+ * quicker to charge, that shrugs off the insta-kill, the nuke and the traps
+ * and never loses more than a slice of its health to one hit. Below half
+ * health it enrages and runs. Killing it drops a Max Ammo and pays everyone
+ * standing a bounty. A gas round pushes it to the round after.
+ */
+export const DF_WARLORD = {
+    name: 'The Iron Warlord',
+    /** The first warlord round, then one every `every` rounds. */
+    first: 10,
+    every: 8,
+    /** Health on top of a brute's, and per extra player. */
+    healthMult: 3,
+    perPlayer: 0.6,
+    /** Helmet as a share of its health (a brute's is 0.6). */
+    helmet: 0.35,
+    /** Most of its health one hit (or blast) can take. */
+    maxHitShare: 0.2,
+    /** Walking pace, then the enraged run (m/s). */
+    speed: 2.6,
+    enragedSpeed: 4.1,
+    /** Below this share of its health it enrages. */
+    enrageAt: 0.5,
+    /** Seconds between charges, calm and enraged (a brute's is 8). */
+    chargeCooldown: 5,
+    enragedChargeCooldown: 3.2,
+    /** Winded after a charge, as a share of a brute's recovery. */
+    recoverMult: 0.7,
+    /** It joins the round after this share of the horde has spawned. */
+    spawnShare: 0.2,
+    /** Points to every player still standing when it falls (multipliers apply). */
+    bounty: 500
+} as const
+
+/**
+ * Advances the warlord schedule when a round starts: is `round` a warlord
+ * round, and when is the next one. A gas round on the due round pushes the
+ * warlord to the round after; a schedule a jump skipped past catches up.
+ */
+export function dfWarlordSchedule(round: number, next: number, gas: boolean): { boss: boolean, next: number } {
+    let n = next
+    while (n < round) n += DF_WARLORD.every
+    if (n !== round) return { boss: false, next: n }
+    if (gas) return { boss: false, next: round + 1 }
+    return { boss: true, next: round + DF_WARLORD.every }
+}
+
+/** The warlord's health for a round's brute health and the squad size. */
+export function dfWarlordHealth(bruteHp: number, players: number): number {
+    const extra = Math.max(0, Math.floor(players) - 1)
+    return Math.round(bruteHp * DF_WARLORD.healthMult * (1 + DF_WARLORD.perPlayer * extra))
+}
+
+/** Damage one hit may do to the warlord (it can't be one-shot or wiped). */
+export function dfWarlordHit(dmg: number, maxHp: number): number {
+    return Math.min(dmg, maxHp * DF_WARLORD.maxHitShare)
+}

@@ -64,6 +64,9 @@ interface Helmet {
     floor: number
 }
 
+/** Zombie footfalls are heard within this many metres. */
+const ZSTEP_RANGE = 14
+
 interface Live {
     id: number
     type: DfEnemyType
@@ -126,6 +129,9 @@ interface Live {
     masked: boolean
     /** Next blood smear left behind a crawler. */
     trailAt: number
+    /** The Iron Warlord (a milestone round's champion brute), and whether it is enraged. */
+    boss: boolean
+    enraged: boolean
 }
 
 /** Which parts a zombie shows. */
@@ -401,7 +407,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             blend: 1, anim: 'walk', animTime: 0, input: newInput(s.type), x: 0, y: 0, z: 0, yaw: 0, lastX: 0, lastZ: 0, speed: 0, phase: 0, speedMul: 1,
             limpBase: 0, hitLimp: 0, springs: new Float32Array(S_COUNT * 2), headYaw: 0, headPitch: 0, groanAt: 0, attackAt: 0, tearAt: 0, gurgleAt: 0, leakAt: 0, sparkAt: 0,
             flickerAt: 0, seen: 0, missing: 0, armored: false, shocked: false, hp: 1, hitAt: -10, hitX: 0, hitZ: 0, fleshAt: 0, voice: 1, riseFx: 0, flash: 0,
-            helmet: null, helmetGone: false, dist: 0, tr: 1, tg: 1, tb: 1, crawl: false, masked: false, trailAt: 0
+            helmet: null, helmetGone: false, dist: 0, tr: 1, tg: 1, tb: 1, crawl: false, masked: false, trailAt: 0, boss: false, enraged: false
         }
         L.id = s.id
         L.type = s.type
@@ -472,6 +478,15 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         inp.down = DF_CRAWL_FALL
         L.trailAt = time + rnd(0.3, 0.9)
         L.masked = s.masked === true && batch.build.parts[P.mask] !== null
+        L.boss = s.boss === true
+        L.enraged = s.enraged === true
+        if (L.boss) {
+            // blackened iron, the red showing through comes from the tint pulse each frame
+            L.tr = 0.7
+            L.tg = 0.62
+            L.tb = 0.62
+            L.voice = 0.8
+        }
         batch.setColor(slot, tint.setRGB(L.tr, L.tg, L.tb))
         enterAnim(L, s.anim, true)
         poseLive(L, 0)
@@ -1009,6 +1024,8 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         L.hp = s.hp
         L.dist = distTo(L.x, L.y + 1, L.z)
         L.masked = s.masked === true && L.batch.build.parts[P.mask] !== null
+        L.boss = s.boss === true
+        L.enraged = s.enraged === true
         const crawl = s.crawl === true
         if (crawl && !L.crawl) loseLegs(L, s.anim)
         else if (!crawl && L.crawl) {
@@ -1055,9 +1072,21 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         poseLive(L, dt)
         stepHelmet(L, dt)
         // Brute footfalls twice per gait cycle; the odd bloater gurgle.
-        if (L.type === 'brute' && L.speed > 0.4 && (L.anim === 'walk' || L.anim === 'run' || L.anim === 'sprint') && Math.floor(prevPhase * 2) !== Math.floor(L.phase * 2) && L.dist < 30) {
-            sound(DF_WORLD_SOUNDS.bruteStep, L.x, L.y, L.z, 0.8, L.voice)
-            if (L.dist < 8) fx.shake(0.02 * (1 - L.dist / 8))
+        const stepped = Math.floor(prevPhase * 2) !== Math.floor(L.phase * 2)
+        const walking = L.anim === 'walk' || L.anim === 'run' || L.anim === 'sprint'
+        if (L.type === 'brute' && L.speed > 0.4 && walking && stepped && L.dist < (L.boss ? 45 : 30)) {
+            sound(DF_WORLD_SOUNDS.bruteStep, L.x, L.y, L.z, L.boss ? 1.25 : 0.8, L.voice * (L.boss ? 0.85 : 1))
+            const reach = L.boss ? 16 : 8
+            if (L.dist < reach) fx.shake((L.boss ? 0.05 : 0.02) * (1 - L.dist / reach))
+        } else if (L.type !== 'brute' && stepped && L.dist < ZSTEP_RANGE && L.speed > 0.35) {
+            // the horde's own feet: you hear a runner coming up behind you before it groans
+            const near = 1 - L.dist / ZSTEP_RANGE
+            if (L.crawl) {
+                if (Math.floor(L.phase) !== Math.floor(prevPhase)) sound(DF_WORLD_SOUNDS.zombieDrag, L.x, L.y + 0.1, L.z, 0.5 + 0.4 * near, rnd(0.9, 1.1))
+            } else if (walking) {
+                const fast = L.anim !== 'walk'
+                sound(fast ? DF_WORLD_SOUNDS.zombieRunStep : DF_WORLD_SOUNDS.zombieShuffle, L.x, L.y + 0.05, L.z, (fast ? 0.55 : 0.45) + 0.4 * near, rnd(0.88, 1.12) * (L.type === 'bloater' ? 0.8 : 1))
+            }
         }
         if (L.type === 'bloater' && time >= L.gurgleAt) {
             L.gurgleAt = time + rnd(4, 8)
@@ -1106,6 +1135,13 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                 L.sparkAt = time + rnd(0.7, 1.6)
                 fx.burst('electric', { x: L.x + rnd(-0.25, 0.25), y: L.y + rnd(0.4, L.def.height), z: L.z + rnd(-0.25, 0.25) }, { count: 5 })
             }
+        }
+        if (L.boss) {
+            // embers under the iron: a slow throb, a fast angry flicker once enraged
+            const h = L.enraged ? 0.55 + 0.35 * Math.sin(time * 9 + L.id) : 0.28 + 0.18 * Math.sin(time * 2.4 + L.id)
+            tr += h * 1.5
+            tg += h * 0.25
+            tb += h * 0.1
         }
         if (highlighted.has(L.id)) {
             // A slow ember glow that reads through the dark (the eyes flare with it).
@@ -1230,6 +1266,25 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                     const L = alive.get(ev.z)
                     if (L) kill(L, ev)
                     else deadIds.set(ev.z, time + 5)
+                    break
+                }
+                case 'boss': {
+                    if (ev.what === 'kill') {
+                        sound(DF_WORLD_SOUNDS.bossFall, ev.pos.x, ev.pos.y + 0.3, ev.pos.z, 1)
+                        fx.burst('dust', { x: ev.pos.x, y: ev.pos.y + 0.1, z: ev.pos.z }, { normal: { x: 0, y: 1, z: 0 }, count: 24 })
+                        fx.shake(0.25)
+                        break
+                    }
+                    const L = alive.get(ev.z)
+                    const x = L?.x ?? ev.pos.x
+                    const y = L?.y ?? ev.pos.y
+                    const z = L?.z ?? ev.pos.z
+                    sound(DF_WORLD_SOUNDS.bossRoar, x, y + 2, z, 1, ev.what === 'enrage' ? 1.08 : 0.95)
+                    fx.shake(ev.what === 'enrage' ? 0.2 : 0.12)
+                    if (L) {
+                        spring(L, S_TORSO_X, -6)
+                        spring(L, S_HEAD_X, -5)
+                    }
                     break
                 }
                 case 'gas': {

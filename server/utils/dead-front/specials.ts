@@ -4,8 +4,8 @@ import { dfGroundHeight } from '#shared/utils/dead-front/physics'
 import type { DfCollisionWorld } from '#shared/utils/dead-front/physics'
 import type { DfDevOp, DfEvent, DfTrapSnap, DfWorldSnap, DfZombieSnap } from '#shared/utils/dead-front/protocol'
 import {
-    DF_GAS, DF_TRAP, dfCrawlChance, dfCrawlSpeed, dfGasFirstRound, dfGasRoundCount, dfGasSchedule, dfInTrap,
-    dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick
+    DF_GAS, DF_TRAP, DF_WARLORD, dfCrawlChance, dfCrawlSpeed, dfGasFirstRound, dfGasRoundCount, dfGasSchedule, dfInTrap,
+    dfNewStreak, dfStreakKill, dfTrapBlocked, dfTrapPlayerDamage, dfTrapStart, dfTrapTick, dfWarlordHealth, dfWarlordSchedule
 } from '#shared/utils/dead-front/specials'
 import type { DfGasPocketDef, DfStreakState, DfTrap, DfTrapRun } from '#shared/utils/dead-front/specials'
 import type { DfEnemyType, DfHitZone, Vec3 } from '#shared/utils/dead-front/types'
@@ -13,7 +13,7 @@ import { randomChance, randomFloat } from '#shared/utils/random'
 import type { SimPlayer, SimZombie } from './sim-types'
 
 // Special rounds and set pieces on top of the match simulation: gas rounds,
-// the electric traps, crawlers and kill streaks. The simulation owns the
+// the Iron Warlord, the electric traps, crawlers and kill streaks. The simulation owns the
 // state of the world; this module keeps its own little state and is driven
 // through a handful of hooks (round start/end, spawn, wound, kill, step, use,
 // snapshot). Rules live in shared/utils/dead-front/specials.ts.
@@ -68,6 +68,15 @@ export class DfSpecials {
     private gasDropped = false
     private readonly traps: TrapRuntime[]
     private readonly streaks = new Map<number, DfStreakState>()
+    /** The round the next warlord is due. */
+    private nextBoss: number = DF_WARLORD.first
+    private forceBoss = false
+    /** This round's warlord: still to come (`due`), on the field (`alive`) or fallen. */
+    private boss: 'none' | 'due' | 'alive' | 'down' = 'none'
+    /** Spawn index (zombies spawned this round) the warlord comes in at. */
+    private bossAt = 0
+    /** A recycled warlord comes back as hurt (and as angry) as it left. */
+    private bossCarry: { hp: number, enraged: boolean } | null = null
 
     constructor(private readonly host: DfSpecialsHost, private readonly hooks: DfSpecialsHooks) {
         this.nextGas = dfGasFirstRound(randomFloat())
@@ -88,6 +97,12 @@ export class DfSpecials {
         this.gas = sched.gas || this.forceGas
         this.forceGas = false
         this.gasDropped = false
+        const boss = dfWarlordSchedule(round, this.nextBoss, this.gas)
+        this.nextBoss = boss.next
+        this.boss = (boss.boss || this.forceBoss) && !this.gas ? 'due' : 'none'
+        this.forceBoss = false
+        this.bossAt = Math.floor(normal * DF_WARLORD.spawnShare)
+        this.bossCarry = null
         if (!this.gas) {
             this.pockets = []
             return normal
@@ -99,6 +114,22 @@ export class DfSpecials {
     roundEnd(): void {
         this.gas = false
         this.pockets = []
+        this.boss = 'none'
+    }
+
+    /** The round the next warlord is due (tests, debugging). */
+    get nextBossRound(): number {
+        return this.nextBoss
+    }
+
+    /** This round has a warlord that hasn't fallen yet. */
+    get warlordRound(): boolean {
+        return this.boss === 'due' || this.boss === 'alive'
+    }
+
+    /** The type the next spawn must be, when the round's warlord is due now. */
+    forcedType(spawned: number): DfEnemyType | null {
+        return this.boss === 'due' && spawned >= this.bossAt ? 'brute' : null
     }
 
     /** Seconds between spawns this round. */
@@ -108,6 +139,11 @@ export class DfSpecials {
 
     /** Gas rounds: every spawn is a gas-masked ghoul sprinting out of the fog. */
     onSpawn(z: SimZombie): void {
+        if (this.boss === 'due' && z.type === 'brute') {
+            this.boss = 'alive'
+            this.makeWarlord(z)
+            return
+        }
         if (!this.gas) return
         z.masked = true
         z.gait = 'sprint'
@@ -129,6 +165,55 @@ export class DfSpecials {
             })
         }
         return out
+    }
+
+    // ------------------------------------------------------------ the warlord
+
+    private makeWarlord(z: SimZombie): void {
+        const hp = dfWarlordHealth(z.maxHp, this.host.players.length)
+        z.boss = true
+        z.maxHp = z.hp = hp
+        z.helmet = hp * DF_WARLORD.helmet
+        z.gait = 'run'
+        z.speed = DF_WARLORD.speed
+        z.flank = 0
+        z.chargeReadyAt = this.host.time + 2
+        const carry = this.bossCarry
+        this.bossCarry = null
+        if (carry) {
+            z.hp = Math.max(1, Math.min(hp, carry.hp))
+            z.helmet = 0
+            if (carry.enraged) {
+                z.enraged = true
+                z.gait = 'sprint'
+                z.speed = DF_WARLORD.enragedSpeed
+            }
+            return
+        }
+        this.host.emit({ k: 'boss', what: 'spawn', z: z.id, pos: rv(z.pos) })
+    }
+
+    /** A stuck zombie was taken off the field to come in again: the warlord with it. */
+    onRecycle(z: SimZombie): void {
+        if (!z.boss || this.boss !== 'alive') return
+        this.boss = 'due'
+        this.bossAt = 0
+        this.bossCarry = { hp: z.hp, enraged: z.enraged === true }
+    }
+
+    /** A wound on the warlord: below half health it enrages (and roars into a charge at once). */
+    onBossWound(z: SimZombie): void {
+        if (!z.boss || z.enraged || z.hp > z.maxHp * DF_WARLORD.enrageAt) return
+        z.enraged = true
+        z.gait = 'sprint'
+        z.speed = DF_WARLORD.enragedSpeed
+        z.chargeReadyAt = this.host.time
+        this.host.emit({ k: 'boss', what: 'enrage', z: z.id, pos: rv(z.pos) })
+    }
+
+    /** Seconds before the warlord's next charge. */
+    bossChargeCooldown(z: SimZombie): number {
+        return z.enraged ? DF_WARLORD.enragedChargeCooldown : DF_WARLORD.chargeCooldown
     }
 
     // ------------------------------------------------------------ zombies
@@ -157,6 +242,15 @@ export class DfSpecials {
 
     /** After every kill: streaks for the killer, and the gas round's last kill drops a Max Ammo. */
     onKill(z: SimZombie, p: SimPlayer | null, weapon: string, zone: DfHitZone, opts: { noPoints?: boolean, noDrop?: boolean }): void {
+        if (z.boss && this.boss === 'alive') {
+            this.boss = 'down'
+            this.host.emit({ k: 'boss', what: 'kill', z: z.id, pos: rv(z.pos), p: p?.pid ?? -1 })
+            // a dev wipe (no player, no drops) pays nothing
+            if (p === null && opts.noDrop) return
+            for (const q of this.host.players) if (q.life !== 'dead') this.hooks.points(q, DF_WARLORD.bounty)
+            const g = dfGroundHeight(this.host.world, z.pos.x, z.pos.z, z.pos.y + 0.5)
+            this.host.dropPowerup('maxammo', { x: z.pos.x, y: Number.isFinite(g) && Math.abs(g - z.pos.y) < 1 ? g : z.pos.y, z: z.pos.z })
+        }
         if (p && !opts.noPoints && weapon !== 'trap') {
             let st = this.streaks.get(p.pid)
             if (!st) this.streaks.set(p.pid, st = dfNewStreak())
@@ -181,6 +275,10 @@ export class DfSpecials {
             if (snap.anim === 'walk' || snap.anim === 'run' || snap.anim === 'sprint') snap.anim = 'crawl'
         }
         if (z.masked) snap.masked = true
+        if (z.boss) {
+            snap.boss = true
+            if (z.enraged) snap.enraged = true
+        }
     }
 
     // ------------------------------------------------------------ traps
@@ -202,7 +300,8 @@ export class DfSpecials {
             if (t.run.state !== 'active') continue
             const owner = this.host.players.find(p => p.pid === t.run.owner) ?? null
             for (const z of [...this.host.zombies]) {
-                if (z.hp <= 0 || !dfInTrap(t.def.area, z.pos)) continue
+                // the warlord stomps straight through
+                if (z.hp <= 0 || z.boss || !dfInTrap(t.def.area, z.pos)) continue
                 this.hooks.killByTrap(z)
                 if (owner) {
                     owner.kills++
@@ -221,10 +320,12 @@ export class DfSpecials {
     }
 
     /** The specials' part of the world snapshot. */
-    worldSnap(): Pick<DfWorldSnap, 'special' | 'traps'> {
+    worldSnap(): Pick<DfWorldSnap, 'special' | 'traps' | 'warlord'> {
         const traps: DfTrapSnap[] = this.traps.map(t => ({ id: t.def.id, state: t.run.state, timer: Math.ceil(Math.max(0, t.run.timer) * 10) / 10 }))
-        if (!this.gas) return { traps }
-        return { traps, special: { kind: 'gas', pockets: this.pockets.map(g => ({ ...g })) } }
+        const out: Pick<DfWorldSnap, 'special' | 'traps' | 'warlord'> = { traps }
+        if (this.warlordRound) out.warlord = true
+        if (this.gas) out.special = { kind: 'gas', pockets: this.pockets.map(g => ({ ...g })) }
+        return out
     }
 
     // ------------------------------------------------------------ dev
@@ -233,6 +334,10 @@ export class DfSpecials {
         switch (op.what) {
             case 'gas':
                 this.forceGas = true
+                return
+            case 'boss':
+                // the next round brings the warlord
+                this.forceBoss = true
                 return
             case 'crawl':
                 for (const z of this.host.zombies) {
@@ -255,4 +360,8 @@ export class DfSpecials {
             }
         }
     }
+}
+
+function rv(v: Vec3): Vec3 {
+    return { x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100, z: Math.round(v.z * 100) / 100 }
 }

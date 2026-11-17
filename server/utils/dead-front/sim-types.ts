@@ -180,6 +180,9 @@ export interface SimZombie {
     crawl?: boolean
     /** A gas-masked ghoul of a gas round. */
     masked?: boolean
+    /** The Iron Warlord (specials.ts); `enraged` below half health. */
+    boss?: boolean
+    enraged?: boolean
 }
 
 /** A weapon sitting in the Pack-a-Punch: whose it is, the slot it keeps reserved, and what comes back. */

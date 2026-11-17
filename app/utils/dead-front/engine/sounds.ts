@@ -40,6 +40,18 @@ export const DF_SND = {
     lunge: 'df:lunge',
     powerupSpawn: 'df:pu-spawn',
     powerupEnd: 'df:pu-end',
+    /** A power-up in its last seconds: one soft tick a second. */
+    powerupTick: 'df:pu-tick',
+    /** The last three seconds of the intermission: a war drum, the last one heavier (rate > 1). */
+    countdown: 'df:countdown',
+    /** A teammate went down / bled out. */
+    allyDown: 'df:ally-down',
+    allyBleedout: 'df:ally-bleedout',
+    /** The Iron Warlord: its round begins, it arrives, it enrages, it falls. */
+    bossRound: 'df:boss-round',
+    bossArrive: 'df:boss-arrive',
+    bossEnrage: 'df:boss-enrage',
+    bossDown: 'df:boss-down',
     step: (mat: string) => `df:step-${stepMat(mat)}`,
     powerup: (kind: DfPowerupKind) => `df:pu-${kind}`
 } as const
@@ -424,6 +436,75 @@ export function registerDfEngineSounds(audio: DfAudio): void {
     r(DF_SND.powerupSpawn, (p) => {
         for (const [i, m] of [74, 78, 81, 86].entries()) fmBell(at(p, i * 0.06), { freq: mtof(m), dur: 0.45, gain: 0.04, ratio: 2, index: 0.5, bite: 0.05 })
     }, 2)
+    // A soft clock tick with a little bell on top, higher as the power-up runs out (rate).
+    r(DF_SND.powerupTick, (p) => {
+        clickTrain(p, [0], { freq: 2600, q: 2, gain: 0.25, len: 0.01, jitter: 0.1 })
+        fmBell(p, { freq: 1568, dur: 0.25, gain: 0.05, ratio: 2, index: 0.4, bite: 0.03 })
+    }, 1)
+    // Intermission countdown: a muffled field drum over a low string; the last beat lands with a cymbal-like wash.
+    r(DF_SND.countdown, (p) => {
+        const last = p.rate > 1.05
+        const d: Rt = { ...p, rate: 1 }
+        thud(d, { freq: last ? 70 : 85, freqEnd: 42, dur: last ? 0.6 : 0.35, gain: last ? 0.6 : 0.42, body: 0.9, bodyFreq: 420, click: 0.25 })
+        noiseBurst(d, { kind: 'pink', type: 'bandpass', freq: 1700, q: 0.8, gain: last ? 0.14 : 0.07, dur: 0.08 })
+        if (last) noiseSwell(hall(d, 0.4), { kind: 'white', type: 'highpass', freq: 4500, q: 0.7, gain: 0.05, dur: 1.4, peakAt: 0.05 })
+        blip(d, mtof(last ? 38 : 45), mtof(last ? 38 : 45), last ? 1.1 : 0.5, last ? 0.12 : 0.07, 'triangle')
+    }, 1)
+    // A teammate down: a trench whistle's three short blasts, far off, over a low horn.
+    r(DF_SND.allyDown, (p) => {
+        const h = hall(p, 0.4)
+        for (let i = 0; i < 3; i++) {
+            const k = at(h, i * 0.17)
+            const g = gainNode(k.ctx, 0, k.out)
+            const bp = filterNode(k.ctx, 'bandpass', 2400, 5, g)
+            const o = oscNode(k.ctx, 'triangle', 2300, k.t, 0.13, bp)
+            const trill = gainNode(k.ctx, 60, o.frequency)
+            oscNode(k.ctx, 'sine', 32, k.t, 0.13, trill)
+            decayEnv(g.gain, k.t, 0.09 * k.vol, 0.01, 0.12)
+        }
+        horn(at(h, 0.1), 45, 0.8, 0.08, 0.7)
+    }, 1)
+    // A teammate bled out: one slow, low toll.
+    r(DF_SND.allyBleedout, (p) => {
+        const h = hall(p, 0.55)
+        bell(h, { freq: mtof(33), dur: 4, gain: 0.3, bright: 0.3 })
+        choir(at(h, 0.2), [45, 48, 52], 2.4, 0.03)
+    }, 1)
+    // A warlord round: the toll answered by a deeper second bell and a war drum.
+    r(DF_SND.bossRound, (p) => {
+        const h = hall(p, 0.5)
+        for (const [i, dt] of [0, 0.55, 1.1, 1.4].entries()) timpani(at(h, 2.6 + dt), i === 3 ? 33 : 31, i === 3 ? 0.55 : 0.4)
+        bell(at(h, 2.9), { freq: mtof(31), dur: 5, gain: 0.35, bright: 0.35 })
+    }, 1)
+    // It arrives: brass in fourths stacked low, a gong of iron plate and a timpani roll.
+    r(DF_SND.bossArrive, (p) => {
+        const h = hall(p, 0.5)
+        timpaniRoll(h, 33, 0.9, 0.4)
+        horn(at(h, 0.6), 38, 1.6, 0.17, 1.1)
+        horn(at(h, 0.6), 43, 1.6, 0.13, 1.1)
+        horn(at(h, 0.6), 26, 1.6, 0.12, 0.8)
+        horn(at(h, 1.4), 39, 1.4, 0.15, 1)
+        metal(at(h, 0.6), { base: 140, ratios: [1, 1.48, 2.11, 2.93, 3.87], decay: 3, gain: 0.2, strike: 0.6 })
+        blip(at(p, 0.6), 50, 28, 2, 0.45)
+    }, 1)
+    // Enraged: a fast rising brass stab and a heavy hit.
+    r(DF_SND.bossEnrage, (p) => {
+        const h = hall(p, 0.35)
+        for (const [i, m] of [38, 41, 44, 47].entries()) horn(at(h, i * 0.07), m, i === 3 ? 0.7 : 0.1, 0.14, 1.2)
+        timpani(at(h, 0.28), 31, 0.6)
+        metal(at(h, 0.28), { base: 180, ratios: [1, 1.48, 2.11, 2.93], decay: 1.6, gain: 0.14, strike: 0.7 })
+    }, 1)
+    // It falls: the toll's answer in full, D major over a timpani roll.
+    r(DF_SND.bossDown, (p) => {
+        const h = hall(p, 0.5)
+        timpaniRoll(h, 38, 0.7, 0.35)
+        horn(at(h, 0.7), 50, 2, 0.15, 1)
+        horn(at(h, 0.7), 54, 2, 0.11, 1)
+        horn(at(h, 0.7), 57, 2, 0.11, 1)
+        horn(at(h, 0.7), 38, 2, 0.1, 0.8)
+        choir(at(h, 0.6), [62, 66, 69], 2.6, 0.04)
+        for (const [i, m] of [74, 78, 81, 86].entries()) bell(at(h, 0.8 + i * 0.18), { freq: mtof(m), dur: 2, gain: 0.12, bright: 0.5 })
+    }, 1)
     r(DF_SND.powerupEnd, (p) => {
         fmBell(p, { freq: mtof(74), dur: 0.3, gain: 0.05, ratio: 2, index: 0.5 })
         fmBell(at(p, 0.15), { freq: mtof(69), dur: 0.5, gain: 0.05, ratio: 2, index: 0.5 })

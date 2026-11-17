@@ -2,7 +2,9 @@ import type { DfEnemyType, DfPerkId } from '#shared/utils/dead-front/types'
 import type { DfAudio, DfSynth } from '../../context'
 import { DF_WORLD_SOUNDS, dfAttackSound, dfDeathSound, dfGroanSound, dfPerkJingleSound } from '../sound-names'
 import { ambienceSting } from './ambience'
-import { bloaterGurgle, bodyFall, bruteStep, climb, flesh, gas, gib, headPop, helmetClang, rise, spit, swipe } from './gore'
+import {
+    bloaterGurgle, bodyFall, bossFall, bossRoar, bruteStep, climb, flesh, gas, gib, headPop, helmetClang, rise, spit, swipe, zombieDrag, zombieRunStep, zombieShuffle
+} from './gore'
 import {
     boardRip, boardSlam, boxClose, boxLand, boxMove, boxOpen, boxRoll, debrisCrash, doorOpen
 } from './interact'
@@ -15,7 +17,7 @@ import type { Rt } from './noise'
 import { zombieVoice } from './zombies'
 import type { DfVoiceKind } from './zombies'
 
-export { dfAmbienceLoop } from './ambience'
+export { dfAmbienceIntensity, dfAmbienceLoop, dfSetAmbienceIntensity } from './ambience'
 
 // Every procedural world and zombie sound, keyed by the names in sound-names.ts,
 // with a mix level per sound (measured offline so peaks land around 0.3-0.6).
@@ -69,7 +71,12 @@ const WORLD: Record<keyof typeof DF_WORLD_SOUNDS, readonly [Recipe, number]> = {
     gas: [gas, 1.1],
     climb: [climb, 0.8],
     bruteStep: [bruteStep, 1],
-    bloaterGurgle: [bloaterGurgle, 0.9]
+    bloaterGurgle: [bloaterGurgle, 0.9],
+    zombieShuffle: [zombieShuffle, 0.9],
+    zombieRunStep: [zombieRunStep, 0.9],
+    zombieDrag: [zombieDrag, 0.9],
+    bossRoar: [bossRoar, 1.1],
+    bossFall: [bossFall, 1]
 }
 
 const JINGLE_LEVEL: Record<DfPerkId, number> = {

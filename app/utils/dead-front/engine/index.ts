@@ -46,11 +46,13 @@ import { createDfRenderer } from './renderer'
 import { dfVerticalFov } from './settings'
 import type { DfSettings } from './settings'
 import { DF_SND, registerDfEngineSounds } from './sounds'
+import { createDfCues } from './cues'
+import { dfAmbienceIntensity, dfSetAmbienceIntensity } from '~/utils/dead-front/world/sounds'
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
 import { createDfArsenalClient } from './arsenal'
 import { dfEscapePauses, dfLockLossPlaysOn } from './bench-exit'
 import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
-import { DF_STREAK_TITLES, dfGasDepth } from '#shared/utils/dead-front/specials'
+import { DF_STREAK_TITLES, DF_WARLORD, dfGasDepth } from '#shared/utils/dead-front/specials'
 
 // The Dead Front client engine: owns the renderer, the loop, input and the
 // local player, interpolates the server's snapshots, routes events to the
@@ -160,6 +162,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     registerDfSpecialSounds(audio)
     safe('world sounds', () => registerDfWorldSounds(audio), undefined)
     safe('weapon sounds', () => registerDfWeaponSounds(audio), undefined)
+    const cues = createDfCues(audio)
+    dfSetAmbienceIntensity(0)
 
     const noopView = { update: noop, onEvent: noop, dispose: noop }
     const worldView: DfWorldView = safe('world view', () => createDfWorldView(ctx, DF_MAP), noopView)
@@ -710,6 +714,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
      */
     function predictHit(z: DfZombieSnap, dmg: number, zone: DfHitZone, shot: number, melee: boolean): { points: number, kill: boolean } {
         if (predictedDead.has(z.id)) return { points: 0, kill: false }
+        // the warlord ignores the insta-kill and caps every hit: its death comes from the server
+        if (z.boss) return { points: DF_POINTS.hit, kill: false }
         const insta = (latest?.world.insta ?? 0) > 0
         if (!insta && zone === 'head' && z.armored) return { points: DF_POINTS.hit, kill: false }
         const left = zombieHpLeft(z)
@@ -813,7 +819,12 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 hud.round = ev.round
                 hud.roundKey++
                 audio.play(DF_SND.roundStart, { volume: 0.9 })
-                if (s.world.special?.kind === 'gas') {
+                dfSetAmbienceIntensity(dfAmbienceIntensity(ev.round))
+                if (s.world.warlord) {
+                    // a warlord round: a second, deeper toll answers the first
+                    audio.play(DF_SND.bossRound, { volume: 0.9 })
+                    announce(`Round ${ev.round}`, `${DF_WARLORD.name} marches tonight`, 'red')
+                } else if (s.world.special?.kind === 'gas') {
                     // a gas round (specials.ts): the alarm, and masks on
                     audio.play(DF_SPECIAL_SND.gasAlarm, { volume: 1 })
                     announce('GAS! GAS! GAS!', `Round ${ev.round} · masks on, they come through the fog`, 'gold')
@@ -828,6 +839,22 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 audio.play(ev.kind === 'head' ? DF_SPECIAL_SND.calloutHead : DF_SPECIAL_SND.callout(tier), { volume: 0.8 })
                 // a double only rings; bigger streaks get the banner
                 if (ev.kind !== 'double') announce(ev.kind === 'head' ? `${DF_STREAK_TITLES.head} ×${ev.n}` : DF_STREAK_TITLES[ev.kind], `+${ev.bonus}`, 'gold')
+                break
+            }
+            case 'boss': {
+                if (ev.what === 'spawn') {
+                    audio.play(DF_SND.bossArrive, { volume: 0.9 })
+                    announce(DF_WARLORD.name, 'Knock its helmet off and keep out of its charge', 'red')
+                    fx.shake(0.15)
+                } else if (ev.what === 'enrage') {
+                    audio.play(DF_SND.bossEnrage, { volume: 0.85 })
+                    announce('It is enraged', 'Get clear of its charge', 'red')
+                } else {
+                    audio.play(DF_SND.bossDown, { volume: 0.9 })
+                    const by = ev.p === me ? 'You brought it down' : ev.p !== undefined && ev.p >= 0 ? `${playerName(ev.p)} brought it down` : 'It fell'
+                    announce('The Warlord has fallen', `${by} · +${DF_WARLORD.bounty} each`, 'gold')
+                    gradeFlash = Math.max(gradeFlash, 0.6)
+                }
                 break
             }
             case 'roundEnd': {
@@ -850,6 +877,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 if (ev.p === me) {
                     audio.play(DF_SND.down)
                     fx.shake(0.4)
+                } else {
+                    audio.play(DF_SND.allyDown, { volume: 0.85 })
                 }
                 // a teammate going down shows in the squad feed
                 break
@@ -864,6 +893,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             case 'bleedout': {
                 // teammates' bleed-outs show in the squad feed
                 if (ev.p === me) announce('You bled out', 'You return next round', 'red')
+                else audio.play(DF_SND.allyBleedout, { volume: 0.8 })
                 break
             }
             case 'respawn': {
@@ -1806,6 +1836,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
         // feedback: low health, downed, damage
         updateFeedback(dt, now)
+        cues.update(now, latest, mine, camera.position)
         updateGas(dt)
 
         fx.resize(rr.bufferHeight, rr.pixelRatio)
@@ -2005,6 +2036,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         hud.phase = s.phase
         hud.phaseTimer = s.phaseTimer
         hud.zombiesLeft = s.zombiesLeft
+        // the warlord's health bar
+        const boss = s.zombies.find(z => z.boss)
+        if (!boss) hud.boss = null
+        else if (!hud.boss) hud.boss = { hp: boss.hp, enraged: boss.enraged === true }
+        else {
+            if (hud.boss.hp !== boss.hp) hud.boss.hp = boss.hp
+            if (hud.boss.enraged !== (boss.enraged === true)) hud.boss.enraged = boss.enraged === true
+        }
 
         // squad
         const players = s.players
