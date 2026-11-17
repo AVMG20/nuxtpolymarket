@@ -302,7 +302,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
             att('webley-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight on the top strap. Tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.06 }),
             att('webley-long', 'muzzle', 'Target Barrel', 3, 'A long 7.5-inch target barrel. Much more reach and a tighter aimed shot, a touch slower to the sights.', { range: 1.35, maxRange: 1.25, adsSpread: 0.85, adsTime: 1.08 }),
             att('webley-speed', 'magazine', 'Prideaux Speedloader', 4, 'A spring speedloader that drops all six rounds in at once. A much faster reload, a fumble slower to draw.', { reloadTime: 0.7, reloadEmptyTime: 0.7, moveMult: 0.99 }),
-            att('webley-stock', 'stock', 'Shoulder Stock', 5, 'The cavalry stock clipped to the butt. Steady aim and soft recoil, clumsy from the hip.', { recoil: 0.6, adsSpread: 0.7, hipSpread: 1.15, adsTime: 1.15, moveMult: 0.97 })
+            att('webley-stock', 'stock', 'Target Grips', 5, 'Oversized walnut target grips that fill the hand. Steady aim and soft recoil, clumsy from the hip.', { recoil: 0.6, adsSpread: 0.7, hipSpread: 1.15, adsTime: 1.15, moveMult: 0.97 })
         ]
     },
     sawnoff: {
