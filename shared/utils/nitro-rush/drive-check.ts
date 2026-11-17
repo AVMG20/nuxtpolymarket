@@ -100,7 +100,7 @@ const under = newProjection()
 
 /** True when the ghost drove the course from start to finish, as far as its poses can show it. */
 export function ghostDrivesTrack(track: Track, ghost: Ghost): boolean {
-    return track.forked || track.gaps.length ? ghostFliesTrack(track, ghost) : ghostFollowsRoad(track, ghost)
+    return track.forked || track.gaps.length || track.fields.length ? ghostFliesTrack(track, ghost) : ghostFollowsRoad(track, ghost)
 }
 
 /** True when every pose is on the road and no further along it than the car could go since the last, from start to finish. */
@@ -129,6 +129,8 @@ interface RoadHit {
     on: boolean
     /** Over the road out to the walls' outer foot, on it or in the air, not off to its side: where a line can count. */
     over: boolean
+    /** On a field, where `branch` and `s` are only the nearest spot on a road across it. */
+    field?: boolean
 }
 
 interface RoadSearch {
@@ -189,8 +191,27 @@ function searchLine(line: TrackLine, x: number, y: number, z: number, found: Roa
     return found
 }
 
+/** Metres outside a field's box a pose still gets the full search, for a car pushed past a wall that the course still keeps on it. */
+const FIELD_NEAR = 5
+const fieldScratch = { u: 0, v: 0 }
+
+/** A pose on a field, driving on it; null when it's off every field or above or below it. */
+function fieldAt(track: Track, x: number, y: number, z: number): RoadHit | null {
+    // Off every field's box the whole-course search can't find one, so it's skipped.
+    if (!track.fields.some(f => {
+        const { u, v } = f.local(x, z, fieldScratch)
+        return Math.max(-u, u - f.width, -v, v - f.length) < FIELD_NEAR
+    })) return null
+    const p = track.nearest(x, z, under, y)
+    const field = track.fields[p.field]
+    if (!field || y - field.y > ON_ROAD_ABOVE || field.y - y > ON_ROAD_BELOW) return null
+    return { branch: p.branch, s: p.s, on: true, over: true, field: true }
+}
+
 /** The road a pose is on or over anywhere on the course. */
 function roadAt(track: Track, x: number, y: number, z: number): RoadHit {
+    const onField = fieldAt(track, x, y, z)
+    if (onField) return onField
     const found = newSearch()
     for (const line of track.branches) searchLine(line, x, y, z, found)
     return found.overHit ?? found.hit
@@ -199,7 +220,7 @@ function roadAt(track: Track, x: number, y: number, z: number): RoadHit {
 /** The road a pose is on, searched `span` metres either side of the road the pose before was on; the whole course after a flight, or when it left that road. */
 function roadNear(track: Track, x: number, y: number, z: number, before: RoadHit, span: number): RoadHit {
     const line = track.branches[before.branch]!
-    if (before.on && (!line.closed || 2 * span < line.length)) {
+    if (before.on && !before.field && (!line.closed || 2 * span < line.length)) {
         const from = line.segmentAt(before.s - span)
         const to = line.segmentAt(before.s + span)
         const count = line.closed ? (to - from + line.segments) % line.segments + 1 : to - from + 1
@@ -265,7 +286,8 @@ function ghostFliesTrack(track: Track, ghost: Ghost): boolean {
         if (moved > reach || y < -ON_ROAD_BELOW) return false
         const hit = roadNear(track, x, y, z, last, reach)
         if (hit.on) {
-            if (last.on && hit.branch === last.branch && Math.abs(along(hit.branch, last.s, hit.s)) > reach) return false
+            // On a field the nearest spot on a road across it can jump between the road's legs; the pose's own move is capped above.
+            if (last.on && !last.field && !hit.field && hit.branch === last.branch && Math.abs(along(hit.branch, last.s, hit.s)) > reach) return false
             // From one road onto another on the ground only where they meet, not up to a road stacked above.
             if (last.on && hit.branch !== last.branch && Math.abs(y - py) > CHANGE_CLIMB) return false
         } else {

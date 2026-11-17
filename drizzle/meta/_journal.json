@@ -526,6 +526,13 @@
       "when": 1794825700040,
       "tag": "0074_nitro_rush_plays",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794837047066,
+      "tag": "0075_nitro_rush_fields",
+      "breakpoints": true
     }
   ]
 }

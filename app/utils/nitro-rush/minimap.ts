@@ -1,6 +1,8 @@
 /** The course's plan scaled into the HUD minimap's square view box, north up as the camera sees it from above. */
 
-import type { Track, TrackLine } from '#shared/utils/nitro-rush/track'
+import { FIELD_TILE } from '#shared/utils/nitro-rush/field'
+import { fieldOutlines, type FieldOutline } from '#shared/utils/nitro-rush/field-group'
+import type { CourseField, Track, TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** The minimap's view box side, in its own units. */
 export const MINIMAP_VIEW = 100
@@ -23,10 +25,21 @@ export interface MinimapLine {
     y2: number
 }
 
+/** A field from above: its floor and its tiles' items, as SVG polygon points, its gates as lines, and its rim as a path. */
+export interface MinimapField {
+    floor: string
+    /** Only the edges it shares with no level neighbour, so joined fields draw as one. */
+    rim: string
+    blocks: string[]
+    pads: string[]
+    gates: MinimapLine[]
+}
+
 export interface MinimapPlan {
     fit: MinimapFit
-    /** Every line's centreline as one SVG path, broken over jump gaps. */
+    /** Every line's centreline as one SVG path, broken over jump gaps and across fields. */
     road: string
+    fields: MinimapField[]
     start: MinimapLine
     /** Every finish; none on a loop, where the finish is the start. */
     finishes: MinimapLine[]
@@ -71,12 +84,37 @@ function lineAcross(line: TrackLine, fit: MinimapFit, s: number): MinimapLine {
 }
 
 export function minimapPlan(track: Track): MinimapPlan {
-    const fit = fitPlan(track.branches)
+    const corners = track.fields.map((f) => {
+        const pts = [f.world(0, 0), f.world(f.width, 0), f.world(f.width, f.length), f.world(0, f.length)]
+        return { xs: pts.map(p => p[0]), zs: pts.map(p => p[1]) }
+    })
+    const fit = fitPlan([...track.branches, ...corners])
     return {
         fit,
         road: track.branches.map(line => linePath(line, fit)).join(''),
+        fields: fieldOutlines(track.fields.map(f => f.def)).map((o, i) => fieldPlan(track.fields[i]!, o, fit)),
         start: lineAcross(track, fit, track.startS),
         finishes: track.lapLines.filter(l => l.kind === 'finish').map(l => lineAcross(track.branches[l.branch]!, fit, l.s))
+    }
+}
+
+function fieldPlan(f: CourseField, outline: FieldOutline, fit: MinimapFit): MinimapField {
+    const at = ([x, z]: readonly [number, number]) => toMap(fit, x, z).map(num)
+    const polygon = (pts: readonly (readonly [number, number])[]) => pts.map(p => at(p).join(',')).join(' ')
+    const rect = (u0: number, v0: number, u1: number, v1: number) => polygon([f.world(u0, v0), f.world(u1, v0), f.world(u1, v1), f.world(u0, v1)])
+    const tile = (col: number, row: number, inset = 0) => rect(col * FIELD_TILE + inset, row * FIELD_TILE + inset, (col + 1) * FIELD_TILE - inset, (row + 1) * FIELD_TILE - inset)
+    const tiles = f.def.plan.tiles
+    return {
+        floor: polygon(outline.corners),
+        rim: outline.rim.map(([a, b]) => `M${at(a).join(' ')}L${at(b).join(' ')}`).join(''),
+        blocks: tiles.filter(t => t.kind === 'block' || t.kind === 'pillar').map(t => tile(t.col, t.row, t.kind === 'pillar' ? FIELD_TILE * 0.3 : 0)),
+        pads: f.pads.map(p => tile(p.col, p.row, FIELD_TILE * 0.2)),
+        gates: f.gates.map((g) => {
+            const half = FIELD_TILE / 2
+            const [x1, y1] = toMap(fit, g.x + g.dz * half, g.z - g.dx * half)
+            const [x2, y2] = toMap(fit, g.x - g.dz * half, g.z + g.dx * half)
+            return { x1: num(x1), y1: num(y1), x2: num(x2), y2: num(y2) }
+        })
     }
 }
 
@@ -86,7 +124,8 @@ function linePath(line: TrackLine, fit: MinimapFit) {
     let drawing = false
     for (let i = 0; i < line.segments; i++) {
         const j = (i + 1) % line.n
-        if (line.gapAt((line.cum[i]! + line.cum[i + 1]!) / 2)) {
+        const mid = (line.cum[i]! + line.cum[i + 1]!) / 2
+        if (line.gapAt(mid) || line.fieldedAt(mid)) {
             drawing = false
             continue
         }

@@ -31,6 +31,8 @@ export interface HudState {
     car: { x: number, z: number, heading: number }
     /** Every ghost drawn this frame, on the plan. */
     ghosts: readonly MapGhost[]
+    /** Checkpoints touched this lap of the `k` it needs, on a course with field gates, which can be taken in any order. */
+    gates: { touched: number, k: number } | null
 }
 
 export interface LapEntry {

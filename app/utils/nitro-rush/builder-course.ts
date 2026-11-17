@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { LINE_COLORS, NEON_PINK } from './config'
 import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { boostPadTexture, concreteTexture, gridTexture, ROAD_TILE_LENGTH } from './textures'
+import { buildFields } from './world-field'
 import { addBoostPads, boostPadMaterial, buildBarriers } from './world-road'
 import type { WorldKit } from './world-kit'
 import type { LineBlock } from '#shared/utils/nitro-rush/layout'
@@ -92,6 +93,7 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
     const decks = track.branches.map(line => kit.add(ribbon(line, 0, line.length, wallLeft, wallRight, 0, ROAD_TILE_LENGTH), mats.deck))
     buildBarriers(kit, mats.concrete, { endWalls })
     addBoostPads(kit, mats.boostPad)
+    buildFields(kit, mats.boostPad, mats.concrete)
     for (const line of track.branches) {
         for (const geo of emptyOutlines(line)) group.add(new THREE.LineLoop(kit.own(geo), mats.empty).computeLineDistances())
     }

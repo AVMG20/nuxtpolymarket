@@ -8,6 +8,15 @@ import { ROAD_TILE_LENGTH } from './textures'
 import { worldKit } from './world-kit'
 import { Track, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
 
+/** The way into a join a branch still has to reach, as road to draw. */
+export interface PreviewInlet {
+    def: TrackDef
+    /** Where it sets off, heading the way a branch has to come in. */
+    start: RoadEnd
+    /** The join the branch being built on heads for. */
+    mine: boolean
+}
+
 /** Some of the road on one line, by walk points: the highlighted section. */
 export interface PreviewSelection {
     line: number
@@ -21,6 +30,8 @@ const GHOST_COLOR = 0x3df2ff
 const GHOST_BLOCKED_COLOR = 0xff3b52
 /** Above the road it may overlap when a piece goes in mid-course, and the selection's highlight. */
 const GHOST_LIFT = 0.08
+/** A join's inlet that isn't the branch being built on's, white as the map has it. */
+const OTHER_INLET_COLOR = 0xffffff
 
 /** The track builder's 3D view: the road laid so far with its real walls, deck and pillars, orbited with the mouse or touch. */
 export class BuilderPreview {
@@ -46,6 +57,10 @@ export class BuilderPreview {
     /** The selection's empty road, which has no deck to highlight. */
     private selectionOutlines: THREE.LineLoop[] = []
     private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh, outlines: THREE.LineLoop[] } | null = null
+    private readonly inletMat = new THREE.MeshBasicMaterial({ color: OTHER_INLET_COLOR, transparent: true, opacity: 0.3, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false })
+    private readonly myInletMat = new THREE.MeshBasicMaterial({ color: NEON_PINK, transparent: true, opacity: 0.4, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, depthWrite: false })
+    /** Each join's inlet still to reach; drawn apart from the road, so picking never hits it. */
+    private inlets: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh }[] = []
     /** Until the player turns the view themselves, it reframes as the course grows. */
     private userMoved = false
     private raf = 0
@@ -133,6 +148,20 @@ export class BuilderPreview {
         if (!this.userMoved) this.frameCourse()
     }
 
+    /** Shows the way into each join a branch still has to reach. */
+    setInlets(inlets: readonly PreviewInlet[]) {
+        this.clearInlets()
+        this.inlets = inlets.map(({ def, start, mine }) => {
+            const track = new Track(def)
+            const mat = mine ? this.myInletMat : this.inletMat
+            const deck = new THREE.Mesh(ribbon(track, 0, track.length, wallLeft, wallRight, GHOST_LIFT, ROAD_TILE_LENGTH), mat)
+            const marker = endMarker(start, this.mats.markerGeo, mat)
+            this.scene.add(deck, marker)
+            return { track, deck, marker }
+        })
+        if (!this.userMoved) this.frameCourse()
+    }
+
     /** The line and walk point under a spot on screen, if it's on the road. */
     pick(clientX: number, clientY: number): { line: number, point: number } | null {
         if (!this.lines.length) return null
@@ -157,10 +186,13 @@ export class BuilderPreview {
         this.controls.dispose()
         this.clearCourse()
         this.clearGhost()
+        this.clearInlets()
         this.stage.dispose()
         this.mats.dispose()
         this.selectMat.dispose()
         this.ghostMat.dispose()
+        this.inletMat.dispose()
+        this.myInletMat.dispose()
         this.selectEmptyMat.dispose()
         this.ghostEmptyMat.dispose()
         // Each switch to 3D makes a context; browsers cap them, so free this one now rather than at GC.
@@ -187,9 +219,17 @@ export class BuilderPreview {
         this.ghost = null
     }
 
+    private clearInlets() {
+        for (const { deck, marker } of this.inlets) {
+            this.scene.remove(deck, marker)
+            deck.geometry.dispose()
+        }
+        this.inlets = []
+    }
+
     private frameCourse() {
         const box = new THREE.Box3()
-        const tracks = [...this.lines.map(l => l?.line), this.ghost?.track].filter(t => !!t)
+        const tracks = [...this.lines.map(l => l?.line), this.ghost?.track, ...this.inlets.map(i => i.track)].filter(t => !!t)
         for (const track of tracks) {
             for (let i = 0; i < track.n; i++) box.expandByPoint(new THREE.Vector3(track.xs[i], track.ys[i], track.zs[i]))
         }

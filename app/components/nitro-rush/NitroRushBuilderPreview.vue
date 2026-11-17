@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { PreviewCourse } from '~/utils/nitro-rush/builder-course'
-import { BuilderPreview, type PreviewSelection } from '~/utils/nitro-rush/builder-preview'
-import { draftTrackDef, pieceAt, type CustomTrack } from '#shared/utils/nitro-rush/custom'
-import { draftForkedDef, type ForkedLines } from '#shared/utils/nitro-rush/custom-forks'
+import { BuilderPreview, type PreviewInlet, type PreviewSelection } from '~/utils/nitro-rush/builder-preview'
+import type { CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { draftTrackDef, pieceAt } from '#shared/utils/nitro-rush/custom-draft'
+import { draftForkedDef, inletRoad, openInlets, type ForkedLines } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
 
 /** The track builder's 3D view of the course; a tap on the road selects its section. */
@@ -90,6 +91,17 @@ function resetView() {
     preview?.resetView()
 }
 
+/** The way into each join a branch still has to reach, lifted with the course when a ghost digs in. */
+const inlets = computed<PreviewInlet[]>(() => {
+    const lift = props.lines[0]!.rise - props.forks.walks[0]!.rise
+    return openInlets(props.forks.joins, props.ended).flatMap((j) => {
+        const road = inletRoad({ ...j, y: j.y + lift })
+        const def = draftTrackDef(road, false)
+        const [x, z] = road.pts[0] ?? [road.end.x, road.end.z]
+        return def ? [{ def, start: { x, z, y: road.ys[0] ?? road.end.y, heading: j.heading }, mine: !!props.line && j.branch === props.line }] : []
+    })
+})
+
 /** The ghost as a course to draw, with where it ends. */
 const ghostCourse = computed(() => {
     const def = props.ghost && draftTrackDef(props.ghost, false)
@@ -99,11 +111,13 @@ const ghostCourse = computed(() => {
 watch(courses, c => preview?.setCourse(c, selection.value))
 watch(selection, s => preview?.setSelected(s))
 watch(ghostCourse, g => preview?.setGhost(g))
+watch(inlets, i => preview?.setInlets(i))
 
 onMounted(() => {
     preview = new BuilderPreview(host.value!)
     preview.setCourse(courses.value, selection.value)
     preview.setGhost(ghostCourse.value)
+    preview.setInlets(inlets.value)
 })
 
 onBeforeUnmount(() => {

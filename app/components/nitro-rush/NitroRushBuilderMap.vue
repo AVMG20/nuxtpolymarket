@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
-import { inletStub, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
+import { inletStub, openInlets, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
+import { FIELD_TILE, fieldLocal, fieldPoint, type FieldPlacement } from '#shared/utils/nitro-rush/field'
 import { STEP } from '#shared/utils/nitro-rush/road-checks'
 import { BOOST_LANES, type BoostLane } from '#shared/utils/nitro-rush/track'
 
@@ -57,6 +58,8 @@ interface Segment {
     layer: number
     /** Over a jump's empty road, which has no deck to draw. */
     empty: boolean
+    /** Across a field, which is drawn instead. */
+    field: boolean
 }
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -65,7 +68,7 @@ let observer: ResizeObserver | null = null
 let view = { scale: 1, ox: 0, oy: 0, dpr: 1 }
 
 /** Each line's centreline as segments, the last one running on to where the line ends. */
-const segments = computed(() => props.lines.map(({ pts, ys, halfWidths, pieceStarts, gaps, end }, line) => {
+const segments = computed(() => props.lines.map(({ pts, ys, halfWidths, pieceStarts, gaps, fields, end }, line) => {
     const out: Segment[] = []
     let piece = 0
     for (let i = 0; i < pts.length; i++) {
@@ -75,13 +78,36 @@ const segments = computed(() => props.lines.map(({ pts, ys, halfWidths, pieceSta
         const y = (ys[i]! + (last ? end.y : ys[i + 1]!)) / 2
         const hw = (halfWidths[i]! + (last ? end.halfWidth : halfWidths[i + 1]!)) / 2
         const empty = gaps.some(([from, to]) => i >= from && i < to)
-        out.push({ a: pts[i]!, b, y, hw, piece, line, layer: Math.round(y / LAYER), empty })
+        const field = fields.some(f => i >= f.from && i < f.to)
+        out.push({ a: pts[i]!, b, y, hw, piece, line, layer: Math.round(y / LAYER), empty, field })
     }
     return out
 }))
 
+/** Each field laid across a line, with the line and piece it is, its corners and its items' corners. */
+const fieldPlans = computed(() => props.lines.flatMap((w, line) => w.fields.flatMap((f) => {
+    if (f.kind !== 'cross' || !f.placement) return []
+    const p: FieldPlacement = f.placement
+    const square = (u: number, v: number, size: number) => [fieldPoint(p, u, v), fieldPoint(p, u + size, v), fieldPoint(p, u + size, v + size), fieldPoint(p, u, v + size)]
+    return [{
+        line,
+        piece: pieceOf(w.pieceStarts, f.from),
+        y: w.ys[f.hub] ?? w.end.y,
+        corners: [fieldPoint(p, 0, 0), fieldPoint(p, p.plan.width, 0), fieldPoint(p, p.plan.width, p.plan.length), fieldPoint(p, 0, p.plan.length)],
+        items: p.plan.tiles.map(t => ({ kind: t.kind, corners: square(t.col * FIELD_TILE, t.row * FIELD_TILE, FIELD_TILE) })),
+        placement: p
+    }]
+})))
+
+/** The piece walk point `i` belongs to. */
+function pieceOf(starts: readonly number[], i: number) {
+    let piece = 0
+    while (piece + 1 < starts.length && starts[piece + 1]! <= i) piece++
+    return piece
+}
+
 /** The way into each join no branch has come into yet, which a branch has to get onto. */
-const inlets = computed(() => props.joins.filter(j => j.branch === null || !props.ended[j.branch]).map(j => ({ path: inletStub(j), j })))
+const inlets = computed(() => openInlets(props.joins, props.ended).map(j => ({ path: inletStub(j), j })))
 
 function roadColor(y: number) {
     const t = Math.min(1, Math.max(0, y / TOP))
@@ -119,7 +145,7 @@ function draw() {
     let maxX = 0
     let minZ = 0
     let maxZ = 0
-    for (const [x, z] of [...walks.flatMap(w => [...w.pts, [w.end.x, w.end.z] as const]), ...ghostPath, ...inlets.value.flatMap(i => i.path)]) {
+    for (const [x, z] of [...walks.flatMap(w => [...w.pts, [w.end.x, w.end.z] as const]), ...ghostPath, ...inlets.value.flatMap(i => i.path), ...fieldPlans.value.flatMap(f => f.corners)]) {
         minX = Math.min(minX, x)
         maxX = Math.max(maxX, x)
         minZ = Math.min(minZ, z)
@@ -153,6 +179,27 @@ function draw() {
         ctx.lineTo(w, py)
     }
     ctx.stroke()
+
+    // Fields under the road: floor, edge and items, the highlighted one in pink.
+    const polygon = (corners: readonly (readonly [number, number])[]) => {
+        ctx.beginPath()
+        for (const [x, z] of corners) ctx.lineTo(sx(x), sy(z))
+        ctx.closePath()
+    }
+    for (const f of fieldPlans.value) {
+        const on = f.line === props.line && f.piece === props.selected
+        polygon(f.corners)
+        ctx.fillStyle = on ? SELECTED_FILL : 'rgba(40, 42, 56, 0.9)'
+        ctx.fill()
+        ctx.lineWidth = 1.5 * dpr
+        ctx.strokeStyle = on ? PINK : roadColor(f.y)
+        ctx.stroke()
+        for (const item of f.items) {
+            polygon(item.corners)
+            ctx.fillStyle = item.kind === 'boost' ? BOOST : item.kind === 'checkpoint' ? cssColor(LINE_COLORS.checkpoint) : 'rgba(170, 174, 190, 0.85)'
+            ctx.fill()
+        }
+    }
 
     // Road, lowest band first, each with a dark outline beneath so a bridge reads as crossing.
     const roadPx = (half: number) => Math.max(MIN_ROAD_PX * dpr, half * 2 * scale)
@@ -190,9 +237,9 @@ function draw() {
             // One path per run of the same width, so the outline only breaks where the width changes.
             let prev: Segment | null = null
             for (const s of segs) {
-                const joins = prev && s.layer === layer && s.hw === prev.hw && !s.empty
+                const joins = prev && s.layer === layer && s.hw === prev.hw && !s.empty && !s.field
                 if (prev && !joins) ctx.stroke()
-                if (s.layer !== layer || s.empty) {
+                if (s.layer !== layer || s.empty || s.field) {
                     prev = null
                     continue
                 }
@@ -209,7 +256,7 @@ function draw() {
 
         ctx.lineCap = 'round'
         for (const s of lineSegs.flat()) {
-            if (s.layer !== layer || s.empty) continue
+            if (s.layer !== layer || s.empty || s.field) continue
             ctx.lineWidth = roadPx(s.hw)
             ctx.strokeStyle = picked(s) ? PINK : roadColor(s.y)
             ctx.beginPath()
@@ -347,6 +394,15 @@ function onClick(e: MouseEvent) {
     const { scale, ox, oy, dpr } = view
     const p = [(e.offsetX * dpr - ox) / scale, (e.offsetY * dpr - oy) / scale] as const
     const near = (MIN_ROAD_PX + 6) * dpr / scale
+    // A field picks as a whole, the topmost first.
+    const field = [...fieldPlans.value].sort((a, b) => b.y - a.y).find(({ placement: f }) => {
+        const { u, v } = fieldLocal(f, p[0], p[1])
+        return u >= 0 && v >= 0 && u <= f.plan.width && v <= f.plan.length
+    })
+    if (field) {
+        emit('pick', field.piece, field.line)
+        return
+    }
     let best: Segment | null = null
     let bestD = Infinity
     for (const s of segments.value.flat()) {
@@ -362,7 +418,7 @@ function onClick(e: MouseEvent) {
     if (best) emit('pick', best.piece, best.line)
 }
 
-watch(() => [props.lines, props.line, props.closed, props.selected, props.ended, props.joins, props.ghost, props.ghostBlocked], draw)
+watch(() => [fieldPlans.value, props.lines, props.line, props.closed, props.selected, props.ended, props.joins, props.ghost, props.ghostBlocked], draw)
 
 onMounted(() => {
     resize()

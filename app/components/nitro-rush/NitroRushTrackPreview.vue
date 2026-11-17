@@ -1,11 +1,16 @@
 <script setup lang="ts">
-/** A course's centreline, branches and all, as a single-colour line turning slowly on a tilted turntable. */
+import type { LevelField } from '#shared/utils/nitro-rush/field'
+import { fieldOutlines, onAnyField } from '#shared/utils/nitro-rush/field-group'
+
+/** A course's centreline, branches and all, and its fields, in a single colour turning slowly on a tilted turntable. */
 const props = defineProps<{
     points: readonly [number, number][]
     heights?: readonly number[]
     closed: boolean
     /** A forked course's branches, laid on the same ground as the main line. */
     branches?: readonly { points: readonly [number, number][], heights?: readonly number[] }[]
+    /** Its fields, drawn as floors with joined ones rimmed as one; the line isn't drawn across them. */
+    fields?: readonly LevelField[]
     color: string
 }>()
 
@@ -19,6 +24,7 @@ const CAMERA = 3.2
 const TURN_SECONDS = 16
 const STILL_ANGLE = 0.6
 const LINE_PX = 2
+const FIELD_ALPHA = 0.22
 const PAD_PX = 4
 /** Heights are tiny beside a course's length; stretched so a ramp or a spiral reads at card size. */
 const HEIGHT_SCALE = 5
@@ -65,22 +71,39 @@ function resample(line: PreviewLine, count: number): Point3[] {
     return out
 }
 
-/** Every line, main line first, as evenly spaced points centred and scaled into the unit circle together. */
+/** Every line, main line first, as evenly spaced points, and every field, centred and scaled into the unit circle together. */
 const shape = computed(() => {
+    const fields = props.fields ?? []
     const lines: PreviewLine[] = [
         { points: props.points, heights: props.heights, closed: props.closed },
         ...(props.branches ?? []).filter(b => b.points.length > 1).map(b => ({ ...b, closed: false }))
     ]
     const lengths = lines.map(l => measure(l).total)
     const sum = lengths.reduce((a, b) => a + b, 0) || 1
-    const sampled = lines.map((l, i) => ({ closed: l.closed, pts: resample(l, Math.max(MIN_LINE_SAMPLES, Math.round(SAMPLES * lengths[i]! / sum))) }))
-    const all = sampled.flatMap(l => l.pts)
+    const sampled = lines.map((l, i) => {
+        const pts = resample(l, Math.max(MIN_LINE_SAMPLES, Math.round(SAMPLES * lengths[i]! / sum)))
+        // A segment whose middle is on a field is the road's crossing of it, which the floor already shows.
+        const fielded = pts.map((a, k) => {
+            const b = pts[(k + 1) % pts.length]!
+            return onAnyField(fields, (a[0] + b[0]) / 2, (a[2] + b[2]) / 2, (a[1] + b[1]) / 2)
+        })
+        return { closed: l.closed, pts, fielded }
+    })
+    const outlines = fieldOutlines(fields).map(o => ({
+        corners: o.corners.map(([x, z]): Point3 => [x, z, o.y]),
+        rim: o.rim.map(([a, b]): [Point3, Point3] => [[a[0], a[1], o.y], [b[0], b[1], o.y]])
+    }))
+    const all = [...sampled.flatMap(l => l.pts), ...outlines.flatMap(o => o.corners)]
     const xs = all.map(p => p[0])
     const zs = all.map(p => p[1])
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2
     const cz = (Math.min(...zs) + Math.max(...zs)) / 2
     const r = Math.max(...all.map(([x, z]) => Math.hypot(x - cx, z - cz))) || 1
-    return sampled.map(l => ({ closed: l.closed, pts: l.pts.map(([x, z, h]): Point3 => [(x - cx) / r, (z - cz) / r, h / r * HEIGHT_SCALE]) }))
+    const norm = ([x, z, h]: Point3): Point3 => [(x - cx) / r, (z - cz) / r, h / r * HEIGHT_SCALE]
+    return {
+        lines: sampled.map(l => ({ ...l, pts: l.pts.map(norm) })),
+        fields: outlines.map(o => ({ corners: o.corners.map(norm), rim: o.rim.map(([a, b]): [Point3, Point3] => [norm(a), norm(b)]) }))
+    }
 })
 
 /** Where a point lands at turntable angle `angle`, before scaling to the canvas. */
@@ -104,7 +127,7 @@ const bounds = computed(() => {
         const a = k / FIT_ANGLES * Math.PI * 2
         const ca = Math.cos(a)
         const sa = Math.sin(a)
-        for (const p of shape.value.flatMap(l => l.pts)) {
+        for (const p of [...shape.value.lines.flatMap(l => l.pts), ...shape.value.fields.flatMap(f => f.corners)]) {
             const q = place(p, ca, sa)
             minX = Math.min(minX, q.x)
             maxX = Math.max(maxX, q.x)
@@ -130,25 +153,45 @@ function draw(angle: number) {
     const oy = h / 2 - scale * (b.minY + b.maxY) / 2
     const ca = Math.cos(angle)
     const sa = Math.sin(angle)
+    const project = (p: Point3) => {
+        const q = place(p, ca, sa)
+        return { x: w / 2 + q.x * scale, y: oy + q.y * scale, depth: q.depth }
+    }
+    // The far side fades, which is what makes a flat line read as turning in space.
+    const fade = (a: { depth: number }, b: { depth: number }) => 0.6 + 0.4 * ((a.depth + b.depth) / 2 + 1) / 2
+    const segment = (a: { x: number, y: number }, b: { x: number, y: number }) => {
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+    }
     ctx.clearRect(0, 0, w, h)
     ctx.strokeStyle = props.color
+    ctx.fillStyle = props.color
     ctx.lineWidth = LINE_PX * dpr
     ctx.lineCap = 'round'
-    for (const line of shape.value) {
-        const proj = line.pts.map((p) => {
-            const q = place(p, ca, sa)
-            return { x: w / 2 + q.x * scale, y: oy + q.y * scale, depth: q.depth }
-        })
+    for (const field of shape.value.fields) {
+        const corners = field.corners.map(project)
+        ctx.globalAlpha = FIELD_ALPHA
+        ctx.beginPath()
+        corners.forEach((c, i) => i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y))
+        ctx.fill()
+        for (const [p, q] of field.rim) {
+            const a = project(p)
+            const b = project(q)
+            ctx.globalAlpha = fade(a, b)
+            segment(a, b)
+        }
+    }
+    for (const line of shape.value.lines) {
+        const proj = line.pts.map(project)
         const n = line.closed ? proj.length : proj.length - 1
         for (let i = 0; i < n; i++) {
+            if (line.fielded[i]) continue
             const a = proj[i]!
             const b = proj[(i + 1) % proj.length]!
-            // The far side fades, which is what makes a flat line read as turning in space.
-            ctx.globalAlpha = 0.6 + 0.4 * ((a.depth + b.depth) / 2 + 1) / 2
-            ctx.beginPath()
-            ctx.moveTo(a.x, a.y)
-            ctx.lineTo(b.x, b.y)
-            ctx.stroke()
+            ctx.globalAlpha = fade(a, b)
+            segment(a, b)
         }
     }
     ctx.globalAlpha = 1

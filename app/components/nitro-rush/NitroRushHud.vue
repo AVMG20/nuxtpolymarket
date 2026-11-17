@@ -43,6 +43,7 @@ const recent = computed(() => props.hud.recentLaps.map((l) => {
     <div class="flex items-start justify-end gap-2">
       <div class="nr-laps">
         <div class="nr-label">{{ lapWord }} <b class="nr-lap tabular-nums">{{ hud.lap }}</b></div>
+        <div v-if="hud.gates" class="nr-label tabular-nums whitespace-nowrap">CHECKPOINTS <span class="nr-mono">{{ Math.min(hud.gates.touched, hud.gates.k) }}/{{ hud.gates.k }}</span></div>
         <NitroRushDigits class="nr-time block" :text="lapTimeOrBlank(hud.lapTime)" />
         <div class="nr-laps-row nr-laps-best">
           <span class="nr-label">BEST</span>

@@ -1,7 +1,10 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
-import { compileCustomTrack, forkShape, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
-import { branchEnding, canJoin, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
+import { compileCustomTrack, forkShape, isFieldSection, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
+import { branchEnding, canJoin, flipSection, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
+import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit, type FieldTool, type GrowEdge } from '#shared/utils/nitro-rush/field-edit'
+import { defaultFieldPlan, type FieldDir, type FieldPort } from '#shared/utils/nitro-rush/field'
+import { fieldGroup, walkedFields } from '#shared/utils/nitro-rush/field-group'
 
 const MAX_UNDO = 100
 
@@ -19,6 +22,8 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const canUndo = ref(false)
     /** Why the last try at finishing the loop or a branch came to nothing; it stands until the road changes. */
     const finishError = ref<string | null>(null)
+    /** Why the last edit to a field came to nothing; it stands until the next one. */
+    const fieldError = ref<string | null>(null)
 
     watch(initial, (t) => {
         draft.value = t
@@ -33,7 +38,8 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const sections = computed(() => draft.value.sections)
     const branches = computed(() => draft.value.branches)
     const closed = computed(() => draft.value.closed)
-    const road = computed(() => ({ ...initial.value, sections: sections.value, branches: branches.value, closed: closed.value }))
+    const fields = computed(() => draft.value.fields)
+    const road = computed(() => ({ ...initial.value, sections: sections.value, branches: branches.value, fields: fields.value, closed: closed.value }))
     const forks = computed(() => walkForks(road.value))
     const lines = computed(() => forks.value.walks)
     const walk = computed(() => lines.value[line.value]!)
@@ -47,6 +53,29 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const canFork = computed(() => (branches.value?.length ?? 0) < MAX_BRANCHES)
     /** Per join, whether the branch being built on may head into it. */
     const joinable = computed(() => forks.value.joins.map(j => line.value > 0 && canJoin(road.value, line.value, j.spot)))
+    /** Every field section in course order, with whether the branch being built on may head into it. */
+    const fieldTargets = computed(() => forks.value.walks.flatMap((_, l) => lineSections(road.value, l).flatMap((id, at) => {
+        const spot = { branch: l, at }
+        return id === 'field' ? [{ spot, joinable: line.value > 0 && canJoin(road.value, line.value, spot) }] : []
+    })))
+    /** The highlighted section when it's a field. */
+    const fieldSpot = computed(() => {
+        const spot = { branch: line.value, at: cursor.value }
+        return cursor.value >= 0 && isFieldSection(road.value, spot) ? spot : null
+    })
+    const fieldPlan = computed(() => fieldSpot.value && fieldPlanAt(road.value, fieldSpot.value))
+    /** The highlighted field with every field joined to it edge to edge, which drive as one, in course order. */
+    const fieldGroupNow = computed(() => fieldSpot.value ? fieldGroup(walkedFields(road.value, forks.value.walks), fieldSpot.value) : [])
+    /** Whether the highlighted field may grow: not when its road runs straight into another field, which growing would move. */
+    const fieldGrows = computed(() => !!fieldSpot.value && lineSections(draft.value, fieldSpot.value.branch)[fieldSpot.value.at + 1] !== 'field')
+    /** Where roads from other lines drive into that group, in the world, with their line. */
+    const fieldArrivals = computed(() => {
+        const ids = new Set(fieldGroupNow.value.map(f => f.id))
+        return forks.value.walks.flatMap((w, line) => w.fields.filter(f => f.kind === 'in' && ids.has(f.id)).flatMap(f => f.mouths.map((m) => {
+            const [x, z] = w.pts[m] ?? [w.end.x, w.end.z]
+            return { line, x, z }
+        })))
+    })
     /** Metres of road laid so far, over every line. */
     const length = computed(() => lines.value.reduce((m, w) => {
         for (let i = 1; i < w.pts.length; i++) m += Math.hypot(w.pts[i]![0] - w.pts[i - 1]![0], w.pts[i]![1] - w.pts[i - 1]![1])
@@ -60,6 +89,7 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     }
 
     function edit(next: CustomTrack, nextLine = line.value, nextCursor = cursor.value) {
+        fieldError.value = null
         history.push({ track: draft.value, line: line.value, cursor: cursor.value })
         if (history.length > MAX_UNDO) history.shift()
         canUndo.value = true
@@ -69,11 +99,12 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         cursor.value = Math.min(nextCursor, lineSections(next, nextLine).length - 1)
     }
 
-    /** Lays `id` after the cursor; a new join takes the open branch whose end is nearest its inlet. */
-    function insert(id: SectionId) {
+    /** Lays `id` after the cursor, a field at `size`; a new join takes the open branch whose end is nearest its inlet. */
+    function insert(id: SectionId, size?: { width: number, length: number }) {
         if (full.value || (forkShape(id, 'split') && !canFork.value)) return
         const at = { branch: line.value, at: cursor.value + 1 }
         let next = insertSection(draft.value, line.value, at.at, id)
+        if (id === 'field') next = withField(next, at, defaultFieldPlan(size?.width, size?.length))
         if (forkShape(id, 'join')) {
             const { walks, joins } = walkForks(next)
             const inlet = joins.find(j => j.spot.branch === at.branch && j.spot.at === at.at)
@@ -87,6 +118,12 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     function removeAt(i: number) {
         if (i < 0 || i >= lineSectionIds.value.length) return
         edit(removeSection(draft.value, line.value, i), line.value, i - 1)
+    }
+
+    /** Mirrors the Y split or join at `i`; it stays selected. */
+    function flip(i: number) {
+        const next = flipSection(draft.value, line.value, i)
+        if (next !== draft.value) edit(next, line.value, i)
     }
 
     /** Takes the section at `from` out and puts it back in at `to`, counted after it's out; it stays selected. */
@@ -111,7 +148,8 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     /** Sends the branch being built on into the join at `to`, taking it off any branch that came in there; null leaves it open. */
     function joinAt(to: SectionSpot | null) {
         if (!line.value || (to && !canJoin(draft.value, line.value, to))) return
-        const taken = to ? draft.value.branches?.findIndex(b => b.to?.branch === to.branch && b.to.at === to.at) ?? -1 : -1
+        // A field takes any number of roads; a join only one.
+        const taken = to && !isFieldSection(draft.value, to) ? draft.value.branches?.findIndex(b => b.to?.branch === to.branch && b.to.at === to.at) ?? -1 : -1
         const freed = taken >= 0 && taken + 1 !== line.value ? setJoin(draft.value, taken + 1, null) : draft.value
         edit(setJoin(freed, line.value, to))
     }
@@ -122,6 +160,43 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         if (!from) return
         // Only an earlier line can be the one it left, so its number stands.
         edit(removeBranch(draft.value, l), from.branch, from.at - 1)
+    }
+
+    /** Applies a field edit as one undo step, or keeps the course and says why. */
+    function editField(result: FieldEdit, nextLine = line.value, nextCursor = cursor.value) {
+        if (!result.track) {
+            fieldError.value = result.error
+            return
+        }
+        if (result.track !== draft.value) edit(result.track, nextLine, nextCursor)
+    }
+
+    /** Uses `tool` on a tile of the field at `spot`, which it highlights; a drag paints, so it never turns what's there. */
+    function fieldTool(spot: SectionSpot, col: number, row: number, tool: FieldTool, painting = false, facing: FieldDir = 0) {
+        if (!isFieldSection(draft.value, spot)) return
+        select(spot.at, spot.branch)
+        editField(useFieldTool(draft.value, spot, col, row, tool, !painting, facing))
+    }
+
+    /** Lays a matching field flush against `edge` of the highlighted one, and highlights it. */
+    function growFieldAt(edge: GrowEdge) {
+        const spot = fieldSpot.value
+        if (spot) editField(growField(draft.value, spot, edge), spot.branch, spot.at + 1)
+    }
+
+    function resizeFieldTo(width: number, length: number) {
+        if (fieldSpot.value) editField(resizeField(draft.value, fieldSpot.value, width, length))
+    }
+
+    function moveFieldExit(port: FieldPort) {
+        if (fieldSpot.value) editField(setFieldExit(draft.value, fieldSpot.value, port))
+    }
+
+    /** Starts a branch leaving the highlighted field through `port`, and builds on it. */
+    function addExit(port: FieldPort) {
+        if (!fieldSpot.value) return
+        const result = addFieldExit(draft.value, fieldSpot.value, port)
+        editField(result, result.track?.branches?.length ?? line.value, -1)
     }
 
     function setClosed(closed: boolean) {
@@ -156,11 +231,14 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         line.value = prev.line
         cursor.value = prev.cursor
         finishError.value = null
+        fieldError.value = null
         canUndo.value = history.length > 0
     }
 
     return {
         draft, closed, line, cursor, forks, lines, walk, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
+        fieldTargets, fieldSpot, fieldPlan, fieldGroup: fieldGroupNow, fieldGrows, fieldArrivals, fieldError,
+        walkUpTo, insert, removeAt, moveTo, flip, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+        fieldTool, resizeFieldTo, moveFieldExit, addExit, growFieldAt
     }
 }

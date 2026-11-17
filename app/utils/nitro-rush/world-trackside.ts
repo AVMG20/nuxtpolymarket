@@ -102,7 +102,7 @@ function buildRoofBoards({ track, group, own }: WorldKit, roofs: readonly Roof[]
         let best = Infinity
         let to: [number, number] = [0, 0]
         for (const line of track.branches) {
-            line.projectAll(roof.x, roof.z, p)
+            line.projectAll(roof.x, roof.z, p, Number.NaN, false)
             const q = line.pointAt(line.wrapS(p.s))
             const d = Math.hypot(q.x - roof.x, q.z - roof.z)
             if (d < best) {
