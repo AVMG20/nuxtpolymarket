@@ -884,6 +884,91 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
     const decalLife = new Float32Array(DECALS)
     let decalNext = 0
 
+    // Comic onomatopoeia: a few pooled sprites that pop out of big events ("BOOM!" on a
+    // blast, "POP!" on a headshot, "PING!" on armour), rare and rate limited
+    const WORDS = ['BOOM!', 'POP!', 'PING!', 'POW!'] as const
+    type DfWord = typeof WORDS[number]
+    const wordCv = document.createElement('canvas')
+    wordCv.width = 1024
+    wordCv.height = 512
+    {
+        const g = wordCv.getContext('2d')!
+        g.textAlign = 'center'
+        g.textBaseline = 'middle'
+        g.lineJoin = 'round'
+        g.font = 'italic 900 150px Impact, "Arial Black", "Helvetica Neue", sans-serif'
+        WORDS.forEach((w, i) => {
+            const cx = (i % 2) * 512 + 256
+            const cy = Math.floor(i / 2) * 256 + 128
+            g.lineWidth = 30
+            g.strokeStyle = '#120a10'
+            g.fillStyle = '#e8281c'
+            g.strokeText(w, cx + 8, cy + 9)
+            g.fillText(w, cx + 8, cy + 9)
+            g.strokeText(w, cx, cy)
+            g.fillStyle = '#ffd23a'
+            g.fillText(w, cx, cy)
+            g.lineWidth = 5
+            g.strokeStyle = '#fff6c8'
+            g.strokeText(w, cx - 2, cy - 3)
+        })
+    }
+    const wordTex = new THREE.CanvasTexture(wordCv)
+    wordTex.colorSpace = THREE.SRGBColorSpace
+    wordTex.anisotropy = 4
+    interface WordSprite { sprite: THREE.Sprite, tex: THREE.CanvasTexture, age: number, life: number, size: number, tilt: number }
+    const wordPool: WordSprite[] = Array.from({ length: 5 }, () => {
+        const tex = wordTex.clone()
+        tex.needsUpdate = true
+        tex.repeat.set(0.5, 0.5)
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, toneMapped: false })
+        const sprite = new THREE.Sprite(mat)
+        sprite.visible = false
+        sprite.renderOrder = 13
+        scene.add(sprite)
+        return { sprite, tex, age: 1, life: 0, size: 1, tilt: 0 }
+    })
+    let wordNext = 0
+    let wordCool = 0
+    function popWord(pos: V3, word: DfWord, size: number, chance = 1): void {
+        if (wordCool > 0 || Math.random() > chance) return
+        wordCool = 0.3
+        const w = wordPool[wordNext]!
+        wordNext = (wordNext + 1) % wordPool.length
+        const i = WORDS.indexOf(word)
+        w.tex.offset.set((i % 2) * 0.5, 0.5 - Math.floor(i / 2) * 0.5)
+        w.age = 0
+        w.life = 0.55
+        w.size = size
+        w.tilt = (Math.random() - 0.5) * 0.35
+        w.sprite.position.set(pos.x, pos.y, pos.z)
+        w.sprite.visible = true
+    }
+    function updateWords(dt: number): void {
+        wordCool = Math.max(0, wordCool - dt)
+        camera.getWorldPosition(camPos)
+        for (const w of wordPool) {
+            if (!w.sprite.visible) continue
+            w.age += dt
+            if (w.age >= w.life) {
+                w.sprite.visible = false
+                continue
+            }
+            const u = w.age / w.life
+            // a hard pop in, a slow drift up, a quick fade
+            const pop = u < 0.18 ? 0.5 + (u / 0.18) * 0.75 : u < 0.3 ? 1.25 - ((u - 0.18) / 0.12) * 0.25 : 1
+            const d = Math.max(0.5, w.sprite.position.distanceTo(camPos))
+            // never smaller than ~90 px wide, never bigger than a third of the view
+            const mpp = 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov ?? 70) * 0.5) / Math.max(1, shared.uRes.value.y)
+            const base = Math.min(d * 0.9, Math.max(w.size, 90 * mpp * d))
+            w.sprite.scale.set(base * pop * 2, base * pop, 1)
+            w.sprite.position.y += dt * 0.35
+            const m = w.sprite.material
+            m.rotation = w.tilt
+            m.opacity = u > 0.7 ? 1 - (u - 0.7) / 0.3 : 1
+        }
+    }
+
     // light flashes from a fixed pool
     // every point light costs every lit fragment (even at zero intensity), so keep the pool small
     const LIGHTS = high ? 4 : 3
@@ -1048,6 +1133,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 break
             }
             case 'blood-mist': {
+                popWord(pos, 'POP!', 0.7 * sc, 0.6)
                 for (let i = 0, c = cnt(14); i < c; i++) {
                     base(px, py, pz, floor)
                     cone(nx, ny + 0.2, nz, 1.4)
@@ -1105,6 +1191,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 break
             }
             case 'sparks': {
+                popWord(pos, 'PING!', 0.45 * sc, 0.12)
                 for (let i = 0, c = cnt(16); i < c; i++) {
                     base(px, py, pz, floor)
                     cone(nx, ny, nz, 0.9)
@@ -1377,6 +1464,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                     S.c1.copy(PRESET_COLORS.dust1)
                     emit(alpha)
                 }
+                popWord({ x: px, y: py + 1.4 * sc, z: pz }, 'BOOM!', 1.9 * sc)
                 flash(pos, 0xffa050, 60 * sc, 0.45)
                 camera.getWorldPosition(camPos)
                 const d = Math.sqrt((camPos.x - px) ** 2 + (camPos.y - py) ** 2 + (camPos.z - pz) ** 2)
@@ -1773,6 +1861,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
 
     function update(dt: number, t: number): void {
         time = t
+        updateWords(dt)
         shared.uTime.value = t % 1000
         add.update(dt)
         alpha.update(dt)
@@ -1884,6 +1973,12 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         },
         dispose() {
             scene.remove(add.mesh, alpha.mesh, segs.mesh, decals)
+            for (const w of wordPool) {
+                scene.remove(w.sprite)
+                w.sprite.material.dispose()
+                w.tex.dispose()
+            }
+            wordTex.dispose()
             add.dispose()
             alpha.dispose()
             segs.dispose()
