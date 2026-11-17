@@ -72,8 +72,8 @@ export interface EngineEvents {
     hud: (h: HudState) => void
     popup: (p: Popup) => void
     phase: (p: Phase) => void
-    /** A new personal best lap or ghost; the component persists it and sends a new best to the leaderboard. */
-    record: (trackId: string, r: TrackRecord) => void
+    /** Every lap the player finishes on the clock, or a sprint's run, with the new best or ghost it set (null for none); the component persists that and sends the lap. */
+    lap: (trackId: string, seconds: number, record: TrackRecord | null) => void
 }
 
 /** Where a car sits in the world: its model's position and orientation. Full 3D, so it holds through loopings and corkscrews. */

@@ -87,13 +87,14 @@ async function removeTrack(tx: Tx, id: string) {
     await tx.delete(nitroRushGhosts).where(eq(nitroRushGhosts.trackId, id))
 }
 
-/** The builder's ghost when it is a lap really driven on `def`'s road, else null. */
-function drivenLap(def: TrackDef, ghost: unknown, standing: unknown): NrGhost | null {
+/** The builder's ghost when it is a lap really driven on `def`'s road, with the road's fastest possible lap; else null. */
+function drivenLap(def: TrackDef, ghost: unknown, standing: unknown): NrGhost & { minLapMs: number } | null {
     const road = new Track(def)
     // Not from the min-lap cache: `def` has no published id yet, and a dead key there would crowd out live ones.
-    const valid = validGhost(def, ghost, standing, Math.ceil(road.minLapSeconds * 1000))
+    const minLapMs = Math.ceil(road.minLapSeconds * 1000)
+    const valid = validGhost(def, ghost, standing, minLapMs)
     const decoded = valid && decodeGhost(valid.ghost)
-    return valid && decoded && ghostDrivesTrack(road, decoded) ? { ghost: valid.ghost, standing: valid.standing } : null
+    return valid && decoded && ghostDrivesTrack(road, decoded) ? { ghost: valid.ghost, standing: valid.standing, minLapMs } : null
 }
 
 async function assertUnderCap(tx: Tx, userId: string) {
@@ -161,7 +162,7 @@ export async function publishNrTrack(userId: string, raw: unknown, lap: { ghost?
         const now = new Date()
         const lapMs = driven.ghost.end
         await tx.insert(nitroRushTracks).values({ id, authorId: userId, sourceId: track.id, name, closed: track.closed, sections: track.sections, branches: track.branches ?? null, roadHash: hash })
-        await recordNrPlay(userId, id, tx)
+        await recordNrPlay(userId, id, driven.minLapMs, tx)
         await tx.insert(nitroRushLaps).values({ userId, trackId: id, lapMs, setAt: now })
         await tx.insert(nitroRushGhosts).values({ userId, trackId: id, lapMs, standing: driven.standing, ghost: driven.ghost, updatedAt: now })
         return id

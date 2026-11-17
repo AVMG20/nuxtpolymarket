@@ -42,11 +42,12 @@ export interface NrGhost {
     standing: boolean
 }
 
-/** A lap the server will accept: on a known course (`def`, from `nrTrackDef`) and a time the car could physically set. */
-export function validLap(def: TrackDef | null, lapMs: unknown): { trackId: string, lapMs: number } | null {
+/** A lap the server will accept: on a known course (`def`, from `nrTrackDef`) and a time the car could physically set, at least `minLapMs`. */
+export function validLap(def: TrackDef | null, lapMs: unknown): { trackId: string, lapMs: number, minLapMs: number } | null {
     if (!def || typeof lapMs !== 'number' || !Number.isInteger(lapMs)) return null
-    if (lapMs < nrMinLapMs(def) || lapMs > MAX_LAP_MS) return null
-    return { trackId: def.id, lapMs }
+    const minLapMs = nrMinLapMs(def)
+    if (lapMs < minLapMs || lapMs > MAX_LAP_MS) return null
+    return { trackId: def.id, lapMs, minLapMs }
 }
 
 const minLapCache = new Map<string, number>()
@@ -122,13 +123,17 @@ export async function nrRecordGhost(trackId: string, userId: string): Promise<Nr
     return { name: row.name, lapMs: Number(row.lap_ms), ghost: row.ghost, standing: row.standing }
 }
 
-/** Counts a finished lap towards the course's popularity; one statement, so parallel laps all count. */
-export async function recordNrPlay(userId: string, trackId: string, tx: DbExecutor = db) {
-    await tx.insert(nitroRushPlays).values({ userId, trackId, laps: 1, lastLapAt: new Date() })
+/** Counts a finished lap towards the course's popularity, but not within `minLapMs` (its fastest possible lap) of the player's last; one statement, so a burst counts once. */
+export async function recordNrPlay(userId: string, trackId: string, minLapMs: number, tx: DbExecutor = db) {
+    const rows = await tx.insert(nitroRushPlays).values({ userId, trackId, laps: 1, lastLapAt: new Date() })
         .onConflictDoUpdate({
             target: [nitroRushPlays.userId, nitroRushPlays.trackId],
-            set: { laps: sql`${nitroRushPlays.laps} + 1`, lastLapAt: sql`excluded.last_lap_at` }
+            set: { laps: sql`${nitroRushPlays.laps} + 1`, lastLapAt: sql`excluded.last_lap_at` },
+            // Both sides from this server's clock: the column is zoneless, and now() would bring in the session's zone.
+            setWhere: sql`${nitroRushPlays.lastLapAt} < excluded.last_lap_at - make_interval(secs => ${minLapMs / 1000})`
         })
+        .returning({ laps: nitroRushPlays.laps })
+    return rows.length > 0
 }
 
 /** A play inside the popularity window. */
@@ -156,6 +161,13 @@ export async function submitNrLap(userId: string, trackId: string, lapMs: number
         })
         .returning({ id: nitroRushLaps.id })
     return { improved: !!row }
+}
+
+/** A finished lap from `validLap`: a play, and the player's entry if quicker. Answers with the board and the course's plays as they now stand. */
+export async function finishNrLap(userId: string, lap: NonNullable<ReturnType<typeof validLap>>) {
+    const [{ improved }] = await Promise.all([submitNrLap(userId, lap.trackId, lap.lapMs), recordNrPlay(userId, lap.trackId, lap.minLapMs)])
+    const [board, plays] = await Promise.all([nrLeaderboard(lap.trackId, userId), nrTrackPlays([lap.trackId])])
+    return { improved, board, plays: plays.get(lap.trackId) ?? NO_PLAYS }
 }
 
 export async function nrLeaderboard(trackId: string, userId: string): Promise<NrBoard> {

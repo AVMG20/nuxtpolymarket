@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { nitroRushPlays } from '#server/database/schema'
-import { nrGhost, nrLeaderboard, nrRecordGhost, nrTrackSummaries, recordNrPlay, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
+import { finishNrLap, nrGhost, nrLeaderboard, nrRecordGhost, nrTrackSummaries, recordNrPlay, saveNrGhost, submitNrLap, validGhost, validLap } from '#server/utils/nitro-rush'
 import { PLAY_WINDOW_DAYS } from '#shared/utils/nitro-rush/popularity'
 import { encodeGhost, GHOST_HZ, GHOST_POSE, ghostSampleCount, type StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
@@ -16,7 +16,8 @@ const TRACK = `nr-test-${tag}`
 
 describe('lap validation', () => {
     it('accepts a real lap and refuses unknown courses, odd values and impossible times', () => {
-        expect(validLap(findTrack('polytown-oval'), 22_400)).toEqual({ trackId: 'polytown-oval', lapMs: 22_400 })
+        expect(validLap(findTrack('polytown-oval'), 22_400)).toMatchObject({ trackId: 'polytown-oval', lapMs: 22_400 })
+        expect(validLap(findTrack('polytown-oval'), 22_400)!.minLapMs).toBeLessThanOrEqual(22_400)
         expect(validLap(findTrack('nowhere'), 22_400)).toBeNull()
         expect(validLap(findTrack('polytown-oval'), 22.4)).toBeNull()
         expect(validLap(findTrack('polytown-oval'), '22400')).toBeNull()
@@ -60,6 +61,17 @@ describe('ghost validation', () => {
         expect(unknown?.ghost).not.toHaveProperty('car')
     })
 })
+
+/** A test course's fastest possible lap. */
+const MIN_LAP_MS = 10_000
+
+const playsOf = async (trackId: string) => (await nrTrackSummaries(A, [trackId]))[0]!.plays
+
+/** Moves the player's last play on the course `ms` into the past. */
+async function lastLapAgo(userId: string, trackId: string, ms: number) {
+    await db.update(nitroRushPlays).set({ lastLapAt: new Date(Date.now() - ms) })
+        .where(and(eq(nitroRushPlays.userId, userId), eq(nitroRushPlays.trackId, trackId)))
+}
 
 describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
     beforeAll(async () => {
@@ -105,17 +117,47 @@ describe.skipIf(SKIP)('nitro rush leaderboard (db)', () => {
         expect((await nrTrackSummaries(B, [TRACK]))[0]!.record?.mine).toBe(true)
     })
 
-    it('counts every lap under a burst, and only recent racers as racing it', async () => {
+    it('counts only recent racers as racing it', async () => {
         const PLAYED = `${TRACK}-played`
-        await Promise.all(Array.from({ length: 10 }, () => recordNrPlay(A, PLAYED)))
-        await recordNrPlay(B, PLAYED)
-        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 2, laps: 11 })
+        await recordNrPlay(A, PLAYED, MIN_LAP_MS)
+        await recordNrPlay(B, PLAYED, MIN_LAP_MS)
+        expect(await playsOf(PLAYED)).toEqual({ racers: 2, laps: 2 })
         const lapsed = new Date(Date.now() - (PLAY_WINDOW_DAYS + 1) * 86_400_000)
         await db.update(nitroRushPlays).set({ lastLapAt: lapsed }).where(eq(nitroRushPlays.userId, B))
-        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 1, laps: 11 })
+        expect(await playsOf(PLAYED)).toEqual({ racers: 1, laps: 2 })
         // Racing it again counts them back in.
-        await recordNrPlay(B, PLAYED)
-        expect((await nrTrackSummaries(A, [PLAYED]))[0]!.plays).toEqual({ racers: 2, laps: 12 })
+        await recordNrPlay(B, PLAYED, MIN_LAP_MS)
+        expect(await playsOf(PLAYED)).toEqual({ racers: 2, laps: 3 })
+    })
+
+    it('counts no second play within the course\'s fastest possible lap of the last', async () => {
+        const GUARD = `${TRACK}-guard`
+        expect(await recordNrPlay(A, GUARD, MIN_LAP_MS)).toBe(true)
+        expect(await recordNrPlay(A, GUARD, MIN_LAP_MS)).toBe(false)
+        await lastLapAgo(A, GUARD, MIN_LAP_MS - 1_000)
+        expect(await recordNrPlay(A, GUARD, MIN_LAP_MS)).toBe(false)
+        await lastLapAgo(A, GUARD, MIN_LAP_MS + 1_000)
+        expect(await recordNrPlay(A, GUARD, MIN_LAP_MS)).toBe(true)
+        expect(await playsOf(GUARD)).toEqual({ racers: 1, laps: 2 })
+    })
+
+    it('counts a burst of parallel plays once, on a new course and past the guard', async () => {
+        const BURST = `${TRACK}-burst`
+        const burst = () => Promise.all(Array.from({ length: 10 }, () => recordNrPlay(A, BURST, MIN_LAP_MS)))
+        expect((await burst()).filter(Boolean)).toHaveLength(1)
+        await lastLapAgo(A, BURST, MIN_LAP_MS + 1_000)
+        expect((await burst()).filter(Boolean)).toHaveLength(1)
+        expect(await playsOf(BURST)).toEqual({ racers: 1, laps: 2 })
+    })
+
+    it('counts a slower lap as a play and leaves the board as it was', async () => {
+        const SLOW = `${TRACK}-slow`
+        const first = await finishNrLap(A, { trackId: SLOW, lapMs: 30_000, minLapMs: MIN_LAP_MS })
+        expect(first).toMatchObject({ improved: true, plays: { racers: 1, laps: 1 } })
+        await lastLapAgo(A, SLOW, MIN_LAP_MS + 1_000)
+        const slower = await finishNrLap(A, { trackId: SLOW, lapMs: 35_000, minLapMs: MIN_LAP_MS })
+        expect(slower).toMatchObject({ improved: false, plays: { racers: 1, laps: 2 } })
+        expect(slower.board).toEqual(first.board)
     })
 
     it('gives the record to whoever set the time first when a later lap ties it', async () => {

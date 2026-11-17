@@ -100,19 +100,19 @@ function pushPopup(p: Popup) {
     }, p.big ? 1300 : 1000)
 }
 
-function onRecord(id: string, r: TrackRecord) {
+/** Every finished lap goes to the server, where it counts as a play; a new best or ghost is kept here too. */
+function onLap(id: string, seconds: number, r: TrackRecord | null) {
     const was = records.value[id]
-    records.value = { ...records.value, [id]: r }
-    writeStorage(STORAGE_KEYS.records, records.value)
-    // A faster ghost alone, below a best from another device, is no new time for the board.
-    const lap = r.bestLap !== null && r.bestLap !== (was?.bestLap ?? null) ? submitLap(id, r.bestLap) : null
-    const ghost = r.ghost !== was?.ghost ? submitGhost(id, r) : null
-    // The lap may have taken the record, or given the holder a ghost to race.
-    if (lap || ghost) {
-        Promise.all([lap, ghost]).then(() => {
-            if (engine?.trackDef.id === id) recordGhost.load(engine.trackDef)
-        })
+    if (r) {
+        records.value = { ...records.value, [id]: r }
+        writeStorage(STORAGE_KEYS.records, records.value)
     }
+    const lap = submitLap(id, seconds, r?.bestLap === seconds)
+    const ghost = r && r.ghost !== was?.ghost ? submitGhost(id, r) : null
+    // The lap may have taken the record, or given the holder a ghost to race.
+    Promise.all([lap, ghost]).then(([improved]) => {
+        if ((improved || ghost) && engine?.trackDef.id === id) recordGhost.load(engine.trackDef)
+    })
 }
 
 function forgetRecord(id: string) {
@@ -380,7 +380,7 @@ onMounted(() => {
             // Gas or nitro held through a restart carries into the countdown, so it fires on the GO.
             if (p === 'countdown') resumeHeldKeys()
         },
-        record: onRecord
+        lap: onLap
     }, audio, car.value, paint.value, storedTrack)
     syncTrack(engine.trackDef)
     engine.setTouch(isTouch.value)

@@ -184,8 +184,12 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
 
     it('counts the builder\'s lap as a play, and carries every play over to a changed road', async () => {
         const old = await publish(H, course('played'))
-        await recordNrPlay(B, old)
-        await recordNrPlay(B, old)
+        // An hour back, past any lap's spam guard, so the next play counts.
+        const age = () => db.update(nitroRushPlays).set({ lastLapAt: new Date(Date.now() - 3_600_000) }).where(eq(nitroRushPlays.trackId, old))
+        await recordNrPlay(B, old, 10_000)
+        await age()
+        await recordNrPlay(B, old, 10_000)
+        await age()
         const next = await publish(H, course('played', LONG_RECTANGLE))
         expect(await db.select().from(nitroRushPlays).where(eq(nitroRushPlays.trackId, old))).toEqual([])
         expect((await nrPublishedTracks(B)).community.find(t => t.id === next)?.summary.plays).toEqual({ racers: 2, laps: 4 })

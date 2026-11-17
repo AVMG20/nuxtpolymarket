@@ -468,8 +468,8 @@ export class NitroRushEngine {
             if (record) {
                 this.record = record
                 if (stored) this.ghosts.setKept(decodeGhost(stored), standing)
-                this.events.record(this.track.def.id, record)
             }
+            this.events.lap(this.track.def.id, e.time, record)
             this.feedback.lap(label, e.time, rec.bestLap, isBest)
             this.awardMedal(e.time, rec.bestLap)
             // The lap and medal popups already fill the line, so the meter alone shows the refill.

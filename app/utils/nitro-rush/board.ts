@@ -1,4 +1,5 @@
-import type { NrBoard, NrBoardRow } from '#server/utils/nitro-rush'
+import type { NrBoard, NrBoardRow, NrTrackSummary } from '#server/utils/nitro-rush'
+import type { TrackPlays } from '#shared/utils/nitro-rush/popularity'
 
 /** Rows the select screen's top list has room for. */
 export const PANEL_TOP = 5
@@ -7,6 +8,22 @@ export const PANEL_TOP = 5
 export function topRows(board: NrBoard, n = PANEL_TOP): { top: NrBoardRow[], own: NrBoardRow | null } {
     const top = board.top.slice(0, n)
     return { top, own: board.me && !top.some(r => r.you) ? board.me : null }
+}
+
+/** A track's menu summary from its board, with `plays` from wherever they're freshest. */
+export function boardSummary(b: NrBoard, plays: TrackPlays): NrTrackSummary {
+    const top = b.top[0]
+    return { trackId: b.trackId, entries: b.entries, record: top ? { name: top.name, lapMs: top.lapMs, mine: top.you } : null, myLapMs: b.me?.lapMs ?? null, plays }
+}
+
+/** A menu list merged into `current`; `boardTrack`'s loaded board is fresher for the record and times, so only its plays are taken. */
+export function mergeSummaries(current: Record<string, NrTrackSummary>, list: NrTrackSummary[], boardTrack: string | null): Record<string, NrTrackSummary> {
+    const next = { ...current }
+    for (const t of list) {
+        const kept = t.trackId === boardTrack ? next[t.trackId] : undefined
+        next[t.trackId] = kept ? { ...kept, plays: t.plays } : t
+    }
+    return next
 }
 
 /**
