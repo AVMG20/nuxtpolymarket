@@ -15,9 +15,11 @@ RUN bun install --frozen-lockfile --ignore-scripts
 
 COPY . .
 
-# Node sizes its default heap from host RAM, which lands too small on modest
-# build machines. Pin it: this build needs ~6 GB.
-ENV NODE_OPTIONS=--max-old-space-size=6072
+# Node sizes its default heap from host RAM, so pin it. The JS heap needs about
+# 1.5 GB and Rolldown adds ~2 GB of native memory on top, while the build box
+# allows 6 GB in total. A heap cap at or above that limit lets V8 grow until the
+# container is OOM-killed instead of collecting garbage, so keep it well below.
+ENV NODE_OPTIONS=--max-old-space-size=3072
 RUN node node_modules/nuxt/bin/nuxt.mjs build
 
 

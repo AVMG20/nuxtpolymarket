@@ -22,7 +22,7 @@ export default defineNuxtConfig({
 
     // Game folders keep their engine and helper .ts files next to the
     // components. Only .vue files are components; otherwise every helper
-    // registers as one too and `riftborn-codex.ts` collides with RiftbornCodex.vue.
+    // registers as one too and collides with the component names.
     components: [
         { path: '~/components', extensions: ['vue'] }
     ],
@@ -100,6 +100,9 @@ export default defineNuxtConfig({
 
     vite: {
         build: {
+            // Gzipping every chunk only to print its size costs build memory
+            // and time, and nobody reads the report on a deploy.
+            reportCompressedSize: false,
             // pixi.js is a WebGL engine only loaded on game pages, not the main bundle
             chunkSizeWarningLimit: 900,
             rollupOptions: {
@@ -150,6 +153,20 @@ export default defineNuxtConfig({
                 }
             }
         ]
+    },
+
+    hooks: {
+        // Nuxt's import protection adds impound trace plugins that keep the
+        // code and combined sourcemap of every transformed module in memory
+        // for the whole build, only to print an import trace on a violation.
+        // Dropping them saves GBs of build memory; violations still fail the
+        // build, just without the trace.
+        'vite:configResolved'(config) {
+            const plugins = config.plugins as { name: string }[]
+            for (let i = plugins.length - 1; i >= 0; i--) {
+                if (plugins[i]?.name?.endsWith('impound:trace')) plugins.splice(i, 1)
+            }
+        }
     },
 
     eslint: {
