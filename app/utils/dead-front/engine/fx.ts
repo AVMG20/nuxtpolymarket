@@ -24,11 +24,15 @@ type V3 = Vec3 | THREE.Vector3
 
 // ---------------------------------------------------------------- particles
 
-const SHAPE = { glow: 0, smoke: 1, streak: 2, chunk: 3, ring: 4, drop: 5, splinter: 6, twinkle: 7 } as const
+const SHAPE = { glow: 0, smoke: 1, streak: 2, chunk: 3, ring: 4, drop: 5, splinter: 6, twinkle: 7, star: 8 } as const
 
-// Every particle is a little cube: blood chips, splinters, sparks (cubes
-// stretched along their velocity), smoke puffs (big soft cubes), debris. The
-// cube turns about a per-particle axis and keeps a minimum on-screen size.
+// Comic particles. Smoke, fire, glows, stars and sparkles are camera-facing
+// billboards (the cube's front face; the rest collapse off screen) shaped in the
+// fragment shader: smoke is an inked, two-tone cartoon puff with a scalloped
+// outline, fire hard-edged bands, flashes a spiky "POW" star, glints a four
+// point sparkle. Blood chips, splinters and debris stay cubes that turn about a
+// per-particle axis, with flat banded faces and ink along their edges. Every
+// shape keeps a minimum on-screen size.
 const PARTICLE_VERT = /* glsl */`
 attribute vec3 iPos;
 attribute vec3 iVel;
@@ -39,7 +43,9 @@ uniform float uPxScale;
 uniform float uMinPx;
 varying vec4 vColor;
 varying vec3 vNormal;
+varying vec3 vLocal;
 varying float vShape;
+varying float vPx;
 varying vec2 vExtra;
 mat3 dfAxisAngle(vec3 a, float t) {
     float c = cos(t);
@@ -56,14 +62,36 @@ void main() {
     vec4 mvc = modelViewMatrix * vec4(iPos, 1.0);
     float depth = max(-mvc.z, 0.01);
     float size = iMisc.x;
-    // soft shapes become chunky cubes: a cube covers more screen than a soft puff
-    if (shape == 1) size *= 0.5;
-    else if (shape == 0 || shape == 7) size *= 0.45;
+    bool bb = shape == 0 || shape == 1 || shape == 7 || shape == 8;
+    // the billboard's edge: the puff's circle sits inside it
+    if (shape == 1) size *= 0.8;
+    else if (shape == 0 || shape == 7) size *= 0.7;
     float px = size * uPxScale / depth;
     float boost = max(1.0, uMinPx / max(px, 1e-4));
     size *= boost;
     // gained area is paid back in brightness so tiny sparks don't flicker
     float dim = 1.0 / (boost * boost);
+    vPx = size * uPxScale / depth;
+    vShape = iMisc.z;
+    vExtra = iExtra;
+    float nearFade = clamp((depth - 0.12) * 3.0, 0.0, 1.0);
+    vColor = vec4(iColor.rgb, iColor.a * dim * nearFade);
+    if (bb) {
+        if (normal.z < 0.5) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+            vNormal = vec3(0.0);
+            vLocal = vec3(0.0);
+            return;
+        }
+        float c = cos(iMisc.y);
+        float s = sin(iMisc.y);
+        vec2 q = vec2(position.x * c - position.y * s, position.x * s + position.y * c) * size;
+        mvc.xy += q;
+        gl_Position = projectionMatrix * mvc;
+        vLocal = vec3(position.xy * 2.0, 0.0);
+        vNormal = vec3(q / max(size, 1e-5) * 2.0, 0.0);
+        return;
+    }
     mat3 R;
     vec3 scl = vec3(size);
     float l = length(iVel);
@@ -85,11 +113,8 @@ void main() {
     if (shape == 4) R = mat3(1.0);
     vec3 p = R * (position * scl);
     vNormal = normalize(normalMatrix * (R * normal));
+    vLocal = position;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(iPos + p, 1.0);
-    float nearFade = clamp((depth - 0.12) * 3.0, 0.0, 1.0);
-    vColor = vec4(iColor.rgb, iColor.a * dim * nearFade);
-    vShape = iMisc.z;
-    vExtra = iExtra;
 }
 `
 
@@ -97,20 +122,94 @@ const PARTICLE_FRAG = /* glsl */`
 uniform float uTime;
 uniform vec3 uTint;
 uniform float uLit;
+uniform float uAdd;
+uniform float uMinPx;
 varying vec4 vColor;
 varying vec3 vNormal;
+varying vec3 vLocal;
 varying float vShape;
+varying float vPx;
 varying vec2 vExtra;
+const vec3 INK = vec3(0.012, 0.012, 0.03);
 void main() {
     int s = int(vShape + 0.5);
     vec3 col = vColor.rgb;
     float a = vColor.a;
-    // flat cube shading: a fixed view-space key so faces read as blocks
+    float seed = vExtra.x * 61.0;
+    if (s == 0 || s == 1 || s == 7 || s == 8) {
+        vec2 p = vLocal.xy;
+        float r = length(p);
+        float ang = atan(p.y, p.x + 1e-4);
+        float R = 0.8;
+        if (s == 1) R = 0.74 + 0.11 * sin(ang * 3.0 + seed) + 0.07 * sin(ang * 5.0 + seed * 2.3) + 0.04 * sin(ang * 9.0 + seed * 3.7);
+        float d = r / R;
+        if (s == 8) {
+            // a comic burst: spikes of random length around a fat core
+            float c = abs(cos(ang * 4.5 + seed));
+            float c3 = c * c * c;
+            float c2 = abs(cos(ang * 7.5 + seed * 1.7));
+            d = r / (0.26 + 0.74 * max(c3, c2 * c2 * c2 * 0.7));
+        }
+        if (s == 7) {
+            // a four point glint
+            vec2 q = abs(p) * 1.15;
+            d = sqrt(q.x) + sqrt(q.y);
+            a *= 0.5 + 0.5 * sin(uTime * 23.0 + seed);
+        }
+        float fw = max(fwidth(d), 0.01);
+        float cov = 1.0 - smoothstep(1.0 - fw, 1.0, d);
+        if (cov < 0.004 || a < 0.003) discard;
+        vec3 outCol = col;
+        if (uAdd > 0.5) {
+            // hot core, body, cooler rim: hard bands
+            // (tamed so a pile of them stays flat and bright instead of one white blob)
+            float k = 1.0 - d;
+            float band = step(0.2, k) + step(0.52, k);
+            vec3 hot = min(col * 0.5, vec3(1.7));
+            outCol = hot * (0.55 + band * 0.45);
+            if (s == 8) {
+                float peak = max(max(col.r, col.g), max(col.b, 1e-3));
+                vec3 hue = col / peak;
+                float lvl = clamp(peak * 0.32, 0.0, 1.2);
+                outCol = mix(hue * lvl * 0.95, vec3(1.7, 1.55, 1.2) * min(1.0, lvl + 0.35), step(0.48, k));
+            }
+        } else {
+            // inked puff: a lit lobe up and left, a shade crescent down and right, an ink outline
+            vec2 sp = vNormal.xy;
+            float inkW = clamp(uMinPx * 1.25 / max(vPx * 0.37, 1.0), 0.05, 0.34);
+            float ink = smoothstep(1.0 - inkW - fw, 1.0 - inkW, d);
+            float hi = 1.0 - smoothstep(0.0, 0.05, length(sp - vec2(-0.2, 0.24) * R) / (R * 0.6) - 1.0);
+            float sh = smoothstep(0.0, 0.05, dot(sp, vec2(0.5, -0.62)) - 0.2 * R) * smoothstep(0.35, 0.5, d);
+            outCol = col * (1.0 + hi * 0.38 - sh * 0.4);
+            outCol = mix(outCol, INK, ink * 0.92);
+            a = min(1.0, a * 1.8);
+        }
+        gl_FragColor = vec4(outCol * uTint, a * cov);
+        return;
+    }
+    if (s == 4) {
+        // the shock ring: the flat cube's top face, cut to a band
+        if (abs(vLocal.y) < 0.45) discard;
+        float rr = length(vLocal.xz) * 2.0;
+        float fw = max(fwidth(rr), 0.004);
+        float band = smoothstep(0.74 - fw, 0.74, rr) * (1.0 - smoothstep(0.97 - fw, 0.97, rr));
+        float edge = smoothstep(0.88, 0.92, rr);
+        if (band * a < 0.004) discard;
+        gl_FragColor = vec4(min(col, vec3(2.0)) * (0.75 + edge * 0.7), a * band);
+        return;
+    }
+    // cubes: flat banded faces, ink along the edges
     vec3 n = normalize(vNormal);
-    float lit = 0.62 + 0.38 * clamp(dot(n, normalize(vec3(0.35, 0.85, 0.4))), 0.0, 1.0);
+    float l = dot(n, normalize(vec3(0.35, 0.85, 0.4)));
+    float lit = 0.6 + 0.2 * step(0.08, l) + 0.2 * step(0.55, l);
     col *= mix(1.0, lit, uLit);
-    if (s == 1) a *= 0.85;
-    if (s == 7) a *= 0.5 + 0.5 * sin(uTime * 23.0 + vExtra.x * 60.0);
+    if (uAdd < 0.5 && (s == 3 || s == 5 || s == 6) && vPx > 5.0) {
+        vec3 e = 0.5 - min(abs(vLocal), vec3(0.5));
+        float med = max(min(e.x, e.y), min(max(e.x, e.y), e.z));
+        float inkW = clamp(uMinPx * 0.9 / vPx, 0.03, 0.4);
+        float ink = 1.0 - smoothstep(inkW * 0.6, inkW, med);
+        col = mix(col, INK, ink * 0.9);
+    }
     if (a < 0.003) discard;
     gl_FragColor = vec4(col * uTint, a);
 }
@@ -161,7 +260,8 @@ class ParticleSystem {
             uniforms: {
                 ...uniforms,
                 uTint: { value: additive ? new THREE.Vector3(1, 1, 1) : new THREE.Vector3(0.7, 0.7, 0.74) },
-                uLit: { value: additive ? 0.25 : 1 }
+                uLit: { value: additive ? 0.25 : 1 },
+                uAdd: { value: additive ? 1 : 0 }
             },
             vertexShader: PARTICLE_VERT,
             fragmentShader: PARTICLE_FRAG,
@@ -562,27 +662,30 @@ function drawDecalAtlas(): HTMLCanvasElement {
         const { x, y } = cell(i)
         const cx = x + T / 2
         const cy = y + T / 2
-        const rg = g.createRadialGradient(cx, cy, 0, cx, cy, T * 0.48)
-        rg.addColorStop(0, 'rgba(8,6,5,1)')
-        rg.addColorStop(0.14, 'rgba(14,11,9,1)')
-        rg.addColorStop(0.2, wood ? 'rgba(70,48,30,0.9)' : 'rgba(60,55,50,0.85)')
-        rg.addColorStop(0.45, 'rgba(70,64,58,0.35)')
-        rg.addColorStop(1, 'rgba(90,80,70,0)')
+        // a scuffed ring, a hard ink hole, a few chipped cracks
+        const rg = g.createRadialGradient(cx, cy, T * 0.1, cx, cy, T * 0.46)
+        rg.addColorStop(0, wood ? 'rgba(86,60,38,0.95)' : 'rgba(74,68,62,0.95)')
+        rg.addColorStop(0.7, wood ? 'rgba(120,96,70,0.6)' : 'rgba(120,112,104,0.55)')
+        rg.addColorStop(1, 'rgba(160,150,140,0)')
         g.fillStyle = rg
         g.beginPath()
-        g.arc(cx, cy, T * 0.48, 0, Math.PI * 2)
+        g.arc(cx, cy, T * 0.46, 0, Math.PI * 2)
         g.fill()
-        g.strokeStyle = 'rgba(20,16,12,0.7)'
-        g.lineWidth = 3
-        for (let k = 0; k < 7; k++) {
+        g.fillStyle = 'rgba(6,4,6,1)'
+        g.beginPath()
+        g.arc(cx, cy, T * 0.15, 0, Math.PI * 2)
+        g.fill()
+        g.strokeStyle = 'rgba(10,6,8,0.9)'
+        g.lineCap = 'round'
+        g.lineWidth = 6
+        for (let k = 0; k < 6; k++) {
             const a = Math.random() * Math.PI * 2
-            const r0 = T * 0.08
-            const r1 = T * (0.2 + Math.random() * 0.22)
+            const r0 = T * 0.13
+            const r1 = T * (0.24 + Math.random() * 0.2)
             g.beginPath()
             g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0)
-            const mx = cx + Math.cos(a + 0.2) * (r0 + r1) * 0.5
-            const my = cy + Math.sin(a + 0.2) * (r0 + r1) * 0.5
-            g.quadraticCurveTo(mx, my, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
+            g.lineTo(cx + Math.cos(a + 0.12) * (r0 + r1) * 0.5, cy + Math.sin(a + 0.12) * (r0 + r1) * 0.5)
+            g.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
             g.stroke()
         }
     }
@@ -619,35 +722,46 @@ function drawDecalAtlas(): HTMLCanvasElement {
         const { x, y } = cell(i)
         const cx = x + T / 2
         const cy = y + T / 2
-        g.fillStyle = 'rgba(92,6,4,0.95)'
-        g.beginPath()
-        const pts = 22
-        for (let k = 0; k <= pts; k++) {
+        const ink = 'rgba(14,5,8,0.96)'
+        // an inked splat: a ragged blob with spiky arms, a lit streak, droplets round it
+        const blob: [number, number][] = []
+        const pts = 26
+        for (let k = 0; k < pts; k++) {
             const a = (k / pts) * Math.PI * 2
-            const r = T * (0.16 + Math.random() * 0.12)
-            const px = cx + Math.cos(a) * r
-            const py = cy + Math.sin(a) * r
-            if (k === 0) g.moveTo(px, py)
-            else g.lineTo(px, py)
+            const arm = k % 3 === 0 ? 0.12 + Math.random() * 0.1 : 0
+            const r = T * (0.15 + Math.random() * 0.07 + arm)
+            blob.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r])
         }
+        g.beginPath()
+        blob.forEach(([px, py], k) => (k === 0 ? g.moveTo(px, py) : g.lineTo(px, py)))
+        g.closePath()
+        g.fillStyle = 'rgba(96,6,5,1)'
         g.fill()
-        for (let k = 0; k < 18; k++) {
+        g.lineJoin = 'round'
+        g.lineWidth = 7
+        g.strokeStyle = ink
+        g.stroke()
+        // darker clot and a lighter wet streak
+        g.fillStyle = 'rgba(52,3,3,0.9)'
+        g.beginPath()
+        g.ellipse(cx + T * 0.02, cy + T * 0.03, T * 0.09, T * 0.07, 0.6, 0, Math.PI * 2)
+        g.fill()
+        g.fillStyle = 'rgba(170,40,32,0.9)'
+        g.beginPath()
+        g.ellipse(cx - T * 0.06, cy - T * 0.07, T * 0.045, T * 0.02, -0.6, 0, Math.PI * 2)
+        g.fill()
+        for (let k = 0; k < 12; k++) {
             const a = Math.random() * Math.PI * 2
-            const d = T * (0.22 + Math.random() * 0.24)
-            const r = T * (0.008 + Math.random() * 0.03)
-            g.fillStyle = `rgba(${80 + Math.random() * 30},5,4,${0.7 + Math.random() * 0.3})`
+            const d = T * (0.26 + Math.random() * 0.2)
+            const r = T * (0.012 + Math.random() * 0.03)
+            g.fillStyle = 'rgba(96,6,5,1)'
+            g.strokeStyle = ink
+            g.lineWidth = 4
             g.beginPath()
             g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, r, 0, Math.PI * 2)
             g.fill()
+            g.stroke()
         }
-        // darker clotted core
-        const rg = g.createRadialGradient(cx, cy, 0, cx, cy, T * 0.2)
-        rg.addColorStop(0, 'rgba(40,2,2,0.8)')
-        rg.addColorStop(1, 'rgba(40,2,2,0)')
-        g.fillStyle = rg
-        g.beginPath()
-        g.arc(cx, cy, T * 0.2, 0, Math.PI * 2)
-        g.fill()
     }
     bullet(0, false)
     bullet(1, false)
@@ -677,6 +791,8 @@ const PRESET_COLORS = {
     flesh: new THREE.Color(0.32, 0.12, 0.09),
     bone: new THREE.Color(0.62, 0.56, 0.45),
     cloth: new THREE.Color(0.2, 0.19, 0.13),
+    hit0: new THREE.Color(3.6, 2.4, 1.1),
+    hit1: new THREE.Color(1.5, 0.22, 0.06),
     spark0: new THREE.Color(4, 2.6, 1.1),
     spark1: new THREE.Color(2.2, 0.5, 0.06),
     dust0: new THREE.Color(0.55, 0.5, 0.42),
@@ -734,20 +850,14 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
 
     // decals
     const DECALS = high ? 220 : 120
-    // Decals are pixelated to match the voxels: the painted atlas is shrunk to
-    // 16 texels per tile and drawn with nearest filtering.
-    const full = drawDecalAtlas()
-    const small = document.createElement('canvas')
-    small.width = 64
-    small.height = 32
-    const sg = small.getContext('2d')!
-    sg.imageSmoothingEnabled = true
-    sg.drawImage(full, 0, 0, 64, 32)
-    const atlas = new THREE.CanvasTexture(small)
+    // The painted atlas is drawn at full size and sampled smoothly: the surfaces
+    // are hand-painted now, so decals are inked shapes, not pixels.
+    const atlas = new THREE.CanvasTexture(drawDecalAtlas())
     atlas.colorSpace = THREE.SRGBColorSpace
-    atlas.magFilter = THREE.NearestFilter
-    atlas.minFilter = THREE.NearestFilter
-    atlas.generateMipmaps = false
+    atlas.magFilter = THREE.LinearFilter
+    atlas.minFilter = THREE.LinearMipmapLinearFilter
+    atlas.generateMipmaps = true
+    atlas.anisotropy = 4
     const decalGeo = new THREE.PlaneGeometry(1, 1)
     const decalAttr = new THREE.InstancedBufferAttribute(new Float32Array(DECALS * 3), 3).setUsage(THREE.DynamicDrawUsage)
     decalGeo.setAttribute('aDecal', decalAttr)
@@ -895,6 +1005,15 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
 
         switch (preset) {
             case 'blood': {
+                // a quick comic hit pop where the bullet lands
+                base(px + nx * 0.03, py + ny * 0.03, pz + nz * 0.03, floor)
+                S.life = 0.07
+                S.s0 = 0.34 * sc
+                S.s1 = 0.16 * sc
+                S.shape = SHAPE.star
+                S.c0.copy(PRESET_COLORS.hit0)
+                S.c1.copy(PRESET_COLORS.hit1)
+                emit(add)
                 for (let i = 0, c = cnt(16); i < c; i++) {
                     base(px, py, pz, floor)
                     cone(nx, ny + 0.25, nz, 0.75)
@@ -1002,10 +1121,10 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                     emit(add)
                 }
                 base(px + nx * 0.02, py + ny * 0.02, pz + nz * 0.02, floor)
-                S.life = 0.06
-                S.s0 = 0.28 * sc
-                S.s1 = 0.12 * sc
-                S.shape = SHAPE.glow
+                S.life = 0.07
+                S.s0 = 0.5 * sc
+                S.s1 = 0.24 * sc
+                S.shape = SHAPE.star
                 S.c0.copy(PRESET_COLORS.flash)
                 S.c1.copy(PRESET_COLORS.spark1)
                 emit(add)
@@ -1143,10 +1262,21 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 // flash core
                 base(px, py, pz, floor)
                 S.life = 0.14
-                S.s0 = 3.4 * sc
-                S.s1 = 1.6 * sc
-                S.shape = SHAPE.glow
+                S.s0 = 4.2 * sc
+                S.s1 = 2.4 * sc
+                S.shape = SHAPE.star
                 S.c0.copy(PRESET_COLORS.flash)
+                S.c1.copy(PRESET_COLORS.fire1)
+                emit(add)
+                // a bigger red burst behind it, a beat longer
+                base(px, py + 0.1, pz, floor)
+                S.life = 0.24
+                S.s0 = 3 * sc
+                S.s1 = 6.5 * sc
+                S.alpha = 0.8
+                S.fadePow = 2
+                S.shape = SHAPE.star
+                S.c0.copy(PRESET_COLORS.fire0)
                 S.c1.copy(PRESET_COLORS.fire1)
                 emit(add)
                 // fireball
@@ -1274,7 +1404,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 S.s0 = 0.7 * sc
                 S.s1 = 0.4 * sc
                 S.alpha = 0.8
-                S.shape = SHAPE.glow
+                S.shape = SHAPE.star
                 S.c0.copy(PRESET_COLORS.elec0)
                 S.c1.copy(PRESET_COLORS.elec1)
                 emit(add)
@@ -1296,7 +1426,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 S.life = 0.16
                 S.s0 = 0.9 * sc
                 S.s1 = 0.4 * sc
-                S.shape = SHAPE.glow
+                S.shape = SHAPE.star
                 S.c0.copy(ray0)
                 S.c1.copy(ray1)
                 emit(add)
