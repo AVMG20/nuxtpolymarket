@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { DF_PROP_DEFS } from '#shared/utils/dead-front/map-world'
 import type { DfPropKind } from '#shared/utils/dead-front/map-world'
 import { dfHash3 } from '#shared/utils/dead-front/voxel'
 import { dfHasModelPack, dfModelGeometry } from '../models'
@@ -256,7 +257,16 @@ function fence(): PropModel {
     return { model: m, cell: S, shadow: false }
 }
 
-function build(kind: DfPropKind, variant: number): PropModel {
+/** Stand-in for the story pieces when the pack is missing: a painted block of the prop's size. */
+function block(kind: DfPropKind, color: number): PropModel {
+    const [sx, sy, sz] = DF_PROP_DEFS[kind].coll ?? DF_PROP_DEFS[kind].size
+    const n = (v: number) => Math.max(1, Math.round(v / 0.25))
+    const m = new DfVoxModel(n(sx), n(sy), n(sz))
+    m.box(0, 0, 0, n(sx), n(sy), n(sz), m.shade(color, 0.06, 5))
+    return { model: m, cell: 0.25, shadow: true }
+}
+
+function build(kind: DfPropKind, variant: number): PropModel | null {
     switch (kind) {
         case 'crate':
             return crate(variant)
@@ -290,11 +300,28 @@ function build(kind: DfPropKind, variant: number): PropModel {
             return fieldgun()
         case 'fence':
             return fence()
+        case 'biplane':
+            return block(kind, 0x8a7d5a)
+        case 'tent':
+            return block(kind, 0xc9bd96)
+        case 'hedgehog':
+            return block(kind, 0x3c3e42)
+        case 'bell':
+            return block(kind, 0x9a7838)
+        case 'angel':
+            return block(kind, 0x9a968c)
+        case 'signpost':
+            return block(kind, 0x4e3521)
+        case 'cot':
+        case 'crater':
+        case 'sails':
+        case 'tank':
+            return null
     }
 }
 
 const VARIANTS: Partial<Record<DfPropKind, number>> = { 'crate': 2, 'crate-small': 2, 'cross': 2, 'gravestone': 2 }
-const MODEL_VARIANTS: Partial<Record<DfPropKind, number>> = { ...VARIANTS, 'tree': 2, 'dead-tree': 2 }
+const MODEL_VARIANTS: Partial<Record<DfPropKind, number>> = { ...VARIANTS, 'tree': 2, 'dead-tree': 2, 'cot': 2, 'crater': 2 }
 
 /** The authored model for a prop (shared geometry: never dispose it), or null without the pack. */
 function authored(kind: DfPropKind, variant: number): THREE.BufferGeometry | null {
@@ -307,7 +334,7 @@ export function createDfProps(kit: DfWorldKit): DfWorldPart {
     const variants = models ? MODEL_VARIANTS : VARIANTS
     const groups = new Map<string, { kind: DfPropKind, variant: number, list: typeof kit.world.props }>()
     for (const p of kit.world.props) {
-        const variant = p.seed % (variants[p.kind] ?? 1)
+        const variant = (p.variant ?? p.seed) % (variants[p.kind] ?? 1)
         const key = `${p.kind}:${variant}`
         let g = groups.get(key)
         if (!g) groups.set(key, g = { kind: p.kind, variant, list: [] })
@@ -322,9 +349,10 @@ export function createDfProps(kit: DfWorldKit): DfWorldPart {
     const up = new THREE.Vector3(0, 1, 0)
     for (const g of groups.values()) {
         let geo = models ? authored(g.kind, g.variant) : null
-        let shadow = g.kind !== 'wire'
+        let shadow = g.kind !== 'wire' && g.kind !== 'crater' && g.kind !== 'tank'
         if (!geo) {
             const pm = build(g.kind, g.variant)
+            if (!pm) continue
             geo = pm.model.mesh(pm.cell)
             if (!geo) continue
             geos.push(geo)
@@ -333,7 +361,7 @@ export function createDfProps(kit: DfWorldKit): DfWorldPart {
         const inst = new THREE.InstancedMesh(geo, kit.mat, g.list.length)
         inst.name = `df-props-${g.kind}`
         g.list.forEach((p, i) => {
-            q.setFromAxisAngle(up, p.rot * Math.PI / 2)
+            q.setFromAxisAngle(up, p.rot * Math.PI / 2 + (p.yaw ?? 0))
             pos.set(p.x, p.y, p.z)
             inst.setMatrixAt(i, m4.compose(pos, q, one))
         })

@@ -23,6 +23,7 @@ import type { DfWorldKit, DfWorldPart } from './kit'
 import { buildDfLevel } from './level'
 import { createDfLights } from './lights'
 import { createDfProps } from './props'
+import { createDfSkyline } from './skyline'
 import { dfPatchWorldSurface } from './surface'
 import { DF_WORLD_SOUNDS } from './sound-names'
 import { dfAmbienceLoop } from './sounds'
@@ -87,6 +88,7 @@ export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldV
     tryPart('atmosphere', () => createDfAtmosphere(kit))
     tryPart('props', () => createDfProps(kit))
     tryPart('decor', () => createDfDecor(kit))
+    tryPart('skyline', () => createDfSkyline(kit))
     tryPart('doors', () => createDfDoors(kit))
     tryPart('barricades', () => createDfBarricades(kit))
     tryPart('machines', () => createDfMachines(kit))

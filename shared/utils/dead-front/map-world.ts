@@ -56,6 +56,7 @@ const PALETTE_DEF = {
     sill: [0x908979, 'stone', { solid: false }],
     pane: [0x1d2430, 'stone'],
     lit: [0xffb45c, 'stone', { emissive: 0.9 }],
+    scorch: [0x2a2521, 'mud'], carpet: [0x7d2e2c, 'stone'],
     glassBlue: [0x5d72e0, 'stone', { emissive: 0.55 }], glassRed: [0xc8463f, 'stone', { emissive: 0.55 }], glassGold: [0xe2b24f, 'stone', { emissive: 0.6 }]
 } as const satisfies Record<string, PalDef>
 
@@ -76,6 +77,7 @@ const P = DF_MAP_P
 export type DfPropKind
     = | 'crate' | 'crate-small' | 'sandbags' | 'cart' | 'cross' | 'gravestone' | 'tree' | 'dead-tree' | 'wire'
         | 'pew' | 'barrel' | 'hay' | 'rubble' | 'lamppost' | 'fieldgun' | 'fence'
+        | 'biplane' | 'tent' | 'hedgehog' | 'bell' | 'angel' | 'signpost' | 'sails' | 'cot' | 'crater' | 'tank'
 
 export interface DfPropDef {
     /** Visual extent [x, y, z] in metres at rot 0. */
@@ -101,7 +103,18 @@ export const DF_PROP_DEFS: Record<DfPropKind, DfPropDef> = {
     'rubble': { size: [1.5, 0.5, 1.5], mat: 'stone' },
     'lamppost': { size: [0.5, 3.1, 0.5], coll: [0.3, 3, 0.3], mat: 'metal' },
     'fieldgun': { size: [2.4, 1.6, 3.4], coll: [2.2, 1.5, 3], mat: 'metal' },
-    'fence': { size: [2, 1.1, 0.15], mat: 'wood' }
+    'fence': { size: [2, 1.1, 0.15], mat: 'wood' },
+    // Story pieces. The biplane's wings and the tent's guy ropes reach past their collision boxes (low, ground-skimming).
+    'biplane': { size: [6, 2.2, 4.6], coll: [5.6, 1.1, 4.4], mat: 'wood' },
+    'tent': { size: [5.2, 2.5, 6], coll: [3.6, 2.4, 4.4], mat: 'sandbag' },
+    'hedgehog': { size: [1.2, 1.2, 1.2], coll: [1, 1, 1], mat: 'metal' },
+    'bell': { size: [1.9, 1.1, 1.9], coll: [1.4, 0.9, 1.3], mat: 'metal' },
+    'angel': { size: [1.3, 3.2, 1.3], coll: [1.1, 3.2, 1.1], mat: 'stone' },
+    'signpost': { size: [1.6, 2.9, 1.6], coll: [0.25, 2.8, 0.25], mat: 'wood' },
+    'sails': { size: [0.6, 11.4, 11.4], mat: 'wood' },
+    'cot': { size: [0.75, 0.6, 1.9], coll: [0.75, 0.4, 1.9], mat: 'metal' },
+    'crater': { size: [5, 0.5, 5], mat: 'mud' },
+    'tank': { size: [8.8, 3.2, 4.6], mat: 'metal' }
 }
 
 export interface DfPropPlacement {
@@ -112,6 +125,10 @@ export interface DfPropPlacement {
     /** Quarter turns about +y. */
     rot: number
     seed: number
+    /** Extra turn about +y in radians (the collision box becomes the bounds of the turned footprint). */
+    yaw?: number
+    /** Model variant, when the pick must not depend on the placement order. */
+    variant?: number
 }
 
 // ---------------------------------------------------------------- output
@@ -277,6 +294,30 @@ function buildWorld(): DfMapWorld {
     groundRect(23, -8, 25, 37, (i, _j, k) => ((k & 1) ? P.duck : P.beam))
     // Ruined houses: rubble.
     groundRect(-13, -9, 21, 2, (i, _j, k) => pick(dfHash3(i, 0, k, 13), P.rubble1, P.rubble2, P.mud3))
+    /** A round patch of ground: `f` paints it by the distance from the centre (it keeps what is under it outside the radius). */
+    const disc = (cx: number, cz: number, r: number, f: (d: number, i: number, k: number) => number) => {
+        fill(cx - r, -0.5, cz - r, cx + r, 0, cz + r, (i, j, k) => {
+            const d = Math.hypot(O.x + (i + 0.5) * C - cx, O.z + (k + 0.5) * C - cz)
+            return d < r ? f(d, i, k) : g.data[g.index(i, j, k)]!
+        })
+    }
+    // Shell craters inside the walls: a dark hole in a ring of churned earth (props.ts draws the raised rim).
+    const shellHoles: [number, number, number][] = [[-27.5, 9.5, 0], [9.5, 8.5, 1], [-3, -27.5, 0], [22.5, -14.5, 0], [30, 30, 0], [-17, 29, 0]]
+    for (const [cx, cz, big] of shellHoles) {
+        const hole1 = big ? 1.7 : 1.0
+        const rim = big ? 2.3 : 1.5
+        disc(cx, cz, rim, (d, i, k) => (d < hole1 ? P.crater : dfHash3(i, 0, k, 14) < 0.7 ? P.mud3 : P.crater))
+    }
+    // Burnt ground: the wreck, a burnt-out cart, the haystacks, the ramparts' fire barrels.
+    for (const [cx, cz, r] of [[-8, -25, 3.6], [13, 10, 2.6], [-23.4, 31, 2.4], [31.5, 32, 2.0], [8.9, 32.3, 1.9]] as const) {
+        disc(cx, cz, r, (d, i, k) => (d < r * 0.55 || dfHash3(i, 0, k, 15) < 1 - (d / r) * 0.9 ? P.scorch : g.data[g.index(i, 0, k)]!))
+    }
+    // The square's main street: a flagstone lane between the two doors, and a ring round the fountain.
+    groundRect(-12, 16, 20, 19, (i, _j, k) => (dfHash3(i >> 1, 0, k >> 1, 16) < 0.5 ? P.flag1 : P.flag2))
+    disc(4, 19, 7, (d, i, k) => (d > 5.5 && d < 7 && dfHash3(i, 0, k, 17) < 0.85 ? (dfHash3(i >> 1, 0, k >> 1, 18) < 0.5 ? P.flag1 : P.flag2) : g.data[g.index(i, 0, k)]!))
+    // The farm's boardwalk from the door through the mud toward the barn.
+    groundRect(-29, 14.3, -13, 16.2, (i, _j, k) => ((k & 1) ? P.duck : P.beam))
+
 
     // ------------------------------------------------------------ perimeter
     // North: chapel (ashlar, authored below) and the cemetery wall.
@@ -295,6 +336,23 @@ function buildWorld(): DfMapWorld {
     fill(20, 0, 2, 21, 3.5, 37, brickWall) // square | ramparts
     fill(-41, 0, -9, -13, 3.5, -8, stoneWall) // farm | churchyard
     fill(21, 0, -9, 40, 3.5, -8, stoneWall) // cemetery | ramparts
+    // Shelled wall tops: bites out of the crown, deeper in places (above head height, looks only).
+    const ruinTop = (axis: 'x' | 'z', a0: number, a1: number, t0: number, t1: number, seed: number) => {
+        for (let a = a0; a < a1; a += 0.5) {
+            const h = dfHash3(Math.round(a * 2), 3, 0, seed)
+            if (h > 0.34) continue
+            const y = h < 0.1 ? 2.5 : 3
+            if (axis === 'z') hole(t0, y, a, t1, 3.5, a + 0.5)
+            else hole(a, y, t0, a + 0.5, 3.5, t1)
+        }
+    }
+    ruinTop('z', -26, 38, -41, -40, 71)
+    ruinTop('x', -41, -13, 37, 38, 72)
+    ruinTop('z', -41, -9, 40, 41, 73)
+    ruinTop('x', -41, -13, -9, -8, 74)
+    ruinTop('x', 21, 40, -9, -8, 75)
+    ruinTop('z', 2, 37, -13, -12, 76)
+    ruinTop('z', 2, 37, 20, 21, 77)
     // Low churchyard wall to the cemetery with two open gaps (the lychgate and a breach).
     fill(4, 0, -40, 5, 1.5, -9, stoneWall)
     hole(4, 0, -24, 5, 1.5, -20)
@@ -391,6 +449,8 @@ function buildWorld(): DfMapWorld {
         fill(-39.5, 1.5, -34.5, -38.5, 2, -34, P.glassGold)
         // Floor: flagstones.
         groundRect(-40, -40, -19, -27, (i, _j, k) => ((((i >> 1) + (k >> 1)) & 1) ? P.flag1 : P.flag2))
+        // A red runner down the chapel nave toward the altar, scuffed and torn.
+        groundRect(-35, -35.2, -19, -31.8, (i, _j, k) => (dfHash3(i, 0, k, 19) < 0.12 || (i > 50 && dfHash3(i, 1, k, 20) < 0.3) ? ((((i >> 1) + (k >> 1)) & 1) ? P.flag1 : P.flag2) : P.carpet))
         // Roof: stepped slate gable with the ridge along x, and a shell hole over the nave.
         for (let n = 0; n < 8; n++) {
             const y = H + n * 0.5
@@ -412,6 +472,20 @@ function buildWorld(): DfMapWorld {
         fill(-17, 9.5, -30, -15, 10.5, -28, P.rust)
         for (let n = 0; n < 4; n++) fill(-18.5 + n * 0.5, 12 + n * 0.5, -31.5 + n * 0.5, -13.5 - n * 0.5, 12.5 + n * 0.5, -26.5 - n * 0.5, slateTiles)
         fill(-16.5, 14, -29.5, -15.5, 16, -28.5, P.iron)
+        // The tower has been hit: its east half is down to ragged stumps, the bell lies in the rubble below.
+        for (let x = -18; x < -14; x += 0.5) {
+            for (let z = -31; z < -27; z += 0.5) {
+                const h = 12 - (x + 18) * 1.7 - dfHash3(Math.round(x * 2), 1, Math.round(z * 2), 91) * 2.4
+                hole(x, Math.max(3.5, h), z, x + 0.5, 12.5, z + 0.5)
+            }
+        }
+        hole(-16, 12, -32, -13, 17, -26)
+        hole(-17, 9.5, -30, -15, 10.5, -28)
+        const spill: DfVoxFill = (i, j, k) => (dfHash3(i, j, k, 92) < 0.5 ? P.rubble1 : P.rubble2)
+        fill(-14, 0, -31, -12, 0.5, -24.5, spill)
+        fill(-17.5, 0, -27, -13, 0.5, -24.5, spill)
+        fill(-14, 0.5, -27, -12.5, 1, -25.5, spill)
+        fill(-16, 0.5, -26, -15, 1, -25, spill)
     }
 
     // ------------------------------------------------------------ churchyard
@@ -491,11 +565,39 @@ function buildWorld(): DfMapWorld {
         }
     }
 
+    // ------------------------------------------------------------ farm: the windmill (its sails are a prop, hub at y = 9.8)
+    {
+        fill(-40, 0, -7.5, -36, 1.5, -3.5, stoneWall)
+        fill(-40, 1.5, -7.5, -36, 4, -3.5, plasterWall)
+        fill(-39.5, 4, -7, -36.5, 8, -4, plasterWall)
+        fill(-39, 8, -6.5, -37, 10.5, -4.5, planks)
+        for (let n = 0; n < 3; n++) fill(-39.5 + n * 0.5, 10.5 + n * 0.5, -7 + n * 0.5, -36.5 - n * 0.5, 11 + n * 0.5, -4 - n * 0.5, roofTiles)
+        fill(-38.5, 12, -6, -37.5, 13, -5, P.iron)
+        // Door, a lit slit and a broken gallery.
+        fill(-36.5, 0, -6.2, -36, 2.4, -4.8, P.beam)
+        fill(-37, 5.5, -5.75, -36.5, 7, -5.25, P.lit)
+        fill(-36.5, 4, -7, -36, 4.5, -4, P.beam)
+        hole(-36.5, 4, -7, -36, 4.5, -6)
+    }
+
+    // ------------------------------------------------------------ ramparts: the timber watchtower
+    {
+        for (const x of [29.5, 32]) for (const z of [14, 16.5]) fill(x, 0, z, x + 0.5, 7, z + 0.5, P.beam)
+        for (const z of [14, 16.5]) fill(29.5, 3, z, 32.5, 3.5, z + 0.5, P.beam)
+        for (const x of [29.5, 32]) fill(x, 3, 14, x + 0.5, 3.5, 17, P.beam)
+        fill(29, 7, 13.5, 33, 7.5, 17.5, planks)
+        for (const [x0, z0, x1, z1] of [[29, 13.5, 33, 14], [29, 17, 33, 17.5], [29, 13.5, 29.5, 17.5], [32.5, 13.5, 33, 17.5]] as const) fill(x0, 7.5, z0, x1, 8.5, z1, P.beam)
+        for (const x of [29, 32.5]) for (const z of [13.5, 17]) fill(x, 8.5, z, x + 0.5, 10, z + 0.5, P.beam)
+        fill(28.5, 10, 13, 33.5, 10.5, 18, roofTiles)
+        fill(29.5, 10.5, 14, 32.5, 11, 17, roofTiles)
+        fill(30.5, 7.5, 13.5, 31.5, 8.5, 14, P.lit)
+    }
+
     // ------------------------------------------------------------ props
     const props: DfPropPlacement[] = []
     let seedN = 1
-    const prop = (kind: DfPropKind, x: number, z: number, rot = 0, y = 0) => {
-        props.push({ kind, x, y, z, rot, seed: seedN++ })
+    const prop = (kind: DfPropKind, x: number, z: number, rot = 0, y = 0, extra: { yaw?: number, variant?: number } = {}) => {
+        props.push({ kind, x, y, z, rot, seed: seedN++, ...extra })
     }
     // Square.
     prop('sandbags', -6, 25.5, 0)
@@ -520,7 +622,7 @@ function buildWorld(): DfMapWorld {
     prop('rubble', 7, 3.2)
     prop('rubble', -2.5, 3)
     // Farm.
-    for (const [x, z] of [[-34, -2], [-27, -2], [-20, -2], [-34, 5], [-27, 5], [-20, 6]] as const) prop('tree', x, z)
+    for (const [x, z] of [[-34, -2], [-27, -2], [-20, -2], [-27, 5]] as const) prop('tree', x, z)
     prop('hay', -38, 20)
     prop('hay', -38, 21.2)
     prop('hay', -36.5, 24.3, 1)
@@ -586,6 +688,48 @@ function buildWorld(): DfMapWorld {
     for (const [x, z] of [[-45, -40], [45, 40], [-45, 44], [44, -4]] as const) prop('dead-tree', x, z)
     prop('cart', -44.5, 22, 1)
     prop('crate', 44, -14)
+
+    // Story pieces. Churchyard: the crashed biplane, the field hospital, the bell
+    // from the shelled tower, fresh graves. Craters, hedgehogs at the chokepoints,
+    // signposts at the crossings, the angel in the cemetery, the windmill's sails.
+    prop('biplane', -8, -25, 0, 0, { yaw: -0.35 })
+    prop('bell', -13.2, -23.2, 0, 0, { yaw: 0.6 })
+    prop('tent', -5.5, -17.2)
+    prop('cot', -2.4, -16.6, 0, 0, { variant: 0 })
+    prop('cot', -1.3, -16.6, 0, 0, { variant: 1 })
+    prop('cot', -0.2, -16.6, 0, 0, { variant: 0 })
+    prop('cot', -1.0, -19.6, 1, 0, { variant: 1 })
+    prop('crate', -8.6, -15.8)
+    prop('crate-small', -8.5, -14.6)
+    prop('barrel', -2.6, -20.4)
+    prop('barrel', -3.4, -20.9)
+    for (const x of [-17.8, -16.4, -15]) prop('cross', x, -21.5)
+    prop('dead-tree', -16.5, -17.5)
+    prop('dead-tree', 2, -29)
+    prop('dead-tree', -14, -38.5)
+    prop('dead-tree', -34, 5)
+    prop('dead-tree', -20, 6)
+    // An abandoned battery at the back of the churchyard, in a horseshoe of sandbags.
+    prop('fieldgun', -5.5, -37.4, 2)
+    prop('sandbags', -8.6, -36.8, 1)
+    prop('sandbags', -2.4, -37.2, 1)
+    prop('sandbags', -5.5, -34.9, 0)
+    prop('crate', -8.2, -39, 0)
+    prop('crate-small', -7.1, -39.1)
+    prop('angel', 25, -15.5)
+    prop('gravestone', 23.2, -16.8, 1)
+    prop('gravestone', 27.2, -13.4, 3)
+    for (const [x, z, big] of shellHoles) prop('crater', x, z, 0, 0, { variant: big })
+    for (const [x, z, r] of craters) prop('crater', x!, z!, 0, 0, { variant: r! >= 2.5 ? 1 : 0 })
+    for (const [x, z] of [[-9.8, 14.6], [-9.8, 20.4], [18.2, 14.6], [18.2, 20.4], [6.6, -26.2], [6.6, -17.6]] as const) prop('hedgehog', x, z, 0, 0, { yaw: dfHash3(Math.round(x), 0, Math.round(z), 95) * 3 })
+    for (const [x, z, y] of [[-44.5, 8, 0], [-44, 22, 0], [44.5, 24, 0], [-27, -44.5, 0]] as const) prop('hedgehog', x, z, 0, y, { yaw: x })
+    prop('signpost', -27, -15, 0)
+    prop('signpost', 10.8, 12.5, 1)
+    prop('signpost', 6.6, -19.6, 2)
+    prop('signpost', -14.5, 12.6, 3)
+    prop('signpost', 25.8, 3, 1)
+    prop('sails', -36.7, -5.5, 0, 9.8)
+    prop('tank', 45.2, 16, 1, 0, { yaw: 0.35 })
 
     // ------------------------------------------------------------ doors
     const doors: DfDoor[] = [
@@ -745,6 +889,10 @@ function buildWorld(): DfMapWorld {
         { id: 'riser-ramparts-1', pos: v(27, 0, -3), yaw: 1.4, zone: 'ramparts' },
         { id: 'riser-ramparts-2', pos: v(28, 0, 20), yaw: -1.9, zone: 'ramparts' }
     ]
+    // Where the dead come up out of the ground: a churned patch with a dark hole.
+    for (const rs of riserSpawns) {
+        disc(rs.pos.x, rs.pos.z, 1.6, (d, i, k) => (d < 0.7 ? P.crater : dfHash3(i, 0, k, 21) < 0.65 ? P.mud3 : dfHash3(i, 1, k, 22) < 0.5 ? P.rubble1 : P.rubble2))
+    }
     const playerSpawns: Vec3[] = [v(2, 0, 30), v(4, 0, 30), v(2, 0, 32), v(4, 0, 32), v(3, 0, 31)]
 
     const LAMP = '#ffb766'
@@ -785,7 +933,12 @@ function buildWorld(): DfMapWorld {
         { pos: v(33, 3.2, 21), color: LAMP, intensity: 1.4, distance: 13, flicker: true },
         { pos: v(37.5, 7.6, -6.5), color: ARC, intensity: 2.4, distance: 22, power: true },
         { pos: v(37.5, 7.6, 35.5), color: ARC, intensity: 2.4, distance: 22, power: true },
-        { pos: v(31.5, 1.3, 32), color: FIRE, intensity: 1.8, distance: 9, flicker: true }
+        { pos: v(31.5, 1.3, 32), color: FIRE, intensity: 1.8, distance: 9, flicker: true },
+        { pos: v(31, 7.9, 13.2), color: LAMP, intensity: 1.7, distance: 15, flicker: true },
+        // the wreck still burns; the field hospital's lantern; the windmill's lit slit
+        { pos: v(-5.6, 1.0, -24.6), color: FIRE, intensity: 1.7, distance: 10, flicker: true },
+        { pos: v(-5.5, 2.0, -14.4), color: LAMP, intensity: 1.5, distance: 10, flicker: true },
+        { pos: v(-35.4, 6.2, -5.5), color: BULB, intensity: 1.2, distance: 9, flicker: true }
     ]
 
     const stairs = [0, 24].map(zs => ({ bottom: v(28.2, 0, zs + 2), top: v(35.8, DF_WALK_Y, zs + 2), steps: 6, zone: 'ramparts' }))
@@ -809,9 +962,11 @@ function buildWorld(): DfMapWorld {
     for (const p of props) {
         const def = DF_PROP_DEFS[p.kind]
         if (!def.coll) continue
-        const odd = (p.rot & 1) === 1
-        const hx = (odd ? def.coll[2] : def.coll[0]) / 2
-        const hz = (odd ? def.coll[0] : def.coll[2]) / 2
+        const ang = p.rot * PI / 2 + (p.yaw ?? 0)
+        const ca = Math.abs(Math.cos(ang))
+        const sa = Math.abs(Math.sin(ang))
+        const hx = (def.coll[0] * ca + def.coll[2] * sa) / 2
+        const hz = (def.coll[0] * sa + def.coll[2] * ca) / 2
         solids.push({ min: v(p.x - hx, p.y, p.z - hz), max: v(p.x + hx, p.y + def.coll[1], p.z + hz), mat: def.mat, prop: p.kind })
     }
     solids.push(...special)

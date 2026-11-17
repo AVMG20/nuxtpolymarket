@@ -453,6 +453,7 @@ vec3 dfPaint(int s, vec2 uv, bool vert, bool alongV) {
     if (s == DF_GRASS) return dfGrass(uv);
     if (s == DF_MUD || s == DF_CRATER) return dfMud(uv, s, !vert);
     if (s == DF_GRAVEL) return dfDots(uv, s, 0.075, 0.016, 0.028);
+    if (s == DF_SCORCH) return dfDots(uv, s, 0.07, 0.012, 0.03);
     if (s == DF_MOSS) return dfDots(uv, s, 0.09, 0.02, 0.035);
     if (s == DF_HAY) return dfStraw(uv, s);
     if (s == DF_RUBBLE) return dfRubble(uv, s);
@@ -573,7 +574,7 @@ vec3 dfSurface() {
     }
 
     // Worn bevel on outer edges: bend the normal so the toon bands catch a rim.
-    bool soft = s0 == DF_MUD || s0 == DF_GRASS || s0 == DF_CRATER || s0 == DF_RUBBLE || s0 == DF_HAY || s0 == DF_GRAVEL || s0 == DF_MOSS;
+    bool soft = s0 == DF_MUD || s0 == DF_GRASS || s0 == DF_CRATER || s0 == DF_SCORCH || s0 == DF_RUBBLE || s0 == DF_HAY || s0 == DF_GRAVEL || s0 == DF_MOSS;
     float R = (soft ? 0.14 : 0.05) * (0.55 + 0.9 * dfN(uv * 3.3 + 1.7));
     vec3 bend = vec3(0.0);
     if (sPu == 0) bend += tu * dfBev((1.0 - fu) * cell, R);
@@ -622,6 +623,6 @@ export function dfPatchWorldSurface<T extends THREE.Material>(m: T, opts: DfSurf
             .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = normalize((viewMatrix * vec4(dfNW, 0.0)).xyz);')
     }
     const prevKey = m.customProgramCacheKey.bind(m)
-    m.customProgramCacheKey = () => `dfsurf2|${prevKey()}`
+    m.customProgramCacheKey = () => `dfsurf3|${prevKey()}`
     return m
 }
