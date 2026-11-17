@@ -21,6 +21,7 @@ import type {
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
 import type { CustomBranch, SectionId } from '#shared/utils/nitro-rush/custom'
+import type { Obstacle } from '#shared/utils/nitro-rush/obstacles'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2790,6 +2791,8 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   sections: jsonb('sections').$type<SectionId[]>().notNull(),
   // Null on a course that never forks, which is every course published before forks.
   branches: jsonb('branches').$type<CustomBranch[]>(),
+  // Null on a course with nothing standing on its road.
+  obstacles: jsonb('obstacles').$type<Obstacle[]>(),
   publishedAt: timestamp('published_at').defaultNow().notNull(),
   /** Set while the author has it unpublished. */
   unpublishedAt: timestamp('unpublished_at'),

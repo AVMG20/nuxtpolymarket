@@ -1,7 +1,8 @@
 import { cheapestPath, type PathStep } from './cheapest-path'
 import { BENDS, SLOPE_STEPS, STRAIGHTS, STRAIGHT_LENGTHS, targetOf, type BendSize, type Curve } from './construct'
-import { compileMainRoad, mapWalkHeights, MAX_SECTIONS, SECTIONS, sectionCount, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
-import { draftForkedDef, walkCustomLines, walkForks, type JoinInlet } from './custom-forks'
+import { compileMainRoad, lineSections, mapWalkHeights, MAX_SECTIONS, raisedTo, SECTIONS, sectionCount, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
+import { draftForkedDef, walkCustomLines, walkForks, withLineSections, type JoinInlet } from './custom-forks'
+import { looseState, walkLoose } from './loose-road'
 import { mergeFrom } from './fork-pieces'
 import { BANK_LENGTH, GRID, onAxis, SLOPE_LENGTH, type LayoutWalk } from './layout'
 import { clearanceFault, clearanceReach, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP, trackClearanceFault } from './road-checks'
@@ -490,4 +491,62 @@ export function finishJoin(t: CustomTrack, line: number): FinishedLoop {
         }
     }
     return { sections: null, error: tooMany ? 'that takes more sections than a track can have' : 'no way into that join from here' }
+}
+
+/** Loose road `k` as road the way onto it keeps clear of, on the lines' ground. */
+function looseRoads(t: CustomTrack, rise: number): LayoutWalk[] {
+    return (t.loose ?? []).map(r => raisedTo(walkLoose(r), r.y + rise))
+}
+
+/**
+ * The sections to lay on the end of line `line` so it runs onto the start of loose road `k`, or why there are none.
+ * The loose road has to start level, at the normal width, on the grid and heading along it, as placed road does.
+ */
+export function bridgeTo(t: CustomTrack, line: number, k: number): FinishedLoop {
+    const r = t.loose?.[k]
+    if (!r) return { sections: null, error: 'there\'s no road there' }
+    if (r.eighths % 2 || Math.abs(r.x / GRID - Math.round(r.x / GRID)) > 1e-6 || Math.abs(r.z / GRID - Math.round(r.z / GRID)) > 1e-6
+        || Math.abs(r.y - Math.round(r.y)) > 1e-6) return { sections: null, error: 'that road doesn\'t start on the grid' }
+    const state = looseState(r)
+    if (state.bank || state.grade || state.air || state.halfWidth !== ROAD.halfWidth) return { sections: null, error: 'that road doesn\'t start level at the normal width' }
+    const lines = walkCustomLines(t)
+    const walk = lines[line]
+    if (!walk) return { sections: null, error: 'there\'s no road there' }
+    if (walk.misplaced) return { sections: null, error: walk.misplaced }
+    const ground = -lines[0]!.rise
+    const goal: Goal = { x: Math.round(r.x), z: Math.round(r.z), k: r.eighths / 2 }
+    const goalY = Math.round(r.y)
+    const heightOf = (w: LayoutWalk): Height => ({ y: Math.round(w.end.y - w.end.lift + ground), tenths: Math.round(w.end.grade * 10), banked: Math.abs(w.end.bank) > 1e-6 })
+    const arrived = (h: Height) => h.y === goalY && isLevel(h)
+    const lay = (sections: readonly SectionId[]) => withLineSections(t, line, [...lineSections(t, line), ...sections])
+    const rewiden: SectionId[] = [...walk.end.air ? ['landing-ramp' as const] : [], ...walk.end.halfWidth === ROAD.halfWidth ? [] : ['width-normal' as const]]
+    const budget = { left: JOIN_SEARCH_BUDGET }
+    let searches = MAX_JOIN_SEARCHES
+    let tooMany = false
+    for (const lead of LEAD_INS) {
+        if (searches <= 0 || budget.left <= 0) break
+        const led = [...rewiden, ...lead]
+        const levelled = settle(ground, heightOf(walkCustomLines(lay(led))[line]!), arrived)
+        if (!levelled) continue
+        const settled = [...led, ...levelled.sections]
+        const turns = onAxis(walkCustomLines(lay(settled))[line]!.end.heading) ? [[]] : OFF_DIAGONAL
+        for (const turn of turns) {
+            if (searches-- <= 0 || budget.left <= 0) break
+            const laidOut = walkCustomLines(lay([...settled, ...turn]))
+            const rise = laidOut[0]!.rise
+            const laid: Laid[] = [
+                ...laidOut.map((w, l): Laid => ({ walk: w, setsOff: l === line, target: null })),
+                ...looseRoads(t, rise).map((w, j): Laid => ({ walk: w, setsOff: false, target: j === k ? 0 : null }))
+            ]
+            const route = routeTo(laidOut[line]!, laid, goal, 0, budget)
+            if (!route) continue
+            const sections = compact([...settled, ...turn, ...route.sections])
+            if (sectionCount(t) + sections.length > MAX_SECTIONS) {
+                tooMany = true
+                continue
+            }
+            return { sections, error: null }
+        }
+    }
+    return { sections: null, error: tooMany ? 'that takes more sections than a track can have' : 'no way onto that road from here' }
 }

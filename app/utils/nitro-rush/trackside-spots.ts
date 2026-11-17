@@ -51,6 +51,8 @@ export interface TracksideLayout {
     chevrons: Chevron[]
     /** Warning boards on both walls ahead of each jump. */
     jumpSigns: Fixture[]
+    /** Danger boards on both walls on the run up to each bunch of obstacles. */
+    hazardSigns: Fixture[]
     /** One list per bay between two floodlights; a bay shares one ad. */
     hoardings: Fixture[][]
     /** Clusters of flags, a cluster sharing one ad. */
@@ -90,6 +92,9 @@ const CHEVRON_MIN_BEND = 10
 /** Jump boards stand where the road paint starts, and may shift this far back to find a free bit of wall. */
 const JUMP_SIGN_LEAD = JUMP_PAINT_REACH
 const JUMP_SIGN_SLIDE = 12
+/** Danger boards stand this far before the first obstacle of a bunch, and again halfway in; obstacles closer than HAZARD_BUNCH share them. */
+const HAZARD_LEAD = 36
+const HAZARD_BUNCH = 50
 
 export const FLAG_POLE = 4
 export const FLAG_WIDTH = 0.85
@@ -264,6 +269,35 @@ function jumpSignsOn(track: Track, line: TrackLine, out: Fixture[], keepOut: Kee
     }
 }
 
+/** Two boards on each wall on the run up to each bunch of obstacles, closer together than any wall fixture would stand. */
+function hazardSignsOn(track: Track, line: TrackLine, out: Fixture[], taken: readonly Fixture[], keepOut: KeepOut[]) {
+    if (!line.obstacles.length) return
+    const laps = lapLinesOn(track, line)
+    const list = line.obstacles
+    const gapBefore = (i: number) => i > 0 ? list[i]!.s - list[i - 1]!.s : line.closed ? list[0]!.s + line.length - list[list.length - 1]!.s : Infinity
+    const firsts = list.filter((_, i) => gapBefore(i) > HAZARD_BUNCH).map(o => o.s)
+    // A loop packed with obstacles all the way round still gets one warning.
+    if (!firsts.length) firsts.push(list[0]!.s)
+    for (const first of firsts) {
+        for (const lead of [HAZARD_LEAD, HAZARD_LEAD / 2]) {
+            for (const side of [-1, 1] as const) {
+                for (let back = 0; back <= 8; back += 2) {
+                    const raw = first - lead - back
+                    if (!line.closed && raw < 0) break
+                    const s = line.closed ? line.wrapS(raw) : raw
+                    if (!line.solidRoadAt(s) || line.openAt(s, side) || near(line, s, laps, LAP_LINE_CLEAR) || nearLamp(line, s, side)) continue
+                    if (taken.some(f => f.branch === line.branch && f.side === side && along(line, f.s, s) < CHEVRON_WIDTH + 0.4)) continue
+                    const f = wallTop(line, s, side)
+                    if (!fixtureClear(track, line, s, f, CHEVRON_WIDTH, CHEVRON_LIFT + CHEVRON_HEIGHT)) continue
+                    out.push(f)
+                    keepOut.push({ line, s, d: 6 })
+                    break
+                }
+            }
+        }
+    }
+}
+
 /** Straight stretches, as [from, to] along the line: plain road, both walls standing, turning gentler than a kerb. */
 function straightsOn(line: TrackLine) {
     const runs: [number, number][] = []
@@ -415,6 +449,7 @@ const push = <T>(list: T[], item: T | null) => {
 export function tracksideLayout(track: Track): TracksideLayout {
     const chevrons: Chevron[] = []
     const jumpSigns: Fixture[] = []
+    const hazardSigns: Fixture[] = []
     const flags: Fixture[][] = []
     const hoardings: Fixture[][] = []
     const billboards: Billboard[] = []
@@ -433,9 +468,10 @@ export function tracksideLayout(track: Track): TracksideLayout {
     for (const line of track.branches) {
         chevronsOn(track, line, chevrons, keepOut)
         jumpSignsOn(track, line, jumpSigns, keepOut)
+        hazardSignsOn(track, line, hazardSigns, [...chevrons, ...jumpSigns], keepOut)
         startFlagsOn(track, line, flags)
         for (const s of lapLinesOn(track, line, ['start', 'finish'])) keepOut.push({ line, s, d: FLAG_REACH + 2 })
     }
     adSlots(track, keepOut, overheads, { billboards, hoardings, flags })
-    return { billboards, chevrons, jumpSigns, hoardings, flags, overheads }
+    return { billboards, chevrons, jumpSigns, hazardSigns, hoardings, flags, overheads }
 }

@@ -32,6 +32,7 @@
  * Where branches share a deck at a fork or a join, a side's wall is open over a stretch.
  */
 
+import { footprint, OBSTACLE_KINDS, type ObstacleDef, type ObstacleKind } from './obstacles'
 import { racingLine, type RacingLine } from './racing-line'
 
 export type TrackGroup = 'circuits' | 'sprints'
@@ -61,6 +62,33 @@ export interface LineDef {
     /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
     gaps?: [number, number][]
     boosts?: BoostPadDef[]
+    /** Obstacles on the road, by distance along it; left out where there are none. */
+    obstacles?: ObstacleDef[]
+}
+
+/** An obstacle where it stands: on its line, and on the plan, for the physics and the meshes. */
+export interface ObstacleBody {
+    id: number
+    kind: ObstacleKind
+    branch: number
+    s: number
+    lateral: number
+    /** Centre on the plan, and its base's height on the road. */
+    x: number
+    y: number
+    z: number
+    /** Unit direction along the road on the plan; across is (-az, ax). */
+    ax: number
+    az: number
+    /** Half size along the road and across it, turned; a round one's radius is `halfAlong`. */
+    halfAlong: number
+    halfAcross: number
+    round: boolean
+    top: number
+    /** The road's up there, for standing it on a bank. */
+    ux: number
+    uy: number
+    uz: number
 }
 
 /** Which part of the road's width a boost pad covers. */
@@ -201,6 +229,8 @@ export class TrackLine {
     readonly rails: readonly (readonly [number, number])[]
     readonly gaps: readonly (readonly [number, number])[]
     readonly boostPads: readonly BoostPad[]
+    /** Obstacles on this line, by distance along it. */
+    readonly obstacles: readonly ObstacleBody[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
     /** Per point: half the road's width, and centreline to the face of the wall. */
@@ -287,6 +317,22 @@ export class TrackLine {
         this.right = new Float64Array(n * 3)
         this.up = new Float64Array(n * 3)
         for (let i = 0; i < n; i++) this.frameOf(i, def.ups?.[i])
+        this.obstacles = (def.obstacles ?? []).map(o => this.obstacleBody(o)).sort((a, b) => a.s - b.s)
+    }
+
+    /** Where obstacle `o` stands on this line. */
+    obstacleBody(o: ObstacleDef): ObstacleBody {
+        const f = this.frameAt(o.s)
+        const ground = Math.hypot(f.tx, f.tz) || 1
+        const ax = f.tx / ground
+        const az = f.tz / ground
+        const size = footprint(o.kind, o.rot)
+        return {
+            id: o.id, kind: o.kind, branch: this.branch, s: this.wrapS(o.s), lateral: o.lateral,
+            x: f.x - az * o.lateral, y: f.y + f.ry * o.lateral, z: f.z + ax * o.lateral, ax, az,
+            halfAlong: size.along, halfAcross: size.across, round: OBSTACLE_KINDS[o.kind].round, top: OBSTACLE_KINDS[o.kind].height,
+            ux: f.ux, uy: f.uy, uz: f.uz
+        }
     }
 
     /** Point `i`'s frame. Plain road keeps the plan's own right and straight up, exactly as before stunts. */

@@ -6,12 +6,24 @@ import { AdaptiveResolution } from './resolution'
 import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { ROAD_TILE_LENGTH } from './textures'
 import { worldKit } from './world-kit'
+import { kindGeometry, obstacleMatrix, ObstacleMeshes } from './world-obstacles'
+import type { ObstacleDef } from '#shared/utils/nitro-rush/obstacles'
 import { Track, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** Some of the road on one line, by walk points: the highlighted section. */
 export interface PreviewSelection {
     line: number
     range: readonly [number, number]
+}
+
+/** A button stood on the course, such as an end loose road connects from. */
+export interface BuilderHandle {
+    key: string
+    label: string
+    icon: string
+    x: number
+    y: number
+    z: number
 }
 
 const FOV = 50
@@ -46,6 +58,13 @@ export class BuilderPreview {
     /** The selection's empty road, which has no deck to highlight. */
     private selectionOutlines: THREE.LineLoop[] = []
     private ghost: { track: Track, deck: THREE.Mesh, marker: THREE.Mesh, outlines: THREE.LineLoop[] } | null = null
+    private readonly obstacleGhostMat = new THREE.MeshBasicMaterial({ color: GHOST_COLOR, transparent: true, opacity: 0.55, depthWrite: false })
+    private obstacleGhost: THREE.Mesh | null = null
+    private readonly obstaclePickedMat = new THREE.MeshBasicMaterial({ color: NEON_PINK, transparent: true, opacity: 0.6, depthWrite: false })
+    private obstaclePicked: THREE.Mesh | null = null
+    /** Called after each frame is drawn, for anything that follows the camera. */
+    onFrame: (() => void) | null = null
+    private readonly projected = new THREE.Vector3()
     /** Until the player turns the view themselves, it reframes as the course grows. */
     private userMoved = false
     private raf = 0
@@ -89,7 +108,9 @@ export class BuilderPreview {
             }
             const track = new Track(course.def)
             if (course.openStart) track.barrierStart = false
-            const decks = layCourse(worldKit(track, this.course, this.courseParts), course, this.mats)
+            const kit = worldKit(track, this.course, this.courseParts)
+            const decks = layCourse(kit, course, this.mats)
+            if (track.allObstacles.length) void new ObstacleMeshes(kit)
             track.branches.forEach((line, i) => this.lines.push({ line, deck: decks[i]! }))
         }
         this.setSelected(selected)
@@ -117,7 +138,7 @@ export class BuilderPreview {
     }
 
     /** Shows the piece about to be built, or nothing; it isn't part of the road, so it survives the road's rebuilds. */
-    setGhost(ghost: { def: TrackDef, end: RoadEnd, blocked: boolean } | null) {
+    setGhost(ghost: { def: TrackDef, end: RoadEnd, blocked: boolean, reframe?: boolean } | null) {
         this.clearGhost()
         if (ghost) {
             const colour = ghost.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR
@@ -130,7 +151,45 @@ export class BuilderPreview {
             this.scene.add(deck, marker, ...outlines)
             this.ghost = { track, deck, marker, outlines }
         }
-        if (!this.userMoved) this.frameCourse()
+        // A ghost following the pointer would swing the view about under it.
+        if (!this.userMoved && ghost?.reframe !== false) this.frameCourse()
+    }
+
+    /** Shows an obstacle about to go down on line `line`, or nothing. */
+    setObstacleGhost(ghost: { line: number, def: ObstacleDef, blocked: boolean } | null) {
+        this.obstacleGhostMat.color.setHex(ghost?.blocked ? GHOST_BLOCKED_COLOR : GHOST_COLOR)
+        this.obstacleGhost = this.obstacleMesh(this.obstacleGhost, ghost, this.obstacleGhostMat, 1)
+    }
+
+    /** Picks out one of the course's obstacles, or none. */
+    setObstaclePicked(picked: { line: number, def: ObstacleDef } | null) {
+        this.obstaclePicked = this.obstacleMesh(this.obstaclePicked, picked, this.obstaclePickedMat, 1.25)
+    }
+
+    /** `old` taken away and `def` drawn in its place on its line, `grow` times its size. */
+    private obstacleMesh(old: THREE.Mesh | null, at: { line: number, def: ObstacleDef } | null, mat: THREE.Material, grow: number) {
+        if (old) {
+            this.scene.remove(old)
+            old.geometry.dispose()
+        }
+        const line = at && this.lines[at.line]?.line
+        if (!at || !line) return null
+        const mesh = new THREE.Mesh(kindGeometry(at.def.kind), mat)
+        mesh.matrixAutoUpdate = false
+        mesh.matrix.copy(obstacleMatrix(line.obstacleBody(at.def)))
+        if (grow !== 1) mesh.matrix.multiply(new THREE.Matrix4().makeScale(grow, grow, grow))
+        // Lifted a touch so a flat one shows over the road it's on.
+        mesh.matrix.elements[13]! += 0.05
+        this.scene.add(mesh)
+        return mesh
+    }
+
+    /** Where a point in the world shows on the view, in CSS px from its corner; null behind the camera. */
+    project(x: number, y: number, z: number): { left: number, top: number } | null {
+        const p = this.projected.set(x, y, z).project(this.camera)
+        if (p.z > 1) return null
+        const el = this.renderer.domElement
+        return { left: (p.x + 1) / 2 * el.clientWidth, top: (1 - p.y) / 2 * el.clientHeight }
     }
 
     /** The line and walk point under a spot on screen, if it's on the road. */
@@ -145,6 +204,30 @@ export class BuilderPreview {
         return { line, point: this.lines[line]!.line.project(hit.point.x, hit.point.z, -1, undefined, hit.point.y).seg }
     }
 
+    /** Where a spot on screen meets the road's deck, if it does. */
+    roadAt(clientX: number, clientY: number): { x: number, z: number } | null {
+        if (!this.lines.length) return null
+        const rect = this.renderer.domElement.getBoundingClientRect()
+        const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1)
+        this.raycaster.setFromCamera(ndc, this.camera)
+        const hit = this.raycaster.intersectObjects(this.lines.flatMap(l => l ? [l.deck] : []))[0]
+        return hit ? { x: hit.point.x, z: hit.point.z } : null
+    }
+
+    /** Where a spot on screen looks onto the level plane `y` metres up, or null when it looks over it. */
+    groundAt(clientX: number, clientY: number, y: number): { x: number, z: number } | null {
+        const rect = this.renderer.domElement.getBoundingClientRect()
+        const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -(clientY - rect.top) / rect.height * 2 + 1)
+        this.raycaster.setFromCamera(ndc, this.camera)
+        const hit = this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3())
+        return hit && this.raycaster.ray.origin.distanceTo(hit) < this.camera.far ? { x: hit.x, z: hit.z } : null
+    }
+
+    /** Turns orbiting with the mouse on or off, so a drag can move road instead. */
+    setOrbit(on: boolean) {
+        this.controls.enabled = on
+    }
+
     /** Frames the whole course again and lets it follow the course's growth. */
     resetView() {
         this.userMoved = false
@@ -157,6 +240,11 @@ export class BuilderPreview {
         this.controls.dispose()
         this.clearCourse()
         this.clearGhost()
+        this.setObstacleGhost(null)
+        this.setObstaclePicked(null)
+        this.onFrame = null
+        this.obstacleGhostMat.dispose()
+        this.obstaclePickedMat.dispose()
         this.stage.dispose()
         this.mats.dispose()
         this.selectMat.dispose()
@@ -221,6 +309,7 @@ export class BuilderPreview {
         if (this.resolution.sample(dt, now / 1000)) this.resize()
         this.controls.update(dt)
         this.renderer.render(this.scene, this.camera)
+        this.onFrame?.()
     }
 }
 

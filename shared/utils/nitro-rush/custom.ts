@@ -1,7 +1,9 @@
 import { inletOf, joinMerge, meetInlet, splitArm, type InletMeet, type Merge } from './fork-pieces'
 import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, jump, kicker, landing, looping, MAX_HALF_WIDTH, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, walkLines, widthTo, type ForkShape, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { placeObstacles, obstaclesFault, withObstacleDefs } from './obstacle-place'
+import { obstacleKey, sanitizeObstacles, type Obstacle } from './obstacles'
 import { placementFault } from './road-checks'
-import { TrackGraphError, wrapAngle, type TrackDef } from './track'
+import { Track, TrackGraphError, wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
 /**
@@ -62,9 +64,10 @@ const fork = (label: string, icon: string, type: 'split' | 'join', shape: ForkSh
 /** How high a jump ramp climbs, which its landing ramp comes back down. */
 const KICKER_RISE = 4
 const BIG_KICKER_RISE = 6
+const MEGA_KICKER_RISE = 10
 /** Empty road runs as far as a straight does, so a jump is as long as the player makes it. */
 const empty = (length: number): Section => ({ label: `Gap ${length} m`, category: 'jumps', icon: 'i-lucide-cloud', piece: gap(length), from: { air: KICKER_RISE } })
-const SPIRAL_SHARE = { 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
+const SPIRAL_SHARE = { 2: 'double ', 1: '', 0.5: 'half ', 0.25: 'quarter ' } as const
 /** On a grid multiple, so a half or quarter spiral ends on the grid and a loop can still close. */
 const SPIRAL_RADIUS = 40
 /** A full turn climbs 12 m and leaves right over where it came in; a half or quarter climbs its share, so they add up to one. */
@@ -126,6 +129,12 @@ export const SECTIONS = {
     'left-half-spiral-down': helix('left', -12, 0.5),
     'right-half-spiral-up': helix('right', 12, 0.5),
     'right-half-spiral-down': helix('right', -12, 0.5),
+    'left-double-spiral-up': helix('left', 12, 2),
+    'left-double-spiral-down': helix('left', -12, 2),
+    'right-double-spiral-up': helix('right', 12, 2),
+    'right-double-spiral-down': helix('right', -12, 2),
+    'tall-ramp-up': { label: 'Tall ramp up', category: 'climbs', icon: 'i-lucide-arrow-up-right', piece: ramp(200, 24) },
+    'tall-ramp-down': { label: 'Tall ramp down', category: 'climbs', icon: 'i-lucide-arrow-down-right', piece: ramp(200, -24) },
     'left-quarter-spiral-up': helix('left', 12, 0.25),
     'left-quarter-spiral-down': helix('left', -12, 0.25),
     'right-quarter-spiral-up': helix('right', 12, 0.25),
@@ -134,6 +143,7 @@ export const SECTIONS = {
     'big-jump': { ...stunt('Big jump', 'i-lucide-rocket', jump(BIG_KICKER_RISE, 60)), retired: true },
     'jump-ramp': { label: 'Jump ramp', category: 'jumps', icon: 'i-lucide-rocket', piece: kicker(KICKER_RISE) },
     'jump-ramp-big': { label: 'Big jump ramp', category: 'jumps', icon: 'i-lucide-rocket', piece: kicker(BIG_KICKER_RISE) },
+    'jump-ramp-mega': { label: 'Mega jump ramp', category: 'jumps', icon: 'i-lucide-rocket', piece: kicker(MEGA_KICKER_RISE) },
     'empty-10': empty(10),
     'empty-20': empty(20),
     'empty-60': empty(60),
@@ -142,6 +152,8 @@ export const SECTIONS = {
     'landing-ramp': { label: 'Landing ramp', category: 'jumps', icon: 'i-lucide-plane-landing', piece: landing, from: { air: KICKER_RISE } },
     'looping-left': stunt('Looping, out left', 'i-lucide-repeat', looping('left', 22)),
     'looping-right': stunt('Looping, out right', 'i-lucide-repeat', looping('right', 22)),
+    'looping-big-left': stunt('Big looping, out left', 'i-lucide-repeat-2', looping('left', 32)),
+    'looping-big-right': stunt('Big looping, out right', 'i-lucide-repeat-2', looping('right', 32)),
     'corkscrew-left': { ...stunt('Corkscrew left', 'i-lucide-tornado', corkscrew('left', 200)), from: { bank: -BANK_ANGLE } },
     'corkscrew-right': { ...stunt('Corkscrew right', 'i-lucide-tornado', corkscrew('right', 200)), from: { bank: BANK_ANGLE } },
     'boost-pad': stunt('Boost pad', 'i-lucide-chevrons-up', boostPad('full')),
@@ -183,6 +195,24 @@ export interface CustomBranch {
     to: SectionSpot | null
 }
 
+/**
+ * Road laid in the builder that isn't joined up to the course yet: placed anywhere, or cut off the course
+ * when a section out of the middle went. It's never driven; laying the course onto its start joins it on.
+ */
+export interface LooseRoad {
+    /** Where its first section starts, in the main road's frame: metres, and eighths of a turn right of heading 0. */
+    x: number
+    z: number
+    eighths: number
+    /** Its start's road height above the main road's start line. */
+    y: number
+    /** The bank, grade, width and air it sets off in, when it was cut off road riding them. */
+    from?: Partial<RoadState>
+    sections: SectionId[]
+    /** Obstacles it carries, all on line 0: its own sections. They go back on the course with it. */
+    obstacles?: Obstacle[]
+}
+
 export interface CustomTrack {
     id: string
     name: string
@@ -192,14 +222,20 @@ export interface CustomTrack {
     sections: SectionId[]
     /** Lines 1 up; left out on a course that never forks. */
     branches?: CustomBranch[]
+    /** Builder only: road not joined up yet. Left out when there's none; never published or driven. */
+    loose?: LooseRoad[]
+    /** Things standing on the road; left out when there are none. */
+    obstacles?: Obstacle[]
 }
 
 const ID_PREFIX = 'custom-'
 export const MAX_NAME_LENGTH = 24
 /** Keeps the crossing check, which compares every stretch with every other, quick enough to run on each edit; counted over every line. */
-export const MAX_SECTIONS = 80
+export const MAX_SECTIONS = 200
 /** Branches a course may fork into; the route cap usually binds first. */
 export const MAX_BRANCHES = 8
+/** Separate stretches of loose road a draft may hold. */
+export const MAX_LOOSE = 24
 
 export const isCustomTrackId = (id: string) => id.startsWith(ID_PREFIX)
 
@@ -218,9 +254,12 @@ export function newCustomTrack(closed = true): CustomTrack {
 export { mapWalkHeights, raisedTo } from './layout'
 
 /** One string per road: equal exactly when two versions of a course drive the same, whatever their name. */
-export function roadKey(t: { closed: boolean, sections: readonly SectionId[], branches?: readonly CustomBranch[] | null }): string {
+export function roadKey(t: { closed: boolean, sections: readonly SectionId[], branches?: readonly CustomBranch[] | null, obstacles?: readonly Obstacle[] | null }): string {
     const spot = (s: SectionSpot | null) => s ? [s.branch, s.at] : null
-    return JSON.stringify([t.closed, t.sections, (t.branches ?? []).map(b => [b.sections, spot(b.from), spot(b.to)])])
+    const road: unknown[] = [t.closed, t.sections, (t.branches ?? []).map(b => [b.sections, spot(b.from), spot(b.to)])]
+    // Only a course with obstacles adds them, so every course from before keeps its key.
+    if (t.obstacles?.length) road.push(obstacleKey(t.obstacles))
+    return JSON.stringify(road)
 }
 
 /** True when two versions of a course drive the same, so lap times set on one stand on the other. */
@@ -229,8 +268,8 @@ export const sameRoad = (a: CustomTrack, b: CustomTrack) => roadKey(a) === roadK
 /** Line `line`'s sections: 0 is the main road. */
 export const lineSections = (t: CustomTrack, line: number): SectionId[] => line ? t.branches?.[line - 1]?.sections ?? [] : t.sections
 
-/** How many sections the course has, over every line. */
-export const sectionCount = (t: CustomTrack) => t.sections.length + (t.branches ?? []).reduce((n, b) => n + b.sections.length, 0)
+/** How many sections the course has, over every line and the loose road. */
+export const sectionCount = (t: CustomTrack) => t.sections.length + (t.branches ?? []).reduce((n, b) => n + b.sections.length, 0) + (t.loose ?? []).reduce((n, r) => n + r.sections.length, 0)
 
 const piecesOf = (sections: readonly SectionId[]) => sections.map(id => SECTIONS[id].piece)
 
@@ -390,7 +429,19 @@ export function compileCustomTrack(t: CustomTrack): CompiledCustomTrack {
     // The layout drops a join a branch doesn't reach, which would leave a sprint's branch with a finish racing past it.
     const unmet = (t.branches ?? []).findIndex((b, i) => b.to && !merges[i])
     if (unmet >= 0) return { def: null, error: `branch ${unmet + 1} doesn't reach its join` }
-    return compiled(customLayout(t, merges))
+    const layout = customLayout(t, merges)
+    const out = compiled(layout)
+    return out.def && t.obstacles?.length ? withObstacles(out.def, t, layout) : out
+}
+
+/** A compiled course with the obstacles of `t` stood on it, or why they can't stand there. */
+function withObstacles(def: TrackDef, t: CustomTrack, layout: TrackLayout): CompiledCustomTrack {
+    const lines = [{ pieces: layout.pieces, offset: 0 }, ...(layout.branches ?? []).map((b, i) => ({ pieces: b.pieces, offset: pieceIndex(i + 1, 0) }))]
+    const placed = placeObstacles(def, t.obstacles!, walkLines(layout), lines)
+    if (!placed.defs) return { def: null, error: placed.error }
+    const out = withObstacleDefs(def, placed.defs)
+    const fault = obstaclesFault(new Track(out))
+    return fault ? { def: null, error: fault } : { def: out, error: null }
 }
 
 /** The main road on its own as a course, its splits and joins driven straight through: what a loop closes on whatever its branches do. */
@@ -453,23 +504,65 @@ export function sanitizeBranches(raw: unknown, main: readonly SectionId[]): Cust
     return splits === out.length ? out : null
 }
 
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+/** How far from the start loose road may sit, in metres. */
+const LOOSE_REACH = 20_000
+
+/** Stored loose road, or null if any of it is malformed; forks are only ever laid on the course itself. */
+export function sanitizeLoose(raw: unknown): LooseRoad[] | null {
+    if (raw === undefined || raw === null) return []
+    if (!Array.isArray(raw) || raw.length > MAX_LOOSE) return null
+    const out: LooseRoad[] = []
+    for (const r of raw) {
+        if (!r || typeof r !== 'object') return null
+        const { x, z, eighths, y, from, sections, obstacles } = r as Record<string, unknown>
+        if (!finite(x) || !finite(z) || !finite(y) || Math.abs(x) > LOOSE_REACH || Math.abs(z) > LOOSE_REACH || Math.abs(y) > LOOSE_REACH) return null
+        if (!Number.isInteger(eighths) || (eighths as number) < 0 || (eighths as number) > 7) return null
+        const ids = sanitizeSections(sections)
+        if (!ids?.length || ids.some(id => forkShape(id, 'split') || forkShape(id, 'join'))) return null
+        const road: LooseRoad = { x, z, eighths: eighths as number, y, sections: ids }
+        const things = sanitizeObstacles(obstacles, [ids.length])
+        if (!things) return null
+        if (things.length) road.obstacles = things
+        if (from !== undefined) {
+            if (!from || typeof from !== 'object') return null
+            const state: Partial<RoadState> = {}
+            for (const key of ['bank', 'grade', 'halfWidth', 'air'] as const) {
+                const v = (from as Record<string, unknown>)[key]
+                if (v === undefined) continue
+                if (!finite(v)) return null
+                state[key] = v
+            }
+            if (state.halfWidth !== undefined && (state.halfWidth < MIN_HALF_WIDTH || state.halfWidth > MAX_HALF_WIDTH)) return null
+            road.from = state
+        }
+        out.push(road)
+    }
+    return out
+}
+
 /** A stored course as it came back from storage, or null when it isn't one. */
 export function sanitizeCustomTrack(raw: unknown): CustomTrack | null {
     if (!raw || typeof raw !== 'object') return null
-    const { id, name, closed, sections, branches } = raw as Record<string, unknown>
+    const { id, name, closed, sections, branches, loose, obstacles } = raw as Record<string, unknown>
     if (typeof id !== 'string' || !isCustomTrackId(id) || typeof name !== 'string' || typeof closed !== 'boolean') return null
     const ids = sanitizeSections(sections)
     const forks = ids && sanitizeBranches(branches, ids)
-    if (!ids || !forks) return null
+    const scraps = sanitizeLoose(loose)
+    if (!ids || !forks || !scraps) return null
+    const things = sanitizeObstacles(obstacles, [ids.length, ...forks.map(b => b.sections.length)])
+    if (!things) return null
     const track: CustomTrack = { id, name: name.slice(0, MAX_NAME_LENGTH), closed, sections: ids }
     if (forks.length) track.branches = forks
+    if (scraps.length) track.loose = scraps
+    if (things.length) track.obstacles = things
     return sectionCount(track) > MAX_SECTIONS ? null : track
 }
 
 /** A course as JSON to share or keep: its road and name, without the id, which belongs to whoever has it. */
 export function exportCustomTrack(t: CustomTrack) {
-    const { name, closed, sections, branches } = t
-    return JSON.stringify(branches?.length ? { name, closed, sections, branches } : { name, closed, sections }, null, 2)
+    const { name, closed, sections, branches, loose, obstacles } = t
+    return JSON.stringify({ name, closed, sections, ...branches?.length ? { branches } : {}, ...obstacles?.length ? { obstacles } : {}, ...loose?.length ? { loose } : {} }, null, 2)
 }
 
 /** A course from JSON as `exportCustomTrack` writes it, taking the id `id`; or why it isn't one. */
@@ -481,11 +574,12 @@ export function importCustomTrack(text: string, id: string): { track: CustomTrac
         return { track: null, error: 'that isn\'t valid JSON' }
     }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { track: null, error: 'expected an object with name, closed and sections' }
-    const { name = 'Imported', closed = true, sections, branches } = raw as Record<string, unknown>
+    const { name = 'Imported', closed = true, sections, branches, loose, obstacles } = raw as Record<string, unknown>
     if (!Array.isArray(sections)) return { track: null, error: 'sections must be a list of section ids' }
     const unknown = sections.find(s => !isSectionId(s) && !(typeof s === 'string' && Object.hasOwn(REPLACED, s)))
     if (unknown !== undefined) return { track: null, error: `unknown section: ${JSON.stringify(unknown)}` }
-    const track = sanitizeCustomTrack({ id, name, closed, sections, branches })
-    if (!track) return { track: null, error: `not a valid course: check the branches and keep it to ${MAX_SECTIONS} sections` }
+    if (obstacles !== undefined && !Array.isArray(obstacles)) return { track: null, error: 'obstacles must be a list' }
+    const track = sanitizeCustomTrack({ id, name, closed, sections, branches, loose, obstacles })
+    if (!track) return { track: null, error: `not a valid course: check the branches, obstacles and loose road, and keep it to ${MAX_SECTIONS} sections` }
     return { track, error: null }
 }

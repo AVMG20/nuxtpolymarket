@@ -1,5 +1,6 @@
 import { GHOST_POSE, type Ghost } from './ghost'
 import { LapTimer } from './timing'
+import { isSolid } from './obstacles'
 import { FALL_DEPTH, KICKER_GRADE, newProjection, SPEED_CEILING, wallFoot, type LapLine, type Track, type TrackLine } from './track'
 
 /**
@@ -100,7 +101,51 @@ const under = newProjection()
 
 /** True when the ghost drove the course from start to finish, as far as its poses can show it. */
 export function ghostDrivesTrack(track: Track, ghost: Ghost): boolean {
+    if (ghostHitsSolid(track, ghost)) return false
     return track.forked || track.gaps.length ? ghostFliesTrack(track, ghost) : ghostFollowsRoad(track, ghost)
+}
+
+/**
+ * Metres a pose's centre may sit inside a solid obstacle's footprint grown by this: the physics keeps the centre
+ * at least the car's half width out, so this leaves room for pose rounding and still catches a car driven through.
+ */
+export const OBSTACLE_SLACK = 0.4
+/** Metres apart the moves between poses are checked at, thinner than any obstacle. */
+const OBSTACLE_SAMPLE = 0.5
+/** A pose this far below an obstacle's base is on other road under it. */
+const OBSTACLE_BELOW = 2
+
+/** True when a pose, or the move to it, goes through a solid obstacle a car on the ground couldn't. */
+export function ghostHitsSolid(track: Track, ghost: Ghost): boolean {
+    const solids = track.allObstacles.filter(o => isSolid(o.kind))
+    if (!solids.length) return false
+    const count = ghost.data.length / GHOST_POSE
+    const at = (k: number, c: number) => ghost.data[k * GHOST_POSE + c]!
+    const inside = (x: number, y: number, z: number) => solids.some((o) => {
+        if (y > o.y + o.top || y < o.y - OBSTACLE_BELOW) return false
+        const dx = x - o.x
+        const dz = z - o.z
+        if (o.round) return dx * dx + dz * dz < (o.halfAlong + OBSTACLE_SLACK) ** 2
+        return Math.abs(dx * o.ax + dz * o.az) < o.halfAlong + OBSTACLE_SLACK && Math.abs(dx * -o.az + dz * o.ax) < o.halfAcross + OBSTACLE_SLACK
+    })
+    for (let k = 0; k < count; k++) {
+        const x = at(k, 0)
+        const y = at(k, 1)
+        const z = at(k, 2)
+        if (k === 0) {
+            if (inside(x, y, z)) return true
+            continue
+        }
+        const px = at(k - 1, 0)
+        const py = at(k - 1, 1)
+        const pz = at(k - 1, 2)
+        const steps = Math.min(1000, Math.ceil(Math.hypot(x - px, z - pz) / OBSTACLE_SAMPLE))
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps
+            if (inside(px + (x - px) * t, py + (y - py) * t, pz + (z - pz) * t)) return true
+        }
+    }
+    return false
 }
 
 /** True when every pose is on the road and no further along it than the car could go since the last, from start to finish. */

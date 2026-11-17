@@ -1,5 +1,6 @@
 import { inletOf, joinInlet, joinMerge, meetInlet, splitArm, type Inlet } from './fork-pieces'
 import { customLayout, draftTrackDef, forkMerges, forkShape, lineSections, sectionWalk, shapeAt, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
+import { dropObstaclesOf, remapObstacles, renumberObstacleLines, shiftObstacles } from './obstacles'
 import { FORK_RADIUS, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose } from './layout'
 import { Track, TrackGraphError, TrackLine, type BranchDef, type TrackDef } from './track'
 import { ROAD } from './tracks'
@@ -116,7 +117,7 @@ function moveSpots(t: CustomTrack, move: (s: SectionSpot) => SectionSpot): Custo
 export function insertSection(t: CustomTrack, line: number, index: number, id: SectionId): CustomTrack {
     const sections = [...lineSections(t, line)]
     sections.splice(index, 0, id)
-    const next = moveSpots(withLineSections(t, line, sections), s => s.branch === line && s.at >= index ? { ...s, at: s.at + 1 } : s)
+    const next = shiftObstacles(moveSpots(withLineSections(t, line, sections), s => s.branch === line && s.at >= index ? { ...s, at: s.at + 1 } : s), line, index, 1)
     if (!forkShape(id, 'split')) return next
     return { ...next, branches: [...next.branches ?? [], { sections: [], from: { branch: line, at: index }, to: null }] }
 }
@@ -132,7 +133,7 @@ function withoutLines(t: CustomTrack, gone: ReadonlySet<number>): CustomTrack {
         const to = b.to && !gone.has(b.to.branch) ? { ...b.to, branch: renumber[b.to.branch]! } : null
         return [{ ...b, from: { ...b.from, branch: renumber[b.from.branch]! }, to }]
     })
-    const out: CustomTrack = { ...t, branches: kept }
+    const out: CustomTrack = renumberObstacleLines({ ...t, branches: kept }, renumber)
     if (!kept.length) delete out.branches
     return out
 }
@@ -155,6 +156,7 @@ export function removeSection(t: CustomTrack, line: number, index: number): Cust
     next = { ...next, branches: next.branches?.map(b => b.to && b.to.branch === line && b.to.at === index ? { ...b, to: null } : b) }
     if (!next.branches) delete next.branches
     const sections = lineSections(next, line).filter((_, k) => k !== index)
+    next = shiftObstacles(dropObstaclesOf(next, line, index), line, index + 1, -1)
     return moveSpots(withLineSections(next, line, sections), s => s.branch === line && s.at > index ? { ...s, at: s.at - 1 } : s)
 }
 
@@ -164,7 +166,7 @@ export function moveSection(t: CustomTrack, line: number, from: number, to: numb
     order.splice(to, 0, ...order.splice(from, 1))
     const where = new Map(order.map((k, i) => [k, i]))
     const sections = order.map(k => lineSections(t, line)[k]!)
-    return moveSpots(withLineSections(t, line, sections), s => s.branch === line ? { ...s, at: where.get(s.at)! } : s)
+    return moveSpots(withLineSections(remapObstacles(t, line, at => where.get(at) ?? at), line, sections), s => s.branch === line ? { ...s, at: where.get(s.at)! } : s)
 }
 
 /** Takes branch `line` away, with its split and every branch off it. */

@@ -86,8 +86,25 @@ export class RaceFeedback {
             audio.scrape()
         }
         this.scrapeSteps--
+        if (ev.knocked.length) this.knocked(ev, s)
+        if (ev.oiled) {
+            audio.scrape()
+            events.popup({ text: 'OIL!', tone: 'danger' })
+        }
         if (ev.driftEnded > 0.6 && ev.nitroEarned > 0) {
             events.popup({ text: 'DRIFT', sub: `${ev.driftEnded.toFixed(1)}s · +NITRO`, tone: 'drift' })
+        }
+    }
+
+    /** Something knocked off the road: a thud, and a bang and a jolt for an explosive. */
+    private knocked(ev: StepEvents, s: CarState) {
+        const { audio, cam, fx, grade } = this.deps
+        const blast = ev.blasted
+        audio.bump()
+        cam.shake(blast ? 0.7 : 0.2)
+        if (blast) {
+            grade.flash(0.35, 0.18, 0.05)
+            fx.wallHit(s, 1, true)
         }
     }
 

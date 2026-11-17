@@ -307,3 +307,51 @@ export function jumpSignTexture() {
     ctx.fillText('JUMP', W / 2, 162)
     return finish(c)
 }
+
+/** The wall board ahead of obstacles on the road: a red warning triangle with its bang, over the word. */
+export function hazardSignTexture() {
+    const W = 256
+    const H = 192
+    const [c, ctx] = canvas(W, H)
+    const col = CORNER_SIGN_COLOURS[2]
+    ctx.fillStyle = '#121216'
+    ctx.fillRect(0, 0, W, H)
+    // Hazard stripes down both ends.
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(4, 4, 34, H - 8)
+    ctx.rect(W - 38, 4, 34, H - 8)
+    ctx.clip()
+    ctx.fillStyle = CORNER_SIGN_COLOURS[0]
+    for (let y = -40; y < H + 40; y += 28) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(W, y + W * 0.5)
+        ctx.lineTo(W, y + W * 0.5 + 14)
+        ctx.lineTo(0, y + 14)
+        ctx.closePath()
+        ctx.fill()
+    }
+    ctx.restore()
+    ctx.strokeStyle = col
+    ctx.lineWidth = 8
+    ctx.strokeRect(4, 4, W - 8, H - 8)
+    ctx.shadowColor = col
+    ctx.shadowBlur = 10
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 12
+    ctx.beginPath()
+    ctx.moveTo(W / 2, 22)
+    ctx.lineTo(W / 2 + 52, 116)
+    ctx.lineTo(W / 2 - 52, 116)
+    ctx.closePath()
+    ctx.stroke()
+    ctx.fillStyle = col
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = '900 54px system-ui, sans-serif'
+    ctx.fillText('!', W / 2, 80)
+    ctx.font = '900 34px system-ui, sans-serif'
+    ctx.fillText('DANGER', W / 2, 156)
+    return finish(c)
+}

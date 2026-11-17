@@ -1,6 +1,8 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import { finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
-import { compileCustomTrack, forkShape, lineSections, loopGap, MAX_BRANCHES, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
+import { bridgeTo, finishJoin, finishLoop } from '#shared/utils/nitro-rush/finish-loop'
+import { compileCustomTrack, forkShape, lineSections, loopGap, MAX_BRANCHES, MAX_LOOSE, MAX_NAME_LENGTH, MAX_SECTIONS, sectionCount, type CustomTrack, type LooseRoad, type SectionId, type SectionSpot } from '#shared/utils/nitro-rush/custom'
+import { MAX_OBSTACLES, type Obstacle } from '#shared/utils/nitro-rush/obstacles'
+import { copyLoose, cutLoose, cutOut, joinLoose, mirrorLoose, moveLoose, onOneGround, turnLoose, withLoose } from '#shared/utils/nitro-rush/loose-road'
 import { branchEnding, canJoin, insertSection, joinCandidates, moveSection, removeBranch, removeSection, setJoin, walkForks, withLineSections } from '#shared/utils/nitro-rush/custom-forks'
 
 const MAX_UNDO = 100
@@ -15,6 +17,8 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const line = ref(0)
     /** The section on that line new ones go in after; -1 puts them first. */
     const cursor = ref(initial.value.sections.length - 1)
+    /** The selected section of loose road, which takes over from the cursor while there is one. */
+    const looseSel = ref<{ k: number, index: number } | null>(null)
     const history: { track: CustomTrack, line: number, cursor: number }[] = []
     const canUndo = ref(false)
     /** Why the last try at finishing the loop or a branch came to nothing; it stands until the road changes. */
@@ -24,6 +28,7 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         draft.value = t
         line.value = 0
         cursor.value = t.sections.length - 1
+        looseSel.value = null
         history.length = 0
         canUndo.value = false
         finishError.value = null
@@ -33,10 +38,13 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     const sections = computed(() => draft.value.sections)
     const branches = computed(() => draft.value.branches)
     const closed = computed(() => draft.value.closed)
+    const looseRoad = computed<LooseRoad[]>(() => draft.value.loose ?? [])
     const road = computed(() => ({ ...initial.value, sections: sections.value, branches: branches.value, closed: closed.value }))
     const forks = computed(() => walkForks(road.value))
     const lines = computed(() => forks.value.walks)
     const walk = computed(() => lines.value[line.value]!)
+    /** The lines and the loose road on one ground, as drawn. */
+    const ground = computed(() => onOneGround(lines.value, looseRoad.value))
     /** The line being built on closes on itself: only a loop's main road does. */
     const lineClosed = computed(() => closed.value && line.value === 0)
     const lineSectionIds = computed(() => lineSections(draft.value, line.value))
@@ -59,14 +67,23 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         return walkForks(withLineSections(road.value, line.value, cut)).walks[line.value]!
     }
 
+    /** Swaps in `next`, with whatever now meets joined up, as one step undo takes back. */
     function edit(next: CustomTrack, nextLine = line.value, nextCursor = cursor.value) {
         history.push({ track: draft.value, line: line.value, cursor: cursor.value })
         if (history.length > MAX_UNDO) history.shift()
         canUndo.value = true
         finishError.value = null
-        draft.value = next
+        const before = next.loose?.length ?? 0
+        draft.value = before ? joinLoose(next) : next
         line.value = nextLine
-        cursor.value = Math.min(nextCursor, lineSections(next, nextLine).length - 1)
+        cursor.value = Math.min(nextCursor, lineSections(draft.value, nextLine).length - 1)
+        // Joined on, the stretch's sections are now on a line; follow them there.
+        if ((draft.value.loose?.length ?? 0) !== before) {
+            looseSel.value = null
+            cursor.value = lineSections(draft.value, nextLine).length - 1
+        } else if (looseSel.value && !draft.value.loose?.[looseSel.value.k]) {
+            looseSel.value = null
+        }
     }
 
     /** Lays `id` after the cursor; a new join takes the open branch whose end is nearest its inlet. */
@@ -84,9 +101,117 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         edit(next, line.value, cursor.value + 1)
     }
 
-    function removeAt(i: number) {
+    /** Takes section `i` out; with `close`, or when the road after it can't stand on its own, the road after it moves up to close the gap. */
+    function removeAt(i: number, close = false) {
         if (i < 0 || i >= lineSectionIds.value.length) return
-        edit(removeSection(draft.value, line.value, i), line.value, i - 1)
+        const cut = close ? null : cutOut(draft.value, line.value, i)
+        edit(cut ?? removeSection(draft.value, line.value, i), line.value, i - 1)
+    }
+
+    /** Lays `id` on the end of line `l`. */
+    function appendTo(l: number, id: SectionId) {
+        looseSel.value = null
+        select(lineSections(draft.value, l).length - 1, l)
+        insert(id)
+    }
+
+    /** Lays `id` on the end of loose road `k`. */
+    function extendLoose(k: number, id: SectionId) {
+        const r = looseRoad.value[k]
+        if (!r || full.value || forkShape(id, 'split') || forkShape(id, 'join')) return
+        looseSel.value = { k, index: r.sections.length }
+        edit(withLoose(draft.value, k, { ...r, sections: [...r.sections, id] }))
+    }
+
+    /** Starts new loose road. */
+    function placeLoose(r: LooseRoad) {
+        if (full.value || looseRoad.value.length >= MAX_LOOSE || r.sections.some(id => forkShape(id, 'split') || forkShape(id, 'join'))) return
+        looseSel.value = { k: looseRoad.value.length, index: r.sections.length - 1 }
+        edit({ ...draft.value, loose: [...looseRoad.value, r] })
+    }
+
+    /** Takes section `index` off loose road `k`, leaving the road either side of it where it is. */
+    function removeLooseAt(k: number, index: number) {
+        looseSel.value = null
+        edit(cutLoose(draft.value, k, index))
+    }
+
+    /** Edits to the selected stretch of loose road as a whole. */
+    function shiftLoose(k: number, dx: number, dz: number, dy = 0) {
+        if (dx || dz || dy) edit(moveLoose(draft.value, k, dx, dz, dy))
+    }
+    const turnLooseBy = (k: number, quarters: number) => edit(turnLoose(draft.value, k, quarters))
+    const mirrorLooseAt = (k: number) => edit(mirrorLoose(draft.value, k))
+    function copyLooseAt(k: number, dx: number, dz: number) {
+        if (full.value) return
+        const next = copyLoose(draft.value, k, dx, dz)
+        if (next) {
+            edit(next)
+            looseSel.value = { k: (next.loose?.length ?? 1) - 1, index: 0 }
+        }
+    }
+    function deleteLoose(k: number) {
+        looseSel.value = null
+        edit(withLoose(draft.value, k, null))
+    }
+
+    /** Lays road from the end of line `l` onto the start of loose road `k`, joining it on. */
+    function bridge(l: number, k: number) {
+        const { sections: more, error } = bridgeTo(draft.value, l, k)
+        if (!more) {
+            finishError.value = error
+            return false
+        }
+        edit(withLineSections(draft.value, l, [...lineSections(draft.value, l), ...more]), l)
+        return true
+    }
+
+    /**
+     * Lays road from line `l`'s end onto loose road `k`, and on a loop, when that's the main road, on from the
+     * stretch's end back to the start line too; the bridge stands even when the loop can't be closed from there.
+     */
+    function bridgeAndClose(l: number, k: number) {
+        const { sections: more, error } = bridgeTo(draft.value, l, k)
+        if (!more) {
+            finishError.value = error
+            return false
+        }
+        const joined = joinLoose(withLineSections(draft.value, l, [...lineSections(draft.value, l), ...more]))
+        const closing = l === 0 && joined.closed ? finishLoop(joined) : null
+        const all = closing?.sections ? [...joined.sections, ...closing.sections] : null
+        edit(all ? withLineSections(joined, 0, all) : joined, l)
+        if (closing && !closing.sections) finishError.value = closing.error
+        return true
+    }
+
+    /** Turns obstacle `i` a quarter. */
+    function turnObstacle(i: number) {
+        const list = draft.value.obstacles ?? []
+        const o = list[i]
+        if (!o) return
+        const { rot: _, ...rest } = o
+        const turned: Obstacle = o.rot ? rest : { ...rest, rot: 90 }
+        edit({ ...draft.value, obstacles: list.map((x, k) => k === i ? turned : x) })
+    }
+
+    /** Stands `o` on the road. */
+    function addObstacle(o: Obstacle) {
+        const list = draft.value.obstacles ?? []
+        if (list.length >= MAX_OBSTACLES) return
+        edit({ ...draft.value, obstacles: [...list, o] })
+    }
+
+    /** Takes obstacle `i` off the road. */
+    function removeObstacle(i: number) {
+        const list = (draft.value.obstacles ?? []).filter((_, k) => k !== i)
+        const next: CustomTrack = { ...draft.value, obstacles: list }
+        if (!list.length) delete next.obstacles
+        edit(next)
+    }
+
+    function selectLoose(k: number, index: number) {
+        const r = looseRoad.value[k]
+        looseSel.value = r ? { k, index: Math.max(0, Math.min(index, r.sections.length - 1)) } : null
     }
 
     /** Takes the section at `from` out and puts it back in at `to`, counted after it's out; it stays selected. */
@@ -140,6 +265,7 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
     /** Highlights section `i` on line `l`, the line being built on unless said. */
     function select(i: number, l = line.value) {
         if (l < 0 || l > (draft.value.branches?.length ?? 0)) return
+        looseSel.value = null
         line.value = l
         cursor.value = Math.max(-1, Math.min(i, lineSections(draft.value, l).length - 1))
     }
@@ -155,12 +281,14 @@ export function useNitroRushTrackDraft(initial: Ref<CustomTrack>) {
         draft.value = prev.track
         line.value = prev.line
         cursor.value = prev.cursor
+        looseSel.value = null
         finishError.value = null
         canUndo.value = history.length > 0
     }
 
     return {
-        draft, closed, line, cursor, forks, lines, walk, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
+        draft, closed, line, cursor, forks, lines, walk, ground, looseRoad, looseSel, lineClosed, lineSections: lineSectionIds, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
+        walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+        addObstacle, removeObstacle, appendTo, extendLoose, placeLoose, removeLooseAt, shiftLoose, turnLooseBy, mirrorLooseAt, copyLooseAt, deleteLoose, bridge, bridgeAndClose, turnObstacle, selectLoose
     }
 }

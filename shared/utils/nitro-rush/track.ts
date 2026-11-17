@@ -1,6 +1,6 @@
 import { compileGraph, progressOn, type BranchEnd, type BranchLink, type CourseGraph, type Cushion, type Route, type RouteLeg } from './track-graph'
 import { racingLine, type RacingLine } from './racing-line'
-import { KICKER_GRADE, newProjection, SPEED_CEILING, TrackLine, wallFoot, type LineDef, type Projection, type TrackGroup } from './track-line'
+import { KICKER_GRADE, newProjection, SPEED_CEILING, TrackLine, wallFoot, type LineDef, type ObstacleBody, type Projection, type TrackGroup } from './track-line'
 
 export * from './track-line'
 export { MAX_ROUTES, TrackGraphError, type BranchEnd, type Cushion, type Route, type RouteLeg } from './track-graph'
@@ -24,6 +24,7 @@ export interface BranchDef {
     rails?: [number, number][]
     gaps?: [number, number][]
     boosts?: LineDef['boosts']
+    obstacles?: LineDef['obstacles']
     /** Distance along the branch of each checkpoint. */
     checkpoints?: number[]
     from: BranchEnd
@@ -84,6 +85,9 @@ export class Track extends TrackLine {
     readonly graph: CourseGraph
     /** Every line the lap timer counts. */
     readonly lapLines: readonly LapLine[]
+    /** Every line's obstacles, sorted west to east, so a car only checks the few near it. */
+    readonly allObstacles: readonly ObstacleBody[]
+    private readonly obstacleXs: Float64Array
     private readonly scratch = newProjection()
     private readonly spot: RoadSpot = { line: this, s: 0 }
     private readonly racingRoutes = new Map<Route, RacingLine[]>()
@@ -106,6 +110,21 @@ export class Track extends TrackLine {
         this.graph = compileGraph(lines, links, this.checkpointIds)
         for (const line of lines) line.peers = lines
         this.lapLines = this.findLapLines()
+        this.allObstacles = lines.flatMap(l => l.obstacles).sort((a, b) => a.x - b.x || a.id - b.id)
+        this.obstacleXs = Float64Array.from(this.allObstacles, o => o.x)
+    }
+
+    /** The index of the first obstacle at or east of `x`. */
+    obstacleFrom(x: number) {
+        const xs = this.obstacleXs
+        let lo = 0
+        let hi = xs.length
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1
+            if (xs[mid]! < x) lo = mid + 1
+            else hi = mid
+        }
+        return lo
     }
 
     /** The fewest checkpoints on any route: a lap counts once the car has touched this many. */

@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { adDeck, TRACK_ADS, type AdDeck } from './ads'
 import type { Roof } from './city'
 import { CLEAR_HEIGHT } from './road-geometry'
-import { billboardTexture, cornerSignTexture, flagTexture, jumpSignTexture, stripTexture } from './signs'
+import { billboardTexture, cornerSignTexture, flagTexture, hazardSignTexture, jumpSignTexture, stripTexture } from './signs'
 import {
     BILLBOARD_BOTTOM, BILLBOARD_HEIGHT, BILLBOARD_WIDTH, CHEVRON_HEIGHT, CHEVRON_LIFT, CHEVRON_WIDTH, FLAG_HEIGHT, FLAG_POLE, FLAG_WIDTH,
     HOARDING_HEIGHT, HOARDING_LENGTH, OVERHEAD_BANNER, OVERHEAD_BEAM, tracksideLayout, type Billboard, type Chevron, type Fixture, type Overhead
@@ -233,13 +233,14 @@ function buildWallBoards(kit: WorldKit, boards: readonly { at: Fixture, key: str
     flipped.dispose()
 }
 
-/** The corner chevrons, and the jump boards on the same posts. */
-function buildRoadSigns(kit: WorldKit, chevrons: readonly Chevron[], jumpSigns: readonly Fixture[], steel: THREE.Material) {
+/** The corner chevrons, and the jump and danger boards on the same posts. */
+function buildRoadSigns(kit: WorldKit, chevrons: readonly Chevron[], jumpSigns: readonly Fixture[], hazardSigns: readonly Fixture[], steel: THREE.Material) {
     buildWallBoards(kit, [
         // A bend to the left (its outside wall on the right) reads the board the other way round.
         ...chevrons.map(c => ({ at: c as Fixture, key: String(c.grade), flip: c.side > 0 })),
-        ...jumpSigns.map(at => ({ at, key: 'jump', flip: false }))
-    ], key => key === 'jump' ? jumpSignTexture() : cornerSignTexture(Number(key) as 1 | 2 | 3), steel)
+        ...jumpSigns.map(at => ({ at, key: 'jump', flip: false })),
+        ...hazardSigns.map(at => ({ at, key: 'hazard', flip: false }))
+    ], key => key === 'jump' ? jumpSignTexture() : key === 'hazard' ? hazardSignTexture() : cornerSignTexture(Number(key) as 1 | 2 | 3), steel)
 }
 
 /** Every ad and sign round the course; `roofs` are the city's low roofs near it. */
@@ -252,5 +253,5 @@ export function buildSignage(kit: WorldKit, steel: THREE.Material, roofs: readon
     buildOverheads(kit, layout.overheads, steel, ad, deck)
     buildFlags(kit, layout.flags, steel, ad, deck)
     buildRoofBoards(kit, roofs, steel, ad, deck)
-    buildRoadSigns(kit, layout.chevrons, layout.jumpSigns, steel)
+    buildRoadSigns(kit, layout.chevrons, layout.jumpSigns, layout.hazardSigns, steel)
 }
