@@ -11,6 +11,8 @@ const props = defineProps<{
     trackId: string
     tracks: CommunityTrackEntry[]
     summaries: Record<string, NrTrackSummary>
+    /** Players driving each public course right now, by id. */
+    racing: Record<string, number>
     votes: Record<string, NrTrackVotes>
     /** The medal the viewer's best holds on a course. */
     medalOn: (id: string, def: TrackDef) => Medal | null
@@ -45,6 +47,7 @@ watch([() => props.tracks, sort], ([tracks, by]) => {
         :author="c.track.author"
         :votes="votes[c.track.id] ?? c.track.votes"
         :plays="summaries[c.track.id]?.plays"
+        :racing="racing[c.track.id]"
         @select="$emit('select', c.track.id)"
       />
     </div>

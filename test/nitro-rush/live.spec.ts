@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CarPose } from '../../app/utils/nitro-rush/types'
 import {
     NR_LIVE_BURST,
+    NR_LIVE_DRIVING_MS,
     NR_LIVE_HANDOFF_MS,
     NR_LIVE_MAX_FRAME,
     NR_LIVE_MAX_PER_USER,
@@ -14,7 +15,7 @@ import {
 } from '#server/utils/nitro-rush-live'
 import { TRACKS } from '#shared/utils/nitro-rush/tracks'
 import { CARS } from '#shared/utils/nitro-rush/cars'
-import { LiveGhosts, poseMessage } from '../../app/utils/nitro-rush/live'
+import { busyCounts, LiveGhosts, poseMessage } from '../../app/utils/nitro-rush/live'
 
 const TRACK = TRACKS[0]!.id
 const OTHER = TRACKS[1]!.id
@@ -217,6 +218,191 @@ describe('live rooms', () => {
         hub.message('b', JSON.stringify({ t: 'join', track: TRACK }), 0)
         for (let i = 0; i < 100; i++) hub.message('a', pose(), 0)
         expect(b.sent).toHaveLength(NR_LIVE_BURST - 1)
+    })
+})
+
+const CUSTOM = 'custom-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11'
+const PUB = 'pub-0b6f6c1e-8d1c-4c4e-9a59-2f7c3e0f9a11'
+const join = (track: string) => JSON.stringify({ t: 'join', track })
+const watchMsg = (on: boolean) => JSON.stringify({ t: 'watch', on })
+const busyOf = (s: { sent: Record<string, unknown>[] }) => s.sent.filter(m => m.t === 'busy').map(m => m.tracks)
+
+describe('live driving counts', () => {
+    it('counts players who posed lately, not the ones merely in the room', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        connect('b', 'ub')
+        hub.message('a', join(TRACK), 0)
+        hub.message('b', join(TRACK), 0)
+        expect(hub.busyCounts(0)).toEqual({})
+        hub.message('a', pose(), 100)
+        expect(hub.busyCounts(100)).toEqual({ [TRACK]: 1 })
+    })
+
+    it('stops counting a player once their last pose is too old', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        hub.message('a', join(TRACK), 0)
+        hub.message('a', pose(), 1000)
+        expect(hub.busyCounts(1000 + NR_LIVE_DRIVING_MS - 1)).toEqual({ [TRACK]: 1 })
+        expect(hub.busyCounts(1000 + NR_LIVE_DRIVING_MS)).toEqual({})
+    })
+
+    it('counts a player with several tabs once', () => {
+        const { hub, connect } = setup()
+        connect('a1', 'ua')
+        connect('a2', 'ua')
+        hub.message('a1', join(TRACK), 0)
+        hub.message('a2', join(TRACK), 0)
+        hub.message('a1', pose(), 100)
+        hub.message('a2', pose(), 100 + NR_LIVE_HANDOFF_MS)
+        expect(hub.busyCounts(100 + NR_LIVE_HANDOFF_MS)).toEqual({ [TRACK]: 1 })
+    })
+
+    it('leaves private courses out and keeps published ones', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        connect('b', 'ub')
+        hub.message('a', join(CUSTOM), 0)
+        hub.message('b', join(PUB), 0)
+        hub.message('a', pose(), 10)
+        hub.message('b', pose(), 10)
+        expect(hub.busyCounts(10)).toEqual({ [PUB]: 1 })
+    })
+
+    it('drops a player who left or closed', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        connect('b', 'ub')
+        hub.message('a', join(TRACK), 0)
+        hub.message('b', join(OTHER), 0)
+        hub.message('a', pose(), 10)
+        hub.message('b', pose(), 10)
+        hub.message('a', JSON.stringify({ t: 'leave' }), 20)
+        hub.close('b')
+        expect(hub.busyCounts(20)).toEqual({})
+    })
+})
+
+describe('live watchers', () => {
+    it('accepts a boolean watch and drops anything else', () => {
+        expect(parseNrLiveMessage(watchMsg(true))).toEqual({ t: 'watch', on: true })
+        expect(parseNrLiveMessage(watchMsg(false))).toEqual({ t: 'watch', on: false })
+        expect(parseNrLiveMessage(JSON.stringify({ t: 'watch' }))).toBeNull()
+        expect(parseNrLiveMessage(JSON.stringify({ t: 'watch', on: 'yes' }))).toBeNull()
+        expect(parseNrLiveMessage(JSON.stringify({ t: 'watch', on: 1 }))).toBeNull()
+    })
+
+    it('ignores an invalid watch frame', () => {
+        const { hub, connect } = setup()
+        const w = connect('w', 'uw')
+        hub.message('w', JSON.stringify({ t: 'watch', on: 'yes' }), 0)
+        hub.message('w', JSON.stringify({ t: 'watch' }), 0)
+        hub.tick(0)
+        expect(w.sent).toEqual([])
+    })
+
+    it('sends the counts as soon as a socket starts watching', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        const w = connect('w', 'uw')
+        hub.message('a', join(TRACK), 0)
+        hub.message('a', pose(), 10)
+        hub.message('w', watchMsg(true), 20)
+        expect(w.sent).toEqual([{ t: 'busy', tracks: { [TRACK]: 1 } }])
+    })
+
+    it('ticks only to watchers, and only when the counts changed', () => {
+        const { hub, connect } = setup()
+        const a = connect('a', 'ua')
+        const w = connect('w', 'uw')
+        const idle = connect('i', 'ui')
+        hub.message('a', join(TRACK), 0)
+        hub.message('w', watchMsg(true), 0)
+        expect(busyOf(w)).toEqual([{}])
+        hub.tick(10)
+        expect(busyOf(w)).toHaveLength(1)
+        hub.message('a', pose(), 100)
+        hub.tick(200)
+        expect(busyOf(w)).toEqual([{}, { [TRACK]: 1 }])
+        hub.message('a', pose(), 300)
+        hub.tick(400)
+        expect(busyOf(w)).toHaveLength(2)
+        hub.tick(300 + NR_LIVE_DRIVING_MS)
+        expect(busyOf(w)).toEqual([{}, { [TRACK]: 1 }, {}])
+        expect(busyOf(a)).toEqual([])
+        expect(idle.sent).toEqual([])
+    })
+
+    it('tells the other watchers at once when a new watcher finds the counts changed', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        const w1 = connect('w1', 'u1')
+        const w2 = connect('w2', 'u2')
+        hub.message('a', join(TRACK), 0)
+        hub.message('w1', watchMsg(true), 0)
+        hub.message('a', pose(), 10)
+        hub.message('w2', watchMsg(true), 20)
+        expect(busyOf(w1)).toEqual([{}, { [TRACK]: 1 }])
+        expect(busyOf(w2)).toEqual([{ [TRACK]: 1 }])
+        hub.tick(30)
+        expect(busyOf(w1)).toHaveLength(2)
+        expect(busyOf(w2)).toHaveLength(1)
+    })
+
+    it('stops sending once watching is off', () => {
+        const { hub, connect } = setup()
+        connect('a', 'ua')
+        const w = connect('w', 'uw')
+        hub.message('a', join(TRACK), 0)
+        hub.message('w', watchMsg(true), 0)
+        hub.message('w', watchMsg(false), 0)
+        hub.message('a', pose(), 10)
+        hub.tick(20)
+        expect(busyOf(w)).toEqual([{}])
+    })
+
+    it('forgets a watcher that closed', () => {
+        const { hub, connect } = setup()
+        const sent: string[] = []
+        const socket: NrLiveSocket = { id: 'w', send: f => void sent.push(f), close: () => {} }
+        hub.open(socket, { id: 'uw', name: 'W' }, 0)
+        connect('a', 'ua')
+        hub.message('a', join(TRACK), 0)
+        hub.message('w', watchMsg(true), 0)
+        hub.close('w')
+        hub.message('a', pose(), 10)
+        hub.tick(20)
+        expect(sent).toHaveLength(1)
+    })
+
+    it('does not count a tab in the menu as driving, so a player who just quit sees no one on their course', () => {
+        const { hub, connect } = setup()
+        const a = connect('a', 'ua')
+        connect('b', 'ub')
+        hub.message('a', join(TRACK), 0)
+        hub.message('b', join(TRACK), 0)
+        hub.message('a', pose(), 10)
+        hub.message('a', watchMsg(true), 20)
+        expect(busyOf(a)).toEqual([{}])
+        hub.message('b', pose(), 30)
+        hub.tick(40)
+        expect(busyOf(a)).toEqual([{}, { [TRACK]: 1 }])
+    })
+
+    it('keeps watch frames under the rate limit', () => {
+        const { hub, connect } = setup()
+        const w = connect('w', 'uw')
+        for (let i = 0; i < 100; i++) hub.message('w', watchMsg(true), 0)
+        expect(busyOf(w)).toHaveLength(NR_LIVE_BURST)
+    })
+})
+
+describe('live driving counts on the client', () => {
+    it('keeps only whole counts above zero', () => {
+        expect(busyCounts({ a: 2, b: 0, c: -1, d: 1.5, e: '3', f: null })).toEqual({ a: 2 })
+        expect(busyCounts(null)).toEqual({})
+        expect(busyCounts('x')).toEqual({})
     })
 })
 

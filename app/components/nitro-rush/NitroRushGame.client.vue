@@ -70,8 +70,17 @@ const ownTracks = useNitroRushOwnTrackActions({
     click: () => audio.ui()
 })
 
-/** Other players on this course, as live ghost cars. */
-const { racers } = useNitroRushLive({ engine: () => engine, trackId, phase, paused, paint, car, show: computed(() => ghosts.value.live) })
+/** Other players on this course, as live ghost cars, and how many drive each course while the track menu is up. */
+const { racers, busy: racing } = useNitroRushLive({
+    engine: () => engine,
+    trackId,
+    phase,
+    paused,
+    paint,
+    car,
+    show: computed(() => ghosts.value.live),
+    watching: computed(() => phase.value === 'attract' && screen.value === 'select')
+})
 const recordGhost = useNitroRushRecordGhost({ engine: () => engine, show: computed(() => ghosts.value.record) })
 
 const record = computed<TrackRecord>(() => ({ ...EMPTY_RECORD, ...records.value[trackId.value] }))
@@ -448,6 +457,7 @@ onBeforeUnmount(() => {
         :busy="community.busy.value"
         :votes="votes.votes.value"
         :voting="votes.voting.value"
+        :racing="racing"
         @back="backToTitle"
         @select="selectTrack"
         @car="setCar"

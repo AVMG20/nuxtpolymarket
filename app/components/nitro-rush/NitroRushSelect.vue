@@ -35,6 +35,8 @@ const props = defineProps<{
     votes: Record<string, NrTrackVotes>
     /** Courses with a vote in flight. */
     voting: Set<string>
+    /** Players driving each public course right now, by id. */
+    racing: Record<string, number>
 }>()
 defineEmits<{ back: [], select: [id: string], car: [id: CarId], garage: [open: boolean], paint: [id: PaintId], start: [], build: [id?: string], publish: [id: string], unpublish: [id: string], delete: [id: string], vote: [id: string, value: NrVote] }>()
 
@@ -94,8 +96,8 @@ const selected = computed((): { author: string | null, votes: NrTrackVotes | nul
           </button>
         </div>
         <div class="mt-4 lg:min-h-0 lg:overflow-y-auto" role="tabpanel">
-          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
-          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :votes="votes" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushBuiltInTracks v-if="tab === 'tracks'" :track-id="trackId" :summaries="summaries" :votes="votes" :racing="racing" :medal-on="medalOn" @select="$emit('select', $event)" />
+          <NitroRushCommunityTracks v-else-if="tab === 'community'" :track-id="trackId" :tracks="communityTracks" :summaries="summaries" :votes="votes" :racing="racing" :medal-on="medalOn" @select="$emit('select', $event)" />
           <NitroRushGarage v-else-if="tab === 'garage'" :car="car" :paint="paint" @select="$emit('car', $event)" @paint="$emit('paint', $event)" @open="$emit('garage', $event)" />
           <NitroRushMyTracks
             v-else
@@ -131,6 +133,7 @@ const selected = computed((): { author: string | null, votes: NrTrackVotes | nul
           :board="board"
           :board-loading="boardLoading"
           :best="best(trackId)"
+          :racing="racing[trackId] ?? 0"
           @vote="$emit('vote', trackId, $event)"
         />
         <button class="nr-play self-center" @click="$emit('start')">
