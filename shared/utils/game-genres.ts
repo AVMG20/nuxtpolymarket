@@ -69,8 +69,6 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     Hackerz: 'active',
     Meadowbrawl: 'active',
     'Nitro Rush': 'active',
-    'Rail Tycoon': 'active',
-    Riftborn: 'active',
     TCG: 'active',
     // Not in the sidebar: the TCG battler, and standalone active games.
     Battler: 'active',
