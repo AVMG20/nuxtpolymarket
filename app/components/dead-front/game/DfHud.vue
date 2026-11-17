@@ -32,6 +32,11 @@
         </div>
 
         <!-- round and event banners -->
+        <!-- a weapon reached a rarity tier: a flash of its colour and its name stamped across the middle -->
+        <div v-if="hud.rarityFlash && hud.rarityFlash.key > 0" :key="`r${hud.rarityFlash.key}`" class="df-rarity-up absolute inset-0" :style="{ '--rc': hud.rarityFlash.color }" aria-hidden="true">
+            <div class="stamp">{{ hud.rarityFlash.name }}</div>
+        </div>
+
         <div class="df-announce-wrap absolute inset-x-0 flex justify-center px-4">
             <div v-if="hud.announce && !shopOpen" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
                 <div class="title">{{ hud.announce.title }}</div>
@@ -46,7 +51,7 @@
                 <i class="t" /><i class="b" /><i class="l" /><i class="r" />
                 <b class="dot" />
             </div>
-            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
+            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="[hud.hitmarker.kind, { blast: (hud.hitmarker.n ?? 0) >= 3 }]" :style="{ '--hs': hitSpread }">
                 <i /><i /><i /><i />
             </div>
             <Transition name="df-fade">
@@ -254,6 +259,8 @@ const SKULL: [number, number, number][] = [
 ]
 
 const bleedFrac = computed(() => Math.max(0, Math.min(1, props.hud.bleedout / Math.max(1, props.hud.bleedoutMax))))
+// a shotgun's hitmarker opens wider the more pellets landed in one zombie
+const hitSpread = computed(() => 1 + Math.min(8, Math.max(0, (props.hud.hitmarker.n ?? 1) - 1)) * 0.07)
 const isRoundBanner = computed(() => /^Round \d+$/.test(props.hud.announce?.title ?? ''))
 
 /** Splits "Hold F to buy …" into a verb, a keycap and the rest of the line. */
@@ -446,10 +453,58 @@ function iconFor(kind: DfPowerupKind): string {
     box-shadow: 0 0 0 1px #000;
 }
 
-.df-hit i:nth-child(1) { transform: rotate(45deg) translateY(-11px); }
-.df-hit i:nth-child(2) { transform: rotate(135deg) translateY(-11px); }
-.df-hit i:nth-child(3) { transform: rotate(225deg) translateY(-11px); }
-.df-hit i:nth-child(4) { transform: rotate(315deg) translateY(-11px); }
+.df-hit i:nth-child(1) { transform: rotate(45deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(2) { transform: rotate(135deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(3) { transform: rotate(225deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(4) { transform: rotate(315deg) translateY(calc(-11px * var(--hs, 1))); }
+
+/* a load of buckshot: thicker, longer ticks */
+.df-hit.blast i {
+    width: 4px;
+    height: 11px;
+    left: -2px;
+    top: -5.5px;
+}
+
+/* rarity upgrade: the tier's colour washes in from the edges, its name slams down and fades */
+.df-rarity-up {
+    background: radial-gradient(ellipse at center, transparent 35%, color-mix(in srgb, var(--rc) 55%, transparent) 100%);
+    animation: df-rarity-wash 1.4s ease-out forwards;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.df-rarity-up .stamp {
+    margin-top: -18vh;
+    padding: 0.2rem 1.2rem;
+    font-family: var(--df-font-stencil);
+    font-size: clamp(1.6rem, 5vw, 3rem);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--rc);
+    background: rgba(8, 9, 10, 0.82);
+    box-shadow: 0 0 0 3px #000, inset 0 0 0 2px var(--rc), 6px 6px 0 2px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 0 18px var(--rc);
+    animation: df-rarity-stamp 1.6s cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
+}
+
+@keyframes df-rarity-wash {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes df-rarity-stamp {
+    0% { transform: scale(2.4) rotate(-4deg); opacity: 0; }
+    14% { transform: scale(1) rotate(-2deg); opacity: 1; }
+    75% { transform: scale(1) rotate(-2deg); opacity: 1; }
+    100% { transform: scale(0.96) rotate(-2deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .df-rarity-up .stamp { animation-timing-function: linear; }
+}
 
 .df-hit.kill i,
 .df-hit.head i {

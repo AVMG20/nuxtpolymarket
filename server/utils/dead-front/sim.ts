@@ -764,7 +764,7 @@ export class DfMatchSim {
         let last = start
         for (let j = 0; j < DF_CHAIN.jumps; j++) {
             let next: SimZombie | null = null
-            let nd = DF_CHAIN.range
+            let nd: number = DF_CHAIN.range
             for (const z of this.zombies) {
                 if (z === from || z.hp <= 0 || taken.includes(z)) continue
                 const d = dist(zChest(z), last)

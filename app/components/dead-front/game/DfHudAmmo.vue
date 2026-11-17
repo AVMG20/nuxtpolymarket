@@ -1,7 +1,7 @@
 <template>
     <div class="df-ammo" :class="{ low: low && !ammo.reloading, reloading: ammo.reloading, pap: ammo.pap > 0 }" :style="papStyle">
         <!-- name plate: the rarity as a labelled chip and the plate's edge, Pack-a-Punch tier blocks; pops on every weapon change -->
-        <div :key="swapKey" class="plate" :class="{ rare: tier > 0 }" :style="{ '--r': rarity.color }">
+        <div :key="swapKey" class="plate" :class="{ rare: tier > 0, epic: tier >= 2, legendary: tier >= 3 }" :style="{ '--r': rarity.color }">
             <span v-if="tier > 0" class="rarity" :aria-label="`${rarity.name} rarity`">
                 <i v-for="i in 3" :key="i" :class="{ on: i <= tier }" />
                 {{ rarity.name }}
@@ -10,6 +10,11 @@
             <span v-if="ammo.pap > 0" class="gems" :aria-label="`Pack-a-Punch tier ${ammo.pap}`">
                 <i v-for="i in 3" :key="i" :class="{ on: i <= ammo.pap }" :style="{ '--g': DF_PAP_COLORS[i - 1] }" />
             </span>
+        </div>
+
+        <!-- Pack-a-Punch perks of the weapon in hand -->
+        <div v-if="ammo.pap > 0 && ammo.perks?.length" class="perks">
+            <span v-for="p in ammo.perks" :key="p">{{ p }}</span>
         </div>
 
         <!-- the counter -->
@@ -85,6 +90,52 @@ const papStyle = computed(() => (props.ammo.pap > 0 ? { '--pap': DF_PAP_COLORS[M
 .plate.rare {
     --edge: var(--r);
     background: linear-gradient(90deg, color-mix(in srgb, var(--r) 30%, rgba(12, 14, 16, 0.9)), rgba(12, 14, 16, 0.9) 75%);
+}
+
+.plate.epic {
+    box-shadow: 0 0 0 2px #000, 0 0 14px -2px var(--r), 4px 4px 0 2px rgba(0, 0, 0, 0.5), inset 4px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, 0.6);
+}
+
+/* a legendary's plate: a slow glint runs along it */
+.plate.legendary {
+    position: relative;
+    overflow: hidden;
+}
+
+.plate.legendary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 40%, color-mix(in srgb, var(--r) 45%, transparent) 50%, transparent 60%);
+    background-size: 250% 100%;
+    animation: df-glint 2.6s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes df-glint {
+    0% { background-position: 150% 0; }
+    100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .plate.legendary::after { animation: none; }
+}
+
+.perks {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.perks span {
+    padding: 1px 6px;
+    font-family: var(--df-font-type);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pap, #ffd978);
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: inset 0 0 0 1px var(--pap, #ffd978);
 }
 
 .pap .plate {
