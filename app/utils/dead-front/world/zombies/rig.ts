@@ -75,6 +75,8 @@ export class DfZombieBatch {
         this.tex.needsUpdate = true
         const bones = { value: this.tex as THREE.Texture }
         this.material = dfVoxMaterial()
+        // moonlit rim and hot hit flashes (see the toon patch in voxel/material.ts)
+        this.material.userData.uRim = { value: 1 }
         patchRig(this.material, bones, true)
         this.depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking })
         patchRig(this.depth, bones, false)

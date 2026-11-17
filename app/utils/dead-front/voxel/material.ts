@@ -16,10 +16,10 @@ export interface DfVoxMaterialOpts {
     emissive?: THREE.ColorRepresentation
 }
 
-export type DfVoxMaterial = THREE.MeshLambertMaterial & { userData: { uGlow: { value: number } } }
+export type DfVoxMaterial = THREE.MeshLambertMaterial & { userData: { uGlow: { value: number }, /** Character rim light and hot tint flashes (0 off). */ uRim?: { value: number } } }
 
-const VERT_HEAD = '#include <common>\nattribute float aGlow;\nvarying float vGlow;'
-const FRAG_HEAD = '#include <common>\nuniform float uGlow;\nvarying float vGlow;'
+const VERT_HEAD = '#include <common>\nattribute float aGlow;\nvarying float vGlow;\nvarying vec3 vDfTint;'
+const FRAG_HEAD = '#include <common>\nuniform float uGlow;\nuniform float uRim;\nvarying float vGlow;\nvarying vec3 vDfTint;'
 
 // Toon lighting. Each light's energy (N.L x colour x attenuation x shadow) is
 // quantised into hard bands with a narrow soft step, so the moon gives two flat
@@ -76,6 +76,16 @@ const TOON_RIM = /* glsl */`#include <lights_fragment_end>
     float dfRw = clamp( fwidth( dfRim ) * 1.5, 0.02, 0.2 );
     float dfRimK = smoothstep( 0.7 - dfRw, 0.7 + dfRw, dfRim ) * smoothstep( 0.25, 1.2, dfCurv );
     reflectedLight.directDiffuse += ( diffuseColor.rgb * 0.6 + 0.4 ) * ( dfToonAmb * 0.3 + min( dfToonLit, vec3( 1.5 ) ) * 0.22 ) * dfRimK * RECIPROCAL_PI * 2.0;
+    // characters (uRim > 0): a banded moonlit edge on every face turned away from the eye, so
+    // dark silhouettes separate from the night, and a flat hot flash when the tint goes over 1
+    // (hits, shocks, spit windups)
+    if ( uRim > 0.0 ) {
+        float dfFres = 1.0 - saturate( dot( normal, dfV ) );
+        float dfUp = 0.55 + 0.45 * saturate( dot( normal, normalize( ( viewMatrix * vec4( -0.42, 0.6, 0.68, 0.0 ) ).xyz ) ) * 2.0 );
+        float dfRimBand = step( 0.58, dfFres ) * 0.7 + step( 0.8, dfFres ) * 0.5;
+        reflectedLight.directDiffuse += vec3( 0.2, 0.3, 0.62 ) * ( diffuseColor.rgb * 0.7 + 0.3 ) * dfRimBand * dfUp * uRim;
+        totalEmissiveRadiance += diffuseColor.rgb * max( vDfTint - 1.0, vec3( 0.0 ) ) * 0.55;
+    }
 }`
 
 /** Patches a Lambert material in place for toon lighting and voxel glow. */
@@ -84,9 +94,10 @@ export function dfPatchVoxGlow<T extends THREE.Material>(m: T, uGlow: { value: n
     m.onBeforeCompile = (shader, renderer) => {
         prev?.call(m, shader, renderer)
         shader.uniforms.uGlow = uGlow
+        shader.uniforms.uRim = (m.userData.uRim ??= { value: 0 }) as { value: number }
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', VERT_HEAD)
-            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = aGlow;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = aGlow;\n#ifdef USE_INSTANCING_COLOR\nvDfTint = instanceColor.rgb;\n#else\nvDfTint = vec3( 1.0 );\n#endif')
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', FRAG_HEAD)
             .replace('#include <lights_pars_begin>', THREE.ShaderChunk.lights_pars_begin.replace('float hemiDiffuseWeight = 0.5 * dotNL + 0.5;', TOON_HEMI))
