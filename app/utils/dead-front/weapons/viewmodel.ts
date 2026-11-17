@@ -100,7 +100,7 @@ const FEEL: Record<string, ShotFeel> = {
     pistol: { star: 0.85, cone: 0.9, prongs: 0.5, flash: 0.035, back: 1, flip: 1.5, roll: 0.5, yaw: 1 },
     smg: { star: 0.95, cone: 1.1, prongs: 0.7, flash: 0.03, back: 0.75, flip: 0.7, roll: 0.35, yaw: 1.3 },
     rifle: { star: 1.25, cone: 1.7, prongs: 0.9, flash: 0.045, back: 1.5, flip: 1.2, roll: 0.6, yaw: 0.8 },
-    shotgun: { star: 1.8, cone: 1.3, prongs: 1.2, flash: 0.06, back: 1.9, flip: 1.4, roll: 1, yaw: 0.8 },
+    shotgun: { star: 2.3, cone: 1.5, prongs: 1.5, flash: 0.07, back: 2.3, flip: 1.6, roll: 1.1, yaw: 0.8 },
     lmg: { star: 1.3, cone: 1.4, prongs: 1, flash: 0.035, back: 0.9, flip: 0.6, roll: 0.4, yaw: 1.4 },
     special: { star: 1.1, cone: 0.7, prongs: 0, flash: 0.05, back: 1.1, flip: 1, roll: 0.3, yaw: 0.5 }
 }
@@ -113,7 +113,7 @@ const FEEL: Record<string, ShotFeel> = {
 const FEEL_ID: Partial<Record<DfViewmodelWeapon['id'], ShotFeel>> = {
     ppsh: { star: 0.8, cone: 1, prongs: 0.85, flash: 0.022, back: 0.5, flip: 0.42, roll: 0.3, yaw: 1.7 },
     webley: { star: 1.15, cone: 1, prongs: 0.9, flash: 0.045, back: 1.25, flip: 2.3, roll: 0.8, yaw: 0.9 },
-    sawnoff: { star: 2.2, cone: 1.1, prongs: 1.5, flash: 0.07, back: 2.6, flip: 1.9, roll: 1.3, yaw: 1 },
+    sawnoff: { star: 2.7, cone: 1.2, prongs: 1.8, flash: 0.08, back: 2.9, flip: 2.1, roll: 1.4, yaw: 1 },
     chauchat: { star: 1.5, cone: 1.6, prongs: 1.1, flash: 0.045, back: 1.3, flip: 1, roll: 0.75, yaw: 1.1 },
     flammen: { star: 0, cone: 0, prongs: 0, flash: 0, back: 0.12, flip: 0.08, roll: 0.25, yaw: 0.6 }
 }
@@ -639,6 +639,18 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             })
             ev(0.58, () => play(DF_WSND.shell))
             ev(0.84, () => play(DF_WSND.breakClose))
+        } else if (c.kind === 'mag' && r.pump) {
+            // Gunplay hook (Quad Load, a Pack-a-Punched pump gun: its reload is a magazine reload
+            // in the stats): the gun rolls belly-up, every shell goes in one sweep, then the pump
+            // is racked. Motion only, no new parts, so it works with any model.
+            const dip = bump(u, 0, 1, 0.16)
+            out.roll -= 0.45 * dip
+            out.pitch += 0.12 * dip
+            out.y -= 0.03 * dip
+            out.z += 0.012 * bump(u, 0.2, 0.55, 0.08)
+            out.pump = bump(u, 0.72, 0.95, 0.1)
+            ev(0.18, () => play(DF_WSND.quadLoad))
+            ev(0.74, () => play(DF_WSND.pump))
         } else if (c.kind === 'mag' && r.drum && r.reload === 'mag') {
             // A drum change: the gun cants its belly toward the eye, the drum slides off the
             // well and drops away, a fresh one swings up and is slapped home; empty, the bolt
