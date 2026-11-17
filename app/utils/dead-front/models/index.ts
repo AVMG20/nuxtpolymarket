@@ -33,15 +33,20 @@ export function dfPreloadModels(): Promise<void> {
             // a missing file falls through to the SPA's HTML page with a 200
             if (!res.ok || (res.headers.get('content-type') ?? '').includes('text/html')) return
             const gltf = await loader.loadAsync(`${BASE}${pack}.glb`)
-            gltf.scene.updateMatrixWorld(true)
-            const nodes = new Map<string, THREE.Object3D>()
-            for (const child of gltf.scene.children) nodes.set(child.name, child)
-            packs.set(pack, nodes)
+            dfRegisterModelPack(pack, gltf.scene)
         } catch (e) {
             console.warn(`[dead-front] model pack ${pack} failed to load`, e)
         }
     })).then(() => {})
     return loading
+}
+
+/** Registers an already parsed pack (the headless checks in `scripts/` load the GLB from disk). */
+export function dfRegisterModelPack(pack: DfModelPack, scene: THREE.Object3D): void {
+    scene.updateMatrixWorld(true)
+    const nodes = new Map<string, THREE.Object3D>()
+    for (const child of scene.children) nodes.set(child.name, child)
+    packs.set(pack, nodes)
 }
 
 /** True once a pack has loaded. */

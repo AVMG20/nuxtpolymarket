@@ -10,6 +10,7 @@
 // models are swapped in place. Renders only while on screen.
 import * as THREE from 'three'
 import type { DfAttachmentChoice, DfWeaponId } from '#shared/utils/dead-front/types'
+import { dfHasModelPack, dfPreloadModels } from '~/utils/dead-front/models'
 import { buildDfWeaponModel, disposeDfWeaponModel } from '~/utils/dead-front/weapons'
 
 const props = withDefaults(defineProps<{
@@ -142,6 +143,12 @@ onMounted(() => {
     pivot = new THREE.Group()
     scene.add(pivot)
     load()
+    // the guns are pack models: when the pack is still on its way, build again once it lands
+    if (!dfHasModelPack('weapons')) {
+        void dfPreloadModels().then(() => {
+            if (renderer) load()
+        })
+    }
     resize()
     ready.value = true
 

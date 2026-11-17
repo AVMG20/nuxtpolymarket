@@ -67,17 +67,6 @@ export class DfVoxModel {
         return this.vox.get(i, j, k)
     }
 
-    /** Recolours every voxel through `fn(colourHex, glow, i, j, k)` returning [hex, glow] or null to keep. */
-    recolor(fn: (hex: number, glow: number, i: number, j: number, k: number) => [number, number] | null): this {
-        const pal = this.palette
-        this.vox.map((v, i, j, k) => {
-            const p = pal[v]!
-            const r = fn(p.color, p.emissive ?? 0, i, j, k)
-            return r ? this.c(r[0], r[1]) : -1
-        })
-        return this
-    }
-
     /**
      * Meshes the model. `pivot` is in voxel units (the point that ends up at
      * the origin); by default the bottom centre.
