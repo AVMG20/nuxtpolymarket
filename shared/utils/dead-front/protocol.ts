@@ -381,8 +381,13 @@ export type DfClientMsg =
      * back together under the old lobby id. `host` is who led it, so they lead again.
      */
     | { t: 'rejoin', id: string, host?: string }
-    /** 20 Hz movement report. The server clamps speed and collides against the map. */
-    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, /** The client's round trip (ms), for lag-fair zombie swings. */ rtt?: number }
+    /**
+     * 20 Hz movement report. The server clamps speed and collides against the map.
+     * `rtt`: the client's round trip (ms), for lag-fair zombie swings. `st`: the
+     * newest snapshot `tick` the client has read, which paces the snapshot stream
+     * (the server holds frames back while one has gone unread too long).
+     */
+    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, rtt?: number, st?: number }
     /**
      * One trigger pull. `dir` is per pellet for shotguns. Hits are claimed by
      * the client (shared hit test) and validated by the server against its own

@@ -56,7 +56,8 @@ function socketOf(peer: PeerLike): DfSocket {
                 peer.close(4408, 'Connection too slow')
             }
         },
-        close: (code, reason) => peer.close(code, reason)
+        close: (code, reason) => peer.close(code, reason),
+        backlog: () => backlog(peer)
     }
 }
 

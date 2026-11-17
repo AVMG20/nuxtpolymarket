@@ -1,7 +1,7 @@
 import { DF_RECONNECT_GRACE, DF_TICK_HZ } from '#shared/utils/dead-front/constants'
 import { DF_MAP } from '#shared/utils/dead-front/map'
 import { dfPackZombie } from '#shared/utils/dead-front/protocol'
-import type { DfClientMsg, DfMatchEnd, DfMatchStart, DfServerMsg } from '#shared/utils/dead-front/protocol'
+import type { DfClientMsg, DfEvent, DfMatchEnd, DfMatchStart, DfServerMsg } from '#shared/utils/dead-front/protocol'
 import type { DfProfileView, DfProgressReport } from '#shared/utils/dead-front/types'
 import { DF_WEAPON_IDS, dfSanitizeAttachments, dfWeaponLevel } from '#shared/utils/dead-front/weapons'
 import { DfMatchSim } from './sim'
@@ -19,6 +19,10 @@ export interface DfMatchMember {
 export interface DfMatchHooks {
     /** Send a raw frame to a user's current socket (no-op when they have none). */
     send: (userId: string, frame: string) => void
+    /** Bytes queued on a user's socket that the network hasn't taken yet (0 when unknown). */
+    backlog?: (userId: string) => number
+    /** Drop a user's socket that stopped draining: they reconnect and resync within the grace period. */
+    cut?: (userId: string) => void
     /** A player is gone for good (left, or the reconnect grace ran out). */
     onPlayerGone: (userId: string) => void
     /** The match is over and cleaned up. */
@@ -36,6 +40,30 @@ interface MatchPlayer {
     progress: DfProgressReport | null
     gone: boolean
     graceTimer: ReturnType<typeof setTimeout> | null
+    /** Snapshot pacing (see `holdBack`); reset with every socket. */
+    flow: Flow
+}
+
+/**
+ * Snapshot pacing for one player. Snapshots are full state (only their events
+ * are one-off), so a frame held back loses nothing once its events ride along
+ * on the next one. Without pacing a client that reads slower than 20 frames a
+ * second (a weak link, a tab busy rendering) gets every frame queued behind the
+ * last: its world and its ping drift seconds behind and never come back.
+ */
+interface Flow {
+    /** Newest snapshot tick the client reported reading (`st` on its input); -1 until it reports one. */
+    seen: number
+    /** Ticks and wall times (ms) of the frames sent since, oldest first. */
+    sent: { tick: number, at: number }[]
+    /** Events of the frames held back, sent ahead of the next frame's own. */
+    carry: DfEvent[]
+    /** Wall time (ms) the socket's backlog went over `FLOW_MAX_BACKLOG`; 0 while it is under. */
+    stuckSince: number
+}
+
+function newFlow(): Flow {
+    return { seen: -1, sent: [], carry: [], stuckSince: 0 }
 }
 
 let matchSeq = 0
@@ -46,6 +74,18 @@ const MAX_STEPS_PER_TICK = 4
 const TICK_MS = 1000 / DF_TICK_HZ
 /** A timer may fire this many ms before its deadline (timer clocks are coarser than Date.now). */
 const EARLY_MS = 2
+/** A frame unread this long (ms; round trip plus the client's frame) holds the stream back to probes. */
+const FLOW_MAX_UNREAD_MS = 750
+/** While held back, one frame every this many ms, so a client that stopped reporting catches up. */
+const FLOW_PROBE_MS = 500
+/** Bytes queued on the socket beyond which no frame is added until it drains. */
+const FLOW_MAX_BACKLOG = 64 * 1024
+/** A socket that stays over its backlog this long (ms) is cut (a sleeping phone). */
+const FLOW_CUT_MS = 120_000
+/** Carried events beyond which the socket is cut instead (it resyncs on reconnect). */
+const FLOW_MAX_CARRY = 4000
+/** Unread frames remembered; past this only the newest are (they are all overdue by then). */
+const FLOW_MAX_SENT = 256
 
 /**
  * Resolves a profile into the simulation's player setup (sanitised attachments,
@@ -95,7 +135,7 @@ export class DfMatch {
             }
         }))
         const sim = new DfMatchSim(setups)
-        const players = members.map((m, i): MatchPlayer => ({ userId: m.userId, name: m.name, pid: i, applied: false, progress: null, gone: false, graceTimer: null }))
+        const players = members.map((m, i): MatchPlayer => ({ userId: m.userId, name: m.name, pid: i, applied: false, progress: null, gone: false, graceTimer: null, flow: newFlow() }))
         const match = new DfMatch(`m${Date.now().toString(36)}${(++matchSeq).toString(36)}`, sim, players, hooks)
         match.schedule(TICK_MS)
         return match
@@ -135,7 +175,9 @@ export class DfMatch {
         const sim = this.sim
         try {
             switch (msg.t) {
-                case 'in': sim.input(p.pid, msg)
+                case 'in':
+                    sim.input(p.pid, msg)
+                    this.read(p, msg.st)
                     break
                 case 'fire': sim.fire(p.pid, msg)
                     break
@@ -174,6 +216,7 @@ export class DfMatch {
     disconnect(userId: string): void {
         const p = this.find(userId)
         if (!p || this.finished) return
+        p.flow = newFlow()
         this.sim.setConnected(p.pid, false)
         if (p.graceTimer) clearTimeout(p.graceTimer)
         p.graceTimer = setTimeout(() => {
@@ -188,6 +231,7 @@ export class DfMatch {
         if (!p || this.finished) return false
         if (p.graceTimer) clearTimeout(p.graceTimer)
         p.graceTimer = null
+        p.flow = newFlow()
         this.sim.setConnected(p.pid, true)
         this.sendStart(userId)
         return true
@@ -294,17 +338,67 @@ export class DfMatch {
     }
 
     private broadcastSnapshot(): void {
-        const snap = this.sim.snapshot()
+        const { events, ...snap } = this.sim.snapshot()
         // zombies go packed (`DfWireZombie`): they are most of the frame; DfNet unpacks them
-        const wire = { ...snap, zombies: snap.zombies.map(dfPackZombie) }
-        const shared = JSON.stringify(wire)
-        // Every player gets the same body; only `ack` differs, appended without re-serialising.
-        const head = `{"t":"snap","s":${shared.slice(0, -1)},"clk":${Math.round(this.clk * 1000) / 1000},"ack":`
+        const shared = JSON.stringify({ ...snap, zombies: snap.zombies.map(dfPackZombie) })
+        const sharedEvents = JSON.stringify(events)
+        // Every player gets the same body; only the events (when some were held back), `ack`
+        // and `mine` differ, appended without re-serialising.
+        const head = `{"t":"snap","s":${shared.slice(0, -1)},"events":`
+        const clk = `,"clk":${Math.round(this.clk * 1000) / 1000},"ack":`
+        const now = Date.now()
         for (const p of this.players) {
             if (p.gone) continue
+            const f = p.flow
+            if (this.holdBack(p, now)) {
+                for (const ev of events) f.carry.push(ev)
+                if (f.carry.length > FLOW_MAX_CARRY || (f.stuckSince && now - f.stuckSince > FLOW_CUT_MS)) {
+                    p.flow = newFlow()
+                    this.hooks.cut?.(p.userId)
+                }
+                continue
+            }
+            const ev = f.carry.length ? JSON.stringify(f.carry.concat(events)) : sharedEvents
+            f.carry = []
+            if (f.seen >= 0) {
+                f.sent.push({ tick: this.sim.tick, at: now })
+                // a client that stopped reporting (a hidden tab) gets probes: keep the newest
+                if (f.sent.length > FLOW_MAX_SENT) f.sent.splice(0, f.sent.length - FLOW_MAX_SENT)
+            }
             // the player's own salvage rides along after `ack`: nobody else sees it
-            this.hooks.send(p.userId, `${head}${this.sim.ack(p.pid)},"mine":${JSON.stringify(this.sim.arsenal.mine(p.pid))}}}`)
+            this.hooks.send(p.userId, `${head}${ev}${clk}${this.sim.ack(p.pid)},"mine":${JSON.stringify(this.sim.arsenal.mine(p.pid))}}}`)
         }
+    }
+
+    /** The client read up to snapshot `tick`: frames up to it are no longer in flight. */
+    private read(p: MatchPlayer, tick: unknown): void {
+        if (typeof tick !== 'number' || !Number.isFinite(tick) || tick > this.sim.tick) return
+        const f = p.flow
+        if (tick < f.seen) return
+        f.seen = Math.floor(tick)
+        let i = 0
+        while (i < f.sent.length && f.sent[i]!.tick <= f.seen) i++
+        if (i) f.sent.splice(0, i)
+    }
+
+    /**
+     * Whether this tick's frame waits (its events carried to the next one): the
+     * socket has a backlog, or the client left a frame unread past
+     * `FLOW_MAX_UNREAD_MS` and the last probe went out under `FLOW_PROBE_MS` ago.
+     * The stream then runs at the rate the client keeps up with, a second
+     * behind at worst, instead of queueing ever further behind.
+     */
+    private holdBack(p: MatchPlayer, now: number): boolean {
+        const f = p.flow
+        if ((this.hooks.backlog?.(p.userId) ?? 0) > FLOW_MAX_BACKLOG) {
+            f.stuckSince ||= now
+            return true
+        }
+        f.stuckSince = 0
+        const oldest = f.sent[0]
+        if (!oldest || now - oldest.at <= FLOW_MAX_UNREAD_MS) return false
+        const last = f.sent[f.sent.length - 1]!
+        return now - last.at < FLOW_PROBE_MS
     }
 
     /** Game over (or everyone left): write every remaining result, send the end screens, stop. */

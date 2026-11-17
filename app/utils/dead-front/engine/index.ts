@@ -1833,7 +1833,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             histPos[i * 3] = player.pos.x
             histPos[i * 3 + 1] = player.pos.y
             histPos[i * 3 + 2] = player.pos.z
-            net.send({ t: 'in', seq, pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, yaw: player.yaw, pitch: player.pitch, flags, rtt: Math.round(net.rtt) })
+            net.send({ t: 'in', seq, pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, yaw: player.yaw, pitch: player.pitch, flags, rtt: Math.round(net.rtt), st: net.snapTick })
         }
 
         // ---- interpolation
