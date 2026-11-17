@@ -5,7 +5,7 @@ import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
 import { branchEnding, canJoin, draftForkedDef, insertSection, walkForks } from '#shared/utils/nitro-rush/custom-forks'
 import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit } from '#shared/utils/nitro-rush/field-edit'
 import { defaultFieldPlan, FIELD_MAX_ITEMS, fieldBox, type FieldTile } from '#shared/utils/nitro-rush/field'
-import { fieldGroup, quarterTurns, walkedFields } from '#shared/utils/nitro-rush/field-group'
+import { fieldGroup, fieldOutlines, onAnyField, quarterTurns, walkedFields } from '#shared/utils/nitro-rush/field-group'
 import { Track } from '#shared/utils/nitro-rush/track'
 
 const ROAD: SectionId[] = ['straight-20', 'start', 'field', 'finish', 'straight-200']
@@ -191,6 +191,20 @@ describe('growing a field', () => {
         expect(fieldGroup(walked(t), SPOT)).toHaveLength(4)
         expect(growField(t, spotAt(5), 'right').error).toMatch(/no room/)
         expect(compileCustomTrack(t).error).toBeNull()
+    })
+
+    it('outlines a square of four as one: two outer edges each, none inside', () => {
+        let t = done(growField(course(), SPOT, 'exit'))
+        t = done(growField(t, spotAt(3), 'right'))
+        t = done(growField(t, spotAt(4), 'right'))
+        const fields = walked(t)
+        const outlines = fieldOutlines(fields)
+        expect(outlines.map(o => o.rim.length)).toEqual([2, 2, 2, 2])
+        const rim = outlines.flatMap(o => o.rim).reduce((sum, [a, b]) => sum + Math.hypot(b[0] - a[0], b[1] - a[1]), 0)
+        expect(rim).toBeCloseTo(800)
+        const [cx, cz] = outlines[0]!.corners[2]!
+        expect(onAnyField(fields, cx + 1, fields[0]!.y, cz + 1)).toBe(true)
+        expect(onAnyField(fields, cx + 1, fields[0]!.y + 10, cz + 1)).toBe(false)
     })
 
     it('refuses an edge with no tile a road fits through', () => {

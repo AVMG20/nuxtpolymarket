@@ -100,13 +100,20 @@ describe('rendering a field', () => {
         const plan = minimapPlan(track)
         expect(plan.fields).toHaveLength(1)
         const [f] = plan.fields
-        expect(f!.outline.split(' ')).toHaveLength(4)
+        expect(f!.floor.split(' ')).toHaveLength(4)
+        expect(f!.rim.match(/M/g)).toHaveLength(4)
         expect(f!.blocks).toHaveLength(2)
         expect(f!.pads).toHaveLength(1)
         expect(f!.gates).toHaveLength(1)
         expect(plan.road.match(/M/g)!.length).toBe(2)
     })
 
+    it('rims two joined fields as one, with no line where they meet', () => {
+        const course = growField({ id: 'custom-test', name: 'Test', closed: false, sections: ROAD, fields: [{ at: { branch: 0, at: 3 }, ...defaultFieldPlan() }] }, { branch: 0, at: 3 }, 'exit').track!
+        const plan = minimapPlan(new Track(compileCustomTrack(course).def!))
+        expect(plan.fields).toHaveLength(2)
+        expect(plan.fields.map(f => f.rim.match(/M/g)!.length)).toEqual([3, 3])
+    })
 })
 
 describe('pillars round a field', () => {

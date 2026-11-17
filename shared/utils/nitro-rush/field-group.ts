@@ -1,5 +1,5 @@
 import { lineSections, walkedField, type CustomTrack, type SectionSpot } from './custom'
-import { fieldLocal, fieldPoint, sharedEdges, type FieldPlacement } from './field'
+import { edgeWalls, fieldLocal, fieldPoint, sharedEdges, type FieldPlacement, type LevelField } from './field'
 import type { LayoutWalk } from './layout'
 
 /** Fields laid edge to edge at one height drive as one field, so the builder shows and edits them together. */
@@ -48,8 +48,31 @@ export function inFrame(base: Pick<FieldPlacement, 'x' | 'z' | 'heading'>, f: Pi
     return fieldLocal(base, x, z)
 }
 
+/** A field from above in the world: its corners, and only the stretches of edge no level neighbour shares, so joined fields read as one. */
+export interface FieldOutline {
+    y: number
+    corners: [number, number][]
+    rim: [[number, number], [number, number]][]
+}
+
+export function fieldOutlines(fields: readonly LevelField[]): FieldOutline[] {
+    return fields.map((f) => {
+        const { width, length } = f.plan
+        const at = (u: number, v: number) => fieldPoint(f, u, v)
+        return {
+            y: f.y,
+            corners: [at(0, 0), at(width, 0), at(width, length), at(0, length)],
+            rim: edgeWalls(f.plan, [], sharedEdges(f, fields)).map(s => [at(s.x0, s.z0), at(s.x1, s.z1)])
+        }
+    })
+}
+
 /** Whether world (x, z) lies inside field `f`, not on its edge. */
 export function insideField(f: Pick<FieldPlacement, 'x' | 'z' | 'heading' | 'plan'>, x: number, z: number) {
     const { u, v } = fieldLocal(f, x, z)
     return u > 0 && v > 0 && u < f.plan.width && v < f.plan.length
 }
+
+/** Whether world (x, z) lies inside a field no more than `rise` metres from height `y`. */
+export const onAnyField = (fields: readonly LevelField[], x: number, y: number, z: number, rise = 2) =>
+    fields.some(f => Math.abs(f.y - y) <= rise && insideField(f, x, z))

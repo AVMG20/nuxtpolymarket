@@ -20,8 +20,9 @@ const ghosts = computed(() => props.ghosts.map(g => ({ at: toMap(plan.value.fit,
   <svg class="nr-minimap" :viewBox="`0 0 ${MINIMAP_VIEW} ${MINIMAP_VIEW}`" aria-hidden="true">
     <path class="nr-minimap-edge" :d="plan.road" />
     <path class="nr-minimap-road" :d="plan.road" />
+    <polygon v-for="(f, i) in plan.fields" :key="`floor${i}`" class="nr-minimap-field" :points="f.floor" />
+    <path v-for="(f, i) in plan.fields" :key="`rim${i}`" class="nr-minimap-rim" :d="f.rim" />
     <g v-for="(f, i) in plan.fields" :key="`field${i}`">
-      <polygon class="nr-minimap-field" :points="f.outline" />
       <polygon v-for="(b, j) in f.blocks" :key="`b${j}`" class="nr-minimap-block" :points="b" />
       <polygon v-for="(p, j) in f.pads" :key="`p${j}`" class="nr-minimap-pad" :points="p" />
       <line v-for="(g, j) in f.gates" :key="`g${j}`" class="nr-minimap-line" v-bind="g" />

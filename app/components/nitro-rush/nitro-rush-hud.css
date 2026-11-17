@@ -115,11 +115,13 @@
     filter: drop-shadow(0 0 2px var(--nr-cyan));
 }
 
-.nr-root .nr-minimap-field {
-    fill: rgb(61 242 255 / 0.18);
+.nr-root .nr-minimap-field { fill: rgb(61 242 255 / 0.18); }
+
+.nr-root .nr-minimap-rim {
+    fill: none;
     stroke: var(--nr-cyan);
     stroke-width: 1.5;
-    stroke-linejoin: round;
+    stroke-linecap: round;
 }
 
 .nr-root .nr-minimap-block { fill: rgb(255 255 255 / 0.55); }
