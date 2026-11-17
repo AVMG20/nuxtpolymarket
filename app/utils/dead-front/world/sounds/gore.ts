@@ -1,4 +1,4 @@
-import { at, clamp, gainNode, filterNode, noise, oscNode, randomWalk, rnd } from './noise'
+import { at, clamp, gainNode, filterNode, noise, oscNode, randomWalk, rnd, shaperNode } from './noise'
 import type { Rt } from './noise'
 import {
     bubbles, clickTrain, creak, crack, metal, noiseBurst, noiseSwell, scatter, thud
@@ -168,4 +168,68 @@ export function climb(r: Rt): void {
     const land = rnd(0.42, 0.52)
     thud(at(r, land), { freq: 90, freqEnd: 45, dur: 0.28, gain: 0.5, body: 0.8, bodyFreq: 500, click: 0.2 })
     noiseSwell(at(r, land), { kind: 'brown', type: 'lowpass', freq: 800, q: 0.7, gain: 0.15, dur: 0.3, peakAt: 0.1 })
+}
+
+/** A zombie's shuffling step: a dragged boot scuffing through grit, sometimes a wet squelch. */
+export function zombieShuffle(r: Rt): void {
+    const k = rnd(0.85, 1.15)
+    noiseSwell(r, { kind: 'pink', type: 'bandpass', freq: 900 * k, freqEnd: 520 * k, q: 1.1, gain: 0.22, dur: rnd(0.18, 0.3), peakAt: 0.25 })
+    noiseBurst(r, { kind: 'brown', type: 'lowpass', freq: 380, freqEnd: 140, q: 0.8, gain: 0.2, dur: 0.08 })
+    if (Math.random() < 0.45) clickTrain(at(r, rnd(0.03, 0.08)), scatter(3, 0.12, 1.2), { freq: 2400 * k, q: 2, gain: 0.04, len: 0.008, jitter: 0.6 })
+    if (Math.random() < 0.25) noiseBurst(at(r, 0.02), { kind: 'pink', type: 'bandpass', freq: 650 * k, freqEnd: 330, q: 2.4, gain: 0.08, dur: 0.1 })
+}
+
+/** A running zombie's footfall: a hard bare slap with a little grit kicked up. */
+export function zombieRunStep(r: Rt): void {
+    const k = rnd(0.9, 1.12)
+    thud(r, { freq: 110 * k, freqEnd: 60 * k, dur: 0.07, gain: 0.32, body: 0.6, bodyFreq: 600, click: 0.35 })
+    noiseBurst(r, { kind: 'pink', type: 'bandpass', freq: 1500 * k, freqEnd: 800, q: 1.3, gain: 0.16, dur: 0.05 })
+    if (Math.random() < 0.3) clickTrain(at(r, 0.03), scatter(4, 0.1, 1.3), { freq: 3000, q: 2, gain: 0.03, len: 0.006, jitter: 0.6 })
+}
+
+/** A crawler hauling itself along: cloth and flesh dragged over the ground, a hand slapping down. */
+export function zombieDrag(r: Rt): void {
+    noiseSwell(r, { kind: 'pink', type: 'bandpass', freq: 520, freqEnd: 340, q: 0.9, gain: 0.24, dur: rnd(0.45, 0.6), peakAt: 0.55 })
+    thud(at(r, rnd(0.02, 0.06)), { freq: 90, freqEnd: 55, dur: 0.08, gain: 0.18, body: 0.5, bodyFreq: 450, click: 0.15 })
+    if (Math.random() < 0.4) noiseBurst(at(r, 0.25), { kind: 'pink', type: 'bandpass', freq: 700, freqEnd: 380, q: 2.2, gain: 0.07, dur: 0.12 })
+}
+
+/** The Iron Warlord's roar: a pitched-down bellow through iron, plates rattling, the ground answering. */
+export function bossRoar(r: Rt): void {
+    const { ctx, t } = r
+    const dur = rnd(1.5, 1.9)
+    const g = gainNode(ctx, 0, r.out)
+    const lp = filterNode(ctx, 'lowpass', 1400, 0.9, g)
+    const sh = shaperNode(ctx, 3.5, lp)
+    for (const [f, det] of [[rnd(46, 54), -12], [rnd(68, 76), 9], [rnd(92, 104), 4]] as const) {
+        const o = oscNode(ctx, 'sawtooth', f * r.rate, t, dur + 0.1, sh)
+        o.detune.setValueAtTime(det, t)
+        o.frequency.setValueAtTime(f * 0.8 * r.rate, t)
+        o.frequency.exponentialRampToValueAtTime(f * 1.12 * r.rate, t + dur * 0.35)
+        o.frequency.exponentialRampToValueAtTime(f * 0.7 * r.rate, t + dur)
+        const fl = gainNode(ctx, 35, o.detune)
+        oscNode(ctx, 'sine', rnd(22, 30), t, dur + 0.1, fl)
+    }
+    // vocal formants over the growl
+    for (const [ff, q, lv] of [[520, 4, 0.5], [880, 5, 0.3]] as const) {
+        const bp = filterNode(ctx, 'bandpass', ff, q, gainNode(ctx, lv, g))
+        sh.connect(bp)
+    }
+    g.gain.setValueAtTime(0, t)
+    g.gain.linearRampToValueAtTime(0.42 * r.vol, t + 0.12)
+    g.gain.setValueAtTime(0.42 * r.vol, t + dur * 0.6)
+    g.gain.linearRampToValueAtTime(0, t + dur)
+    noiseSwell(r, { kind: 'pink', type: 'bandpass', freq: 700, freqEnd: 420, q: 0.9, gain: 0.3, dur, peakAt: 0.3 })
+    noiseSwell(r, { kind: 'brown', type: 'lowpass', freq: 160, q: 0.7, gain: 0.35, dur: dur + 0.6, peakAt: 0.25 })
+    clickTrain(at(r, 0.1), scatter(10, dur * 0.7, 1.2), { freq: 1700, q: 4, gain: 0.05, len: 0.012, jitter: 0.5 })
+    metal(at(r, 0.05), { base: rnd(300, 360), ratios: [1, 1.7, 2.6, 3.9], decay: 0.9, gain: 0.08, strike: 0.3 })
+}
+
+/** The Iron Warlord crashing down: a ground-shaking fall and a ring of iron plate. */
+export function bossFall(r: Rt): void {
+    thud(r, { freq: 48, freqEnd: 24, dur: 0.9, gain: 0.75, body: 1.2, bodyFreq: 240, click: 0.1 })
+    noiseSwell(r, { kind: 'brown', type: 'lowpass', freq: 420, freqEnd: 70, q: 0.7, gain: 0.45, dur: 1.8, peakAt: 0.05 })
+    metal(at(r, 0.04), { base: 260, ratios: [1, 1.52, 2.33, 3.17, 4.6], decay: 1.8, gain: 0.18, strike: 0.7 })
+    metal(at(r, 0.22), { base: 410, ratios: [1, 1.7, 2.6], decay: 0.8, gain: 0.08, strike: 0.5 })
+    clickTrain(at(r, 0.1), scatter(14, 0.9, 1.4), { freq: 1500, q: 3, gain: 0.06, len: 0.012, jitter: 0.6 })
 }
