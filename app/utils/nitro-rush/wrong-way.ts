@@ -1,6 +1,8 @@
 import type { CarState } from './physics'
 import { headingOf } from '#shared/utils/nitro-rush/track'
 
+/** Off while every line counts either way; the timing still works, so turning it on brings the warning back. */
+export const WRONG_WAY_WARNING = false
 /** Seconds of driving against the road before the warning shows. */
 export const WRONG_WAY_DELAY = 1.2
 

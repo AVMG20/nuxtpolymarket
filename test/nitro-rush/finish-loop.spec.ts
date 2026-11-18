@@ -61,8 +61,8 @@ describe('finishing a loop', () => {
     }, 60_000)
 
     it('says what\'s wrong rather than papering over it', () => {
-        expect(finishLoop(loop(['straight-60'])).error).toMatch(/start block/)
-        expect(finishLoop(loop(['start', 'straight-60', 'start'])).error).toMatch(/start block/)
+        expect(finishLoop(loop(['straight-60'])).error).toMatch(/start line/)
+        expect(finishLoop(loop(['start', 'straight-60', 'start'])).error).toMatch(/start line/)
         expect(finishLoop(loop(['start', 'slope-up', 'jump', 'straight-20'])).error).toMatch(/level the slope first/)
     })
 

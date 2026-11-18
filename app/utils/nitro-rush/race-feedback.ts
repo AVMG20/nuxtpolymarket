@@ -96,6 +96,11 @@ export class RaceFeedback {
         this.deps.events.popup({ text: formatLapTime(delta, true), sub: `SECTOR ${sector + 1}`, tone: delta < 0 ? 'good' : 'bad' })
     }
 
+    /** Over the line without every checkpoint the lap needs, so it didn't count. */
+    missed(required: boolean) {
+        this.deps.events.popup({ text: required ? 'MISSED REQUIRED CHECKPOINT' : 'MISSED CHECKPOINT', tone: 'bad' })
+    }
+
     /** `previousBest` is the record before this lap, for the gap the popup shows. */
     lap(label: string, time: number, previousBest: number | null, isBest: boolean) {
         const { audio, events, grade } = this.deps

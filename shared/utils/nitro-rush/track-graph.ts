@@ -13,6 +13,8 @@ import { newProjection, newTrackPoint, type OpenSide, type TrackLine } from './t
 
 /** The builder caps a course's routes so the medal bot's runs stay bounded. */
 export const MAX_ROUTES = 16
+/** Ways through looked at, valid or not, so required checkpoints that rule most out can't make the search blow up. */
+const MAX_PATHS = MAX_ROUTES * 16
 /** Metres between a branch's end and the road it meets, and the radians their headings may differ by. */
 const ATTACH_TOLERANCE = 0.05
 // A sampled bend's end chord is half a step's turn off its tangent: 0.033 rad on a 30 m hairpin.
@@ -46,6 +48,8 @@ export interface HubDef {
     mouths: readonly { branch: number, s: number }[]
     /** Ids of the checkpoints on the field, which every route through it drives. */
     gates?: readonly number[]
+    /** Fields joined edge to edge share one, as a car crosses them as one floor. */
+    group?: number
 }
 
 /** Where a branch comes from, and where it goes: other road, or a sprint's own finish. */
@@ -106,7 +110,7 @@ export interface CourseGraph {
     /** The loop's end, or every finish. */
     ends: readonly number[]
     routes: readonly Route[]
-    /** The fewest checkpoints on any route: a lap counts once the car has touched this many. */
+    /** The fewest checkpoints on any route: a lap counts once the car has touched this many, every required one among them. */
     k: number
     /** Each vertex's share of the longest route through it: 0 at the start, 1 at a finish. */
     progress: Float64Array
@@ -120,9 +124,10 @@ const onLine = (line: TrackLine, s: number) => line.closed || (s >= 0 && s <= li
 
 /**
  * Compiles a course's lines into its graph and opens the walls where branches share a deck.
- * `links[b]` says where branch b (1 up) leaves and goes; `checkpointIds[b]` are line b's checkpoints' ids; `hubs` are fields' hubs.
+ * `links[b]` says where branch b (1 up) leaves and goes; `checkpointIds[b]` are line b's checkpoints' ids; `hubs` are fields' hubs;
+ * `required` are the checkpoints every route has to drive, which rules out any route that skips one.
  */
-export function compileGraph(lines: readonly TrackLine[], links: readonly (BranchLink | undefined)[], checkpointIds: readonly (readonly number[])[], hubs: readonly HubDef[] = []): CourseGraph {
+export function compileGraph(lines: readonly TrackLine[], links: readonly (BranchLink | undefined)[], checkpointIds: readonly (readonly number[])[], hubs: readonly HubDef[] = [], required: readonly number[] = []): CourseGraph {
     const fail = (why: string): never => {
         throw new TrackGraphError(why)
     }
@@ -151,9 +156,19 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
     const ends = [main.closed ? add('end', 0, main.length) : add('finish', 0, Math.max(main.startS, main.finishS))]
     const hubVertices = new Map(hubs.map(h => [vertexOn(h.home.branch, h.home.at), h.mouths.map(m => ({ ...m, ...lines[m.branch]!.pointAt(m.s) }))]))
     const hubGates = new Map(hubs.map(h => [vertexOn(h.home.branch, h.home.at), h.gates ?? []]))
+    const hubGroups = new Map(hubs.map(h => [vertexOn(h.home.branch, h.home.at), h.group]))
+    // A loop cut at a field's start gate ends at that hub too, so its end vertex is the hub's as well.
+    const seamHub = main.closed ? hubs.find(h => h.home.branch === 0 && h.home.at < 1e-3) : undefined
+    if (seamHub) {
+        hubVertices.set(ends[0]!, hubVertices.get(start)!)
+        hubGates.set(ends[0]!, hubGates.get(start)!)
+    }
     const hubAt = (end: BranchEnd) => hubs.some(h => h.home.branch === end.branch && Math.abs(h.home.at - end.at) < 1e-3)
+        || (!!seamHub && end.branch === 0 && Math.abs(end.at - main.length) < 1e-3)
     const near = newTrackPoint()
     const atEnd = newTrackPoint()
+    /** Branches from a field back into it or a field joined to it, whose way in waits until every other road is linked. */
+    const comebacks: { b: number, from: number, to: number }[] = []
     for (let b = 1; b < lines.length; b++) {
         const line = lines[b]!
         const l = links[b]
@@ -166,7 +181,8 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
             if (end.branch === 0 && target.closed) at = fork ? (at >= target.length - 1e-6 ? 0 : at) : (at <= 1e-6 ? target.length : at)
             const [lo, hi] = timed(end.branch)
             const inside = end.branch === 0 && target.closed ? (fork ? at >= 0 && at < hi : at > 0 && at <= hi) : at > lo + 1 && at < hi - 1
-            if (!inside) return fail('Keep forks and joins on timed road, away from branch ends')
+            // A field's start or finish is its hub, where roads may still leave or come in.
+            if (!inside && !hubAt({ branch: end.branch, at })) return fail('Keep forks and joins on timed road, away from branch ends')
             if (!target.plainRoadAt(Math.min(at, target.length - 1e-6))) return fail('Forks and joins need flat, plain road')
             return { branch: end.branch, at }
         }
@@ -175,7 +191,8 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
         line.pointAt(0, atEnd)
         // Roads leave a field's hub every which way, so only where they meet counts there.
         if (!meets(near, atEnd, hubAt(from))) return fail('A branch must start on the road it leaves')
-        link(b, 0, vertexOn(from.branch, from.at))
+        const fromV = vertexOn(from.branch, from.at)
+        link(b, 0, fromV)
         if (l.to === 'finish') {
             if (main.closed) return fail('Loop branches must rejoin the road')
             ends.push(add('finish', b, line.finishS))
@@ -187,28 +204,58 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
             atEnd.tz = line.tzs[line.n - 1]!
             if (!meets(near, atEnd, hubAt(to))) return fail('A branch must end on the road it joins')
             const v = vertexOn(to.branch, to.at)
-            if (hubVertices.has(v) && marks[b]!.some(m => m.v === v)) return fail('A road can\'t loop back into its own field')
-            link(b, line.length, v)
+            const group = hubGroups.get(v)
+            if (hubVertices.has(v) && hubVertices.has(fromV) && (v === fromV || (group !== undefined && group === hubGroups.get(fromV)))) comebacks.push({ b, from: fromV, to: v })
+            else link(b, line.length, v)
         }
     }
 
+    /** Roads that come back onto a field's floor after it, each at the end of its line, onto the vertex a route carries on from. */
+    const returns: { branch: number, s: number, v: number }[] = []
     // Edges between neighbouring vertices along each line.
-    const edges: GraphEdge[] = []
-    const lineEdges: GraphEdge[][] = lines.map(() => [])
-    marks.forEach((list, b) => {
-        list.sort((p, q) => p.s - q.s)
-        for (let i = 0; i + 1 < list.length; i++) {
-            const e = { from: list[i]!.v, to: list[i + 1]!.v, branch: b, s0: list[i]!.s, s1: list[i + 1]!.s }
-            edges.push(e)
-            lineEdges[b]!.push(e)
+    const edgesOf = () => {
+        const lineEdges: GraphEdge[][] = lines.map(() => [])
+        marks.forEach((list, b) => {
+            // Stable, so a hub's twin stays just after it.
+            const along = [...list].sort((p, q) => p.s - q.s).concat(returns.filter(r => r.branch === b))
+            for (let i = 0; i + 1 < along.length; i++) lineEdges[b]!.push({ from: along[i]!.v, to: along[i + 1]!.v, branch: b, s0: along[i]!.s, s1: along[i + 1]!.s })
+        })
+        const outs: GraphEdge[][] = vertices.map(() => [])
+        const ins: GraphEdge[][] = vertices.map(() => [])
+        for (const e of lineEdges.flat()) {
+            outs[e.from]!.push(e)
+            ins[e.to]!.push(e)
         }
-    })
-    const outs: GraphEdge[][] = vertices.map(() => [])
-    const ins: GraphEdge[][] = vertices.map(() => [])
-    for (const e of edges) {
-        outs[e.from]!.push(e)
-        ins[e.to]!.push(e)
+        return { lineEdges, edges: lineEdges.flat(), outs, ins }
     }
+    const reaches = (outs: readonly GraphEdge[][], a: number, b: number) => {
+        const seen = new Set([a])
+        for (const v of seen) {
+            if (v === b) return true
+            for (const e of outs[v]!) seen.add(e.to)
+        }
+        return false
+    }
+    /** The vertex just after hub `v` on its line, where a route that went off on a detour from it carries on. */
+    const twins = new Map<number, number>()
+    for (const c of comebacks) {
+        // On to a field further along it's just another road in; back to one already crossed, it's a detour off the floor.
+        if (c.to !== c.from && !reaches(edgesOf().outs, c.to, c.from)) {
+            link(c.b, lines[c.b]!.length, c.to)
+            continue
+        }
+        let twin = twins.get(c.from)
+        if (twin === undefined) {
+            const home = vertices[c.from]!.marks[0]!
+            twin = vertices.push({ kind: 'node', marks: [] }) - 1
+            link(home.branch, home.at, twin)
+            twins.set(c.from, twin)
+            hubVertices.set(twin, [...hubVertices.get(c.from)!])
+        }
+        hubVertices.get(twin)!.push(...hubVertices.get(c.to)!.filter(m => !hubVertices.get(twin)!.includes(m)))
+        returns.push({ branch: c.b, s: lines[c.b]!.length, v: twin })
+    }
+    const { edges, lineEdges, outs, ins } = edgesOf()
     if (vertices.some((_, v) => !hubVertices.has(v) && (outs[v]!.length > 2 || ins[v]!.length > 2))) fail('Only two roads can meet here')
 
     // Every route runs one way, so the graph cut at the start line has no cycles.
@@ -228,7 +275,9 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
     for (const v of order) if (reached[v]) for (const e of outs[v]!) reached[e.to] = 1
     const leads = new Uint8Array(vertices.length)
     for (const v of [...order].reverse()) if (isEnd(v) || outs[v]!.some(e => leads[e.to])) leads[v] = 1
-    if (vertices.some((_, v) => !reached[v] || !leads[v])) fail(main.closed ? 'Every branch must lead back to the start' : 'Every branch must reach a finish')
+    // A field no other road meets is only a point on its own, so one before a sprint's start or past its finish is no fault.
+    const alone = (v: number) => hubVertices.has(v) && vertices[v]!.marks.length === 1
+    if (vertices.some((_, v) => (!reached[v] || !leads[v]) && !alone(v))) fail(main.closed ? 'Every branch must lead back to the start' : 'Every branch must reach a finish')
 
     // Longest distances to and from each vertex: its progress is its share of the longest route through it.
     const into = new Float64Array(vertices.length)
@@ -239,12 +288,11 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
 
     // Across a field a route runs straight from the mouth it comes in by to the one it leaves by, not through the hub.
     const shortcut = (a: GraphEdge, b: GraphEdge) => {
-        const mouths = hubVertices.get(a.to)
-        const into = mouths?.filter(m => m.branch === a.branch && m.s >= a.s0 - 1e-6 && m.s <= a.s1 + 1e-6).sort((p, q) => q.s - p.s)[0]
-        const out = mouths?.filter(m => m.branch === b.branch && m.s >= b.s0 - 1e-6 && m.s <= b.s1 + 1e-6).sort((p, q) => p.s - q.s)[0]
+        const into = hubVertices.get(a.to)?.filter(m => m.branch === a.branch && m.s >= a.s0 - 1e-6 && m.s <= a.s1 + 1e-6).sort((p, q) => q.s - p.s)[0]
+        const out = hubVertices.get(b.from)?.filter(m => m.branch === b.branch && m.s >= b.s0 - 1e-6 && m.s <= b.s1 + 1e-6).sort((p, q) => p.s - q.s)[0]
         return into && out ? a.s1 - into.s + out.s - b.s0 - Math.hypot(into.x - out.x, into.z - out.z) : 0
     }
-    const routes = findRoutes(lines, start, isEnd, outs, checkpointIds, { shortcut, gatesAt: v => hubGates.get(v) ?? [] }, fail)
+    const routes = findRoutes(lines, start, isEnd, outs, checkpointIds, { shortcut, gatesAt: v => hubGates.get(v) ?? [] }, required, fail)
     const k = Math.min(...routes.map(r => r.checkpoints.length))
 
     const open: OpenSide[][] = lines.map(() => [])
@@ -286,7 +334,7 @@ function meets(a: { x: number, y: number, z: number, tx: number, tz: number }, b
     return Math.hypot(a.x - b.x, a.z - b.z) <= ATTACH_TOLERANCE && Math.abs(a.y - b.y) <= ATTACH_TOLERANCE && (anyWay || a.tx * b.tx + a.tz * b.tz >= Math.cos(ATTACH_ANGLE))
 }
 
-/** Every route from the start to an end, keeping to the line it's on first so the main line's route comes first. */
+/** Every route from the start to an end that drives every `required` checkpoint, keeping to the line it's on first so the main line's route comes first. */
 function findRoutes(
     lines: readonly TrackLine[],
     start: number,
@@ -294,14 +342,19 @@ function findRoutes(
     outs: readonly GraphEdge[][],
     checkpointIds: readonly (readonly number[])[],
     hubs: Hubs,
+    required: readonly number[],
     fail: (why: string) => never
 ): Route[] {
     const routes: Route[] = []
     const path: GraphEdge[] = []
+    let paths = 0
     const walk = (v: number, branch: number) => {
         if (isEnd(v)) {
+            if (++paths > MAX_PATHS) fail('Too many ways round; remove a branch')
+            const route = routeOf(lines, path, checkpointIds, hubs)
+            if (!required.every(id => route.checkpoints.includes(id))) return
             if (routes.length >= MAX_ROUTES) fail(`Too many routes (${MAX_ROUTES} max)`)
-            routes.push(routeOf(lines, path, checkpointIds, hubs))
+            routes.push(route)
             return
         }
         const next = [...outs[v]!].sort((a, b) => Number(b.branch === branch) - Number(a.branch === branch))
@@ -312,6 +365,7 @@ function findRoutes(
         }
     }
     walk(start, 0)
+    if (!routes.length) fail('No route passes every required checkpoint')
     return routes
 }
 
@@ -345,8 +399,11 @@ function routeOf(lines: readonly TrackLine[], path: readonly GraphEdge[], checkp
             tight = now
         }
     }
-    for (const e of path) for (const id of hubs.gatesAt(e.to)) checkpoints.add(id)
-    const saved = path.slice(1).reduce((sum, e, i) => sum + hubs.shortcut(path[i]!, e), 0)
+    // Every route sets off from the start, so a start field's gates are on each one.
+    for (const v of [path[0]?.from ?? -1, ...path.map(e => e.to)]) for (const id of hubs.gatesAt(v)) checkpoints.add(id)
+    // A hub's step onto its twin is no road, so the field is crossed from the edge before it to the one after.
+    const driven = path.filter(e => e.s1 - e.s0 > 1e-9)
+    const saved = driven.slice(1).reduce((sum, e, i) => sum + hubs.shortcut(driven[i]!, e), 0)
     return { legs, length: legs.reduce((sum, l) => sum + l.to - l.from, 0) - saved, checkpoints: [...checkpoints].sort((a, b) => a - b), bends }
 }
 

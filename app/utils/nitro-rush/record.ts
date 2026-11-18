@@ -27,6 +27,18 @@ export function settleLap(rec: TrackRecord, lap: Extract<LapEvent, { type: 'lap'
     return { isBest, record, stored, standing }
 }
 
+/**
+ * The best lap's time at checkpoint `sector`, when it was that lap's `touched`th checkpoint too; null otherwise, so a lap
+ * round the other way or in another order shows no gap. Splits saved before the course had these checkpoints are no use.
+ */
+export function bestSplit(splits: readonly (number | null)[] | null, count: number, sector: number, touched: number): number | null {
+    if (splits?.length !== count + 1) return null
+    const best = splits[sector]
+    if (best === null || best === undefined) return null
+    const order = splits.slice(0, count).filter(t => t !== null && t <= best).length
+    return order === touched ? best : null
+}
+
 /** The quicker of this browser's best and the server's, which may have been set on another device; in seconds. */
 export function bestLap(r: TrackRecord | undefined, s: NrTrackSummary | undefined): number | null {
     const local = r?.bestLap ?? null

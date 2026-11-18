@@ -1,5 +1,6 @@
 import { lineSections, walkedField, type CustomTrack, type SectionSpot } from './custom'
-import { edgeWalls, fieldLocal, fieldPoint, sharedEdges, type FieldPlacement, type LevelField } from './field'
+import { edgeWalls, FIELD_TILE, fieldLineTile, fieldLocal, fieldPoint, sharedEdges, type FieldPlacement, type LevelField } from './field'
+import { GRID_BACK } from './field-plan'
 import type { LayoutWalk } from './layout'
 
 /** Fields laid edge to edge at one height drive as one field, so the builder shows and edits them together. */
@@ -37,6 +38,32 @@ export function fieldGroup(fields: readonly WalkedFieldSection[], spot: SectionS
         }
     }
     return fields.filter(f => seen.has(f))
+}
+
+/** Whether the grid behind the start gate on the field at `spot`, if it has one, lies on that field or one joined to it. */
+export function gridOnFields(fields: readonly WalkedFieldSection[], spot: SectionSpot): boolean {
+    const group = fieldGroup(fields, spot)
+    const f = group.find(g => g.spot.branch === spot.branch && g.spot.at === spot.at)
+    const gate = f && fieldLineTile(f.plan, 'start')
+    if (!gate) return true
+    // The way a gate faces, along the field's (u, v), a quarter turn clockwise per step from along v.
+    const [du, dv] = ([[0, 1], [1, 0], [0, -1], [-1, 0]] as const)[gate.dir]
+    const [x, z] = fieldPoint(f, (gate.col + 0.5) * FIELD_TILE - du * GRID_BACK, (gate.row + 0.5) * FIELD_TILE - dv * GRID_BACK)
+    return group.some((g) => {
+        const { u, v } = fieldLocal(g, x, z)
+        return u >= 0 && v >= 0 && u <= g.plan.width && v <= g.plan.length
+    })
+}
+
+/** Each walked field section's group by `branch:at`, the same number for fields joined edge to edge. */
+export function fieldGroupIds(fields: readonly WalkedFieldSection[]): Map<string, number> {
+    const out = new Map<string, number>()
+    fields.forEach((f, i) => {
+        const key = `${f.spot.branch}:${f.spot.at}`
+        if (out.has(key)) return
+        for (const g of fieldGroup(fields, f.spot)) out.set(`${g.spot.branch}:${g.spot.at}`, i)
+    })
+    return out
 }
 
 /** Quarter turns, clockwise from above, from `base`'s heading to `f`'s; fields only ever turn in quarters. */

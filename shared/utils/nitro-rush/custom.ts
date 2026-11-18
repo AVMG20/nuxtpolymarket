@@ -1,8 +1,9 @@
 import { inletOf, joinMerge, meetInlet, splitArm, type InletMeet, type Merge } from './fork-pieces'
 import { fieldItemsCost, sanitizeFields, sanitizePort, type CustomField, type FieldSpot } from './custom-fields'
-import { defaultFieldPlan, fieldHub } from './field'
+import { defaultFieldPlan, fieldHub, fieldLineTile } from './field'
 import { fieldRunIn } from './field-layout'
-import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, jump, kicker, landing, looping, MAX_HALF_WIDTH, MIN_HALF_WIDTH, ramp, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, walkLines, widthTo, type ForkShape, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
+import { fieldGroup, gridOnFields, walkedFields } from './field-group'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, jump, kicker, landing, looping, MAX_HALF_WIDTH, MIN_HALF_WIDTH, ramp, requiredCheckpoint, slopeTo, spiral, start, straight, TrackLayoutError, walkLayout, walkLines, widthTo, type ForkShape, type RoadState, type LayoutWalk, type TrackLayout, type TrackPiece } from './layout'
 import { placementFault } from './road-checks'
 import { TrackGraphError, wrapAngle, type TrackDef } from './track'
 import { ROAD } from './tracks'
@@ -159,6 +160,7 @@ export const SECTIONS = {
     'join-right': fork('Join from right', 'i-lucide-git-merge', 'join', 'right'),
     'start': { label: 'Start line', category: 'lines', icon: 'i-lucide-flag-triangle-right', piece: start },
     'checkpoint': { label: 'Checkpoint', category: 'lines', icon: 'i-lucide-milestone', piece: checkpoint },
+    'checkpoint-required': { label: 'Required checkpoint', category: 'lines', icon: 'i-lucide-badge-alert', piece: requiredCheckpoint },
     'finish': { label: 'Finish line', category: 'lines', icon: 'i-lucide-flag', piece: finish },
     'field': { label: 'Field', category: 'fields', icon: 'i-lucide-grid-3x3', piece: { type: 'field', id: 0, plan: defaultFieldPlan() } }
 } satisfies Record<string, Section>
@@ -229,7 +231,7 @@ export function roadKey(t: { closed: boolean, sections: readonly SectionId[], br
     const spot = (s: FieldSpot | null) => s ? s.port ? [s.branch, s.at, s.port.edge, s.port.tile] : [s.branch, s.at] : null
     const key: unknown[] = [t.closed, t.sections, (t.branches ?? []).map(b => [b.sections, spot(b.from), spot(b.to)])]
     // Only on courses with fields, so every older course keeps the key its times are filed under.
-    if (t.fields?.length) key.push(t.fields.map(f => [spot(f.at), f.width, f.length, f.entry, f.exit.edge, f.exit.tile, f.tiles.map(k => [k.col, k.row, k.kind, 'dir' in k ? k.dir : null])]))
+    if (t.fields?.length) key.push(t.fields.map(f => [spot(f.at), f.width, f.length, f.entry, f.exit.edge, f.exit.tile, f.tiles.map(k => [k.col, k.row, k.kind, 'dir' in k ? k.dir : null, ...'required' in k && k.required ? [1] : []])]))
     return JSON.stringify(key)
 }
 
@@ -272,6 +274,16 @@ export function forkShape(id: SectionId | undefined, type: 'split' | 'join'): Fo
 /** Whether the section at `spot` is a field. */
 export const isFieldSection = (t: CustomTrack, spot: SectionSpot) => lineSections(t, spot.branch)[spot.at] === 'field'
 
+/** The main road section the `kind` line is on, its block or a field with that gate; -1 when there's none. */
+export const lineSection = (t: Pick<CustomTrack, 'sections' | 'fields'>, kind: 'start' | 'finish') => t.sections.findIndex((id, at) => id === kind
+    || (id === 'field' && !!t.fields?.find(f => f.at.branch === 0 && f.at.at === at)?.tiles.some(tile => tile.kind === kind)))
+
+/** The main road section the start line is on; -1 when there's none. */
+export const startSection = (t: Pick<CustomTrack, 'sections' | 'fields'>) => lineSection(t, 'start')
+
+/** A loop of nothing but fields with the start on one: laps go round the fields, with no road to close. */
+export const isArena = (t: Pick<CustomTrack, 'closed' | 'sections' | 'fields'>) => t.closed && t.sections.length > 0 && t.sections.every(id => id === 'field') && startSection(t) >= 0
+
 /** The shape of the split or join at `spot`, or null when there's none there. */
 export const shapeAt = (t: CustomTrack, spot: SectionSpot, type: 'split' | 'join') => forkShape(lineSections(t, spot.branch)[spot.at], type)
 
@@ -296,10 +308,11 @@ function forkMeets(t: CustomTrack): (InletMeet | null)[] {
 /** Per branch, how it comes into its join, or null when it doesn't. */
 export const forkMerges = (t: CustomTrack): (Merge | null)[] => forkMeets(t).map(m => m && m.runIn !== null ? m as Merge : null)
 
-/** How a branch drives into a field: straight on for `runIn` metres to its edge, then to its hub. */
+/** How a branch drives into a field: straight on for `runIn` metres to the edge of field section `at`, then to its hub. */
 export interface FieldArrival {
     runIn: number
     hub: [number, number]
+    at: SectionSpot
 }
 
 /** Per branch, how it drives into the field it heads for, off the lines walked with no branch coming in yet; null when it doesn't. */
@@ -307,11 +320,17 @@ export function fieldArrivals(t: CustomTrack): (FieldArrival | null)[] {
     const branches = t.branches ?? []
     if (!branches.some(b => b.to && isFieldSection(t, b.to))) return branches.map(() => null)
     const walks = walkLines(customLayout(t, branches.map(() => null), branches.map(() => null)))
+    const fields = walkedFields(t, walks)
     return branches.map((b, i) => {
         if (!b.to || !isFieldSection(t, b.to)) return null
-        const placement = walkedField(walks, b.to)?.placement
-        const runIn = placement ? fieldRunIn(walks[i + 1]!.end, placement) : null
-        return placement && runIn !== null ? { runIn, hub: fieldHub(placement) } : null
+        // Joined fields drive as one, so the road comes into whichever of them it meets first.
+        let best: FieldArrival | null = null
+        for (const f of fieldGroup(fields, b.to)) {
+            const runIn = fieldRunIn(walks[i + 1]!.end, f)
+            if (runIn !== null && runIn < (best?.runIn ?? Infinity)) best = { runIn, hub: fieldHub(f), at: f.spot }
+        }
+        // Only the field it heads for is run on to; any other has to be met right at its edge.
+        return best && (best.runIn < MIN_FIELD_RUN_IN || (best.at.branch === b.to.branch && best.at.at === b.to.at)) ? best : null
     })
 }
 
@@ -330,6 +349,7 @@ export function customLayout(t: CustomTrack, merges: readonly (Merge | null)[] =
         origin: { x: 0, z: 0, heading: 0 },
         pieces: linePieces(t, 0, fields)
     }
+    if (isArena(t)) layout.arena = true
     if (t.branches?.length) {
         layout.branches = t.branches.map((b, i) => {
             const split = shapeAt(t, b.from, 'split')
@@ -337,14 +357,14 @@ export function customLayout(t: CustomTrack, merges: readonly (Merge | null)[] =
             const lead: TrackPiece[] = out ? [{ type: 'field-port', id: out.id, plan: out.field, port: b.from.port! }] : split ? [splitArm(split)] : []
             const merge = merges[i] ?? null
             const join = b.to && merge ? shapeAt(t, b.to, 'join') : null
-            const into = b.to && fields.get(`${b.to.branch}:${b.to.at}`)
-            const arrival = into ? arrivals[i] ?? null : null
-            const tail: TrackPiece[] = join ? joinMerge(join, merge!) : arrival ? [...arrival.runIn >= MIN_FIELD_RUN_IN ? [straight(arrival.runIn)] : [], { type: 'field-in', id: into!.id, hub: arrival.hub }] : []
+            const arrival = b.to && fields.has(`${b.to.branch}:${b.to.at}`) ? arrivals[i] ?? null : null
+            const into = arrival && fields.get(`${arrival.at.branch}:${arrival.at.at}`)
+            const tail: TrackPiece[] = join ? joinMerge(join, merge!) : arrival && into ? [...arrival.runIn >= MIN_FIELD_RUN_IN ? [straight(arrival.runIn)] : [], { type: 'field-in', id: into.id, hub: arrival.hub }] : []
             const at = b.to && pieceIndex(b.to.branch, b.to.at)
             return {
                 pieces: [...lead, ...linePieces(t, i + 1, fields), ...tail],
                 from: { branch: b.from.branch, at: pieceIndex(b.from.branch, b.from.at), ...out ? { hub: true as const } : {} },
-                to: join ? { branch: b.to!.branch, at: at! + 1 } : arrival ? { branch: b.to!.branch, at: at!, hub: true } : null
+                to: join ? { branch: b.to!.branch, at: at! + 1 } : arrival && into ? { branch: arrival.at.branch, at: pieceIndex(arrival.at.branch, arrival.at.at), hub: true } : null
             }
         })
     }
@@ -382,11 +402,18 @@ export function rideTag(id: SectionId, { bank, grade, halfWidth }: Pick<RoadStat
 
 export type CompiledCustomTrack = { def: TrackDef, error: null } | { def: null, error: string }
 
+/** Why a start gate facing in off a field's edge is refused: the grid behind it would be off the field. */
+export const NO_GRID_ROOM = 'the grid needs room behind the start'
+
 /** The drivable course, or why it isn't one yet. */
 export function compileCustomTrack(t: CustomTrack): CompiledCustomTrack {
     if (!t.sections.length) return { def: null, error: 'lay some sections first' }
     const empty = (t.branches ?? []).findIndex(b => !b.sections.length)
     if (empty >= 0) return { def: null, error: `branch ${empty + 1} is empty` }
+    if (isArena(t)) {
+        if (t.branches?.length) return { def: null, error: 'fields-only loops can\'t have branches yet' }
+        if (!t.fields?.some(f => f.tiles.some(k => k.kind === 'checkpoint'))) return { def: null, error: 'add a checkpoint to a field' }
+    }
     const lonely = lonelyJoin(t)
     if (lonely) return { def: null, error: `no road comes into the join on ${lonely.branch ? `branch ${lonely.branch}` : 'the main road'}` }
     const merges = forkMerges(t)
@@ -394,15 +421,19 @@ export function compileCustomTrack(t: CustomTrack): CompiledCustomTrack {
     const arrivals = fieldArrivals(t)
     const unmet = (t.branches ?? []).findIndex((b, i) => b.to && !merges[i] && !arrivals[i])
     if (unmet >= 0) return { def: null, error: `branch ${unmet + 1} doesn't reach its ${isFieldSection(t, t.branches![unmet]!.to!) ? 'field' : 'join'}` }
-    return compiled(customLayout(t, merges, arrivals))
+    return compiled(customLayout(t, merges, arrivals), t)
 }
 
 /** The main road on its own as a course, its splits and joins driven straight through: what a loop closes on whatever its branches do. */
 export const compileMainRoad = (t: CustomTrack) => compiled(customLayout({ ...t, branches: undefined }))
 
-function compiled(layout: TrackLayout): CompiledCustomTrack {
+/** The course built from `layout`; with `t`, also refused when its field start leaves the grid no room. */
+function compiled(layout: TrackLayout, t?: CustomTrack): CompiledCustomTrack {
     try {
-        return { def: buildTrack(layout), error: null }
+        const def = buildTrack(layout)
+        const start = t?.fields?.find(f => fieldLineTile(f, 'start'))
+        if (start && !gridOnFields(walkedFields(t!, walkLines(layout)), start.at)) return { def: null, error: NO_GRID_ROOM }
+        return { def, error: null }
     } catch (e) {
         if (e instanceof TrackLayoutError || e instanceof TrackGraphError) return { def: null, error: e.reason }
         throw e

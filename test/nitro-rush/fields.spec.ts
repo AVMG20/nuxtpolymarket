@@ -116,9 +116,9 @@ describe('field branches', () => {
         expect(errorOf(twoFields(['straight-60'], [{ col: 4, row: 0, kind: 'checkpoint', dir: 0 }]))).toBeNull()
     })
 
-    it('rejects a road back into the field it left', () => {
+    it('takes a road back into the field it left as a detour', () => {
         const t = course(ROAD, { branches: [{ sections: ['left-tight', 'left-tight'], from: { branch: 0, at: 2, port: { edge: 'right', tile: 0 } }, to: { branch: 0, at: 2 } }] })
-        expect(errorOf(t)).toMatch(/loop back into its own field/)
+        expect(errorOf(t)).toBeNull()
     })
 })
 
@@ -221,6 +221,13 @@ describe('field sanitising', () => {
         const padded = [...ROAD.slice(0, 4), ...Array<SectionId>(MAX_SECTIONS - ROAD.length - 1).fill('straight-10'), 'straight-200'] as SectionId[]
         expect(sanitized({ sections: padded })).not.toBeNull()
         expect(sanitized({ sections: padded, fields: [field({ tiles })] })).toBeNull()
+    })
+
+    it('doesn\'t count a field\'s start or finish toward the section cap', () => {
+        const lines: FieldTile[] = [{ col: 1, row: 1, kind: 'start', dir: 0 }, { col: 3, row: 3, kind: 'finish', dir: 0 }]
+        expect(sectionCount(course(ROAD, { fields: [field({ tiles: lines })] }))).toBe(ROAD.length)
+        const pads = Array.from({ length: FIELD_ITEMS_PER_SECTION }, (_, i): FieldTile => ({ col: i, row: 4, kind: 'boost', dir: 0 }))
+        expect(sectionCount(course(ROAD, { fields: [field({ tiles: [...lines, ...pads] })] }))).toBe(ROAD.length + 1)
     })
 })
 

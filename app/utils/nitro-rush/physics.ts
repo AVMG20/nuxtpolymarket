@@ -4,9 +4,9 @@ import {
     NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
-import { fieldBotInput, leaveField, pathAllowed } from './bot-field'
+import { fieldBotInput, fieldPathFor, leaveField, pathAllowed } from './bot-field'
 import { endDrift, hitBarrier, hitCushions, hitFieldWalls } from './physics-walls'
-import { routeFieldPaths } from '#shared/utils/nitro-rush/field-plan'
+import { GRID_BACK, routeFieldPaths } from '#shared/utils/nitro-rush/field-plan'
 import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type CourseField, type Projection, type Route, type Track, type TrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
@@ -69,6 +69,8 @@ export interface CarState {
     rel: number
     /** Seconds left in which the car still counts as pressed on a side wall it last hit. */
     wallPress: number
+    /** Metres driven along the road lately, + forward along it: which way the car is going, steadier than its speed is at a bounce. */
+    way: number
 }
 
 export interface CarInput {
@@ -116,6 +118,10 @@ const railFrame = newTrackFrame()
 const railEntry = newTrackPoint()
 const under = newProjection()
 const padLocal = { u: 0, v: 0 }
+/** Metres back along the road a fall puts the car. */
+const RESPAWN_BACK = 120
+/** How far `way` runs either side: the metres a car has to drive back along the road before it counts as going that way. */
+const WAY_SPAN = 30
 
 const moveTowards = (v: number, target: number, maxDelta: number) =>
     Math.abs(target - v) <= maxDelta ? target : v + Math.sign(target - v) * maxDelta
@@ -132,7 +138,7 @@ export function createCar(track: Track, s: number, lateral = 0, branch = 0): Car
     const car: CarState = {
         x, z, heading, travel: heading, speed: 0, steer: 0,
         drifting: false, driftDir: 1, driftTime: 0, driftSpent: false, nitro: 0, nitroOn: false, boostTime: 0, onBoostPad: false,
-        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftBranch: line.branch, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0
+        proj: newProjection(), y: p.y, vy: 0, airborne: false, leftBranch: line.branch, leftS: s, leftY: p.y, onRail: false, rel: 0, wallPress: 0, way: 0
     }
     // Searched from the known segment, so a spot under another level of a spiral lands on the right one.
     track.locate(x, z, line.branch, line.segmentAt(s), car.proj)
@@ -141,6 +147,38 @@ export function createCar(track: Track, s: number, lateral = 0, branch = 0): Car
         placeOnRail(car, line, s, lateral)
     }
     return car
+}
+
+/** A car on the grid, `lateral` off its middle: on the road short of the start line, or behind a field's start gate facing through it. */
+export function gridCar(track: Track, lateral = 0): CarState {
+    const start = track.lapLines[0]!
+    if (start.field === undefined) return createCar(track, track.startS - GRID_BACK, lateral)
+    const car = createCar(track, track.startS)
+    car.x = start.x - start.tx * GRID_BACK - start.tz * lateral
+    car.z = start.z - start.tz * GRID_BACK + start.tx * lateral
+    car.y = car.leftY = start.y
+    car.heading = car.travel = headingOf(start.tx, start.tz)
+    car.proj = newProjection()
+    track.locate(car.x, car.z, 0, track.segmentAt(track.startS), car.proj, car.y)
+    return car
+}
+
+/**
+ * A fallen car back on the road a run-up behind where it left it, stopped, and the road it's carried over: back the way it came,
+ * which it drove to get there, so a respawn never gains it ground; never more than half a loop, nor past the start or a finish.
+ */
+export function respawnCar(track: Track, fallen: CarState) {
+    const back = Math.min(RESPAWN_BACK, track.closed ? track.length / 2 - 5 : Infinity)
+    // The way it has been driving, not its speed as it fell, which a bounce off a landing can turn round.
+    const against = fallen.way < 0
+    const to = against
+        ? track.forth(fallen.leftBranch, fallen.leftS, back, 10)
+        : track.back(fallen.leftBranch, fallen.leftS, back, track.closed ? -Infinity : track.startS - 10)
+    const car = createCar(track, to.s, 0, to.branch)
+    car.nitro = fallen.nitro
+    car.way = fallen.way
+    if (against && !car.onRail) car.heading = car.travel = wrapAngle(car.heading + Math.PI)
+    return { car, legs: to.legs }
 }
 
 /** Puts a car on rails at distance `s` and offset `lateral`, from the road's own frame. */
@@ -285,6 +323,7 @@ export function stepCar(car: CarState, input: CarInput, track: Track, dt: number
     else stepRoadWalls(car, track, ev, dt)
     hitCushions(car, track, ev)
     stepHeight(car, track, dt, ev)
+    if (!car.airborne && p.field < 0) car.way = Math.max(-WAY_SPAN, Math.min(WAY_SPAN, car.way + Math.cos(car.travel - headingOf(p.tx, p.tz)) * car.speed * dt))
     const now = lineOf(car, track)
     stepBoostPad(car, track, now, ev)
     // Onto a looping or corkscrew: the rails take over from here.
@@ -467,7 +506,7 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     const v = Math.max(0, car.speed)
     const way = route ?? track.routes[0] ?? null
     // On a field it follows its plan across the tiles, as the road's line doesn't hold there.
-    const across = car.proj.field >= 0 && way ? routeFieldPaths(track.fields, way).find(p => p.field === car.proj.field) : undefined
+    const across = car.proj.field >= 0 && way ? fieldPathFor(car, routeFieldPaths(track.fields, way), car.proj.field) : undefined
     if (across) return fieldBotInput(car, across, pace)
     leaveField(car)
     const here = track.onRoute(way, car.proj, car.x, car.z)
@@ -495,7 +534,8 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
         const at = track.ahead(way, here.branch, here.s, d)
         // On a field it slows for the plan's corners, not the line's, which only stands in for it.
         if (at.line.fieldedAt(at.s)) {
-            const path = way && routeFieldPaths(track.fields, way).find(p => track.fields[p.field]!.crossedAt(at.line.branch, at.s))
+            const field = track.fields.find(f => f.crossedAt(at.line.branch, at.s))
+            const path = way && field && fieldPathFor(car, routeFieldPaths(track.fields, way), field.index, true)
             if (path) allowed = Math.min(allowed, Math.sqrt(pathAllowed(path.points, 0, 0, v, pace) ** 2 + 2 * BRAKE_DECEL * 0.7 * d))
             break
         }

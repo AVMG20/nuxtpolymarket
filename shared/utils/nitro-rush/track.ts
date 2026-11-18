@@ -1,9 +1,10 @@
 import { compileGraph, progressOn, type BranchEnd, type BranchLink, type CourseGraph, type Cushion, type Route, type RouteLeg } from './track-graph'
 import { racingLine, type RacingLine } from './racing-line'
 import { newProjection, SPEED_CEILING, TrackLine, wallFoot, type LineDef, type Projection, type TrackGroup } from './track-line'
-import { GATE_SPAN, LEVEL_TOLERANCE, type FieldDef } from './field'
-import { CourseField } from './track-fields'
-import { shortestLap } from './min-lap'
+import { GATE_SPAN, LEVEL_TOLERANCE, type FieldDef, type FieldLineKind } from './field'
+import { CourseField, joinedFields } from './track-fields'
+import { gridAllowance, shortestLap } from './min-lap'
+import { findFarProgress } from './far-line'
 
 export * from './track-line'
 export { MAX_ROUTES, TrackGraphError, type BranchEnd, type Cushion, type Route, type RouteLeg } from './track-graph'
@@ -31,6 +32,7 @@ export interface BranchDef {
     onFields?: LineDef['onFields']
     /** Distance along the branch of each checkpoint. */
     checkpoints?: number[]
+    requiredCheckpoints?: number[]
     from: BranchEnd
     /** The road it joins, or `'finish'` for a sprint's other finish, `runOff` short of its far end. */
     to: BranchEnd | 'finish'
@@ -64,6 +66,8 @@ export interface LapLine {
     reach: number
     /** The field a gate stands on; its `branch` and `s` are only its place along the course. */
     field?: number
+    /** A checkpoint every lap has to drive. */
+    required?: true
 }
 
 /** A place on the road: its line and the distance along it. */
@@ -92,6 +96,8 @@ export class Track extends TrackLine {
     /** Each field's gates' ids, numbered on after every line's checkpoints. */
     readonly fieldGateIds: readonly (readonly number[])[]
     readonly checkpointCount: number
+    /** Ids of the checkpoints every lap has to drive, in order. */
+    readonly requiredIds: readonly number[]
     readonly graph: CourseGraph
     /** The course's fields, by index. */
     readonly fields: readonly CourseField[]
@@ -102,6 +108,7 @@ export class Track extends TrackLine {
     private readonly spot: RoadSpot = { line: this, s: 0 }
     private readonly racingRoutes = new Map<Route, RacingLine[]>()
     private minLap: number | null = null
+    private far: number | null | undefined
 
     constructor(def: TrackDef) {
         super(def, 0)
@@ -124,7 +131,11 @@ export class Track extends TrackLine {
         this.checkpointIds = lines.map(line => line.checkpoints.map(() => next++))
         this.fieldGateIds = this.fields.map(f => f.gates.map(() => next++))
         this.checkpointCount = next
-        this.graph = compileGraph(lines, links, this.checkpointIds, fields.map((f, i) => ({ ...f, gates: this.fieldGateIds[i] })))
+        this.requiredIds = [
+            ...lines.flatMap((line, b) => line.checkpoints.flatMap((_, i) => line.required[i] ? [this.checkpointIds[b]![i]!] : [])),
+            ...this.fields.flatMap(f => f.gates.flatMap((g, i) => g.required ? [this.fieldGateIds[f.index]![i]!] : []))
+        ]
+        this.graph = compileGraph(lines, links, this.checkpointIds, fields.map((f, i) => ({ ...f, gates: this.fieldGateIds[i], group: Math.min(...joinedFields(this.fields, i).map(j => j.index)) })), this.requiredIds)
         for (const line of lines) line.peers = lines
         this.lapLines = this.findLapLines()
     }
@@ -132,6 +143,17 @@ export class Track extends TrackLine {
     /** The fewest checkpoints on any route: a lap counts once the car has touched this many. */
     get k() {
         return this.graph.k
+    }
+
+    /** A loop laid only of fields, which no road meets: laps go round them from the start through every gate. */
+    get arena() {
+        return this.closed && this.fields.length > 0 && this.fields.every(f => !f.mouths.length)
+    }
+
+    /** On a loop started on a field, the progress a lap has to have crossed once more one way than the other (`far-line.ts`); null elsewhere. */
+    get farProgress() {
+        if (this.far === undefined) this.far = findFarProgress(this)
+        return this.far
     }
 
     get routes(): readonly Route[] {
@@ -159,14 +181,22 @@ export class Track extends TrackLine {
     /** The line at (branch, s): a finish there, or the checkpoint with that id. */
     private findLapLines(): LapLine[] {
         const out: LapLine[] = []
-        const add = (kind: LapLine['kind'], id: number, line: TrackLine, s: number) => {
+        const add = (kind: LapLine['kind'], id: number, line: TrackLine, s: number, required = false) => {
             const p = line.pointAt(s)
-            out.push({ kind, id, branch: line.branch, s, x: p.x, y: p.y, z: p.z, tx: p.tx, tz: p.tz, reach: wallFoot(line.wallAt(s)) })
+            out.push({ kind, id, branch: line.branch, s, x: p.x, y: p.y, z: p.z, tx: p.tx, tz: p.tz, reach: wallFoot(line.wallAt(s)), ...required ? { required: true as const } : {} })
         }
-        add('start', -1, this, this.startS)
-        if (!this.closed) add('finish', -1, this, this.finishS)
+        // A field's start or finish is its gate, on the main road's crossing of it.
+        const fieldLine = (kind: FieldLineKind, s: number) => {
+            const f = this.fields.find(f => f[kind])
+            if (!f) return false
+            const g = f[kind]!
+            out.push({ kind, id: -1, branch: 0, s, x: g.x, y: f.y, z: g.z, tx: g.dx, tz: g.dz, reach: GATE_SPAN, field: f.index })
+            return true
+        }
+        if (!fieldLine('start', this.startS)) add('start', -1, this, this.startS)
+        if (!this.closed && !fieldLine('finish', this.finishS)) add('finish', -1, this, this.finishS)
         this.branches.forEach((line, b) => {
-            line.checkpoints.forEach((s, i) => add('checkpoint', this.checkpointIds[b]![i]!, line, s))
+            line.checkpoints.forEach((s, i) => add('checkpoint', this.checkpointIds[b]![i]!, line, s, line.required[i]))
             if (b > 0 && this.links[b]!.to === 'finish') add('finish', -1, line, line.finishS)
         })
         // A gate stands across its tile; its place along the course is the nearest spot on a road across the field.
@@ -174,7 +204,7 @@ export class Track extends TrackLine {
         for (const f of this.fields) {
             f.gates.forEach((g, i) => {
                 this.onField(f, g.x, g.z, p)
-                out.push({ kind: 'checkpoint', id: this.fieldGateIds[f.index]![i]!, branch: p.branch, s: p.s, x: g.x, y: f.y, z: g.z, tx: g.dx, tz: g.dz, reach: GATE_SPAN, field: f.index })
+                out.push({ kind: 'checkpoint', id: this.fieldGateIds[f.index]![i]!, branch: p.branch, s: p.s, x: g.x, y: f.y, z: g.z, tx: g.dx, tz: g.dz, reach: GATE_SPAN, field: f.index, ...g.required ? { required: true as const } : {} })
             })
         }
         return out
@@ -433,12 +463,39 @@ export class Track extends TrackLine {
     }
 
     /**
-     * The least time any lap can take at the speed ceiling: the shortest way round from the start
+     * As `back`, but `by` metres on along the road, each stretch from its earlier end to its later one: back the way a car
+     * driving against the road came. Off the end of a branch it carries on along the road it joins; it stops `short` of a finish.
+     */
+    forth(branch: number, s: number, by: number, short = 0): { branch: number, s: number, legs: RouteLeg[] } {
+        const legs: RouteLeg[] = []
+        let b = branch
+        let at = s
+        let left = by
+        for (let hop = 0; hop < this.branches.length + 1; hop++) {
+            const line = this.branches[b]!
+            const link = this.links[b]
+            const onward = link && link.to !== 'finish' ? link.to : null
+            if (!onward || at + left <= line.length) {
+                const cap = line.closed ? Infinity : onward ? line.length : line.finishS - short
+                const to = Math.max(at, Math.min(at + left, cap))
+                legs.push({ branch: b, from: at, to })
+                return { branch: b, s: line.wrapS(to), legs }
+            }
+            legs.push({ branch: b, from: at, to: line.length })
+            left -= line.length - at
+            b = onward.branch
+            at = onward.at
+        }
+        return { branch: b, s: at, legs }
+    }
+
+    /**
+     * The least time any lap can take at the speed ceiling: the shortest way round from the start, either way on a loop,
      * through at least K checkpoints to a finish (`min-lap.ts`). Walls keep a car on the ground on its road or field,
      * so only a lip lets it leave.
      */
     get minLapSeconds() {
-        if (!this.forked && !this.gaps.length && !this.fields.length) return this.lapLength / SPEED_CEILING
+        if (!this.forked && !this.gaps.length && !this.fields.length) return (this.lapLength - gridAllowance(this)) / SPEED_CEILING
         this.minLap ??= shortestLap(this) / SPEED_CEILING
         return this.minLap
     }

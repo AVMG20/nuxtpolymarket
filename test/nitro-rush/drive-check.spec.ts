@@ -63,10 +63,10 @@ describe('ghost drive check', () => {
         expect(ghostDrivesTrack(loop, cut)).toBe(false)
     })
 
-    it('fails a lap driven on another road, and a lap run backwards', () => {
+    it('fails a lap driven on another road, but passes one run backwards, as a loop goes either way round', () => {
         expect(ghostDrivesTrack(trackOf(true, LONG_RECTANGLE), flying)).toBe(false)
         const n = flying.data.length / GHOST_POSE
-        expect(ghostDrivesTrack(loop, edit(flying, 0, k => at(flying.data, n - 1 - k)))).toBe(false)
+        expect(ghostDrivesTrack(loop, edit(flying, 0, k => at(flying.data, n - 1 - k)))).toBe(true)
     })
 
     describe('flights off a jump at top speed', () => {

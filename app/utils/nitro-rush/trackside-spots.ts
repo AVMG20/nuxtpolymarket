@@ -182,9 +182,12 @@ function fixtureClear(track: Track, line: TrackLine, s: number, f: Fixture, radi
 }
 
 /** Lap lines on a line, by distance along it. */
-function lapLinesOn(track: Track, line: TrackLine, kinds: readonly string[] = ['start', 'finish', 'checkpoint']) {
-    return track.lapLines.filter(l => l.branch === line.branch && kinds.includes(l.kind)).map(l => l.s)
+function lapLinesOn(track: Track, line: TrackLine) {
+    return track.lapLines.filter(l => l.branch === line.branch).map(l => l.s)
 }
+
+/** The start and finish lines across a line's road; one on a field has its gantry and no flags. */
+const endLinesOn = (track: Track, line: TrackLine) => track.lapLines.filter(l => l.branch === line.branch && l.kind !== 'checkpoint' && l.field === undefined).map(l => l.s)
 
 const near = (line: TrackLine, s: number, spots: readonly number[], d: number) => spots.some(t => along(line, s, t) < d)
 
@@ -310,7 +313,7 @@ function flagAt(track: Track, line: TrackLine, s: number, side: -1 | 1, laps: re
 /** Feather flags along both walls round the start and any finish, a cluster to each wall. */
 function startFlagsOn(track: Track, line: TrackLine, out: Fixture[][]) {
     const laps = lapLinesOn(track, line)
-    for (const centre of lapLinesOn(track, line, ['start', 'finish'])) {
+    for (const centre of endLinesOn(track, line)) {
         for (const side of [-1, 1] as const) {
             const cluster: Fixture[] = []
             for (let d = -FLAG_REACH; d <= FLAG_REACH; d += FLAG_SPACING) {
@@ -439,7 +442,7 @@ export function tracksideLayout(track: Track): TracksideLayout {
         chevronsOn(track, line, chevrons, keepOut)
         jumpSignsOn(track, line, jumpSigns, keepOut)
         startFlagsOn(track, line, flags)
-        for (const s of lapLinesOn(track, line, ['start', 'finish'])) keepOut.push({ line, s, d: FLAG_REACH + 2 })
+        for (const s of endLinesOn(track, line)) keepOut.push({ line, s, d: FLAG_REACH + 2 })
     }
     adSlots(track, keepOut, overheads, { billboards, hoardings, flags })
     return { billboards, chevrons, jumpSigns, hoardings, flags, overheads }

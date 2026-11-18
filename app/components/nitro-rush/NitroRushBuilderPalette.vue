@@ -80,7 +80,7 @@ function onWheel(e: WheelEvent) {
       >
         <span class="nr-section-thumb">
           <img v-if="thumbs[id]" :src="thumbs[id]" alt="" draggable="false">
-          <UIcon v-else :name="s.icon" class="size-5" />
+          <UIcon v-else :name="s.icon" class="size-5" :class="{ 'nr-required-icon': id === 'checkpoint-required' }" />
         </span>
         <span class="nr-section-name">{{ s.label }}</span>
       </button>

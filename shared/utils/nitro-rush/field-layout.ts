@@ -1,4 +1,4 @@
-import { alongEdge, edgeAt, edgePoint, fieldLocal, fieldAxes, fieldsOverlap, openingsFault, tileInside, walledOffFault, type FieldDef, type FieldMouth, type FieldPlacement } from './field'
+import { alongEdge, edgeAt, fieldLineTile, fieldLocal, fieldAxes, fieldsOverlap, groupWalledOffFault, mouthTiles, openingsFault, walledOffFault, type FieldDef, type FieldPlacement } from './field'
 import type { LayoutWalk, Pose } from './layout'
 import { MIN_CLEARANCE } from './road-checks'
 import { wallFoot } from './track-line'
@@ -49,8 +49,8 @@ function crossedFields(walks: readonly LayoutWalk[], home: (line: number, point:
     return out
 }
 
-/** Every field of a built layout, by id, with the mouths every line makes in it; `lineS` gives a point's distance along each line. */
-export function fieldDefs(walks: readonly LayoutWalk[], lineS: readonly ((at: number) => number)[], fail: Fail): FieldDef[] {
+/** Every field of a built layout, by id, with the mouths every line makes in it; `lineS` gives a point's distance along each line. An `arena`'s fields have none. */
+export function fieldDefs(walks: readonly LayoutWalk[], lineS: readonly ((at: number) => number)[], fail: Fail, arena = false): FieldDef[] {
     const defs: FieldDef[] = []
     for (const w of walks) {
         for (const f of w.fields) if (f.kind === 'cross' && (defs[f.id] || !f.placement)) fail('a field is laid twice')
@@ -58,6 +58,12 @@ export function fieldDefs(walks: readonly LayoutWalk[], lineS: readonly ((at: nu
     for (const [id, def] of crossedFields(walks, (l, at) => ({ branch: l, at: lineS[l]!(at) }))) defs[id] = def
     // Spread, as a sparse array's `some` skips its holes.
     if ([...defs].some(d => !d)) fail('a field is missing')
+    if (arena) {
+        const from = defs.findIndex(d => fieldLineTile(d.plan, 'start'))
+        const fault = groupWalledOffFault(defs, { field: from, ...fieldLineTile(defs[from]!.plan, 'start')! })
+        if (fault) fail(fault)
+        return defs
+    }
     const halves: number[][] = defs.map(() => [])
     walks.forEach((w, l) => {
         for (const f of w.fields) {
@@ -72,7 +78,7 @@ export function fieldDefs(walks: readonly LayoutWalk[], lineS: readonly ((at: nu
         }
     })
     defs.forEach((def, i) => {
-        const fault = openingsFault(def.plan, def.mouths, halves[i]!) ?? walledOffFault(def.plan, def.mouths.map(m => mouthTile(def, m)))
+        const fault = openingsFault(def.plan, def.mouths, halves[i]!) ?? walledOffFault(def.plan, def.mouths.flatMap(m => mouthTiles(def.plan, m.edge, m.at)))
         if (fault) fail(fault)
     })
     return defs
@@ -97,12 +103,6 @@ export function draftFieldDefs(walks: readonly LayoutWalk[], at: (line: number, 
         }
     })
     return { defs, ids }
-}
-
-/** The tile a mouth opens onto. */
-function mouthTile(def: FieldDef, m: FieldMouth) {
-    const { u, v } = edgePoint(def.plan, m.edge, m.at)
-    return tileInside(def.plan, u, v)
 }
 
 /** How far a road ending at `end` runs straight on to come square into the field at `placement`, or why it can't. */

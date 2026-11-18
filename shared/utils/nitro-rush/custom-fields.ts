@@ -1,4 +1,4 @@
-import { edgeTile, edgeTiles, FIELD_EDGES, gateAcross, FIELD_MAX, FIELD_MAX_ITEMS, FIELD_TILE, defaultFieldPlan, isBlocking, tileMap, type FieldDir, type FieldPlan, type FieldPort, type FieldTile } from './field'
+import { edgeTiles, FIELD_EDGES, gateAcross, FIELD_MAX, FIELD_MAX_ITEMS, FIELD_TILE, defaultFieldPlan, isBlocking, isFieldLine, isSlot, portTiles, tileMap, type FieldDir, type FieldPlan, type FieldPort, type FieldTile, type FieldTileKind } from './field'
 import type { CustomBranch, SectionId, SectionSpot } from './custom'
 
 /** How a player's course stores its fields, and the checks a stored one has to pass. */
@@ -16,17 +16,17 @@ export interface FieldSpot extends SectionSpot {
 /** Field items that count as one section toward the course's cap, so a crowded field can't dodge it. */
 export const FIELD_ITEMS_PER_SECTION = 4
 
-/** What a course's field items add to its section count. */
-export const fieldItemsCost = (fields: readonly CustomField[] | undefined) => (fields ?? []).reduce((n, f) => n + Math.ceil(f.tiles.length / FIELD_ITEMS_PER_SECTION), 0)
+/** What a course's field items add to its section count; a start or finish isn't extra, as every course has one. */
+export const fieldItemsCost = (fields: readonly CustomField[] | undefined) => (fields ?? []).reduce((n, f) => n + Math.ceil(f.tiles.filter(t => !isFieldLine(t.kind)).length / FIELD_ITEMS_PER_SECTION), 0)
 
-const TILE_KINDS: readonly FieldTile['kind'][] = ['boost', 'checkpoint', 'block', 'pillar']
+const TILE_KINDS: readonly FieldTile['kind'][] = ['boost', 'checkpoint', 'start', 'finish', 'block', 'pillar']
 const isCount = (v: unknown, max = Infinity): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) < max
 
 /** A stored mouth, its tile still to be checked against its field's size; null if it isn't one. */
 export function sanitizePort(raw: unknown): FieldPort | null {
     if (!raw || typeof raw !== 'object') return null
     const { edge, tile } = raw as Record<string, unknown>
-    return FIELD_EDGES.includes(edge as FieldPort['edge']) && isCount(tile) ? { edge: edge as FieldPort['edge'], tile: tile as number } : null
+    return FIELD_EDGES.includes(edge as FieldPort['edge']) && isSlot(tile) ? { edge: edge as FieldPort['edge'], tile } : null
 }
 
 const onGrid = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= FIELD_TILE && (v as number) <= FIELD_MAX && (v as number) % FIELD_TILE === 0
@@ -38,27 +38,31 @@ function sanitizeTiles(raw: unknown, cols: number, rows: number): FieldTile[] | 
     const out: FieldTile[] = []
     for (const t of raw) {
         if (!t || typeof t !== 'object') return null
-        const { col, row, kind, dir } = t as Record<string, unknown>
+        const { col, row, kind, dir, required } = t as Record<string, unknown>
         if (!isCount(col, cols) || !isCount(row, rows) || !TILE_KINDS.includes(kind as FieldTile['kind'])) return null
         if (out.some(o => o.col === col && o.row === row)) return null
+        // Only a checkpoint can be required, and only ever stored as true.
+        if (required !== undefined && (required !== true || kind !== 'checkpoint')) return null
         if (kind === 'block' || kind === 'pillar') out.push({ col, row, kind })
-        else if (isCount(dir, 4)) out.push({ col, row, kind: kind as 'boost' | 'checkpoint', dir: dir as FieldDir })
+        else if (isCount(dir, 4)) out.push({ col, row, kind: kind as Exclude<FieldTileKind, 'block' | 'pillar'>, dir: dir as FieldDir, ...required ? { required: true as const } : {} })
         else return null
     }
+    if (out.filter(t => t.kind === 'start').length > 1 || out.filter(t => t.kind === 'finish').length > 1) return null
     return out.sort((a, b) => a.row - b.row || a.col - b.col)
 }
 
-/** Whether a field's mouths fit on its edges: not off them, a tile apart or more on one edge, never onto a blocked tile, nor a gate whose posts stand across it. */
+/** Whether a field's mouths fit on its edges: on a slot, more than a tile apart on one edge, never onto a blocked tile, nor a gate whose posts stand across it. */
 export function mouthsFit(plan: FieldPlan, mouths: readonly FieldPort[]): boolean {
     const map = tileMap(plan)
     const cols = plan.width / FIELD_TILE
     return mouths.every((m, i) => {
-        if (m.tile >= edgeTiles(plan, m.edge)) return false
-        // A road with its walls is wider than a tile, so mouths on neighbouring tiles would overlap.
+        if (!isSlot(m.tile, edgeTiles(plan, m.edge))) return false
+        // A road with its walls is wider than a tile, so mouths a tile apart or less would overlap.
         if (mouths.slice(i + 1).some(o => o.edge === m.edge && Math.abs(o.tile - m.tile) <= 1)) return false
-        const { col, row } = edgeTile(plan, m)
-        const tile = map.get(col + row * cols)
-        return !isBlocking(tile?.kind) && !gateAcross(tile, m.edge)
+        return portTiles(plan, m).every(({ col, row }) => {
+            const tile = map.get(col + row * cols)
+            return !isBlocking(tile?.kind) && !gateAcross(tile, m.edge)
+        })
     })
 }
 
@@ -94,7 +98,7 @@ export function sanitizeFields(raw: unknown, lines: readonly (readonly SectionId
 /** A stored field's plan, or null if it isn't one. */
 function sanitizePlan(raw: unknown): FieldPlan | null {
     const { width, length, entry, exit, tiles } = raw as Record<string, unknown>
-    if (!onGrid(width) || !onGrid(length) || !isCount(entry, width / FIELD_TILE)) return null
+    if (!onGrid(width) || !onGrid(length) || !isSlot(entry, width / FIELD_TILE)) return null
     const port = sanitizePort(exit)
     const items = sanitizeTiles(tiles, width / FIELD_TILE, length / FIELD_TILE)
     return port && items ? { width, length, entry, exit: port, tiles: items } : null

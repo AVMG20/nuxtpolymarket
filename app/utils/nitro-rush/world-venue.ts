@@ -106,6 +106,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
     const neonMat = own(new THREE.MeshBasicMaterial({ color: NEON_PINK }))
     // A checkpoint's neon is its own colour, so it doesn't pass for the pink walls round it.
     const checkpointNeon = own(new THREE.MeshBasicMaterial({ color: LINE_COLORS.checkpoint }))
+    const requiredNeon = own(new THREE.MeshBasicMaterial({ color: LINE_COLORS.required }))
     const boardGeo = own(new THREE.BoxGeometry(BANNER_WIDTH + 0.2, BOARD_HEIGHT, 0.6))
     const bannerGeo = own(new THREE.PlaneGeometry(BANNER_WIDTH, BANNER_WIDTH / 4))
     const lightGeo = own(new THREE.CylinderGeometry(0.3, 0.3, 0.15, 20).rotateX(Math.PI / 2))
@@ -128,7 +129,7 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
             }
         }
         for (const face of [1, -1]) {
-            const neon = new THREE.Mesh(neonGeo, l.kind === 'checkpoint' ? checkpointNeon : neonMat)
+            const neon = new THREE.Mesh(neonGeo, l.required ? requiredNeon : l.kind === 'checkpoint' ? checkpointNeon : neonMat)
             neon.position.z = face * ARCH_TUBE
             g.add(neon)
         }
@@ -159,6 +160,6 @@ export function buildGantries({ track, group, own }: WorldKit, steel: THREE.Mate
         group.add(g)
     }
     const SUBS = { start: track.closed ? 'START / FINISH' : 'START', finish: 'FINISH', checkpoint: 'CHECKPOINT' }
-    for (const l of track.lapLines) buildGantry(l, SUBS[l.kind], l.kind === 'start')
+    for (const l of track.lapLines) buildGantry(l, l.required ? 'REQUIRED' : SUBS[l.kind], l.kind === 'start')
     return startLights
 }

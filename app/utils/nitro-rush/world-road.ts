@@ -194,7 +194,8 @@ export function buildTrackside({ track, own, add }: WorldKit) {
     checker.wrapT = THREE.RepeatWrapping
     const checkerMat = own(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }))
     for (const l of track.lapLines) {
-        if (l.kind !== 'checkpoint') add(ribbon(track.branches[l.branch]!, l.s - 1.2, l.s + 1.2, roadLeft, roadRight, 0.016, 2.4), checkerMat)
+        // A field's start or finish is painted on the field, across its gate.
+        if (l.kind !== 'checkpoint' && l.field === undefined) add(ribbon(track.branches[l.branch]!, l.s - 1.2, l.s + 1.2, roadLeft, roadRight, 0.016, 2.4), checkerMat)
     }
 }
 

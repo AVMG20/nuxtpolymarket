@@ -328,9 +328,10 @@
 }
 
 /* The field editor: tiles from above, scaled to fit, entry at the bottom. */
+/* Tall enough that a group of big fields keeps tiles you can hit, short enough to leave the map in view. */
 .nr-root .nr-field-editor {
     width: 100%;
-    max-height: 18rem;
+    max-height: max(18rem, min(55vh, 36rem));
     touch-action: none;
     cursor: crosshair;
     user-select: none;
@@ -374,10 +375,42 @@
 .nr-root .nr-field-arrow { fill: none; stroke: #2bff5a; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 .nr-root .nr-field-gate-tile { fill: rgb(61 242 255 / 0.14); }
 .nr-root .nr-field-gate-post { fill: #fff; stroke: var(--nr-cyan); stroke-width: 0.6; }
-.nr-root .nr-field-slot rect { fill: rgb(255 255 255 / 0.06); stroke: rgb(255 255 255 / 0.15); stroke-width: calc(0.4px * var(--u, 1)); }
-.nr-root .nr-field-slot rect.is-taken { fill: rgb(255 43 214 / 0.35); stroke: var(--nr-pink); }
+/* A required checkpoint is orange: apart from the cyan gates, the gold finish and the red hazards. */
+.nr-root .is-required .nr-field-gate { stroke: var(--nr-orange); }
+.nr-root .is-required .nr-field-gate-tile { fill: rgb(255 138 31 / 0.22); }
+.nr-root .is-required .nr-field-gate-post { stroke: var(--nr-orange); }
+.nr-root .nr-field-line-badge.is-required { --c: var(--nr-orange); }
+.nr-root .nr-required-icon { color: var(--nr-orange); }
+/* Its own switch beside the tools, so it reads as an option of the checkpoint tool and not a tool. */
+.nr-root .nr-field-required {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 4px 8px;
+    border: 1px solid rgb(255 255 255 / 0.2);
+    border-radius: 9px;
+    background: rgb(5 5 20 / 0.6);
+    color: rgb(255 255 255 / 0.6);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.nr-root .nr-field-required.is-active { border-color: var(--nr-orange); color: #fff; background: rgb(255 138 31 / 0.3); box-shadow: 0 0 12px rgb(255 138 31 / 0.4); }
+/* A start is white and a finish gold, so neither passes for a cyan gate or a green pad; the halo grows with --u to show on a big group. */
+.nr-root .nr-field-line-tile { --c: #fff; fill: var(--c); fill-opacity: 0.2; stroke: var(--c); stroke-opacity: 0.8; stroke-width: calc(1.6px * var(--u, 1)); }
+.nr-root .nr-field-line-tile.is-finish, .nr-root .nr-field-line-arrow.is-finish, .nr-root .nr-field-line-badge.is-finish { --c: var(--nr-gold); }
+.nr-root .nr-field-line-band { fill: #fff; }
+.nr-root .nr-field-line-check { fill: #05050f; }
+.nr-root .nr-field-line-arrow { --c: #fff; fill: none; stroke: var(--c); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.nr-root .nr-field-line-badge { --c: #fff; fill: var(--c); stroke: #05050f; stroke-width: 0.6; }
+.nr-root .nr-field-line-letter { fill: #05050f; font: 800 3.2px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.nr-root .nr-field-slot-mark { fill: rgb(255 255 255 / 0.06); stroke: rgb(255 255 255 / 0.15); stroke-width: calc(0.4px * var(--u, 1)); pointer-events: none; }
+.nr-root .nr-field-slot-mark.is-taken { fill: rgb(255 43 214 / 0.35); stroke: var(--nr-pink); }
+/* An invisible box round each mark, edge to edge with its neighbours', so a tap anywhere along an edge finds the nearest slot. */
+.nr-root .nr-field-slot-hit { fill: transparent; stroke: none; }
 .nr-root .nr-field-slot.is-live { cursor: pointer; }
-.nr-root .nr-field-slot.is-live rect { stroke: var(--nr-cyan); }
-.nr-root .nr-field-slot.is-live:hover rect { fill: rgb(61 242 255 / 0.3); }
+.nr-root .nr-field-slot.is-live .nr-field-slot-mark { stroke: var(--nr-cyan); }
+.nr-root .nr-field-slot.is-live:hover .nr-field-slot-mark { fill: rgb(61 242 255 / 0.3); }
+.nr-root .nr-field-slot.is-picked .nr-field-slot-mark { fill: rgb(61 242 255 / 0.45); stroke: var(--nr-cyan); }
 .nr-root .nr-field-slot-label { fill: #fff; font: 700 5px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 .nr-root .nr-field-arrival { fill: var(--nr-gold); stroke: #05050f; stroke-width: 0.8; }

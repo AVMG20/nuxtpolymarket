@@ -1,6 +1,6 @@
 import type { SectionSpot } from '#shared/utils/nitro-rush/custom'
 import type { GrowEdge } from '#shared/utils/nitro-rush/field-edit'
-import { edgeLength, edgePoint, edgeTiles, FIELD_EDGES, FIELD_TILE, fieldLocal, fieldPoint, portLocal, type FieldDir, type FieldEdge, type FieldPort, type FieldTileKind } from '#shared/utils/nitro-rush/field'
+import { edgeLength, edgePoint, edgeSlots, FIELD_EDGES, FIELD_TILE, fieldLocal, fieldPoint, portLocal, type FieldDir, type FieldEdge, type FieldPort, type FieldTileKind } from '#shared/utils/nitro-rush/field'
 import { inFrame, insideField, quarterTurns, type WalkedFieldSection } from '#shared/utils/nitro-rush/field-group'
 
 /** The field editor's picture: fields joined edge to edge, from above in the first one's frame with its entry at the bottom; x runs right and y down, in metres. */
@@ -21,8 +21,9 @@ export interface FieldEditorPicture {
     slot: number
     font: number
     floors: { key: string, x: number, y: number, width: number, height: number, selected: boolean, cols: number[], rows: number[] }[]
-    items: { key: string, kind: FieldTileKind, x: number, y: number, turn: number }[]
-    slots: { edge: FieldEdge, tile: number, x: number, y: number, width: number, height: number, label: string, taken: boolean }[]
+    items: { key: string, kind: FieldTileKind, x: number, y: number, turn: number, required: boolean }[]
+    /** Every 10 m along an open edge, taken ones last so they sit on top; `hit` is the box a tap lands in, wider than the mark. */
+    slots: { edge: FieldEdge, tile: number, x: number, y: number, width: number, height: number, hit: { x: number, y: number, width: number, height: number }, label: string, taken: boolean }[]
     grow: { edge: GrowEdge, x: number, y: number, radius: number }[]
     arrivals: { line: number, x: number, y: number }[]
 }
@@ -62,14 +63,15 @@ function covered(group: readonly WalkedFieldSection[], f: WalkedFieldSection, u:
 
 /**
  * The group drawn round its `selected` field, which alone shows its edge slots, and its grow buttons when it `grows`;
- * `ports` label the roads leaving it, and `arrivals` are where roads drive into the group, in the world.
+ * `ports` label the roads leaving it, and `arrivals` are where roads drive into the group, in the world. Without `roads` (an arena) it has no slots.
  */
 export function fieldEditorPicture(
     group: readonly WalkedFieldSection[],
     selected: number,
     ports: readonly { line: number, port: FieldPort }[],
     arrivals: readonly { line: number, x: number, z: number }[],
-    grows = true
+    grows = true,
+    roads = true
 ): FieldEditorPicture {
     const { base, u0, v1, width, height } = frameOf(group)
     const at = (f: WalkedFieldSection, u: number, v: number) => {
@@ -96,7 +98,7 @@ export function fieldEditorPicture(
         const q = quarterTurns(base, f)
         return f.plan.tiles.map((t) => {
             const { x, y } = at(f, (t.col + 0.5) * T, (t.row + 0.5) * T)
-            return { key: `${f.spot.branch}:${f.spot.at}:${t.col},${t.row}`, kind: t.kind, x, y, turn: 'dir' in t ? ((t.dir + q) % 4) * 90 : 0 }
+            return { key: `${f.spot.branch}:${f.spot.at}:${t.col},${t.row}`, kind: t.kind, x, y, turn: 'dir' in t ? ((t.dir + q) % 4) * 90 : 0, required: 'required' in t && !!t.required }
         })
     })
 
@@ -111,7 +113,7 @@ export function fieldEditorPicture(
         return { x: p.x + sx * out, y: p.y + sy * out, across: sy !== 0 }
     }
 
-    const slots = FIELD_EDGES.flatMap(edge => Array.from({ length: edgeTiles(f.plan, edge) }, (_, tile) => {
+    const slots = (roads ? FIELD_EDGES : []).flatMap(edge => edgeSlots(f.plan, edge).flatMap((tile) => {
         const { u, v, dir } = portLocal(f.plan, { edge, tile })
         const p = outside(u, v, dir, slot / 2 + gap)
         if (!p) return []
@@ -119,11 +121,16 @@ export function fieldEditorPicture(
         const isExit = f.plan.exit.edge === edge && f.plan.exit.tile === tile
         const port = ports.find(o => o.port.edge === edge && o.port.tile === tile)
         const label = isEntry ? 'IN' : isExit ? 'OUT' : port ? `${port.line}` : ''
-        const along = T - 4
-        return [{ edge, tile, x: p.x, y: p.y, width: p.across ? along : slot, height: p.across ? slot : along, label, taken: !!label }]
-    })).flat()
+        // Free marks stay narrow so a taken one's label covers its neighbours; every tap lands on the nearest slot.
+        const along = label ? T - 4 : T / 2 - 4
+        const reach = label ? T - 4 : T / 2
+        const deep = slot + gap * 2
+        const box = (a: number, b: number) => ({ x: p.x, y: p.y, width: p.across ? a : b, height: p.across ? b : a })
+        return [{ edge, tile, ...box(along, slot), hit: box(reach, deep), label, taken: !!label }]
+    })).sort((a, b) => Number(a.taken) - Number(b.taken))
 
-    const grow = !grows ? [] : GROW_EDGES.flatMap((edge) => {
+    const grow = GROW_EDGES.flatMap((edge) => {
+        if (!grows) return []
         const { u, v, dir } = edgePoint(f.plan, edge, edgeLength(f.plan, edge) / 2)
         const p = outside(u, v, dir, gap * 2 + slot + radius)
         return p ? [{ edge, x: p.x, y: p.y, radius }] : []

@@ -6,13 +6,13 @@ export const FIELD_MAX = 200
 export const FIELD_MAX_ITEMS = 32
 /** Metres a field's crossing runs square to an edge at each mouth, so the road's frame there points straight through it. */
 export const MOUTH_STUB = 2
-/** A pillar's radius: a bollard in the middle of its tile. */
-export const PILLAR_RADIUS = 1.5
+/** A pillar's radius: a tower in the middle of its tile, leaving room either side. */
+export const PILLAR_RADIUS = 5
 
 export type FieldEdge = 'entry' | 'exit' | 'left' | 'right'
 export const FIELD_EDGES: readonly FieldEdge[] = ['entry', 'exit', 'left', 'right']
 
-/** A road's mouth on a field's edge: which edge, and which tile along it. */
+/** A road's mouth on a field's edge: which edge, and which tile along it; a half step (`4.5`) sits on the line between two tiles. */
 export interface FieldPort {
     edge: FieldEdge
     tile: number
@@ -21,32 +21,49 @@ export interface FieldPort {
 /** Quarter turns from the field's heading, clockwise seen from above: the way a gate is crossed and a pad pushes. */
 export type FieldDir = 0 | 1 | 2 | 3
 
+/** A gate that starts or ends the lap, counted only when crossed in its `dir`. */
+export type FieldLineKind = 'start' | 'finish'
+
 export type FieldTile =
-    | { col: number, row: number, kind: 'boost' | 'checkpoint', dir: FieldDir }
+    /** `required` only ever on a checkpoint: every lap has to drive it. */
+    | { col: number, row: number, kind: 'boost' | 'checkpoint' | FieldLineKind, dir: FieldDir, required?: true }
     | { col: number, row: number, kind: 'block' | 'pillar' }
 
 export type FieldTileKind = FieldTile['kind']
+export type FieldGateKind = 'checkpoint' | FieldLineKind
 
 /** What a field section lays: its size, where the road it's laid on comes in and carries on, and its tiles. */
 export interface FieldPlan {
     width: number
     length: number
-    /** The entry-edge tile the road comes in through. */
+    /** The entry-edge tile the road comes in through, in half steps like a port's. */
     entry: number
     exit: FieldPort
     tiles: FieldTile[]
 }
 
-/** Opens onto the middle of the entry edge and leaves through the middle of the far one. */
+/** Opens onto the middle of the entry edge and leaves through the middle of the far one: between two tiles when the width is even. */
 export function defaultFieldPlan(width = 100, length = 100): FieldPlan {
-    const across = Math.floor(width / FIELD_TILE / 2)
+    const across = (width / FIELD_TILE - 1) / 2
     return { width, length, entry: across, exit: { edge: 'exit', tile: across }, tiles: [] }
 }
 
 export const isBlocking = (kind: FieldTileKind | undefined) => kind === 'block' || kind === 'pillar'
+/** Gates stand on posts: checkpoints, starts and finishes. */
+export const isGate = (kind: string | undefined): kind is FieldGateKind => kind === 'checkpoint' || kind === 'start' || kind === 'finish'
+export const isFieldLine = (kind: string | undefined): kind is FieldLineKind => kind === 'start' || kind === 'finish'
 
 /** Whether `tile`, where a road meets the field on `edge`, is a gate turned across that road, a post in its way. */
-export const gateAcross = (tile: FieldTile | undefined, edge: FieldEdge) => tile?.kind === 'checkpoint' && tile.dir % 2 !== (edge === 'entry' || edge === 'exit' ? 0 : 1)
+export const gateAcross = (tile: FieldTile | undefined, edge: FieldEdge) => !!tile && 'dir' in tile && isGate(tile.kind) && tile.dir % 2 !== (edge === 'entry' || edge === 'exit' ? 0 : 1)
+
+/** The plan's `kind` gate; a field holds one of each at most. */
+export const fieldLineTile = (plan: Pick<FieldPlan, 'tiles'>, kind: FieldLineKind) => plan.tiles.find(t => t.kind === kind) as (FieldTile & { kind: FieldLineKind, dir: FieldDir }) | undefined
+
+/** Where the field's `kind` gate stands in the world, or null. */
+export function fieldLinePoint(f: FieldPlacement, kind: FieldLineKind) {
+    const line = fieldLineTile(f.plan, kind)
+    return line ? fieldPoint(f, (line.col + 0.5) * FIELD_TILE, (line.row + 0.5) * FIELD_TILE) : null
+}
 
 /** How many tiles run along `edge`. */
 export const edgeTiles = (plan: Pick<FieldPlan, 'width' | 'length'>, edge: FieldEdge) => (edge === 'entry' || edge === 'exit' ? plan.width : plan.length) / FIELD_TILE
@@ -56,6 +73,21 @@ export function edgeTile(plan: Pick<FieldPlan, 'width' | 'length'>, { edge, tile
     if (edge === 'entry') return { col: tile, row: 0 }
     if (edge === 'exit') return { col: tile, row: plan.length / FIELD_TILE - 1 }
     return { col: edge === 'left' ? 0 : plan.width / FIELD_TILE - 1, row: tile }
+}
+
+/** Whether `tile` is a slot on an edge `tiles` long: a tile's middle or the line between two, every 10 m, so a bend off one edge meets the next square. */
+export const isSlot = (tile: unknown, tiles = Infinity): tile is number => typeof tile === 'number' && Number.isInteger(tile * 2) && tile >= 0 && tile <= tiles - 1
+
+/** Every slot along `edge`, in half steps. */
+export const edgeSlots = (plan: Pick<FieldPlan, 'width' | 'length'>, edge: FieldEdge) => Array.from({ length: edgeTiles(plan, edge) * 2 - 1 }, (_, i) => i / 2)
+
+/** The slot nearest `at` metres along an edge. */
+export const slotAt = (at: number) => Math.round(at * 2 / FIELD_TILE - 1) / 2
+
+/** The tiles just inside a port: its own, or both either side of the line it sits on. */
+export function portTiles(plan: Pick<FieldPlan, 'width' | 'length'>, { edge, tile }: FieldPort): { col: number, row: number }[] {
+    const along = Number.isInteger(tile) ? [tile] : [tile - 0.5, tile + 0.5]
+    return along.map(t => edgeTile(plan, { edge, tile: t }))
 }
 
 /** The spot `at` metres along `edge`, in (u, v), and the way out of the field there in quarter turns from its heading. */
@@ -129,8 +161,10 @@ export function portPose(f: FieldPlacement, port: FieldPort) {
     return { x, z, heading: dirHeading(f.heading, dir) }
 }
 
-/** The field's middle, where every road through it meets. */
-export const fieldHub = (f: FieldPlacement) => fieldPoint(f, f.plan.width / 2, f.plan.length / 2)
+/** Where every road through the field meets: its start gate, else its finish, so the lap is cut there, else its middle. */
+export function fieldHub(f: FieldPlacement) {
+    return fieldLinePoint(f, 'start') ?? fieldLinePoint(f, 'finish') ?? fieldPoint(f, f.plan.width / 2, f.plan.length / 2)
+}
 
 /** A wall face from (x0, z0) to (x1, z1); (nx, nz) is its unit normal, pointing to the side the car is kept on. */
 export interface WallSegment {
@@ -276,7 +310,47 @@ export function walledOffFault(plan: FieldPlan, mouths: readonly { col: number, 
     if (!mouths.length) return null
     const cols = plan.width / FIELD_TILE
     const seen = reachableTiles(plan, mouths.slice(0, 1))
-    const stranded = [...mouths, ...plan.tiles.filter(t => t.kind === 'boost' || t.kind === 'checkpoint')].some(t => !seen[t.col + t.row * cols])
+    const stranded = [...mouths, ...plan.tiles.filter(t => t.kind === 'boost' || isGate(t.kind))].some(t => !seen[t.col + t.row * cols])
+    return stranded ? 'part of the field is walled off' : null
+}
+
+/** Why the items of joined fields `group` aren't all in reach of tile (col, row) on `group[from]`, or null: tiles join across shared edges. */
+export function groupWalledOffFault(group: readonly LevelField[], from: { field: number, col: number, row: number }): string | null {
+    const sizes = group.map(f => ({ cols: f.plan.width / FIELD_TILE, rows: f.plan.length / FIELD_TILE }))
+    const offsets = sizes.map((_, i) => sizes.slice(0, i).reduce((n, s) => n + s.cols * s.rows, 0))
+    const maps = group.map(f => tileMap(f.plan))
+    const seen = new Uint8Array(offsets[offsets.length - 1]! + sizes[sizes.length - 1]!.cols * sizes[sizes.length - 1]!.rows)
+    const queue: [number, number, number][] = []
+    const visit = (i: number, col: number, row: number) => {
+        const k = col + row * sizes[i]!.cols
+        if (seen[offsets[i]! + k] || maps[i]!.get(k)?.kind === 'block') return
+        seen[offsets[i]! + k] = 1
+        queue.push([i, col, row])
+    }
+    visit(from.field, from.col, from.row)
+    while (queue.length) {
+        const [i, col, row] = queue.pop()!
+        const f = group[i]!
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nc = col + dc
+            const nr = row + dr
+            if (nc >= 0 && nr >= 0 && nc < sizes[i]!.cols && nr < sizes[i]!.rows) {
+                visit(i, nc, nr)
+                continue
+            }
+            // Off this field's edge, onto whichever level field lies there.
+            const [x, z] = fieldPoint(f, (nc + 0.5) * FIELD_TILE, (nr + 0.5) * FIELD_TILE)
+            const j = group.findIndex((g, k) => {
+                if (k === i || Math.abs(g.y - f.y) > LEVEL_TOLERANCE) return false
+                const p = fieldLocal(g, x, z)
+                return p.u > 0 && p.v > 0 && p.u < g.plan.width && p.v < g.plan.length
+            })
+            if (j < 0) continue
+            const p = fieldLocal(group[j]!, x, z)
+            visit(j, Math.floor(p.u / FIELD_TILE), Math.floor(p.v / FIELD_TILE))
+        }
+    }
+    const stranded = group.some((f, i) => f.plan.tiles.some(t => (t.kind === 'boost' || isGate(t.kind)) && !seen[offsets[i]! + t.col + t.row * sizes[i]!.cols]))
     return stranded ? 'part of the field is walled off' : null
 }
 
@@ -303,6 +377,15 @@ export interface FieldDef {
 export function tileInside(plan: Pick<FieldPlan, 'width' | 'length'>, u: number, v: number): { col: number, row: number } {
     const clamp = (x: number, n: number) => Math.min(n - 1, Math.max(0, Math.floor(x / FIELD_TILE)))
     return { col: clamp(u, plan.width / FIELD_TILE), row: clamp(v, plan.length / FIELD_TILE) }
+}
+
+/** The tiles a mouth `at` metres along `edge` opens onto: both, when it's on the line between two. */
+export function mouthTiles(plan: Pick<FieldPlan, 'width' | 'length'>, edge: FieldEdge, at: number): { col: number, row: number }[] {
+    const out = [at - 1, at + 1].map((a) => {
+        const { u, v } = edgePoint(plan, edge, Math.min(edgeLength(plan, edge), Math.max(0, a)))
+        return tileInside(plan, u, v)
+    })
+    return out[0]!.col === out[1]!.col && out[0]!.row === out[1]!.row ? out.slice(0, 1) : out
 }
 
 /** A placed field's box in the world: every field turns in quarter turns, so it lines up with the axes. */
@@ -348,4 +431,18 @@ export function sharedEdges(a: LevelField, all: readonly LevelField[]): EdgeOpen
         out.push({ edge: edge.edge, at: (from + to) / 2, half: Math.abs(to - from) / 2 })
     }
     return out
+}
+
+/** A built field's edge walls: open at its mouths and wherever it meets a level field. */
+export const fieldEdgeWalls = (def: LevelField & Pick<FieldDef, 'mouths'>, all: readonly LevelField[]) => edgeWalls(def.plan, def.mouths, sharedEdges(def, all))
+
+/** Each stretch of `edge` a wall stands on, as metres along it. */
+export function wallSpans(plan: Pick<FieldPlan, 'width' | 'length'>, walls: readonly WallSegment[], edge: FieldEdge): [number, number][] {
+    return walls.flatMap((w) => {
+        const on = edgeAt(plan, (w.x0 + w.x1) / 2, (w.z0 + w.z1) / 2)
+        if (on?.edge !== edge) return []
+        const a = alongEdge(edge, w.x0, w.z0)
+        const b = alongEdge(edge, w.x1, w.z1)
+        return [[Math.min(a, b), Math.max(a, b)] as [number, number]]
+    })
 }

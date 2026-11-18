@@ -2,7 +2,7 @@
 import { cssColor, LINE_COLORS } from '~/utils/nitro-rush/config'
 import { inletStub, type JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
 import type { LayoutWalk } from '#shared/utils/nitro-rush/layout'
-import { FIELD_TILE, fieldLocal, fieldPoint, type FieldPlacement } from '#shared/utils/nitro-rush/field'
+import { FIELD_TILE, fieldLocal, fieldPoint, isGate, type FieldPlacement } from '#shared/utils/nitro-rush/field'
 import { STEP } from '#shared/utils/nitro-rush/road-checks'
 import { BOOST_LANES, type BoostLane } from '#shared/utils/nitro-rush/track'
 
@@ -94,7 +94,7 @@ const fieldPlans = computed(() => props.lines.flatMap((w, line) => w.fields.flat
         piece: pieceOf(w.pieceStarts, f.from),
         y: w.ys[f.hub] ?? w.end.y,
         corners: [fieldPoint(p, 0, 0), fieldPoint(p, p.plan.width, 0), fieldPoint(p, p.plan.width, p.plan.length), fieldPoint(p, 0, p.plan.length)],
-        items: p.plan.tiles.map(t => ({ kind: t.kind, corners: square(t.col * FIELD_TILE, t.row * FIELD_TILE, FIELD_TILE) })),
+        items: p.plan.tiles.map(t => ({ kind: t.kind, required: 'required' in t && !!t.required, corners: square(t.col * FIELD_TILE, t.row * FIELD_TILE, FIELD_TILE) })),
         placement: p
     }]
 })))
@@ -196,7 +196,7 @@ function draw() {
         ctx.stroke()
         for (const item of f.items) {
             polygon(item.corners)
-            ctx.fillStyle = item.kind === 'boost' ? BOOST : item.kind === 'checkpoint' ? cssColor(LINE_COLORS.checkpoint) : 'rgba(170, 174, 190, 0.85)'
+            ctx.fillStyle = item.kind === 'boost' ? BOOST : isGate(item.kind) ? cssColor(LINE_COLORS[item.required ? 'required' : item.kind]) : 'rgba(170, 174, 190, 0.85)'
             ctx.fill()
         }
     }
@@ -276,7 +276,7 @@ function draw() {
             }
         }
 
-        walks.forEach(({ pts, end, lines, boosts }, l) => {
+        walks.forEach(({ pts, end, lines, boosts, fields }, l) => {
             const segs = lineSegs[l]!
             // A bar across the road at point `at`, over `lane` of its width.
             const crossBar = (at: number, color: string, lane: BoostLane = 'full') => {
@@ -304,7 +304,8 @@ function draw() {
             }
             // Line blocks: where each line crosses.
             ctx.lineWidth = Math.max(2 * dpr, 2 * scale)
-            for (const line of lines) crossBar(line.at, cssColor(LINE_COLORS[line.type]))
+            // A field's start or finish shows on its tile instead.
+            for (const line of lines) if (!fields.some(f => f.hub === line.at)) crossBar(line.at, cssColor(LINE_COLORS[line.required ? 'required' : line.type]))
         })
     }
 

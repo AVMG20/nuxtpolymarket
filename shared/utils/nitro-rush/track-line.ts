@@ -54,6 +54,8 @@ export interface LineDef {
     runOff?: number
     /** Distance along the line of each checkpoint, in driving order; each one closes a sector. */
     checkpoints?: number[]
+    /** Distance along the line of each checkpoint that every lap has to drive; each is one of `checkpoints`. */
+    requiredCheckpoints?: number[]
     /** The road's up at each point, where any of it isn't straight up: banks, loopings, corkscrews. */
     ups?: [number, number, number][]
     /** Point ranges, [from, to), driven on rails. */
@@ -197,6 +199,8 @@ export class TrackLine {
     readonly curvature: Float64Array
     /** Where each checkpoint line sits along the line, in driving order. */
     readonly checkpoints: readonly number[]
+    /** Per checkpoint, whether every lap has to drive it. */
+    readonly required: readonly boolean[]
     /** Per point: the road's unit tangent in 3D, and the right and up of its surface. */
     readonly t3: Float64Array
     readonly right: Float64Array
@@ -266,6 +270,7 @@ export class TrackLine {
         }))
         this.length = this.cum[n]!
         this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
+        this.required = this.checkpoints.map(s => (def.requiredCheckpoints ?? []).some(r => Math.abs(r - s) < 1e-6))
         this.txs = new Float64Array(n)
         this.tzs = new Float64Array(n)
         this.curvature = new Float64Array(n)

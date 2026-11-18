@@ -46,8 +46,8 @@ describe('the field planner', () => {
         const t = fieldTrack()
         const crossings = routeCrossings(t.fields, t.routes[0]!)
         expect(crossings).toHaveLength(1)
-        expect(crossings[0]!.into.edge).toBe('entry')
-        expect(crossings[0]!.out.edge).toBe('exit')
+        expect(crossings[0]!.into?.edge).toBe('entry')
+        expect(crossings[0]!.out?.edge).toBe('exit')
         for (const p of samples(t, pathOf(t)).filter(p => p.v > 0 && p.v < 100)) expect(Math.abs(p.u - 50)).toBeLessThan(0.5)
     })
 

@@ -50,9 +50,9 @@ const widestSpan = (walls: readonly number[]) => clearanceSpan(Math.max(0, ...wa
 export function layoutFault({ misplaced, lines }: Pick<LayoutWalk, 'misplaced' | 'lines'>, closed: boolean): string | null {
     if (misplaced) return misplaced
     const count = (type: string) => lines.filter(l => l.type === type).length
-    if (count('start') !== 1) return 'needs exactly one start block'
-    if (closed && count('finish') > 0) return 'a loop has no finish block; the start line ends each lap'
-    if (!closed && count('finish') !== 1) return 'an open course needs exactly one finish block'
+    if (count('start') !== 1) return 'needs one start line'
+    if (closed && count('finish') > 0) return 'a loop has no finish line'
+    if (!closed && count('finish') !== 1) return 'a sprint needs one finish line'
     return null
 }
 

@@ -3,9 +3,10 @@ import { PHYSICS_HZ } from '../../app/utils/nitro-rush/config'
 import { botLapTime, medalRoutes, medalTimes, medalTimesFor } from '../../app/utils/nitro-rush/medals'
 import { botInput, createCar, stepCar } from '../../app/utils/nitro-rush/physics'
 import { drive } from './bot-lap'
-import { at, bridgeSprintDef, forkLoopDef, forkSprintDef, Path } from './fork-courses'
+import { at, bridgeSprintDef, forkLoopDef, forkSprintDef, Path, sAt } from './fork-courses'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
 import { GHOST_HZ, GHOST_POSE, type Ghost } from '#shared/utils/nitro-rush/ghost'
+import { GRID_BACK } from '#shared/utils/nitro-rush/field-plan'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { MAX_ROUTES, newProjection, SPEED_CEILING, Track, TrackGraphError, type BranchDef, type RouteLeg, type TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -115,12 +116,24 @@ describe('the fork graph', () => {
         expect(() => new Track(withBranches([...four, sideRoad(840)]))).toThrow(/Too many routes \(16 max\)/)
     })
 
+    it('gives up on a course with too many ways round even when required checkpoints rule most of them out', () => {
+        // Nine short side roads, eight of them with a required checkpoint: only two routes, out of 512 ways round.
+        const sides = Array.from({ length: 9 }, (_, i) => {
+            const p = new Path(0, -30 - 100 * i).straight(2).shift(-1, 16)
+            p.straight(10).shift(1, 16)
+            const mid = sAt(p.pts, p.x, p.z) / 2
+            return { points: p.pts, from: { branch: 0, at: 30 + 100 * i }, to: { branch: 0, at: -p.z }, ...i < 8 ? { checkpoints: [mid], requiredCheckpoints: [mid] } : {} }
+        })
+        expect(() => new Track(withBranches(sides))).toThrow(/Too many ways round/)
+    })
+
     it('leaves a course without forks a single route over its whole lap', () => {
         const plain = new Track({ ...forkLoopDef(), branches: undefined })
         expect(plain.routes).toHaveLength(1)
         expect(plain.routes[0]!.legs).toEqual([{ branch: 0, from: 0, to: plain.length }])
         expect(plain.k).toBe(2)
-        expect(plain.minLapSeconds).toBe(plain.lapLength / SPEED_CEILING)
+        // A lap driven backward off the grid skips the run-up to the line.
+        expect(plain.minLapSeconds).toBe((plain.lapLength - GRID_BACK) / SPEED_CEILING)
     })
 })
 
@@ -235,7 +248,7 @@ describe('laps on a forked course', () => {
     })
 
     it('sets the minimum lap by the shortest way through K checkpoints', () => {
-        expect(loop.minLapSeconds * SPEED_CEILING).toBeCloseTo(Math.min(...loop.routes.map(r => r.length)), 6)
+        expect(loop.minLapSeconds * SPEED_CEILING).toBeCloseTo(Math.min(...loop.routes.map(r => r.length)) - GRID_BACK, 6)
         expect(sprint.minLapSeconds * SPEED_CEILING).toBeCloseTo(sprint.routes[0]!.length, 6)
         // The bridge's branch is the shorter way to a finish.
         expect(bridge.minLapSeconds * SPEED_CEILING).toBeCloseTo(bridge.routes[1]!.length, 6)

@@ -90,7 +90,8 @@ export const RECORD_GHOST_COLOR = 0xffc83d
 export const NEON_PINK = 0xff2bd6
 
 /** Each line's colour: the builder's marks for it, and a checkpoint arch's neon in the race. */
-export const LINE_COLORS = { start: 0xffffff, checkpoint: 0x3df2ff, finish: 0xffd23d } as const
+/** A required checkpoint is orange, apart from the white start, gold finish, cyan checkpoints and red hazards. */
+export const LINE_COLORS = { start: 0xffffff, checkpoint: 0x3df2ff, finish: 0xffd23d, required: 0xff8a1f } as const
 
 /** A hex colour number as CSS reads it. */
 export const cssColor = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`

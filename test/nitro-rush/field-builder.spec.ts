@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { draftTrackDef } from '#shared/utils/nitro-rush/custom-draft'
 import { compileCustomTrack, MAX_BRANCHES, PALETTE_SECTIONS, SECTION_CATEGORIES, walkCustomTrack, type CustomBranch, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
-import { branchEnding, canJoin, draftForkedDef, insertSection, walkForks } from '#shared/utils/nitro-rush/custom-forks'
+import { branchEnding, canJoin, draftForkedDef, insertSection, removeBranch, walkForks } from '#shared/utils/nitro-rush/custom-forks'
 import { addFieldExit, fieldPlanAt, growField, resizeField, setFieldExit, useFieldTool, withField, type FieldEdit } from '#shared/utils/nitro-rush/field-edit'
 import { defaultFieldPlan, FIELD_MAX_ITEMS, fieldBox, type FieldTile } from '#shared/utils/nitro-rush/field'
 import { fieldGroup, fieldOutlines, onAnyField, quarterTurns, walkedFields } from '#shared/utils/nitro-rush/field-group'
@@ -47,7 +47,7 @@ describe('editing a field', () => {
         // A wall of blocks across the field, short of the gate behind it.
         let t = done(useFieldTool(course(), SPOT, 0, 4, 'checkpoint'))
         for (const col of [0, 1, 2, 3]) t = done(useFieldTool(t, SPOT, col, 3, 'block'))
-        expect(useFieldTool(t, SPOT, 4, 3, 'block').error).toMatch(/walls something off/)
+        expect(useFieldTool(t, SPOT, 4, 3, 'block').error).toMatch(/blocks part of the field/)
     })
 
     it('holds a field to its item cap', () => {
@@ -59,7 +59,8 @@ describe('editing a field', () => {
     it('resizes a field, dropping what falls off and keeping its roads on their edges', () => {
         const t = course({ fields: [field({ tiles: [{ col: 4, row: 4, kind: 'pillar' }, { col: 0, row: 0, kind: 'boost', dir: 2 }] })] })
         const small = done(resizeField(t, SPOT, 40, 60))
-        expect(fieldPlanAt(small, SPOT)).toEqual({ width: 40, length: 60, entry: 1, exit: { edge: 'exit', tile: 1 }, tiles: [{ col: 0, row: 0, kind: 'boost', dir: 2 }] })
+        // Centred roads stay centred, between the two tiles of the narrower edge.
+        expect(fieldPlanAt(small, SPOT)).toEqual({ width: 40, length: 60, entry: 0.5, exit: { edge: 'exit', tile: 0.5 }, tiles: [{ col: 0, row: 0, kind: 'boost', dir: 2 }] })
         expect(compileCustomTrack(small).error).toBeNull()
         // The road in and out on neighbouring tiles of a field one tile wide don't fit.
         const across = done(setFieldExit(t, SPOT, { edge: 'left', tile: 2 }))
@@ -94,6 +95,16 @@ describe('roads out of a field', () => {
         expect(addFieldExit(t, SPOT, { edge: 'exit', tile: 0 }).error).toMatch(/no more branches/)
     })
 
+    it('removes a branch out of a field and its offshoots, but keeps the field', () => {
+        const t = done(addFieldExit(course(), SPOT, { edge: 'right', tile: 2 }))
+        const forked = insertSection({ ...t, branches: [{ ...t.branches![0]!, sections: ['straight-20'] }] }, 1, 1, 'split-right')
+        expect(forked.branches).toHaveLength(2)
+        const left = removeBranch(forked, 1)
+        expect(left.branches).toBeUndefined()
+        expect(left.sections).toEqual(ROAD)
+        expect(left.fields).toEqual(t.fields)
+    })
+
     it('moves the road out to another edge and keeps it off the way in', () => {
         const t = done(setFieldExit(course(), SPOT, { edge: 'right', tile: 2 }))
         expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'right', tile: 2 })
@@ -109,22 +120,22 @@ describe('branches into a field', () => {
         branches: [{ sections, from: { ...SPOT, port: { edge: 'exit', tile: 3 } }, to }]
     })
 
-    it('lets a branch head for any field but the one it leaves', () => {
+    it('lets a branch head for any field, the one it leaves too', () => {
         const t = twoFields(['straight-60'], null)
         expect(canJoin(t, 1, { branch: 0, at: 4 })).toBe(true)
-        expect(canJoin(t, 1, SPOT)).toBe(false)
+        expect(canJoin(t, 1, SPOT)).toBe(true)
         // A field takes any number of roads, so heading in frees none.
         const both = { ...t, branches: [...t.branches!, { ...t.branches![0]!, from: { ...SPOT, port: { edge: 'exit' as const, tile: 0 } }, to: { branch: 0, at: 4 } }] }
         expect(canJoin(both, 1, { branch: 0, at: 4 })).toBe(true)
     })
 
-    it('connects a branch that drives in square, and says why one doesn\'t', () => {
+    it('connects a branch that drives in square, and says how far off one that doesn\'t is', () => {
         const t = twoFields(['straight-60'])
         expect(branchEnding(t, walkForks(t), 1)).toEqual({ kind: 'joins', to: { branch: 0, at: 4 } })
-        const bent = twoFields(['right-eighth'])
-        expect(branchEnding(bent, walkForks(bent), 1)).toMatchObject({ kind: 'askew', why: expect.stringMatching(/straight on/) })
-        const wide = twoFields(['right-tight'])
-        expect(branchEnding(wide, walkForks(wide), 1)).toMatchObject({ kind: 'askew', why: expect.stringMatching(/misses/) })
+        for (const sections of [['right-eighth'], ['right-tight']] as SectionId[][]) {
+            const off = twoFields(sections)
+            expect(branchEnding(off, walkForks(off), 1)).toMatchObject({ kind: 'short', metres: expect.any(Number) })
+        }
     })
 
     it('draws the forked draft with both fields, the branch running hub to hub', () => {
@@ -175,10 +186,20 @@ describe('growing a field', () => {
         expect(fieldBox(b!).z1).toBeCloseTo(fieldBox(a!).z1)
     })
 
+    it('leaves an even edge right through its middle, between two tiles', () => {
+        expect(defaultFieldPlan(200, 100)).toMatchObject({ entry: 4.5, exit: { edge: 'exit', tile: 4.5 } })
+        const wide = done(resizeField(course(), SPOT, 200, 100))
+        expect(fieldPlanAt(wide, SPOT)).toMatchObject({ entry: 4.5, exit: { edge: 'exit', tile: 4.5 } })
+        const t = done(growField(wide, SPOT, 'exit'))
+        expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'exit', tile: 4.5 })
+        expect(fieldPlanAt(t, spotAt(3))).toEqual(defaultFieldPlan(200, 100))
+        expect(compileCustomTrack(t).error).toBeNull()
+    })
+
     it('steps the road off a branch in the middle of the edge and still sits flush', () => {
         const out: CustomBranch = { sections: [], from: { ...SPOT, port: { edge: 'left', tile: 2 } }, to: null }
         const t = done(growField(course({ branches: [out] }), SPOT, 'left'))
-        expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'left', tile: 0 })
+        expect(fieldPlanAt(t, SPOT).exit).toEqual({ edge: 'left', tile: 0.5 })
         const [a, b] = walked(t)
         expect(fieldBox(b!).x1).toBeCloseTo(fieldBox(a!).x0)
         expect(fieldBox(b!).z0).toBeCloseTo(fieldBox(a!).z0)

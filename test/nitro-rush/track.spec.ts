@@ -65,7 +65,7 @@ describe('track blocks', () => {
         expect(error).toBeInstanceOf(TrackLayoutError)
         const { trackId, reason, message } = error as TrackLayoutError
         expect(trackId).toBe('sprint')
-        expect(reason).toBe('an open course needs exactly one finish block')
+        expect(reason).toBe('a sprint needs one finish line')
         expect(message).toBe(`Track sprint: ${reason}`)
     })
 })
@@ -172,16 +172,16 @@ describe('LapTimer', () => {
         expect(drive(bare, timerAt(bare, 0), 0, 10, 0.1, 100).map(e => e.type)).toEqual(['lap'])
     })
 
-    it('counts a road checkpoint only forward, and takes it back when backed over', () => {
+    it('counts a road checkpoint either way, and keeps it when backed over', () => {
         const track = rectangleLoop([250])
         const timer = timerAt(track, 240)
         drive(track, timer, 240, 1, 0.1, 20)
         expect(timer.touched).toEqual([0])
         drive(track, timer, 260, -1, 0.1, 20)
-        expect(timer.touched).toEqual([])
+        expect(timer.touched).toEqual([0])
         const backward = timerAt(track, 260)
         drive(track, backward, 260, -1, 0.1, 20)
-        expect(backward.touched).toEqual([])
+        expect(backward.touched).toEqual([0])
     })
 
     it('does not close a lap when the car first crosses the line from the grid', () => {
@@ -209,7 +209,8 @@ describe('LapTimer', () => {
         timer.update(x0, -4, z0, 0.1)
         // Under the road, as if on road below it.
         expect(timer.update(x1, -4, z1, 0.1)).toEqual([])
-        timer.update(x0, 9, z0, 0.1)
+        // Back before the line without crossing it, as a finish now counts either way.
+        timer.update(x0, 9, z0, 0.1, false)
         // High in the air over its own road, with nothing above.
         expect(timer.update(x1, 9, z1, 0.1).map(e => e.type)).toEqual(['lap'])
     })

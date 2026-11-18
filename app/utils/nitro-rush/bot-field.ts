@@ -16,9 +16,30 @@ const BRAKE_SHARE = 0.5
 
 /** Where each car is along its path, so a path passing near itself doesn't jump it ahead or back. */
 const progress = new WeakMap<CarState, { path: FieldPath, seg: number }>()
+/** Which of its route's field paths each car is on, or is to take next once off a field, so a field crossed twice is driven in turn. */
+const turns = new WeakMap<CarState, { paths: readonly FieldPath[], at: number }>()
 
 /** Forgets where the car was along its field's path, once it's off the field, so the next lap starts the path again. */
-export const leaveField = (car: CarState) => progress.delete(car)
+export function leaveField(car: CarState) {
+    const was = progress.get(car)
+    if (!was) return
+    progress.delete(car)
+    const turn = turns.get(car)
+    if (turn && turn.paths[turn.at] === was.path) turn.at = (turn.at + 1) % turn.paths.length
+}
+
+/** The path for a car on (or heading for, with `peek`) `field`: the next of `paths` across it from the one it's on or due. */
+export function fieldPathFor(car: CarState, paths: readonly FieldPath[], field: number, peek = false): FieldPath | undefined {
+    const turn = turns.get(car)
+    const from = turn?.paths === paths ? turn.at : 0
+    for (let k = 0; k < paths.length; k++) {
+        const at = (from + k) % paths.length
+        if (!(paths[at]!.fields?.includes(field) ?? paths[at]!.field === field)) continue
+        if (!peek) turns.set(car, { paths, at })
+        return paths[at]
+    }
+    return undefined
+}
 
 /** The nearest point on segment `i` of `points` to (x, z), as its share of the segment, and how far it is. */
 function onSegment(points: FieldPath['points'], i: number, x: number, z: number) {
@@ -48,6 +69,8 @@ export function fieldBotInput(car: CarState, path: FieldPath, pace: number): Car
             share = t
         }
     }
+    // Into an arena's second lap, it carries on from the same spot on the first, so the path never runs out.
+    if (path.cycle && seg >= path.cycle.from + path.cycle.length) seg -= path.cycle.length
     progress.set(car, { path, seg })
     const v = Math.max(0, car.speed)
     // It aims nearer while the straight line to its aim would clip a block or pillar, so it never cuts a corner into one.

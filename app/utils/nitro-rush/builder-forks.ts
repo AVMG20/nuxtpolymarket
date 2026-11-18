@@ -13,7 +13,8 @@ export function checkpointRoles(track: Track, walk: LayoutWalk, line: number): M
     const ours = track.lapLines.filter(l => l.kind === 'checkpoint' && l.branch === line)
     const roles = new Map<number, 'required' | 'optional'>()
     for (const block of walk.lines) {
-        if (block.type !== 'checkpoint') continue
+        // A required one's label already says every route drives it.
+        if (block.type !== 'checkpoint' || block.required) continue
         const [x, z] = walk.pts[block.at] ?? [walk.end.x, walk.end.z]
         const lap = ours.find(l => Math.hypot(l.x - x, l.z - z) < SAME_LINE)
         if (lap) roles.set(pieceAt(walk, block.at), required.has(lap.id) ? 'required' : 'optional')

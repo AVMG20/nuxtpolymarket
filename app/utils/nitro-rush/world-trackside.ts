@@ -1,43 +1,23 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { adDeck, TRACK_ADS, type AdDeck } from './ads'
+import { adMaterials, glowing, type AdMaterial } from './ad-materials'
+import { adDeck, type AdDeck } from './ads'
 import type { Roof } from './city'
 import { CLEAR_HEIGHT } from './road-geometry'
-import { billboardTexture, cornerSignTexture, flagTexture, jumpSignTexture, stripTexture } from './signs'
+import { cornerSignTexture, jumpSignTexture } from './signs'
 import {
     BILLBOARD_BOTTOM, BILLBOARD_HEIGHT, BILLBOARD_WIDTH, CHEVRON_HEIGHT, CHEVRON_LIFT, CHEVRON_WIDTH, FLAG_HEIGHT, FLAG_POLE, FLAG_WIDTH,
     HOARDING_HEIGHT, HOARDING_LENGTH, OVERHEAD_BANNER, OVERHEAD_BEAM, tracksideLayout, type Billboard, type Chevron, type Fixture, type Overhead
 } from './trackside-spots'
+import { buildFieldAds } from './world-field-ads'
 import type { WorldKit } from './world-kit'
 import { newProjection, WALL_BASE_HALF, WALL_HEIGHT } from '#shared/utils/nitro-rush/track'
 
 /** The signage round the road, built from the spots trackside-spots picks: ads in every format, the corner chevrons and the jump boards. */
 
-type AdFormat = 'board' | 'strip' | 'flag'
-type AdMaterial = (format: AdFormat, ad: number) => THREE.MeshStandardMaterial
-
-const PAINTERS = { board: billboardTexture, strip: stripTexture, flag: flagTexture } as const
 /** A strip is eight times as wide as it is tall. */
 const STRIP_ASPECT = 8
 const ROOF_BOARD_WIDTH = 12
-
-const glowing = (map: THREE.Texture, intensity: number) => new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: intensity, roughness: 0.5 })
-
-/** Ad materials painted on first use, so a course pays only for the ads it shows. */
-function adMaterials(own: WorldKit['own']): AdMaterial {
-    const cache = new Map<string, THREE.MeshStandardMaterial>()
-    return (format, ad) => {
-        const key = `${format}:${ad}`
-        let m = cache.get(key)
-        if (!m) {
-            const t = own(PAINTERS[format](TRACK_ADS[ad]!))
-            if (format === 'strip') t.wrapS = THREE.RepeatWrapping
-            // Strips pass right by the camera, where a full glow blooms out.
-            cache.set(key, m = own(glowing(t, format === 'strip' ? 1.1 : 1.5)))
-        }
-        return m
-    }
-}
 
 const v3 = new THREE.Vector3()
 const v3b = new THREE.Vector3()
@@ -67,7 +47,7 @@ function push<K>(groups: Map<K, THREE.Matrix4[]>, key: K, m: THREE.Matrix4) {
 function buildBillboards({ group, own }: WorldKit, boards: readonly Billboard[], steel: THREE.Material, ad: AdMaterial, deck: AdDeck) {
     const boardGeo = own(new THREE.PlaneGeometry(BILLBOARD_WIDTH, BILLBOARD_HEIGHT))
     const backGeo = own(new THREE.BoxGeometry(BILLBOARD_WIDTH + 0.2, BILLBOARD_HEIGHT + 0.2, 0.25))
-    const legGeo = own(new THREE.BoxGeometry(0.3, 1, 0.3).translate(0, 0.5, 0))
+    const legGeo = own(new THREE.BoxGeometry(0.3, 1, 0.25).translate(0, 0.5, 0))
     for (const b of boards) {
         const g = new THREE.Group()
         const ground = Math.min(0, b.base)
@@ -79,10 +59,11 @@ function buildBillboards({ group, own }: WorldKit, boards: readonly Billboard[],
         const back = new THREE.Mesh(backGeo, steel)
         back.position.y = mid
         g.add(face, back)
+        // Legs stop under the board, in line with its frame, so its back stays clean.
         for (const x of [-BILLBOARD_WIDTH / 3, BILLBOARD_WIDTH / 3]) {
             const leg = new THREE.Mesh(legGeo, steel)
-            leg.position.set(x, 0, -0.25)
-            leg.scale.y = mid
+            leg.position.x = x
+            leg.scale.y = mid - BILLBOARD_HEIGHT / 2
             g.add(leg)
         }
         group.add(g)
@@ -242,7 +223,7 @@ function buildRoadSigns(kit: WorldKit, chevrons: readonly Chevron[], jumpSigns: 
     ], key => key === 'jump' ? jumpSignTexture() : cornerSignTexture(Number(key) as 1 | 2 | 3), steel)
 }
 
-/** Every ad and sign round the course; `roofs` are the city's low roofs near it. */
+/** Every ad and sign round the course and on its fields; `roofs` are the city's low roofs near it. */
 export function buildSignage(kit: WorldKit, steel: THREE.Material, roofs: readonly Roof[]) {
     const layout = tracksideLayout(kit.track)
     const ad = adMaterials(kit.own)
@@ -252,5 +233,6 @@ export function buildSignage(kit: WorldKit, steel: THREE.Material, roofs: readon
     buildOverheads(kit, layout.overheads, steel, ad, deck)
     buildFlags(kit, layout.flags, steel, ad, deck)
     buildRoofBoards(kit, roofs, steel, ad, deck)
+    buildFieldAds(kit, steel, ad, deck)
     buildRoadSigns(kit, layout.chevrons, layout.jumpSigns, steel)
 }

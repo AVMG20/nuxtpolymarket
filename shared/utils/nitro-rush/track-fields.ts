@@ -1,4 +1,4 @@
-import { blockWalls, edgePoint, edgeWalls, fieldAxes, FIELD_TILE, GATE_POST_RADIUS, gatePosts, PILLAR_RADIUS, sharedEdges, type FieldDef, type FieldDir, type FieldMouth, type WallSegment } from './field'
+import { blockWalls, edgePoint, fieldAxes, fieldEdgeWalls, FIELD_TILE, GATE_POST_RADIUS, gatePosts, isGate, PILLAR_RADIUS, sharedEdges, type FieldDef, type FieldDir, type FieldLineKind, type FieldMouth, type WallSegment } from './field'
 
 /** A course's fields in the world, for the physics, the lap timer and the bot; the roads across one place a car on it along the course. */
 
@@ -43,6 +43,8 @@ export interface FieldMark {
     z: number
     dx: number
     dz: number
+    /** A checkpoint gate every lap has to drive. */
+    required?: true
 }
 
 /** A wall's end is a post this big, so a car can't slip between it and the face beyond. */
@@ -68,7 +70,11 @@ export class CourseField {
     readonly walls: readonly FieldWall[]
     readonly posts: readonly FieldPost[]
     readonly pads: readonly FieldMark[]
+    /** Its checkpoint gates, which count either way through. */
     readonly gates: readonly FieldMark[]
+    /** Its start and finish gates, which count either way through too; a start's way is the way its grid faces. */
+    readonly start: FieldMark | null
+    readonly finish: FieldMark | null
     /** Set by the course once its lines are built. */
     crossings: readonly FieldCrossing[] = []
     /** Per grid cell, a ring of cells wider than the field, the walls and posts near it. */
@@ -98,13 +104,13 @@ export class CourseField {
             const [x, z] = this.world(u, v)
             return { ...m, x, z }
         })
-        const local = [...edgeWalls(plan, def.mouths, sharedEdges(def, all)), ...blockWalls(plan)]
+        const local = [...fieldEdgeWalls(def, all), ...blockWalls(plan)]
         this.walls = local.map(w => this.worldWall(w))
         const ends = new Map<string, [number, number]>()
         for (const w of local) for (const [u, v] of [[w.x0, w.z0], [w.x1, w.z1]] as const) ends.set(`${u},${v}`, [u, v])
         const centre = (col: number, row: number) => this.world((col + 0.5) * FIELD_TILE, (row + 0.5) * FIELD_TILE)
         const pillars = plan.tiles.filter(t => t.kind === 'pillar').map(t => centre(t.col, t.row))
-        const gatePostsAt = plan.tiles.flatMap(t => t.kind === 'checkpoint' ? gatePosts(t).map(([u, v]) => this.world(u, v)) : [])
+        const gatePostsAt = plan.tiles.flatMap(t => isGate(t.kind) && 'dir' in t ? gatePosts(t).map(([u, v]) => this.world(u, v)) : [])
         this.posts = [
             ...pillars.map(([x, z]) => ({ x, z, radius: PILLAR_RADIUS })),
             ...gatePostsAt.map(([x, z]) => ({ x, z, radius: GATE_POST_RADIUS })),
@@ -119,7 +125,13 @@ export class CourseField {
             return { col, row, x, z, dx, dz }
         }
         this.pads = plan.tiles.flatMap(t => t.kind === 'boost' ? [mark(t.col, t.row, t.dir)] : [])
-        this.gates = plan.tiles.flatMap(t => t.kind === 'checkpoint' ? [mark(t.col, t.row, t.dir)] : [])
+        this.gates = plan.tiles.flatMap(t => t.kind === 'checkpoint' ? [t.required ? { ...mark(t.col, t.row, t.dir), required: true as const } : mark(t.col, t.row, t.dir)] : [])
+        const lineOf = (kind: FieldLineKind) => {
+            const t = plan.tiles.find(t => t.kind === kind)
+            return t && 'dir' in t ? mark(t.col, t.row, t.dir) : null
+        }
+        this.start = lineOf('start')
+        this.finish = lineOf('finish')
         this.padAt = new Int16Array(this.cols * this.rows).fill(-1)
         this.pads.forEach((p, i) => this.padAt[p.col + p.row * this.cols] = i)
         // Local boxes, so a cell's neighbours are found by overlap alone.
@@ -215,4 +227,13 @@ export class CourseField {
         const length = Math.hypot(x1 - x0, z1 - z0)
         return { x0, z0, x1, z1, nx: this.rx * w.nx + this.fx * w.nz, nz: this.rz * w.nx + this.fz * w.nz, tx: (x1 - x0) / length, tz: (z1 - z0) / length, length }
     }
+}
+
+/** Field `index` and every field joined to it edge to edge, which a car crosses as one open floor. */
+export function joinedFields(fields: readonly CourseField[], index: number): CourseField[] {
+    const seen = new Set([index])
+    for (const i of seen) {
+        for (const f of fields) if (!seen.has(f.index) && sharedEdges(fields[i]!.def, [fields[i]!.def, f.def]).length) seen.add(f.index)
+    }
+    return [...seen].map(i => fields[i]!)
 }

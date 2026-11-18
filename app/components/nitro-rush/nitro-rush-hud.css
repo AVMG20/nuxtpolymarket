@@ -132,6 +132,8 @@
 
 .nr-root .nr-minimap-line.is-finish { stroke: var(--nr-gold); }
 
+.nr-root .nr-minimap-line.is-required { stroke: var(--nr-orange); stroke-width: 2.2; }
+
 .nr-root .nr-minimap-ghost { opacity: 0.8; stroke: rgb(0 0 0 / 0.5); stroke-width: 0.8; }
 
 .nr-root .nr-minimap-car {
