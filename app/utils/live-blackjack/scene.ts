@@ -284,9 +284,15 @@ export class LiveBlackjackScene {
         g.roundRect(54, 64, STAGE_W - 108, 860, 166).fill(FELT)
 
         // Dealer arc and the payout legend that sits on every real table.
-        g.arc(DEALER_POS.x, 40, 470, 0.18 * Math.PI, 0.82 * Math.PI)
+        // arc() draws a line in from the last point, so each one starts its
+        // own subpath at the arc's first point.
+        const dealerArc = (radius: number, from: number, to: number) => {
+            g.moveTo(DEALER_POS.x + Math.cos(from) * radius, 40 + Math.sin(from) * radius)
+            g.arc(DEALER_POS.x, 40, radius, from, to)
+        }
+        dealerArc(470, 0.18 * Math.PI, 0.82 * Math.PI)
         g.stroke({ width: 3, color: GOLD, alpha: 0.35 })
-        g.arc(DEALER_POS.x, 40, 486, 0.19 * Math.PI, 0.81 * Math.PI)
+        dealerArc(486, 0.19 * Math.PI, 0.81 * Math.PI)
         g.stroke({ width: 1.5, color: GOLD, alpha: 0.2 })
 
         for (const seat of SEAT_LAYOUT) {
