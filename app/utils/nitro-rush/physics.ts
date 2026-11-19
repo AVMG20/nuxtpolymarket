@@ -4,9 +4,10 @@ import {
     NITRO_TOP_SPEED_MULT, REVERSE_ACCEL, REVERSE_MAX, ROLLING_DRAG, STEER_FALLOFF_SPEED, STEER_RATE, STEER_RETURN_RATE,
     WALL_PIVOT_RATE, WALL_PIVOT_SPEED, WALL_PRESS_HOLD, WALL_SCRAPE, WALL_TOUCH_GAP, WHEELBASE
 } from './config'
-import { fieldBotInput, fieldPathFor, leaveField, pathAllowed } from './bot-field'
+import { fieldBotInput, fieldEntrySpeed, fieldPathFor, heldPath, leaveField } from './bot-field'
 import { endDrift, hitBarrier, hitCushions, hitFieldWalls } from './physics-walls'
-import { GRID_BACK, routeFieldPaths } from '#shared/utils/nitro-rush/field-plan'
+import { GRID_BACK, routeFieldPaths, RUN_OUT, type FieldPath } from '#shared/utils/nitro-rush/field-plan'
+import { span } from '#shared/utils/nitro-rush/field-line'
 import { FALL_DEPTH, headingOf, newProjection, newTrackFrame, newTrackPoint, WALL_HEIGHT, wallFoot, wrapAngle, type CourseField, type Projection, type Route, type Track, type TrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
@@ -499,6 +500,19 @@ function scrapeWall(car: CarState, ev: StepEvents, offset: number, limit: number
     car.speed *= Math.exp(-WALL_SCRAPE * dt)
 }
 
+/** Metres of road over which the bot eases onto the middle before a field's plan starts. */
+const FIELD_LINE_UP = 40
+
+/** Whether the car is past the start of `path` and close beside it, so the plan can take over from the road. */
+function nearStart(car: CarState, path: FieldPath) {
+    const [ax, az] = path.points[0]!
+    const [bx, bz] = path.points[Math.min(path.points.length - 1, 4)]!
+    const length = span(bx - ax, bz - az) || 1
+    const along = ((car.x - ax) * (bx - ax) + (car.z - az) * (bz - az)) / length
+    const across = Math.abs((car.x - ax) * (bz - az) - (car.z - az) * (bx - ax)) / length
+    return along >= 0 && along <= RUN_OUT + 4 && across < 2
+}
+
 /** A tidy grip driver for the demo laps, the medals and the tests; on a forked course it follows `route`, the main one when left out. */
 export function botInput(car: CarState, track: Track, pace = 1, route: Route | null = null): CarInput {
     // On rails it floors it and holds the middle of the road.
@@ -508,9 +522,27 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     // On a field it follows its plan across the tiles, as the road's line doesn't hold there.
     const across = car.proj.field >= 0 && way ? fieldPathFor(car, routeFieldPaths(track.fields, way), car.proj.field) : undefined
     if (across) return fieldBotInput(car, across, pace)
-    leaveField(car)
+    const held = heldPath(car)
+    if (held) return fieldBotInput(car, held, pace)
     const here = track.onRoute(way, car.proj, car.x, car.z)
-    const spot = track.ahead(way, here.branch, here.s, 8 + v * 0.25)
+    const reach = 8 + v * 0.25
+    const look = 20 + v * v / (BRAKE_DECEL * 1.4)
+    // The next field in braking range or near enough to line up for: its plan, and the metres to where the road meets it.
+    let field: { path: FieldPath | undefined, index: number, d: number } | null = null
+    let clear = false
+    for (let d = 0; d <= Math.max(look, reach + RUN_OUT + FIELD_LINE_UP); d += 4) {
+        const at = track.ahead(way, here.branch, here.s, d)
+        // Just off a field, the one behind doesn't count.
+        if (!at.line.fieldedAt(at.s)) clear = true
+        if (!clear || !at.line.fieldedAt(at.s)) continue
+        const f = track.fields.find(f => f.crossedAt(at.line.branch, at.s))
+        if (f) field = { path: way ? fieldPathFor(car, routeFieldPaths(track.fields, way), f.index, true) : undefined, index: f.index, d }
+        break
+    }
+    // Over the last of the road its plan starts on, it drives the plan, so it meets the field where the plan does.
+    if (field?.path && field.d <= RUN_OUT + 4 && nearStart(car, field.path)) return fieldBotInput(car, fieldPathFor(car, routeFieldPaths(track.fields, way!), field.index)!, pace)
+    leaveField(car)
+    const spot = track.ahead(way, here.branch, here.s, reach)
     const line = spot.line
     const aheadS = spot.s
     // A looping's plan doubles back, so past a rail's entry it aims straight on along the entry.
@@ -520,7 +552,9 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
         ahead.x += ahead.tx * (aheadS - rail[0])
         ahead.z += ahead.tz * (aheadS - rail[0])
     } else {
-        const across = line.racingOffsetAt(aheadS, track.racingOn(way, line.branch))
+        // It eases onto the middle of the road before a field, where the field's plan starts.
+        const lineUp = field?.path ? Math.max(0, Math.min(1, (field.d - reach - RUN_OUT) / FIELD_LINE_UP)) : 1
+        const across = line.racingOffsetAt(aheadS, track.racingOn(way, line.branch)) * lineUp
         ahead.x -= ahead.tz * across
         ahead.z += ahead.tx * across
     }
@@ -529,16 +563,13 @@ export function botInput(car: CarState, track: Track, pace = 1, route: Route | n
     const steer = Math.max(-1, Math.min(1, -err * 4))
     // The fastest the car may be going now so it can still slow for every bend in braking range.
     let allowed = Infinity
-    const look = 20 + v * v / (BRAKE_DECEL * 1.4)
-    for (let d = 0; d <= look; d += 4) {
+    // On a field it slows for the plan's corners, not the line's, which only stands in for it; the plan starts RUN_OUT before it.
+    if (field?.path && field.d <= look) {
+        const entry = fieldEntrySpeed(field.path, pace)
+        allowed = Math.sqrt(entry * entry + 2 * BRAKE_DECEL * 0.7 * Math.max(0, field.d - 4 - RUN_OUT))
+    }
+    for (let d = 0; d <= Math.min(look, field ? field.d - 4 : look); d += 4) {
         const at = track.ahead(way, here.branch, here.s, d)
-        // On a field it slows for the plan's corners, not the line's, which only stands in for it.
-        if (at.line.fieldedAt(at.s)) {
-            const field = track.fields.find(f => f.crossedAt(at.line.branch, at.s))
-            const path = way && field && fieldPathFor(car, routeFieldPaths(track.fields, way), field.index, true)
-            if (path) allowed = Math.min(allowed, Math.sqrt(pathAllowed(path.points, 0, 0, v, pace) ** 2 + 2 * BRAKE_DECEL * 0.7 * d))
-            break
-        }
         const k = track.racingOn(way, at.line.branch).curvature[at.line.segmentAt(at.s)]!
         if (k < 1e-4) continue
         const corner = Math.sqrt(GRIP_LATERAL * 0.9 / k) * pace
