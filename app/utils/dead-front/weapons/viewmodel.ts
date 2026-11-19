@@ -1,9 +1,8 @@
 import * as THREE from 'three'
 import { DF_PAP_COLORS, DF_WEAPONS, dfWeaponStats, type DfWeaponStats } from '#shared/utils/dead-front/weapons'
 import type { DfRenderContext, DfViewmodel, DfViewmodelInput, DfViewmodelWeapon } from '../context'
-import { DfVoxModel } from '../voxel/model'
 import { dfWeaponMat } from './materials'
-import { dfBuildGunRig, disposeDfWeaponModel, type DfGunRig } from './models'
+import { dfBuildGunRig, dfWeaponPackGeometry, disposeDfWeaponModel, type DfGunRig } from './models'
 import { DF_WSND } from './sounds'
 import { dfXrayScheme } from './xray'
 
@@ -16,13 +15,14 @@ export function dfMuzzleFlashColor(id: DfViewmodelWeapon['id'], pap: number): nu
     return 0xffd0a0
 }
 
-// First-person viewmodel, kept deliberately simple: one voxel gun tucked into
-// the lower-right corner at a slight inward angle, a single small glove on the
-// grip and nothing else. Every motion is a critically damped spring (frame-rate
+// First-person viewmodel, kept deliberately simple: one gun tucked into the
+// lower-right corner at a slight inward angle, a single small glove on the
+// grip and nothing else. The gun, glove, knife, casings and flash are models
+// from the weapons pack (`scripts/dead-front-models/weapons.py`). Every motion is a critically damped spring (frame-rate
 // independent): idle breathing, sway that lags the mouse, speed-tied bob, a
 // sprint pose, a crisp recoil kick that settles in ~0.12 s, ADS in ~0.2 s with
-// the sight line (rear notch and front post, measured from the model's own
-// voxels) exactly on the camera axis, lower/raise on swap and a
+// the sight line (rear notch and front post, marked on the model itself)
+// exactly on the camera axis, lower/raise on swap and a
 // drop-and-raise reload. On top of that, the CoD layer: the gun leans into
 // strafes, trails jumps and dips on landing, swings a figure-eight while
 // sprinting, cants hard in a slide, and can be inspected. Lever actions work
@@ -100,7 +100,7 @@ const FEEL: Record<string, ShotFeel> = {
     pistol: { star: 0.85, cone: 0.9, prongs: 0.5, flash: 0.035, back: 1, flip: 1.5, roll: 0.5, yaw: 1 },
     smg: { star: 0.95, cone: 1.1, prongs: 0.7, flash: 0.03, back: 0.75, flip: 0.7, roll: 0.35, yaw: 1.3 },
     rifle: { star: 1.25, cone: 1.7, prongs: 0.9, flash: 0.045, back: 1.5, flip: 1.2, roll: 0.6, yaw: 0.8 },
-    shotgun: { star: 1.8, cone: 1.3, prongs: 1.2, flash: 0.06, back: 1.9, flip: 1.4, roll: 1, yaw: 0.8 },
+    shotgun: { star: 2.3, cone: 1.5, prongs: 1.5, flash: 0.07, back: 2.3, flip: 1.6, roll: 1.1, yaw: 0.8 },
     lmg: { star: 1.3, cone: 1.4, prongs: 1, flash: 0.035, back: 0.9, flip: 0.6, roll: 0.4, yaw: 1.4 },
     special: { star: 1.1, cone: 0.7, prongs: 0, flash: 0.05, back: 1.1, flip: 1, roll: 0.3, yaw: 0.5 }
 }
@@ -113,7 +113,7 @@ const FEEL: Record<string, ShotFeel> = {
 const FEEL_ID: Partial<Record<DfViewmodelWeapon['id'], ShotFeel>> = {
     ppsh: { star: 0.8, cone: 1, prongs: 0.85, flash: 0.022, back: 0.5, flip: 0.42, roll: 0.3, yaw: 1.7 },
     webley: { star: 1.15, cone: 1, prongs: 0.9, flash: 0.045, back: 1.25, flip: 2.3, roll: 0.8, yaw: 0.9 },
-    sawnoff: { star: 2.2, cone: 1.1, prongs: 1.5, flash: 0.07, back: 2.6, flip: 1.9, roll: 1.3, yaw: 1 },
+    sawnoff: { star: 2.7, cone: 1.2, prongs: 1.8, flash: 0.08, back: 2.9, flip: 2.1, roll: 1.4, yaw: 1 },
     chauchat: { star: 1.5, cone: 1.6, prongs: 1.1, flash: 0.045, back: 1.3, flip: 1, roll: 0.75, yaw: 1.1 },
     flammen: { star: 0, cone: 0, prongs: 0, flash: 0, back: 0.12, flip: 0.08, roll: 0.25, yaw: 0.6 }
 }
@@ -141,52 +141,6 @@ interface Casing {
 const V = 0.011
 /** Viewmodel camera near plane: fixed, never moved while aiming (it would slice the gun open). */
 export const VM_NEAR = 0.01
-
-/** The one hand: a small dark glove wrapped round the grip with a khaki cuff. */
-function gloveModel(): DfVoxModel {
-    const m = new DfVoxModel(5, 8, 6)
-    const leather = m.shade(0x5a4030, 0.06, 4)
-    m.box(0, 2, 0, 5, 8, 6, leather)
-    m.box(0, 6, 4, 5, 8, 6, m.c(0x4a3426))
-    m.box(0, 0, 0, 5, 2, 6, m.shade(0x857c56, 0.05, 6))
-    m.set(0, 7, 0, 0).set(4, 7, 0, 0).set(0, 0, 5, 0).set(4, 0, 5, 0)
-    return m
-}
-
-function knifeModel(): DfVoxModel {
-    const m = new DfVoxModel(3, 24, 4)
-    m.box(1, 7, 1, 2, 24, 3, m.c(0xb8bcc2)).box(1, 23, 1, 2, 24, 2, m.c(0xdfe2e6))
-    m.box(0, 0, 0, 3, 6, 4, m.c(0x2e2118)).box(0, 6, 0, 3, 7, 4, m.c(0xa58236))
-    return m
-}
-
-/** A blocky muzzle flash: a star of glowing voxels facing the eye and a short cone. */
-function flashModels(): { star: THREE.BufferGeometry, cone: THREE.BufferGeometry, prongs: THREE.BufferGeometry } {
-    const st = new DfVoxModel(9, 9, 1)
-    const hot = st.c(0xffffff, 1)
-    const warm = st.c(0xffc070, 1)
-    for (let t = 0; t < 9; t++) {
-        st.set(t, 4, 0, Math.abs(t - 4) < 2 ? hot : warm).set(4, t, 0, Math.abs(t - 4) < 2 ? hot : warm)
-        if (Math.abs(t - 4) < 3) st.set(t, t, 0, warm).set(t, 8 - t, 0, warm)
-    }
-    st.box(3, 3, 0, 6, 6, 1, hot)
-    const cn = new DfVoxModel(5, 5, 7)
-    const c1 = cn.c(0xffe0a0, 1)
-    const c2 = cn.c(0xffa050, 1)
-    for (let k = 0; k < 7; k++) {
-        const r = k < 2 ? 2 : k < 5 ? 1 : 0
-        cn.box(2 - r, 2 - r, k, 3 + r, 3 + r, k + 1, k < 3 ? c1 : c2)
-    }
-    // Side prongs: four short spikes splaying sideways from the muzzle (a cross of hot voxels).
-    const pr = new DfVoxModel(11, 11, 3)
-    const p1 = pr.c(0xffd090, 1)
-    for (let t = 0; t < 11; t++) {
-        if (Math.abs(t - 5) < 2) continue
-        const far = Math.abs(t - 5) > 3
-        pr.set(t, 5, far ? 2 : 1, p1).set(5, t, far ? 2 : 1, p1)
-    }
-    return { star: st.mesh(1 / 9, [4.5, 4.5, 0.5])!, cone: cn.mesh(1 / 7, [2.5, 2.5, 7])!, prongs: pr.mesh(1 / 11, [5.5, 5.5, 3])! }
-}
 
 const tmpV = new THREE.Vector3()
 const tmpV2 = new THREE.Vector3()
@@ -217,7 +171,6 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     const holderL = new THREE.Group()
     root.add(holderL)
     const mat = dfWeaponMat()
-    const geos: THREE.BufferGeometry[] = []
     // A camera-space key and fill of our own (added once, never removed) so blued steel and
     // walnut read clearly in the dark: warm from the upper left, cool rim from the right.
     const aim = new THREE.Object3D()
@@ -232,51 +185,36 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     const amb = new THREE.AmbientLight(0x9aa2b4, 0.35)
     root.add(key, fill, amb)
 
-    const gloveG = gloveModel().mesh(V, [2.5, 4, 3], { aoMin: 0.6 })!
-    const glove = new THREE.Mesh(gloveG, mat)
-    const gloveL = new THREE.Mesh(gloveG, mat)
-    geos.push(gloveG)
-    const knifeG = knifeModel().mesh(0.009, [1.5, 3, 2])!
-    geos.push(knifeG)
-    const knife = new THREE.Mesh(knifeG, mat)
+    // Pack geometries are shared: they are not ours to dispose.
+    const glove = new THREE.Mesh(dfWeaponPackGeometry('vm-glove', [0.055, 0.088, 0.066], 0x5e4230), mat)
+    const gloveL = new THREE.Mesh(glove.geometry, mat)
+    const knife = new THREE.Mesh(dfWeaponPackGeometry('vm-knife', [0.012, 0.2, 0.02], 0xc4c8ce), mat)
     knife.visible = false
     root.add(knife)
 
-    // Muzzle flash: additive voxel sprites, shown for a couple of frames.
+    // Muzzle flash: an additive comic star facing the eye, a tongue ahead and side prongs, shown for a couple of frames.
     const flashMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xffd8a0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
-    const fm = flashModels()
-    geos.push(fm.star, fm.cone, fm.prongs)
+    const flashCone = dfWeaponPackGeometry('vm-flash-cone', [0.4, 0.4, 1], 0xffc070, 1)
     const flash = new THREE.Group()
-    const star = new THREE.Mesh(fm.star, flashMat)
-    const cone = new THREE.Mesh(fm.cone, flashMat)
-    const prongs = new THREE.Mesh(fm.prongs, flashMat)
+    const star = new THREE.Mesh(dfWeaponPackGeometry('vm-flash-star', [1, 1, 0.02], 0xffc070, 1), flashMat)
+    const cone = new THREE.Mesh(flashCone, flashMat)
+    const prongs = new THREE.Mesh(dfWeaponPackGeometry('vm-flash-prongs', [1, 0.06, 0.06], 0xffc070, 1), flashMat)
     flash.add(star, cone, prongs)
     flash.visible = false
     root.add(flash)
     let flashT = 0
     // The flamethrower's pilot burner: a small flickering tongue under the nozzle, always lit.
     const pilotMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xff9a4a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
-    const pilot = new THREE.Mesh(fm.cone, pilotMat)
+    const pilot = new THREE.Mesh(flashCone, pilotMat)
     pilot.visible = false
     root.add(pilot)
     const pilotAt = new THREE.Object3D()
 
-    // Pooled casings: small voxel brass and red shotgun hulls.
-    // Brass with a bright shoulder; rifle cases are long and necked, pistol cases short.
-    const cm = new DfVoxModel(2, 5, 2)
-    cm.box(0, 0, 0, 2, 5, 2, cm.c(0xd6ad52, 0.12)).box(0, 0, 0, 2, 1, 2, cm.c(0x8a6a2a)).box(0, 4, 0, 2, 5, 2, cm.c(0xf0cf78, 0.2))
-    const caseG = cm.mesh(0.0058, [1, 2.5, 1])!
-    // .455 revolver brass: short, fat and rimmed.
-    const wm = new DfVoxModel(3, 4, 3)
-    wm.box(0, 0, 0, 3, 4, 3, wm.c(0xd6ad52, 0.12)).box(0, 0, 0, 3, 1, 3, wm.c(0xb08a3a)).box(1, 3, 1, 2, 4, 2, wm.c(0x8a8e94))
-    const revCaseG = wm.mesh(0.0062, [1.5, 2, 1.5])!
-    const rm = new DfVoxModel(3, 11, 3)
-    rm.box(0, 0, 0, 3, 8, 3, rm.c(0xd6ad52, 0.12)).box(0, 0, 0, 3, 1, 3, rm.c(0x8a6a2a)).box(1, 8, 1, 2, 11, 2, rm.c(0xf0cf78, 0.2)).box(0, 7, 0, 3, 8, 3, rm.c(0xf0cf78, 0.2))
-    const rifleCaseG = rm.mesh(0.0042, [1.5, 5.5, 1.5])!
-    const hm = new DfVoxModel(3, 8, 3)
-    hm.box(0, 0, 0, 3, 8, 3, hm.c(0xa8302a)).box(0, 0, 0, 3, 2, 3, hm.c(0xc9a046))
-    const hullG = hm.mesh(0.0065, [1.5, 4, 1.5])!
-    geos.push(caseG, hullG, rifleCaseG, revCaseG)
+    // Pooled casings: pistol brass, rimmed .455 revolver brass, long necked rifle cases and red shotgun hulls.
+    const caseG = dfWeaponPackGeometry('vm-case-pistol', [0.012, 0.026, 0.012], 0xd6ad52, 0.12)
+    const revCaseG = dfWeaponPackGeometry('vm-case-revolver', [0.015, 0.023, 0.015], 0xd6ad52, 0.12)
+    const rifleCaseG = dfWeaponPackGeometry('vm-case-rifle', [0.012, 0.046, 0.012], 0xd6ad52, 0.12)
+    const hullG = dfWeaponPackGeometry('vm-case-hull', [0.019, 0.05, 0.019], 0xa8302a)
     const casings: Casing[] = []
     for (let i = 0; i < 20; i++) {
         const m = new THREE.Mesh(caseG, mat)
@@ -337,6 +275,9 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
     const aimPos = new THREE.Vector3()
 
     function makeRig(w: DfViewmodelWeapon): void {
+        // the gloves ride the old rigs: take them off before those are disposed
+        glove.removeFromParent()
+        gloveL.removeFromParent()
         for (const r of [rig, rigL]) if (r) disposeDfWeaponModel(r.root)
         rig = dfBuildGunRig(w.id, w.pap, w.attachments)
         holder.add(rig.root)
@@ -374,7 +315,7 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
         inspectT = -1
         panAngle = panShown = 0
         // the pilot burner sits just under and behind the nozzle
-        pilotAt.position.copy(rig.muzzle.position).add(tmpV.set(0, -3 * V, 1.2 * V))
+        pilotAt.position.copy(rig.muzzle.position).add(tmpV.set(0, -3 * V, 1.4 * V))
         rig.root.add(pilotAt)
         pilot.visible = rig.flame
     }
@@ -579,9 +520,10 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             step(dt, input)
         },
         dispose() {
+            glove.removeFromParent()
+            gloveL.removeFromParent()
             for (const r of [rig, rigL]) if (r) disposeDfWeaponModel(r.root)
             rig = rigL = null
-            for (const g of geos) g.dispose()
             flashMat.dispose()
             pilotMat.dispose()
             ctx.vmScene.remove(root)
@@ -639,6 +581,18 @@ export function createDfViewmodelImpl(ctx: DfRenderContext): DfViewmodel {
             })
             ev(0.58, () => play(DF_WSND.shell))
             ev(0.84, () => play(DF_WSND.breakClose))
+        } else if (c.kind === 'mag' && r.pump) {
+            // Gunplay hook (Quad Load, a Pack-a-Punched pump gun: its reload is a magazine reload
+            // in the stats): the gun rolls belly-up, every shell goes in one sweep, then the pump
+            // is racked. Motion only, no new parts, so it works with any model.
+            const dip = bump(u, 0, 1, 0.16)
+            out.roll -= 0.45 * dip
+            out.pitch += 0.12 * dip
+            out.y -= 0.03 * dip
+            out.z += 0.012 * bump(u, 0.2, 0.55, 0.08)
+            out.pump = bump(u, 0.72, 0.95, 0.1)
+            ev(0.18, () => play(DF_WSND.quadLoad))
+            ev(0.74, () => play(DF_WSND.pump))
         } else if (c.kind === 'mag' && r.drum && r.reload === 'mag') {
             // A drum change: the gun cants its belly toward the eye, the drum slides off the
             // well and drops away, a fresh one swings up and is slapped home; empty, the bolt

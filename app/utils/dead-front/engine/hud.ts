@@ -93,6 +93,8 @@ export interface DfHudState {
         infinite: boolean
         /** Rarity tier 0..3 (rarity.ts): the name shows in its colour. */
         rarity?: number
+        /** Names of the weapon's Pack-a-Punch perks (gunplay.ts). */
+        perks?: string[]
     }
     grenades: number
     perks: DfHudPerk[]
@@ -120,7 +122,10 @@ export interface DfHudState {
         distance: number
         hasTarget: boolean
     }
-    hitmarker: { key: number, kind: 'hit' | 'kill' | 'head' }
+    /** `n`: pellets of one shot in the worst-hit zombie (a shotgun's marker grows with it). */
+    hitmarker: { key: number, kind: 'hit' | 'kill' | 'head', n?: number }
+    /** A weapon just reached a rarity tier: the screen flashes its colour and stamps its name. */
+    rarityFlash?: { key: number, color: string, name: string }
     killKey: number
     /** The last kill was a headshot (the kill skull's colour; the hitmarker kind moves on with the next hit). */
     killHead: boolean
@@ -155,6 +160,8 @@ export interface DfHudState {
     ammoHint: string | null
     /** Zombies left when the round is down to its last few (1-3) and nothing more spawns; 0 otherwise. */
     lastZombies: number
+    /** The Iron Warlord on the field: its health (0..1) and whether it is enraged; null otherwise. */
+    boss: { hp: number, enraged: boolean } | null
     /**
      * Off-screen-aware markers (up to DF_HUD_MARKERS): the last zombies of a round and downed
      * teammates. Marker i is positioned every frame through CSS variables on the HUD root:
@@ -250,6 +257,10 @@ export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine |
             return ev.p === c.me ? line('gold', null, `Pack-a-Punch returned your ${c.weaponName(ev.weapon)}`) : null
         case 'powerup':
             return line('gold', ev.p, `grabbed ${c.powerupName(ev.kind)}`)
+        case 'boss':
+            if (ev.what === 'enrage') return line('red', null, 'The Iron Warlord is enraged')
+            if (ev.what === 'kill') return ev.p !== undefined && ev.p >= 0 ? line('gold', ev.p, 'brought down the Iron Warlord') : line('gold', null, 'The Iron Warlord fell')
+            return line('red', null, 'The Iron Warlord is here')
         case 'buy': {
             if (ev.what.startsWith('door:')) {
                 const label = c.doorLabel(ev.what.slice(5))
@@ -284,7 +295,7 @@ export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
 export function dfNewHudArsenal(): DfHudArsenal {
     return {
         scrap: 0, launcher: 0, equip: null, kit: false,
-        support: [], bench: null, denyKey: 0, challenge: null, salvageKey: 0, targeting: null
+        support: [], bench: null, denyKey: 0, challenge: null, salvageKey: 0, salvageGain: 0, salvageLabel: '', targeting: null
     }
 }
 
@@ -313,6 +324,7 @@ export function dfCreateHudState(): DfHudState {
         prompt: null,
         objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, rods: null, rodTimer: null, label: '', distance: 0, hasTarget: false },
         hitmarker: { key: 0, kind: 'hit' },
+        rarityFlash: { key: 0, color: '#ffffff', name: '' },
         killKey: 0,
         killHead: false,
         damage: [],
@@ -335,6 +347,7 @@ export function dfCreateHudState(): DfHudState {
         hint: null,
         ammoHint: null,
         lastZombies: 0,
+        boss: null,
         markers: [],
         arsenal: dfNewHudArsenal()
     }

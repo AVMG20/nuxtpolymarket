@@ -32,6 +32,11 @@
         </div>
 
         <!-- round and event banners -->
+        <!-- a weapon reached a rarity tier: a flash of its colour and its name stamped across the middle -->
+        <div v-if="hud.rarityFlash && hud.rarityFlash.key > 0" :key="`r${hud.rarityFlash.key}`" class="df-rarity-up absolute inset-0" :style="{ '--rc': hud.rarityFlash.color }" aria-hidden="true">
+            <div class="stamp">{{ hud.rarityFlash.name }}</div>
+        </div>
+
         <div class="df-announce-wrap absolute inset-x-0 flex justify-center px-4">
             <div v-if="hud.announce && !shopOpen" :key="hud.announce.key" class="df-announce" :class="[hud.announce.tone, { round: isRoundBanner }]">
                 <div class="title">{{ hud.announce.title }}</div>
@@ -46,7 +51,7 @@
                 <i class="t" /><i class="b" /><i class="l" /><i class="r" />
                 <b class="dot" />
             </div>
-            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="hud.hitmarker.kind">
+            <div v-if="hud.hitmarker.key > 0 && !shopOpen" :key="hud.hitmarker.key" class="df-hit" :class="[hud.hitmarker.kind, { blast: (hud.hitmarker.n ?? 0) >= 3 }]" :style="{ '--hs': hitSpread }">
                 <i /><i /><i /><i />
             </div>
             <Transition name="df-fade">
@@ -91,7 +96,7 @@
         <!-- the workbench shop, centred while it is open -->
         <Transition name="df-fade">
             <div v-if="shopOpen && hud.arsenal.bench" class="df-bench-wrap absolute inset-0 flex items-center justify-center">
-                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" />
+                <DfHudBench :bench="hud.arsenal.bench" :scrap="hud.arsenal.scrap" :deny-key="hud.arsenal.denyKey" @close="emit('closeBench')" />
             </div>
         </Transition>
         <!-- placing gear / calling in support, and short arsenal notices -->
@@ -111,6 +116,14 @@
                     <rect v-for="(r, i) in SKULL" :key="i" :x="r[0]" :y="r[1]" :width="r[2]" height="1" />
                 </svg>
                 <span>{{ hud.lastZombies === 1 ? 'Last one' : `Last ${hud.lastZombies}` }}</span>
+            </div>
+        </Transition>
+
+        <!-- the Iron Warlord's health -->
+        <Transition name="df-drop">
+            <div v-if="hud.boss" class="df-boss absolute left-1/2" :class="{ enraged: hud.boss.enraged }">
+                <div class="name">The Iron Warlord<span v-if="hud.boss.enraged"> · enraged</span></div>
+                <div class="bar"><i :style="{ transform: `scaleX(${hud.boss.hp})` }" /></div>
             </div>
         </Transition>
 
@@ -244,6 +257,10 @@ import DfHudRound from './DfHudRound.vue'
 import DfHudScoreboard from './DfHudScoreboard.vue'
 
 const props = defineProps<{ hud: DfHudState }>()
+const emit = defineEmits<{
+    /** The workbench's close button. */
+    closeBench: []
+}>()
 
 const RING = 24
 
@@ -254,6 +271,8 @@ const SKULL: [number, number, number][] = [
 ]
 
 const bleedFrac = computed(() => Math.max(0, Math.min(1, props.hud.bleedout / Math.max(1, props.hud.bleedoutMax))))
+// a shotgun's hitmarker opens wider the more pellets landed in one zombie
+const hitSpread = computed(() => 1 + Math.min(8, Math.max(0, (props.hud.hitmarker.n ?? 1) - 1)) * 0.07)
 const isRoundBanner = computed(() => /^Round \d+$/.test(props.hud.announce?.title ?? ''))
 
 /** Splits "Hold F to buy …" into a verb, a keycap and the rest of the line. */
@@ -342,7 +361,7 @@ function iconFor(kind: DfPowerupKind): string {
     text-transform: uppercase;
     color: #1f170e;
     background: var(--df-paper);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000;
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55); border-radius: var(--df-r-sm);
     white-space: nowrap;
 }
 
@@ -433,7 +452,7 @@ function iconFor(kind: DfPowerupKind): string {
 /* hitmarker: four square ticks on the diagonals */
 .df-hit {
     position: absolute;
-    animation: df-hit 0.28s steps(4, end) forwards;
+    animation: df-hit 0.28s ease-out forwards;
 }
 
 .df-hit i {
@@ -446,10 +465,58 @@ function iconFor(kind: DfPowerupKind): string {
     box-shadow: 0 0 0 1px #000;
 }
 
-.df-hit i:nth-child(1) { transform: rotate(45deg) translateY(-11px); }
-.df-hit i:nth-child(2) { transform: rotate(135deg) translateY(-11px); }
-.df-hit i:nth-child(3) { transform: rotate(225deg) translateY(-11px); }
-.df-hit i:nth-child(4) { transform: rotate(315deg) translateY(-11px); }
+.df-hit i:nth-child(1) { transform: rotate(45deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(2) { transform: rotate(135deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(3) { transform: rotate(225deg) translateY(calc(-11px * var(--hs, 1))); }
+.df-hit i:nth-child(4) { transform: rotate(315deg) translateY(calc(-11px * var(--hs, 1))); }
+
+/* a load of buckshot: thicker, longer ticks */
+.df-hit.blast i {
+    width: 4px;
+    height: 11px;
+    left: -2px;
+    top: -5.5px;
+}
+
+/* rarity upgrade: the tier's colour washes in from the edges, its name slams down and fades */
+.df-rarity-up {
+    background: radial-gradient(ellipse at center, transparent 35%, color-mix(in srgb, var(--rc) 55%, transparent) 100%);
+    animation: df-rarity-wash 1.4s ease-out forwards;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.df-rarity-up .stamp {
+    margin-top: -18vh;
+    padding: 0.2rem 1.2rem;
+    font-family: var(--df-font-stencil);
+    font-size: clamp(1.6rem, 5vw, 3rem);
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--rc);
+    background: rgba(8, 9, 10, 0.82);
+    box-shadow: 0 0 0 3px #000, inset 0 0 0 2px var(--rc), 6px 6px 0 2px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 0 18px var(--rc);
+    animation: df-rarity-stamp 1.6s cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
+}
+
+@keyframes df-rarity-wash {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes df-rarity-stamp {
+    0% { transform: scale(2.4) rotate(-4deg); opacity: 0; }
+    14% { transform: scale(1) rotate(-2deg); opacity: 1; }
+    75% { transform: scale(1) rotate(-2deg); opacity: 1; }
+    100% { transform: scale(0.96) rotate(-2deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .df-rarity-up .stamp { animation-timing-function: linear; }
+}
 
 .df-hit.kill i,
 .df-hit.head i {
@@ -607,7 +674,7 @@ function iconFor(kind: DfPowerupKind): string {
     text-transform: uppercase;
     color: #f1e8cf;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-last svg {
@@ -616,6 +683,60 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-last span {
     margin-left: 0.3rem;
+}
+
+/* the Iron Warlord's health, top centre */
+.df-boss {
+    top: calc(var(--edge) + 4.6rem);
+    width: min(26rem, 70vw);
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.df-boss .name {
+    font-size: 0.85rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #f1e8cf;
+    text-shadow: var(--df-outline);
+}
+
+.df-boss .name span {
+    color: #ff6a4d;
+}
+
+.df-boss .bar {
+    width: 100%;
+    height: 10px;
+    background: var(--df-hud-bg);
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5);
+    border-radius: var(--df-r-sm);
+    overflow: hidden;
+}
+
+.df-boss .bar i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(#e2412f, #9c2416);
+    transform-origin: left center;
+    transition: transform 0.25s ease-out;
+}
+
+.df-boss.enraged .bar i {
+    animation: df-boss-throb 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes df-boss-throb {
+    from {
+        filter: brightness(1);
+    }
+
+    to {
+        filter: brightness(1.6);
+    }
 }
 
 /* first-match coaching: quiet, lower centre */
@@ -712,12 +833,12 @@ function iconFor(kind: DfPowerupKind): string {
     gap: 0.6rem;
     padding: 0.4rem 0.75rem 0.45rem 0.55rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000, inset 0 2px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(255, 255, 255, 0.06); border-radius: var(--df-r-sm);
 }
 
 .df-prompt .plate.deny {
-    animation: df-shake 0.3s steps(6, end);
-    box-shadow: 0 -3px 0 #8e130b, 0 3px 0 #8e130b, -3px 0 0 #8e130b, 3px 0 0 #8e130b;
+    animation: df-shake 0.3s ease-out;
+    box-shadow: 0 0 0 3px #8e130b, 5px 5px 0 3px rgba(0, 0, 0, 0.55); border-radius: var(--df-r-sm);
 }
 
 .df-prompt .keycap {
@@ -835,7 +956,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-downed .dial {
     position: relative;
-    animation: df-heart 1.1s steps(3, end) infinite;
+    animation: df-heart 1.1s ease-out infinite;
 }
 
 .df-downed svg {
@@ -926,7 +1047,7 @@ function iconFor(kind: DfPowerupKind): string {
     width: 50px;
     height: 50px;
     background: rgba(40, 28, 6, 0.85);
-    box-shadow: 0 -3px 0 #000, 0 3px 0 #000, -3px 0 0 #000, 3px 0 0 #000, inset 0 0 0 2px #e2b24f, inset 0 0 14px rgba(255, 200, 80, 0.45);
+    box-shadow: 0 0 0 3px #000, 5px 5px 0 3px rgba(0, 0, 0, 0.55), inset 0 0 0 2px #e2b24f, inset 0 0 14px rgba(255, 200, 80, 0.45); border-radius: var(--df-r-sm);
 }
 
 .df-pu .tile img {
@@ -957,7 +1078,7 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 .df-medal-leave-active {
-    transition: opacity 0.25s, transform 0.25s steps(3);
+    transition: opacity 0.25s, transform 0.25s ease-out;
 }
 
 .df-medal-leave-to {
@@ -982,7 +1103,7 @@ function iconFor(kind: DfPowerupKind): string {
     font-size: 0.8rem;
     color: #f1e8cf;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-chat .msg b {
@@ -994,7 +1115,7 @@ function iconFor(kind: DfPowerupKind): string {
 }
 
 .df-tape-enter-active {
-    animation: df-tape-in 0.25s steps(4, end);
+    animation: df-tape-in 0.25s ease-out;
 }
 
 .df-tape-leave-active {
@@ -1029,7 +1150,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-ledger-enter-active,
 .df-ledger-leave-active {
-    transition: opacity 0.12s, transform 0.16s steps(3);
+    transition: opacity 0.12s, transform 0.16s ease-out;
 }
 
 .df-ledger-enter-from,
@@ -1040,7 +1161,7 @@ function iconFor(kind: DfPowerupKind): string {
 
 .df-drop-enter-active,
 .df-drop-leave-active {
-    transition: transform 0.25s steps(4), opacity 0.25s;
+    transition: transform 0.25s ease-out, opacity 0.25s;
 }
 
 .df-drop-enter-from,

@@ -6,7 +6,7 @@ import { dfBodyFits, dfBuildCollision, dfGroundHeight } from '#shared/utils/dead
 import type { DfEvent } from '#shared/utils/dead-front/protocol'
 import {
     DF_RECIPES, DF_SALVAGE, DF_SENTRY, dfChallengeCounts, dfChallengePool, dfChallengeReward,
-    dfCraftBlocked, dfCraftSpend, dfSalvageRoll, dfSentryPick
+    dfCraftBlocked, dfCraftSpend, dfRoundPayout, dfSalvageRoll, dfSentryPick
 } from '#shared/utils/dead-front/salvage'
 import type { DfKitState } from '#shared/utils/dead-front/salvage'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
@@ -331,6 +331,33 @@ describe('salvage: the match', () => {
         expect(sim.arsenal.handle(p, { k: 'callin', at: { x: p.pos.x + DF_SUPPORT_HELD.range + 5, y: 0, z: p.pos.z }, dir: { x: 1, y: 0, z: 0 } })).toBe(false)
         expect(sim.arsenal.handle(p, { k: 'callin', at: { x: Number.NaN, y: 0, z: 0 }, dir: { x: 1, y: 0, z: 0 } })).toBe(false)
         expect(sim.arsenal.gearOf(p).support).toEqual(['bomber'])
+    })
+
+    it('a brute drops a pile for every player', () => {
+        const { sim } = makeSim(2)
+        const [a, b] = [sim.player(0)!, sim.player(1)!]
+        const z = sim.debugSpawn('brute', { x: a.pos.x, y: 0, z: a.pos.z - 8 }, 1)
+        ;(sim as unknown as { killZombie: (z: unknown, p: unknown, zone: string, src: unknown) => void }).killZombie(z, a, 'body', { weapon: 'm1911', credit: 'm1911' })
+        for (const p of [a, b]) {
+            const pile = sim.arsenal.drops.filter(d => d.owner === p.pid && d.n >= DF_SALVAGE.brute.scrap[0])
+            expect(pile).toHaveLength(1)
+            expect(pile[0]!.n).toBeLessThanOrEqual(DF_SALVAGE.brute.scrap[1])
+        }
+    })
+
+    it('a round survived pays everyone, and only they hear of it', () => {
+        expect(dfRoundPayout(1)).toBe(DF_SALVAGE.roundPay.base + DF_SALVAGE.roundPay.perRound)
+        expect(dfRoundPayout(5)).toBeGreaterThan(dfRoundPayout(1))
+        expect(dfRoundPayout(500)).toBe(DF_SALVAGE.roundPay.max)
+        const { sim } = makeSim(2)
+        sim.round = 4
+        sim.arsenal.roundEnd()
+        for (const pid of [0, 1]) {
+            const p = sim.player(pid)!
+            expect(sim.arsenal.gearOf(p).pool.scrap).toBe(dfRoundPayout(4))
+            const mine = sim.arsenal.mine(pid)
+            expect(mine.events.filter(e => e.k === 'scrap')).toEqual([{ k: 'scrap', p: pid, n: dfRoundPayout(4), why: 'round' }])
+        }
     })
 
     it('a round challenge pays the squad when it is met', () => {

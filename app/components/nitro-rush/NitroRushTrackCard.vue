@@ -24,6 +24,8 @@ defineProps<{
     plays?: TrackPlays
     /** The medal the viewer's best holds on it. */
     medal?: Medal | null
+    /** Players driving it right now. */
+    racing?: number
 }>()
 defineEmits<{ select: [] }>()
 </script>
@@ -34,20 +36,19 @@ defineEmits<{ select: [] }>()
       <NitroRushTrackPreview class="nr-track-preview" :points="track.points" :heights="track.heights" :closed="track.closed !== false" :branches="track.branches" :fields="track.fields" :color="active ? '#ff2bd6' : '#3df2ff'" />
       <NitroRushMedal class="nr-track-medal" :medal="medal ?? null" />
     </span>
-    <div class="min-w-0 flex-1">
-      <div class="flex items-baseline justify-between gap-2">
-        <span class="nr-track-name">{{ track.name }}</span>
-        <span class="flex shrink-0 items-baseline gap-2">
-          <span v-if="plays?.laps" class="nr-score tabular-nums" :title="playCounts(plays)">
-            <UIcon name="i-lucide-repeat" class="size-3" />
-            {{ formatNumber(plays.laps) }}
-          </span>
-          <NitroRushScore v-if="votes" :votes="votes" />
+    <!-- A grid, so the live count sits right under the chips, beside whichever line comes second, without adding a row. -->
+    <div class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2">
+      <span class="nr-track-name">{{ track.name }}</span>
+      <span class="flex items-baseline justify-end gap-2">
+        <span v-if="plays?.laps" class="nr-score tabular-nums" :title="playCounts(plays)">
+          <UIcon name="i-lucide-repeat" class="size-3" />
+          {{ formatNumber(plays.laps) }}
         </span>
-      </div>
-      <div v-if="author" class="nr-track-holder">by {{ author }}</div>
-      <div v-else-if="group" class="nr-track-holder">{{ group }}</div>
-      <dl v-if="hasBoard" class="nr-track-times tabular-nums">
+        <NitroRushScore v-if="votes" :votes="votes" />
+      </span>
+      <div v-if="author" class="nr-track-holder col-start-1">by {{ author }}</div>
+      <div v-else-if="group" class="nr-track-holder col-start-1">{{ group }}</div>
+      <dl v-if="hasBoard" class="nr-track-times col-start-1 tabular-nums">
         <dt>RECORD</dt>
         <dd>
           {{ lapTimeOrBlank(record ? record.lapMs / 1000 : null) }}
@@ -56,6 +57,10 @@ defineEmits<{ select: [] }>()
           </span>
         </dd>
       </dl>
+      <span v-if="racing" class="nr-live col-start-2 row-start-2 self-center justify-self-end tabular-nums" :title="`${formatNumber(racing)} racing now`">
+        <span class="nr-live-dot" aria-hidden="true" />
+        {{ formatNumber(racing) }}
+      </span>
     </div>
   </button>
 </template>

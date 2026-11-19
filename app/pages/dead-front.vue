@@ -112,6 +112,7 @@
 
 <script setup lang="ts">
 import { DfNet } from '~/utils/dead-front/net'
+import { dfPreloadModels } from '~/utils/dead-front/models'
 import type { DfNetStatus } from '~/utils/dead-front/net'
 import DfMenuPlay from '~/components/dead-front/menu/DfMenuPlay.vue'
 import DfMenuArmory from '~/components/dead-front/menu/DfMenuArmory.vue'
@@ -136,7 +137,7 @@ useHead({
     link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Special+Elite&family=Stardos+Stencil:wght@400;700&display=swap' }
+        { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Bangers&family=Barlow+Condensed:wght@500;600;700&family=Patrick+Hand&family=Patrick+Hand+SC&display=swap' }
     ]
 })
 
@@ -285,6 +286,8 @@ onMounted(() => {
         // storage blocked
     }
     void loadProfile()
+    // fetch the model packs while the player is in the menus
+    void dfPreloadModels()
     const n = new DfNet()
     net.value = n
     offs.push(
@@ -512,7 +515,7 @@ onBeforeUnmount(() => {
 
 .df-tape-enter-active,
 .df-tape-leave-active {
-    transition: transform 0.25s steps(4), opacity 0.25s;
+    transition: transform 0.25s ease-out, opacity 0.25s;
 }
 
 .df-tape-enter-from,

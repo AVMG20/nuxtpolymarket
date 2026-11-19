@@ -7,6 +7,7 @@ import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
 import type { DfProjectileView, DfRenderContext } from '../context'
 import { DfVoxModel } from '../voxel/model'
 import { dfWeaponMat } from './materials'
+import { dfWeaponPackGeometry } from './models'
 import { DF_WSND } from './sounds'
 import { dfXrayScheme } from './xray'
 
@@ -132,13 +133,11 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
         return x
     }
     const high = ctx.quality === 'high'
-    // Voxel projectiles: a stick grenade, glowing cube clusters for the PaP shells,
+    // Projectiles: a stick grenade, glowing cube clusters for the PaP shells,
     // the X-Ray bolt, a lumpy green spit ball.
     const solidMat = dfWeaponMat()
-    const stick = new DfVoxModel(5, 22, 5)
-    stick.box(0, 14, 0, 5, 22, 5, stick.shade(0x4c5038, 0.06, 2)).box(0, 13, 0, 5, 14, 5, stick.c(0x2a2b2e))
-    stick.box(2, 0, 2, 3, 13, 3, stick.c(0x8a6038)).box(1, 0, 1, 4, 1, 4, stick.c(0x2a2b2e))
-    const stickG = g(stick.mesh(0.014, [2.5, 14, 2.5])!)
+    // the stick grenade is a pack model (shared, not ours to dispose); the rest are glowing voxel clusters
+    const stickG = dfWeaponPackGeometry('proj-stick', [0.07, 0.3, 0.07], 0x4f5539)
     const glowCube = (hex: number, n: number) => {
         const m = new DfVoxModel(n, n, n)
         const hot = m.c(0xffffff, 1)

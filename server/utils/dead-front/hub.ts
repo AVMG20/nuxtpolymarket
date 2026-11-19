@@ -11,6 +11,8 @@ export interface DfSocket {
     id: string
     send: (frame: string) => void
     close: (code?: number, reason?: string) => void
+    /** Bytes queued that the network hasn't taken yet (absent: unknown), for snapshot pacing. */
+    backlog?: () => number
 }
 
 interface Conn {
@@ -322,6 +324,8 @@ export class DfHub {
         try {
             match = await DfMatch.create(members, {
                 send: (userId, frame) => this.sendRaw(userId, frame),
+                backlog: userId => this.backlogOf(userId),
+                cut: userId => this.cut(userId),
                 onPlayerGone: userId => this.onPlayerGone(lobby, userId),
                 onFinished: m => this.onMatchFinished(lobby, m),
                 onRound: () => this.pushLobbies(),
@@ -429,6 +433,25 @@ export class DfHub {
     private sendRaw(userId: string, frame: string): void {
         const conn = this.users.get(userId)
         if (conn) this.safeSend(conn, frame)
+    }
+
+    private backlogOf(userId: string): number {
+        try {
+            return this.users.get(userId)?.socket.backlog?.() ?? 0
+        } catch {
+            return 0
+        }
+    }
+
+    /** Closes a socket that stopped draining; its client reconnects and resyncs (`DfNet` retries on 4408). */
+    private cut(userId: string): void {
+        const conn = this.users.get(userId)
+        if (!conn) return
+        try {
+            conn.socket.close(4408, 'Connection too slow')
+        } catch {
+            // already closing
+        }
     }
 
     private safeSend(conn: Conn, frame: string): void {

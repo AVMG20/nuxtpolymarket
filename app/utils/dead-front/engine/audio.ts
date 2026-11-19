@@ -84,7 +84,11 @@ const ZFOLEY: Record<string, RuleRow> = {
     'df:zombie-climb': [0.25, 0.9, 1.2],
     'df:board-rip': [0.14, 0.8, 1.3],
     'df:brute-step': [0.07, 0.45, 1.1],
-    'df:bloater-gurgle': [0.6, 1.4, 0.8]
+    'df:bloater-gurgle': [0.6, 1.4, 0.8],
+    // zombie footfalls: thin out first when the bus is busy
+    'df:zstep-shuffle': [0.06, 0.3, 0.55],
+    'df:zstep-run': [0.04, 0.12, 0.65],
+    'df:zstep-drag': [0.15, 0.6, 0.6]
 }
 
 const UI: Record<string, RuleRow> = {
@@ -108,6 +112,10 @@ const UI: Record<string, RuleRow> = {
     'df:lunge': [0.12, 0.2, 1.5],
     'df:pu-spawn': [0.3, 0.6, 1.5],
     'df:pu-end': [0.3, 0.6, 1.5],
+    'df:pu-tick': [0.4, 0.3, 1.4],
+    'df:countdown': [0.4, 1.1, 2.2],
+    'df:ally-down': [0.4, 1.2, 2.6],
+    'df:ally-bleedout': [0.5, 3, 2.4],
     // salvage, the workbench and support (arsenal-sounds.ts)
     'df:ars-crate': [0.3, 1.2, 2.6],
     'df:ars-callin': [0.3, 1.2, 2.2],
@@ -121,10 +129,17 @@ const MUSIC: Record<string, readonly [dur: number, duck: DfDuck]> = {
     'df:game-start': [4.5, DF_DUCK_STING],
     'df:egg-step': [3, DF_DUCK_STING],
     'df:box-jingle': [4.4, DF_DUCK_JINGLE],
-    'df:rod-thunder': [3.5, DF_DUCK_BOOM]
+    'df:rod-thunder': [3.5, DF_DUCK_BOOM],
+    'df:boss-round': [6, DF_DUCK_STING],
+    'df:boss-arrive': [3.2, DF_DUCK_STING],
+    'df:boss-enrage': [1.8, DF_DUCK_JINGLE],
+    'df:boss-down': [3.4, DF_DUCK_STING]
 }
 
 const WORLD: Record<string, RuleRow> = {
+    // the Iron Warlord carries across the map
+    'df:boss-roar': [0.5, 2, 3],
+    'df:boss-fall': [0.5, 1.8, 2.6],
     'df:gen-hum': [0.8, 2.2, 0.8],
     'df:zap': [0.09, 0.4, 1.2],
     'df:soul': [0.15, 1.4, 1.2],
@@ -164,6 +179,9 @@ export function dfSoundRule(name: string, spatial: boolean): DfSoundRule {
                 : { cat: 'weapon', priority: 4, interval: 0.012, dur: 1, duck: DF_DUCK_SHOT }
         }
         if (name === 'w:explode') return { cat: 'weapon', priority: 3, interval: 0.06, dur: 2, duck: DF_DUCK_BOOM }
+        // the rarity fanfare is a jingle; a rarity's shot layer sits under the report
+        if (name.startsWith('w:upgrade:')) return { cat: 'music', priority: 3, interval: 0.3, dur: 2.2, duck: DF_DUCK_JINGLE }
+        if (name.startsWith('w:rarity:')) return { cat: 'weapon', priority: 1, interval: 0.03, dur: 0.35 }
         if (name === 'w:casing') return { cat: 'weapon', priority: 0.5, interval: 0.05, dur: 0.15 }
         return { cat: 'weapon', priority: spatial ? 2 : 2.5, interval: 0.02, dur: spatial ? 0.6 : 0.4 }
     }

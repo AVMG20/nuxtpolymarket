@@ -19,6 +19,17 @@
                         </span>
                     </span>
                     <span v-if="w.id === 'm1911'" class="df-rack-tag df-brass" title="Everyone starts with the M1911">Start</span>
+                    <span
+                        v-if="w.unlocked"
+                        class="df-rack-xp"
+                        :class="{ max: w.level >= maxLevel }"
+                        :style="{ '--p': w.level / maxLevel }"
+                        role="progressbar"
+                        :aria-label="`Service level ${w.level} of ${maxLevel}`"
+                        :aria-valuenow="w.level"
+                        aria-valuemin="0"
+                        :aria-valuemax="maxLevel"
+                    />
                 </button>
             </li>
         </ul>
@@ -424,6 +435,43 @@ async function save(attachments: DfLoadout['attachments']) {
     font-size: 0.6rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
+}
+
+/* service level out of the max, along the card's bottom edge (full once mastered) */
+.df-rack-xp {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}
+
+.df-rack-xp::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: calc(var(--p) * 100%);
+    background: #b9862c;
+    transition: width 0.4s ease-out;
+}
+
+.df-rack-xp.max::after {
+    background: linear-gradient(90deg, #e2b24f, #ffd98a);
+    box-shadow: 0 0 6px rgba(255, 196, 92, 0.6);
+}
+
+.df-rack-card.active .df-rack-xp {
+    background: rgba(60, 40, 15, 0.2);
+}
+
+.df-rack-card.active .df-rack-xp::after {
+    background: #8a5f17;
+}
+
+.df-rack-card.active .df-rack-xp.max::after {
+    background: linear-gradient(90deg, #a8741c, #d39a36);
 }
 
 .df-rack {

@@ -102,6 +102,8 @@ export interface SimPlayer {
     moveBudget: number
     fireTokens: number
     fireTokensAt: number
+    /** Shots that hit with a chain-lightning weapon (gunplay.ts `dfChainFires`). */
+    chainHits?: number
     // result
     weaponKills: Partial<Record<DfWeaponId, number>>
     weaponsFound: Set<DfWeaponId>
@@ -160,6 +162,10 @@ export interface SimZombie {
     detourUntil: number
     detour: Vec3 | null
     shockedUntil: number
+    /** On fire from a Pack-a-Punch perk (gunplay.ts `DF_BURN`). */
+    burn?: { dps: number, until: number, next: number, owner: number, weapon: DfWeaponId } | null
+    /** Earliest time a gun's knockback (shotgun blast, Stopping Power) staggers it again. */
+    knockReadyAt?: number
     /** Direction the zombie is walking (radians, same convention as yaw); eased so paths curve instead of snapping. */
     heading: number
     /** Angle (radians) it swings around its target on the final approach, so a crowd fans out; 0 = straight in. */
@@ -180,6 +186,9 @@ export interface SimZombie {
     crawl?: boolean
     /** A gas-masked ghoul of a gas round. */
     masked?: boolean
+    /** The Iron Warlord (specials.ts); `enraged` below half health. */
+    boss?: boolean
+    enraged?: boolean
 }
 
 /** A weapon sitting in the Pack-a-Punch: whose it is, the slot it keeps reserved, and what comes back. */

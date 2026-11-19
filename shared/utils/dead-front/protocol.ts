@@ -131,13 +131,19 @@ export interface DfZombieSnap {
     crawl?: boolean
     /** A gas-masked ghoul of a gas round. */
     masked?: boolean
+    /** The Iron Warlord, a milestone round's champion brute (specials.ts `DF_WARLORD`). */
+    boss?: boolean
+    /** The warlord is below half health and running. */
+    enraged?: boolean
+    /** On fire (Dragon's Breath, Napalm): drawn burning. */
+    burning?: boolean
 }
 
 /**
  * A zombie on the wire: `[id, type, x, y, z, yaw, hp, anim, vx, vy, vz, rest]`.
  * Half the bytes of the object form, and zombies are most of a snapshot.
  * The velocity is left off (with `rest`) for a zombie standing still, `rest`
- * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`)
+ * holds every other field (`armored`, `shocked`, `tell`, `crawl`, `masked`, `boss`, `enraged`, `burning`)
  * and is left off when there are none. The match loop packs, `DfNet` unpacks.
  */
 export type DfWireZombie = [number, DfEnemyType, number, number, number, number, number, DfZombieAnim, number?, number?, number?, Partial<DfZombieSnap>?]
@@ -238,6 +244,8 @@ export interface DfWorldSnap {
     insta: number
     /** A special round in progress (mustard gas), with the thickest pockets of gas. */
     special?: DfSpecialSnap
+    /** A warlord round whose warlord hasn't fallen yet (specials.ts `DF_WARLORD`). */
+    warlord?: boolean
     /** Electric traps (map.traps). */
     traps?: DfTrapSnap[]
     /** Salvage, workbench gear, sentries and support (salvage.ts, support.ts). */
@@ -294,6 +302,8 @@ export type DfEvent =
     | { k: 'chat', name: string, text: string }
     /** A multi-kill tier reached or a headshot streak milestone (`n` kills), worth `bonus` points. */
     | { k: 'streak', p: number, kind: 'double' | 'triple' | 'multi' | 'massacre' | 'head', n: number, bonus: number }
+    /** The Iron Warlord joins the round, enrages below half health, or falls (`p` the killer, -1 for none). */
+    | { k: 'boss', what: 'spawn' | 'enrage' | 'kill', z: number, pos: Vec3, p?: number }
     /** Salvage, crafting, sentries, support, supply crates and round challenges (salvage.ts). */
     | DfArsenalEvent
 
@@ -371,8 +381,13 @@ export type DfClientMsg =
      * back together under the old lobby id. `host` is who led it, so they lead again.
      */
     | { t: 'rejoin', id: string, host?: string }
-    /** 20 Hz movement report. The server clamps speed and collides against the map. */
-    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, /** The client's round trip (ms), for lag-fair zombie swings. */ rtt?: number }
+    /**
+     * 20 Hz movement report. The server clamps speed and collides against the map.
+     * `rtt`: the client's round trip (ms), for lag-fair zombie swings. `st`: the
+     * newest snapshot `tick` the client has read, which paces the snapshot stream
+     * (the server holds frames back while one has gone unread too long).
+     */
+    | { t: 'in', seq: number, pos: Vec3, yaw: number, pitch: number, flags: number, rtt?: number, st?: number }
     /**
      * One trigger pull. `dir` is per pellet for shotguns. Hits are claimed by
      * the client (shared hit test) and validated by the server against its own
@@ -428,7 +443,7 @@ export type DfDevOp
          * zombie's legs, `traps` resets the trap cooldowns, `spawn` drops a zombie
          * (`type`) a few metres in front of you.
          */
-        | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn', type?: DfEnemyType }
+        | { k: 'special', what: 'gas' | 'crawl' | 'traps' | 'spawn' | 'boss', type?: DfEnemyType }
         /** Arsenal: `salvage` fills your salvage, `support` hands you three support items, `crate` drops a supply crate (`item`, else random) at your feet. */
         | { k: 'arsenal', what: 'salvage' | 'support' | 'crate', item?: string }
 

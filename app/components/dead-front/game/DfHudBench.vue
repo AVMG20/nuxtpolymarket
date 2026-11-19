@@ -7,6 +7,7 @@
             </div>
             <div class="purse">
                 <span class="coin" title="Scrap"><DfBenchIcon name="scrap" :size="18" /><b>{{ scrap }}</b> scrap</span>
+                <button type="button" class="close" @click.stop="emit('close')"><i>F</i> Close</button>
             </div>
         </header>
 
@@ -53,9 +54,9 @@
         </section>
 
         <footer class="keys">
-            <span><i>Wheel</i><i>WASD</i><i>← ↑ ↓ →</i> pick</span>
+            <span><i>Wheel</i><i>← ↑ ↓ →</i> pick</span>
             <span><i>F</i><i>LMB</i> hold to craft</span>
-            <span><i>Esc</i><i>RMB</i> close</span>
+            <span><i>F</i> tap<i>RMB</i><i>Esc</i> or walk off to close</span>
         </footer>
     </div>
 </template>
@@ -64,12 +65,15 @@
 // The workbench shop, centred while it is open: a card per recipe and the
 // rarity upgrade of the weapon in hand, each with its icon and price (short
 // costs in red), the selected one spelled out underneath with the hold-to-craft
-// button. The engine picks and crafts (arsenal.ts); this only draws.
+// button. The engine picks, crafts and closes (arsenal.ts, bench-exit.ts);
+// this only draws. The close button takes a click whenever the cursor is free
+// (the pointer lock keeps it otherwise, and the keys close the shop).
 import type { DfHudArsenal, DfHudBenchItem } from '~/utils/dead-front/engine/arsenal-prompt'
 import DfBenchIcon from '../ui/DfBenchIcon.vue'
 import DfWeaponSilhouette from '../ui/DfWeaponSilhouette.vue'
 
 const props = defineProps<{ bench: NonNullable<DfHudArsenal['bench']>, scrap: number, denyKey: number }>()
+const emit = defineEmits<{ close: [] }>()
 
 const sel = computed(() => props.bench.items.find(i => i.selected) ?? null)
 
@@ -140,6 +144,34 @@ function tagFor(it: DfHudBenchItem): string {
     color: var(--df-chalk-2);
     background: rgba(0, 0, 0, 0.4);
     box-shadow: inset 0 0 0 1px #3a3024;
+}
+
+.close {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    font-family: var(--df-font-type);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--df-chalk);
+    background: #2a1512;
+    box-shadow: inset 0 0 0 1px #000, inset 0 -2px 0 #000;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.close:hover {
+    background: #4a1f18;
+}
+
+.close i {
+    padding: 1px 6px;
+    font-style: normal;
+    color: #1f170e;
+    background: var(--df-paper);
+    box-shadow: 0 0 0 1px #000, inset 0 -2px 0 var(--df-paper-3);
 }
 
 .coin :deep(svg) {

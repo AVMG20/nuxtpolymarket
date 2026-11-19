@@ -105,10 +105,10 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
         expect((await nrLeaderboard(id, A)).entries).toBe(1)
     })
 
-    it('lists the viewer\'s own tracks apart from everyone else\'s', async () => {
+    it('lists the viewer\'s own tracks on their own and in the community list', async () => {
         const mine = await nrPublishedTracks(A)
         expect(mine.mine.map(t => t.sourceId)).toContain(course('ring').id)
-        expect(mine.community.some(t => t.sourceId === course('ring').id)).toBe(false)
+        expect(mine.community.filter(t => t.sourceId === course('ring').id)).toHaveLength(1)
         const theirs = await nrPublishedTracks(B)
         expect(theirs.community.find(t => t.sourceId === course('ring').id)).toMatchObject({ author: 'concurrency test user', closed: true, sections: RECTANGLE })
         expect(theirs.mine).toEqual([])
@@ -186,8 +186,12 @@ describe.skipIf(SKIP)('nitro rush published tracks (db)', () => {
 
     it('counts the builder\'s lap as a play, and carries every play over to a changed road', async () => {
         const old = await publish(H, course('played'))
-        await recordNrPlay(B, old)
-        await recordNrPlay(B, old)
+        // An hour back, past any lap's spam guard, so the next play counts.
+        const age = () => db.update(nitroRushPlays).set({ lastLapAt: new Date(Date.now() - 3_600_000) }).where(eq(nitroRushPlays.trackId, old))
+        await recordNrPlay(B, old, 10_000)
+        await age()
+        await recordNrPlay(B, old, 10_000)
+        await age()
         const next = await publish(H, course('played', LONG_RECTANGLE))
         expect(await db.select().from(nitroRushPlays).where(eq(nitroRushPlays.trackId, old))).toEqual([])
         expect((await nrPublishedTracks(B)).community.find(t => t.id === next)?.summary.plays).toEqual({ racers: 2, laps: 4 })

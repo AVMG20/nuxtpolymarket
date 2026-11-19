@@ -14,9 +14,10 @@
                 <stop offset="1" stop-color="#ff7a2e" stop-opacity="0" />
             </radialGradient>
             <linearGradient :id="`${uid}-ink`" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0" stop-color="#d4392a" />
-                <stop offset="0.6" stop-color="#a51e13" />
-                <stop offset="1" stop-color="#6d0f08" />
+                <stop offset="0" stop-color="#ff5a3c" />
+                <stop offset="0.5" stop-color="#e0301f" />
+                <stop offset="0.52" stop-color="#b81f14" />
+                <stop offset="1" stop-color="#b81f14" />
             </linearGradient>
             <linearGradient :id="`${uid}-brass`" x1="0" x2="1">
                 <stop offset="0" stop-color="#7d5e22" />
@@ -37,9 +38,11 @@
         </g>
 
         <!-- the name -->
-        <g :filter="`url(#${uid}-worn)`">
-            <text class="name shadow" x="402" y="160" text-anchor="middle" textLength="720" lengthAdjust="spacingAndGlyphs">DEAD FRONT</text>
-            <text class="name" x="400" y="156" text-anchor="middle" textLength="720" lengthAdjust="spacingAndGlyphs" :fill="`url(#${uid}-ink)`">DEAD FRONT</text>
+        <g class="title" transform="rotate(-2.5 400 120)">
+            <text class="name shadow" x="412" y="170" text-anchor="middle" textLength="700" lengthAdjust="spacingAndGlyphs">DEAD FRONT</text>
+            <text class="name ink" x="400" y="156" text-anchor="middle" textLength="700" lengthAdjust="spacingAndGlyphs">DEAD FRONT</text>
+            <text class="name" x="400" y="156" text-anchor="middle" textLength="700" lengthAdjust="spacingAndGlyphs" :fill="`url(#${uid}-ink)`">DEAD FRONT</text>
+            <path class="shine" d="M70 70 L720 70" />
         </g>
 
         <!-- barbed wire with pickets -->
@@ -75,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-// The Dead Front title lockup: worn blood-red stencil on a star-shell glow,
+// The Dead Front title lockup: inked blood-red comic lettering on a star-shell glow,
 // a barbed-wire rule that draws itself in and a brass place ribbon.
 const uid = `dft-${useId()}`
 const barbs = [96, 150, 214, 276, 342, 404, 470, 532, 598, 664]
@@ -111,14 +114,24 @@ const barbs = [96, 150, 214, 276, 342, 404, 470, 532, 598, 664]
 
 .name {
     font-family: var(--df-font-stencil);
-    font-weight: 700;
-    font-size: 132px;
-    letter-spacing: 10px;
+    font-size: 170px;
+    letter-spacing: 6px;
+}
+
+.name.shadow,
+.name.ink {
+    fill: #000;
+    stroke: #000;
+    stroke-width: 22;
+    stroke-linejoin: round;
 }
 
 .name.shadow {
-    fill: #1a0504;
-    opacity: 0.9;
+    opacity: 0.6;
+}
+
+.shine {
+    display: none;
 }
 
 .wire .strand {
@@ -149,10 +162,16 @@ const barbs = [96, 150, 214, 276, 342, 404, 470, 532, 598, 664]
     stroke-linecap: round;
 }
 
+.ribbon path:first-child {
+    stroke: #000;
+    stroke-width: 4;
+    stroke-linejoin: round;
+}
+
 .ribbon text {
     font-family: var(--df-font-stencil);
-    font-size: 15px;
-    letter-spacing: 5px;
+    font-size: 19px;
+    letter-spacing: 4px;
     fill: #2a1d07;
 }
 

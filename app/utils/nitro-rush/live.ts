@@ -205,3 +205,12 @@ export class LiveGhosts {
         }
     }
 }
+
+/** The counts in a `busy` frame, keeping only whole numbers above zero. */
+export function busyCounts(raw: unknown): Record<string, number> {
+    const counts: Record<string, number> = {}
+    if (!raw || typeof raw !== 'object') return counts
+    for (const [id, n] of Object.entries(raw)) if (typeof n === 'number' && Number.isInteger(n) && n > 0) counts[id] = n
+    return counts
+}
+

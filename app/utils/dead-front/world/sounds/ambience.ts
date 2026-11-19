@@ -3,10 +3,25 @@ import {
 } from './noise'
 import type { Rt } from './noise'
 import { bell, creak, noiseBurst, noiseSwell, thud } from './parts'
+import { zombieVoice } from './zombies'
 
 // The night over the front: a gusting wind bed with a low ground rumble and,
 // at random intervals, far artillery, crows, creaking timber, distant rifle
 // and machine-gun fire, and very rarely a church bell from a ruined village.
+// As the night wears on (`dfSetAmbienceIntensity`, driven by the round) the
+// guns come closer and more often, and the dead howl out in the dark.
+
+let intensity = 0
+
+/** 0..1 how far the night has gone: the guns come closer and the far horde howls more. */
+export function dfSetAmbienceIntensity(v: number): void {
+    intensity = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0))
+}
+
+/** The ambience intensity for a round: quiet at the start, the full barrage by round 20. */
+export function dfAmbienceIntensity(round: number): number {
+    return Math.max(0, Math.min(1, (round - 1) / 19))
+}
 
 /** One artillery shell landing far away (or a little closer). */
 export function artilleryBoom(r: Rt, far: boolean): void {
@@ -21,8 +36,8 @@ export function artilleryBoom(r: Rt, far: boolean): void {
 }
 
 function artilleryVolley(r: Rt): void {
-    const n = rndPick([1, 1, 2, 2, 3, 4])
-    const far = Math.random() < 0.7
+    const n = rndPick([1, 1, 2, 2, 3, 4]) + (Math.random() < intensity * 0.6 ? 2 : 0)
+    const far = Math.random() < 0.7 - intensity * 0.4
     let dt = 0
     for (let i = 0; i < n; i++) {
         artilleryBoom(at({ ...r, vol: r.vol * 0.55 }, dt), far || Math.random() < 0.5)
@@ -96,6 +111,19 @@ function gunfire(r: Rt): void {
     }
 }
 
+/** The dead out in the dark: a few far moans rising over each other, swallowed by distance. */
+function farHorde(r: Rt): void {
+    const lp = filterNode(r.ctx, 'lowpass', rnd(500, 750), 0.7, r.out)
+    const far: Rt = { ...r, out: lp, vol: r.vol * rnd(0.25, 0.4) }
+    const n = Math.round(rnd(3, 5 + intensity * 3))
+    let dt = 0
+    for (let i = 0; i < n; i++) {
+        zombieVoice(Math.random() < 0.2 ? 'brute' : 'shambler', 'groan')({ ...at(far, dt), rate: rnd(0.8, 1.05) })
+        dt += rnd(0.25, 1.1)
+    }
+    noiseSwell(far, { kind: 'pink', type: 'lowpass', freq: 400, q: 0.7, gain: 0.15, dur: dt + 1.5, peakAt: 0.4 })
+}
+
 function churchBell(r: Rt): void {
     const f = rnd(175, 205)
     const tolls = rndPick([1, 2, 3])
@@ -108,7 +136,8 @@ export const DF_AMBIENCE_EVENTS = {
     crows,
     creak: timberCreak,
     gunfire,
-    churchBell
+    churchBell,
+    farHorde
 } as const
 
 /** One-shot used when the ambience name is played directly: a far artillery volley. */
@@ -179,24 +208,26 @@ export function dfAmbienceLoop(ctx: AudioContext, out: AudioNode): () => void {
     conv.connect(gainNode(ctx, 0.55, bus))
 
     const rtAt = (): Rt => ({ ctx, out: evBus, t: ctx.currentTime + 0.05, vol: 1, rate: rnd(0.96, 1.04) })
-    const every = (min: number, max: number, first: number, fn: (r: Rt) => void): void => {
+    /** `busier`: how much shorter the wait gets at full intensity (0.5 halves it). */
+    const every = (min: number, max: number, first: number, fn: (r: Rt) => void, busier = 0): void => {
         const arm = (delay: number): void => {
             const id = setTimeout(() => {
                 timers.delete(id)
                 if (stopped) return
                 if (ctx.state === 'running') fn(rtAt())
-                arm(rnd(min, max))
+                arm(rnd(min, max) * (1 - busier * intensity))
             }, delay * 1000)
             timers.add(id)
         }
         arm(first)
     }
     // Sparse on purpose: the night should feel wide and quiet between events.
-    every(14, 34, rnd(4, 9), artilleryVolley)
+    every(14, 34, rnd(4, 9), artilleryVolley, 0.55)
     every(28, 60, rnd(12, 25), crows)
     every(16, 36, rnd(8, 16), timberCreak)
-    every(24, 55, rnd(14, 26), gunfire)
+    every(24, 55, rnd(14, 26), gunfire, 0.4)
     every(80, 170, rnd(45, 95), churchBell)
+    every(45, 95, rnd(25, 45), farHorde, 0.5)
 
     return () => {
         if (stopped) return

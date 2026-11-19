@@ -71,11 +71,12 @@ describe.skipIf(SKIP)('nitro rush track votes (db)', () => {
         expect(tally.up + tally.down).toBe((await voteRows(id)).length)
     })
 
-    it('refuses a vote on the player\'s own track', async () => {
+    it('takes the author\'s vote on their own track, once', async () => {
         const id = await publish(A, course('own'))
-        await expect(voteNrTrack(A, id, 1)).rejects.toMatchObject({ statusCode: 403 })
-        await expect(voteNrTrack(A, id, 0)).rejects.toMatchObject({ statusCode: 403 })
-        expect(await voteRows(id)).toEqual([])
+        expect(await voteNrTrack(A, id, 1)).toMatchObject({ up: 1, down: 0, myVote: 1 })
+        expect(await voteNrTrack(A, id, 1)).toMatchObject({ up: 1, myVote: 1 })
+        expect((await voteRows(id, A)).map(r => r.value)).toEqual([1])
+        expect((await nrPublishedTracks(A)).mine.find(t => t.id === id)?.votes.myVote).toBe(1)
     })
 
     it('takes votes on a built-in track from anyone', async () => {

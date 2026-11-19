@@ -2,12 +2,11 @@
     <div
         ref="rootEl"
         class="df-game df-theme fixed inset-0 overflow-hidden bg-black select-none"
-        :class="{ 'cursor-none': hud.locked || hud.benchEscaped }"
-        @click="hud.benchEscaped && play()"
+        :class="{ 'cursor-none': hud.locked || (hud.benchEscaped && !hud.arsenal.bench) }"
     >
         <div ref="canvasEl" class="absolute inset-0" />
 
-        <DfHud :hud="hud" />
+        <DfHud :hud="hud" @close-bench="closeBench" />
 
         <!-- squad chat: T or Enter to talk, Enter sends, Escape drops it -->
         <form v-if="chatOpen" class="df-chat-box absolute" @submit.prevent="sendChat">
@@ -67,6 +66,7 @@ import type { DfMatchStart, DfPlayerSnap } from '#shared/utils/dead-front/protoc
 import type { DfProfileView } from '#shared/utils/dead-front/types'
 import type { DfNet } from '~/utils/dead-front/net'
 import { createDfEngine } from '~/utils/dead-front/engine'
+import { dfPreloadModels } from '~/utils/dead-front/models'
 import type { DfEngine } from '~/utils/dead-front/engine'
 import { dfCreateHudState, dfHudFeedLine, dfHudPruneFeed, dfHudPushFeed } from '~/utils/dead-front/engine/hud'
 import type { DfHudFeedContext } from '~/utils/dead-front/engine/hud'
@@ -137,6 +137,10 @@ function play(): void {
     engine?.lock()
 }
 
+function closeBench(): void {
+    engine?.closeBench()
+}
+
 function leave(): void {
     engine?.unlock()
     emit('leave')
@@ -173,8 +177,9 @@ function onBlur(): void {
 
 function onKeyDown(e: KeyboardEvent): void {
     // (an Escape that closed the chat box is spent)
+    // (nor is the Escape that closed the workbench, which can arrive after the pointer lock went)
     if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && hud.benchEscaped && !hud.locked) {
-        engine?.pause()
+        engine?.pause(true)
         return
     }
     if (chatOpen.value || (!hud.locked && !hud.benchEscaped) || e.repeat) return
@@ -217,10 +222,14 @@ const offSnap = props.net.on('snap', (m) => {
 })
 const feedTimer = setInterval(() => dfHudPruneFeed(hud.feed, performance.now()), 500)
 
-onMounted(() => {
+let unmounted = false
+
+onMounted(async () => {
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('blur', onBlur)
-    if (!canvasEl.value) return
+    // the authored model packs (started on the menu, usually done by now)
+    await dfPreloadModels()
+    if (unmounted || !canvasEl.value) return
     try {
         engine = createDfEngine({
             container: canvasEl.value,
@@ -238,6 +247,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+    unmounted = true
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('blur', onBlur)
     offSnap()
@@ -257,7 +267,7 @@ onBeforeUnmount(() => {
     width: min(24rem, 60vw);
     padding: 0.3rem 0.55rem;
     background: var(--df-hud-bg);
-    box-shadow: 0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+    box-shadow: 0 0 0 2px #000, 4px 4px 0 2px rgba(0, 0, 0, 0.5); border-radius: var(--df-r-sm);
 }
 
 .df-chat-label {

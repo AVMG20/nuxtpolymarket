@@ -25,11 +25,13 @@ import type {
 } from '#shared/utils/dead-front/types'
 import { randomChance, randomFloat, randomInt, randomPick } from '#shared/utils/random'
 import { dfArcAim, dfArcBody, dfFlameHitPays } from '#shared/utils/dead-front/combat'
+import { DF_BURN, DF_CHAIN, DF_KILL_BURST, dfBurnDps, dfBurnSeconds, dfChainFires, dfIgnites, dfPapPerks, dfShotgunBlast } from '#shared/utils/dead-front/gunplay'
 import { DfNav } from './nav'
 import { DfArsenal } from './salvage'
 import { dfBoxKitRoll, dfBoxRarityRoll, dfClampRarity, dfRarityApplies } from '#shared/utils/dead-front/rarity'
 import type { DfRarity } from '#shared/utils/dead-front/rarity'
 import { DfSpecials } from './specials'
+import { DF_WARLORD, dfWarlordHit } from '#shared/utils/dead-front/specials'
 import {
     dfBoxChoices, dfBoxRoll, dfBulletDamage, dfClaimSane, dfEggAdvance, dfEggTick, dfKillClaimHonoured, dfKillPoints,
     dfRayPointApproach, dfScalePoints
@@ -58,6 +60,10 @@ interface DamageSource {
     claimKill?: boolean
     /** False: a non-lethal hit pays no +10 (a flamethrower between its paying ticks). */
     hitPoints?: boolean
+    /** A kill blows the zombie apart (a shotgun blast up close). */
+    gib?: boolean
+    /** No hit event (a burn tick: the zombie is drawn burning instead). */
+    quiet?: boolean
 }
 
 export interface DfSimOptions {
@@ -80,6 +86,8 @@ const REVIVE_REACH = 2.6
 const SELF_REVIVE_DELAY = 3
 const REPAIR_INTERVAL = 0.5
 const STAGGER_TIME = 0.7
+/** Seconds before a gun's knockback (shotgun blast, Stopping Power) can stagger the same zombie again. */
+const KNOCK_COOLDOWN = 1.6
 const ARC_CHAIN_RANGE = 6
 const MAX_FIRE_TOKENS = 2.5
 /** Seconds of shots the fire-rate bucket banks, so jittery packets from fast guns are never refused. */
@@ -635,6 +643,19 @@ export class DfMatchSim {
             flamePaid = this.flamePaid.get(p.pid) ?? null
             if (!flamePaid) this.flamePaid.set(p.pid, flamePaid = new Map())
         }
+        // Gun perks (gunplay.ts): the shotgun's close-range blast and the Pack-a-Punch effects
+        const cls = DF_WEAPONS[w.id]?.class
+        const perks = dfPapPerks(w.id, w.pap)
+        const ignite = dfIgnites(w.id, w.pap)
+        const stopping = perks.includes('stopping')
+        const blastRounds = perks.includes('blast')
+        const shotgun = cls === 'shotgun' && w.stats.pellets >= 3
+        const pelletsOn = new Map<number, number>()
+        if (shotgun) for (const c of claims) if (c && typeof c.z === 'number') pelletsOn.set(c.z, (pelletsOn.get(c.z) ?? 0) + 1)
+        /** Zombies this shot hit and left standing: damage dealt and the nearest hit. */
+        const wounded = new Map<SimZombie, { dmg: number, dist: number }>()
+        let first: SimZombie | null = null
+        let bursts = 0
         this.pointsBatch = new Map()
         try {
             for (const claim of claims.slice(0, dirs.length * (w.stats.penetration + 1))) {
@@ -664,12 +685,107 @@ export class DfMatchSim {
                 const dmg = dfBulletDamage(w.stats, p.effects, zone, at, p.life === 'down')
                 if (best === 0) shotEnd = Math.min(shotEnd, at)
                 const hitPoints = !flamePaid || dfFlameHitPays(flamePaid, z.id, this.time)
-                this.damageZombie(z, p, dmg, zone, { weapon: w.id, credit: w.id, at: add(origin, scale(dir, at)), claimKill: claim.kill === true, hitPoints })
+                const gib = shotgun && dfShotgunBlast(cls, pelletsOn.get(z.id) ?? 0, w.stats.pellets, at, true) === 'gib'
+                first ??= z
+                const chest = zChest(z)
+                const killed = this.damageZombie(z, p, dmg, zone, { weapon: w.id, credit: w.id, at: add(origin, scale(dir, at)), claimKill: claim.kill === true, hitPoints, gib: gib || undefined })
+                if (killed) {
+                    wounded.delete(z)
+                    if (blastRounds && bursts < DF_KILL_BURST.max) {
+                        bursts++
+                        const burst = w.stats.damage * Math.max(1, w.stats.pellets * 0.5) * DF_KILL_BURST.share
+                        this.explode(chest, DF_KILL_BURST.radius, 'pap-grenade', p, burst, { weapon: w.id, credit: w.id, explosive: true }, 0, Math.max(1, w.pap))
+                    }
+                } else {
+                    const was = wounded.get(z)
+                    wounded.set(z, { dmg: (was?.dmg ?? 0) + dmg, dist: Math.min(was?.dist ?? Infinity, at) })
+                }
+            }
+            for (const [z, h] of wounded) {
+                if (z.hp <= 0) continue
+                if (ignite) this.ignite(z, p, w.id, w.pap, h.dmg)
+                const blast = shotgun && dfShotgunBlast(cls, pelletsOn.get(z.id) ?? 0, w.stats.pellets, h.dist, false, z.type === 'brute') === 'stagger'
+                if ((blast || stopping) && this.time >= (z.knockReadyAt ?? 0)) {
+                    z.knockReadyAt = this.time + KNOCK_COOLDOWN
+                    this.stagger(z)
+                }
+            }
+            if (first && perks.includes('chain')) {
+                p.chainHits = (p.chainHits ?? 0) + 1
+                if (dfChainFires(p.chainHits)) this.chainArc(p, w, first)
             }
         } finally {
             this.flushPoints(p.pid, shotId)
         }
         this.emit({ k: 'shot', p: p.pid, weapon: w.id, pap: w.pap, from: rv(origin), to: rv(add(origin, scale(dirs[0]!, shotEnd))) })
+    }
+
+    /** Sets a zombie on fire (a stronger fire replaces a weaker one; the clock restarts). */
+    private ignite(z: SimZombie, p: SimPlayer, weapon: DfWeaponId, pap: number, dmg: number): void {
+        const dps = dfBurnDps(dmg)
+        const until = this.time + dfBurnSeconds(weapon, pap)
+        const b = z.burn
+        if (b && b.until > this.time && b.dps > dps) {
+            b.until = Math.max(b.until, until)
+            return
+        }
+        z.burn = { dps, until, next: b && b.until > this.time ? b.next : this.time + DF_BURN.tick, owner: p.pid, weapon }
+    }
+
+    /** Burning zombies take their fire's damage in pulses; a burn kill pays the kill, burn hits pay nothing. */
+    private stepBurns(): void {
+        let batch = false
+        try {
+            for (const z of [...this.zombies]) {
+                const b = z.burn
+                if (!b) continue
+                if (z.hp <= 0) {
+                    z.burn = null
+                    continue
+                }
+                if (this.time < b.next) continue
+                if (!batch) {
+                    this.pointsBatch = new Map()
+                    batch = true
+                }
+                b.next += DF_BURN.tick
+                const owner = this.player(b.owner) ?? null
+                this.damageZombie(z, owner, b.dps * DF_BURN.tick, 'body', { weapon: b.weapon, credit: b.weapon, hitPoints: false, quiet: true })
+                if (z.burn && this.time >= z.burn.until) z.burn = null
+            }
+        } finally {
+            if (batch) this.flushPoints()
+        }
+    }
+
+    /** Chain lightning (gunplay.ts): arcs from the zombie a shot hit to the nearest few around it. */
+    private chainArc(p: SimPlayer, w: SimWeapon, from: SimZombie): void {
+        const start = zChest(from)
+        const taken: SimZombie[] = []
+        let last = start
+        for (let j = 0; j < DF_CHAIN.jumps; j++) {
+            let next: SimZombie | null = null
+            let nd: number = DF_CHAIN.range
+            for (const z of this.zombies) {
+                if (z === from || z.hp <= 0 || taken.includes(z)) continue
+                const d = dist(zChest(z), last)
+                if (d < nd && dfLineOfSight(this.world, last, zChest(z))) {
+                    nd = d
+                    next = z
+                }
+            }
+            if (!next) break
+            taken.push(next)
+            last = zChest(next)
+        }
+        if (!taken.length) return
+        this.emit({ k: 'arc', from: rv(start), to: taken.map(z => rv(zChest(z))) })
+        const dmg = w.stats.damage * Math.max(1, w.stats.pellets * 0.5) * DF_CHAIN.share * p.effects.damageMult * (p.life === 'down' ? p.effects.lastStandDamageMult : 1)
+        for (const z of taken) {
+            if (z.hp <= 0) continue
+            z.shockedUntil = Math.max(z.shockedUntil, this.time + 0.5)
+            this.damageZombie(z, p, dmg, 'body', { weapon: w.id, credit: w.id })
+        }
     }
 
     private fireArc(p: SimPlayer, w: SimWeapon, origin: Vec3, dir: Vec3, claims: DfShotHit[]): void {
@@ -1297,6 +1413,7 @@ export class DfMatchSim {
         this.stepBox(dt)
         this.stepPap(dt)
         this.stepZombies(dt)
+        this.stepBurns()
         this.specials.step(dt)
         this.arsenal.step(dt)
         this.rushLastZombies()
@@ -1472,6 +1589,8 @@ export class DfMatchSim {
     }
 
     private pickType(): DfEnemyType {
+        const forced = this.specials.forcedType(this.spawnedThisRound)
+        if (forced) return forced
         if (this.specials.gas) return 'ghoul'
         if (this.bruteAt.includes(this.spawnedThisRound)) return 'brute'
         const chances = dfSpecialChances(this.round)
@@ -1849,9 +1968,9 @@ export class DfMatchSim {
         z.anim = 'sprint'
         const blocked = this.dashStep(z, dt, targets, C.damage, false)
         if (blocked || this.time >= z.dash!.until) {
-            z.chargeReadyAt = this.time + C.cooldown * (0.85 + randomFloat() * 0.3)
-            // slamming into a wall winds it for longer
-            this.endDash(z, C.recover * (blocked ? 1.4 : 1))
+            z.chargeReadyAt = this.time + (z.boss ? this.specials.bossChargeCooldown(z) : C.cooldown) * (0.85 + randomFloat() * 0.3)
+            // slamming into a wall winds it for longer; the warlord gets its breath back sooner
+            this.endDash(z, C.recover * (blocked ? 1.4 : 1) * (z.boss ? DF_WARLORD.recoverMult : 1))
         }
     }
 
@@ -2355,6 +2474,7 @@ export class DfMatchSim {
         const idx = this.zombies.indexOf(z)
         if (idx < 0) return
         this.zombies.splice(idx, 1)
+        this.specials.onRecycle(z)
         this.toSpawn++
         this.spawnTimer = Math.min(this.spawnTimer, 0.5)
     }
@@ -2539,12 +2659,14 @@ export class DfMatchSim {
     private damageZombie(z: SimZombie, p: SimPlayer | null, dmg: number, zone: DfHitZone, src: DamageSource): boolean {
         if (z.hp <= 0 || !(dmg > 0)) return false
         const at = src.at ?? zChest(z)
-        if (this.insta > 0) {
+        // the warlord shrugs off the insta-kill and never loses more than a slice to one hit
+        if (z.boss) dmg = dfWarlordHit(dmg, z.maxHp)
+        if (this.insta > 0 && !z.boss) {
             z.hp = 0
         } else if (zone === 'head' && z.helmet > 0 && !src.explosive) {
             // The iron helmet soaks head hits until it breaks.
             z.helmet -= dmg
-            if (p) this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
+            if (p && !src.quiet) this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
             if (z.helmet <= 0) {
                 z.helmet = 0
                 this.stagger(z)
@@ -2558,8 +2680,9 @@ export class DfMatchSim {
         }
         if (z.hp > 0) {
             this.specials.onWound(z, dmg, zone, src.explosive === true)
+            this.specials.onBossWound(z)
             if (p) {
-                this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
+                if (!src.quiet) this.emit({ k: 'hit', z: z.id, p: p.pid, zone, pos: rv(at), dmg: Math.round(dmg) })
                 if (src.hitPoints !== false) this.addPoints(p, DF_POINTS.hit)
             }
             return false
@@ -2572,7 +2695,8 @@ export class DfMatchSim {
         z.hp = 0
         const idx = this.zombies.indexOf(z)
         if (idx >= 0) this.zombies.splice(idx, 1)
-        const gib = src.explosive === true || (zone === 'head' && src.weapon !== 'knife' && randomChance(0.25))
+        z.burn = null
+        const gib = src.explosive === true || src.gib === true || (zone === 'head' && src.weapon !== 'knife' && randomChance(0.25))
         this.emit({ k: 'kill', z: z.id, p: p?.pid ?? -1, zone, weapon: src.weapon, pos: rv(z.pos), gib })
         if (z.type === 'bloater') {
             this.gas.push({ pos: { ...z.pos }, radius: DF_BLOATER.gasRadius, until: this.time + DF_BLOATER.gasSeconds })
@@ -2660,7 +2784,8 @@ export class DfMatchSim {
                 break
             case 'nuke':
                 this.emit({ k: 'explode', pos: rv(pu.pos), radius: 60, kind: 'nuke' })
-                for (const z of [...this.zombies]) this.killZombie(z, p, 'body', { weapon: 'grenade', credit: null }, { noPoints: true, noDrop: true })
+                // the warlord walks through it
+                for (const z of [...this.zombies]) if (!z.boss) this.killZombie(z, p, 'body', { weapon: 'grenade', credit: null }, { noPoints: true, noDrop: true })
                 for (const q of this.players) if (q.life !== 'dead') this.addPoints(q, DF_POINTS.nuke)
                 break
             case 'carpenter':
@@ -2973,6 +3098,7 @@ export class DfMatchSim {
         if (vel.x !== 0 || vel.y !== 0 || vel.z !== 0) snap.vel = vel
         if (z.type === 'brute') snap.armored = z.helmet > 0
         if (z.shockedUntil > this.time || this.insta > 0) snap.shocked = true
+        if (z.burn && z.burn.until > this.time) snap.burning = true
         if (z.state === 'lunge' && !z.dash) snap.tell = 'lunge'
         else if (z.state === 'charge' && !z.dash) snap.tell = 'charge'
         this.specials.decorate(z, snap)

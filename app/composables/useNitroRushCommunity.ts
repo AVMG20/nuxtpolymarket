@@ -39,10 +39,13 @@ export function useNitroRushCommunity(own: OwnTracks, onSummaries: (list: NrTrac
         return def
     }
 
-    const communityEntries = computed<CommunityTrackEntry[]>(() => community.value.flatMap((track) => {
-        const def = compile(track)
-        return def ? [{ track, def }] : []
-    }))
+    const communityEntries = computed<CommunityTrackEntry[]>(() => {
+        const ownIds = new Set(mine.value.map(t => t.id))
+        return community.value.flatMap((track) => {
+            const def = compile(track)
+            return def ? [{ track, def, mine: ownIds.has(track.id) }] : []
+        })
+    })
 
     const entries = computed(() => ownTrackEntries(own.tracks.value, mine.value, hidden.value, t => own.compile(t).def, compile))
     const ownEntry = (sourceId: string) => entries.value.find(e => e.track.id === sourceId)

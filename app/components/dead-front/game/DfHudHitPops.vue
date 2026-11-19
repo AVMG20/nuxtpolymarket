@@ -45,23 +45,25 @@ defineProps<{ pops: DfHudHitPop[] }>()
     left: 0;
     bottom: 0;
     font-family: var(--df-font-stencil);
-    font-size: 1.05rem;
+    font-size: 1.3rem;
     letter-spacing: 0.04em;
     line-height: 1;
     color: #f6efdc;
-    text-shadow: var(--df-outline);
+    -webkit-text-stroke: 5px #000;
+    paint-order: stroke fill;
+    text-shadow: 2px 3px 0 #000;
     white-space: nowrap;
     animation: df-hitpop 1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 
 .pop.kill {
-    font-size: 1.4rem;
+    font-size: 1.7rem;
     color: #ffe9a8;
     animation-name: df-hitpop-big;
 }
 
 .pop.head {
-    font-size: 1.55rem;
+    font-size: 2rem;
     color: #ffc23a;
     animation-name: df-hitpop-big;
 }

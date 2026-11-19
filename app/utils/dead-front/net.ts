@@ -35,6 +35,8 @@ export class DfNet {
     /** Smoothed round-trip time in ms (`dfSmoothRtt`: spikes don't move it). */
     rtt = 0
     private rttSamples: number[] = []
+    /** Tick of the newest snapshot read; the input reports it back (`st`) and the server paces the stream by it. */
+    snapTick = 0
     /** Reconnect attempts since the last successful open. */
     attempts = 0
     private ws: WebSocket | null = null
@@ -140,7 +142,10 @@ export class DfNet {
         }
         if (msg.t === 'pong') this.onPong(msg.at)
         // zombies arrive packed: every listener gets them as objects
-        else if (msg.t === 'snap') dfUnpackSnapshot(msg.s)
+        else if (msg.t === 'snap') {
+            dfUnpackSnapshot(msg.s)
+            this.snapTick = msg.s.tick
+        }
         const set = this.handlers.get(msg.t)
         if (!set) return
         for (const h of set) {

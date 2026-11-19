@@ -154,10 +154,11 @@ export function createDfAtmosphere(kit: DfWorldKit): DfWorldPart {
     })
 
     // ---------------------------------------------------------------- ash and embers
-    const cube = new THREE.BoxGeometry(1, 1, 1)
+    // ragged five-sided flakes, not cubes
+    const cube = new THREE.CircleGeometry(0.62, 5)
     disposables.push(cube)
-    const ashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, depthWrite: false, fog: true })
-    const emberMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
+    const ashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, depthWrite: false, fog: true, side: THREE.DoubleSide })
+    const emberMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide })
     disposables.push(ashMat, emberMat)
     const ashN = high ? ASH : Math.round(ASH * 0.5)
     const ash = new THREE.InstancedMesh(cube, ashMat, ashN)
@@ -215,11 +216,12 @@ export function createDfAtmosphere(kit: DfWorldKit): DfWorldPart {
                 v3.set(a.x, a.y, a.z)
                 const dist = v3.distanceTo(cam)
                 const minS = dist * mpp * 1.6
-                const s = Math.max(a.size, minS)
+                // shrink away right at the lens: a flake a hand's width off would fill the view
+                const s = Math.max(a.size, minS) * Math.min(1, Math.max(0, (dist - 0.35) / 0.8))
                 e3.set(time * (0.6 + a.seed), a.seed * 9, time * 0.4)
-                ash.setMatrixAt(i, m4.compose(v3, q.setFromEuler(e3), s3.set(s, s * 0.35, s)))
+                ash.setMatrixAt(i, m4.compose(v3, q.setFromEuler(e3), s3.set(s, s * 0.7, s)))
                 // Dim motes that only got bigger to stay visible, and fade very close ones.
-                const k = (a.size / s) * Math.min(1, dist / 1.5)
+                const k = Math.min(1, a.size / Math.max(s, 1e-5))
                 ash.setColorAt(i, col.copy(ashCol).multiplyScalar(k))
             }
             for (let i = 0; i < emberM.length; i++) {

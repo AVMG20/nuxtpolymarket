@@ -1,4 +1,4 @@
-import { dfRarityDamageMult } from './rarity'
+import { dfRarity, dfRarityDamageMult } from './rarity'
 import type { DfAttachmentChoice, DfAttachmentId, DfAttachmentSlot, DfWeaponClass, DfWeaponId } from './types'
 
 // Weapon definitions, attachments, Pack-a-Punch tiers and weapon levels for
@@ -302,7 +302,7 @@ export const DF_WEAPONS: Record<DfWeaponId, DfWeaponDef> = {
             att('webley-reddot', 'optic', 'Red Dot Sight', 2, 'A slim open reflex sight on the top strap. Tighter aimed and hip fire, a beat slower to line up.', { adsSpread: 0.7, hipSpread: 0.9, adsTime: 1.06 }),
             att('webley-long', 'muzzle', 'Target Barrel', 3, 'A long 7.5-inch target barrel. Much more reach and a tighter aimed shot, a touch slower to the sights.', { range: 1.35, maxRange: 1.25, adsSpread: 0.85, adsTime: 1.08 }),
             att('webley-speed', 'magazine', 'Prideaux Speedloader', 4, 'A spring speedloader that drops all six rounds in at once. A much faster reload, a fumble slower to draw.', { reloadTime: 0.7, reloadEmptyTime: 0.7, moveMult: 0.99 }),
-            att('webley-stock', 'stock', 'Shoulder Stock', 5, 'The cavalry stock clipped to the butt. Steady aim and soft recoil, clumsy from the hip.', { recoil: 0.6, adsSpread: 0.7, hipSpread: 1.15, adsTime: 1.15, moveMult: 0.97 })
+            att('webley-stock', 'stock', 'Target Grips', 5, 'Oversized walnut target grips that fill the hand. Steady aim and soft recoil, clumsy from the hip.', { recoil: 0.6, adsSpread: 0.7, hipSpread: 1.15, adsTime: 1.15, moveMult: 0.97 })
         ]
     },
     sawnoff: {
@@ -529,15 +529,23 @@ const PAP_OVERRIDES: Partial<Record<DfWeaponId, [Partial<DfBaseStats>, Partial<D
     ],
     // Tier 1+: Schnellfeuer conversion, full auto; later tiers punch through the horde.
     c96: [{ fireMode: 'auto', rpm: 720 }, { rpm: 800, penetration: 2 }, { rpm: 880, penetration: 3 }],
+    // Quad Load from tier 1 (gunplay.ts): every shell goes in one motion instead of one by one.
     // More pellets and reach, then a self-loading pump at tier 3.
-    m1897: [{ pellets: 10 }, { pellets: 11, rpm: 95, maxRange: 26 }, { fireMode: 'semi', rpm: 150, pellets: 13, maxRange: 30 }],
+    m1897: [
+        { pellets: 10, perRoundReload: 0, reloadTime: 1.7, reloadEmptyTime: 2 },
+        { pellets: 11, rpm: 95, maxRange: 26, reloadTime: 1.55, reloadEmptyTime: 1.85 },
+        { fireMode: 'semi', rpm: 150, pellets: 13, maxRange: 30, reloadTime: 1.4, reloadEmptyTime: 1.7 }
+    ],
     kar98k: [{ penetration: 3 }, { penetration: 4, rpm: 60 }, { penetration: 6, rpm: 75 }],
     thompson: [{}, { rpm: 760, penetration: 1 }, { rpm: 840, penetration: 2 }],
     mp18: [{}, { rpm: 600, penetration: 1 }, { rpm: 680, penetration: 2 }],
-    ppsh: [{}, { rpm: 1080, penetration: 1 }, { rpm: 1150, penetration: 2 }],
+    // Quick Change: the drum swaps much faster.
+    ppsh: [{ reloadTime: 1.7, reloadEmptyTime: 2.1 }, { rpm: 1080, penetration: 1 }, { rpm: 1150, penetration: 2 }],
     bar: [{ penetration: 2 }, { penetration: 2, rpm: 490 }, { penetration: 3, rpm: 540 }],
-    lewis: [{ penetration: 2 }, { penetration: 2, rpm: 600 }, { penetration: 3, rpm: 660 }],
-    webley: [{}, { rpm: 260, penetration: 2 }, { rpm: 300, penetration: 3 }],
+    // Quick Change: the pan goes on in a snap.
+    lewis: [{ penetration: 2, reloadTime: 2.3, reloadEmptyTime: 2.7 }, { penetration: 2, rpm: 600 }, { penetration: 3, rpm: 660 }],
+    // Speedloader: all six in at once.
+    webley: [{ reloadTime: 1.1, reloadEmptyTime: 1.1 }, { rpm: 260, penetration: 2 }, { rpm: 300, penetration: 3 }],
     // Always two barrels; more pellets and reach, and a quicker double at tier 3.
     sawnoff: [{ magSize: 2, pellets: 12 }, { magSize: 2, pellets: 13, maxRange: 17 }, { magSize: 2, pellets: 14, maxRange: 20, rpm: 420 }],
     win1895: [{ penetration: 3 }, { penetration: 4, rpm: 95 }, { penetration: 5, rpm: 115 }],
@@ -604,11 +612,18 @@ export function dfWeaponStats(id: DfWeaponId, pap: number, attachments: DfAttach
     // Slugs are one per barrel, whatever buckshot a Pack-a-Punch tier adds
     if (id === 'sawnoff' && attachments.magazine === 'sawnoff-slugs') s.pellets = 1
 
-    // rarity (rarity.ts): more damage per tier, on top of everything else
+    // rarity (rarity.ts): more damage per tier, on top of everything else, and
+    // a gun that handles better: quicker reloads, softer kick, faster to the sights
     const rar = dfRarityDamageMult(id, rarity)
     if (rar !== 1) {
+        const r = dfRarity(rarity)
         s.damage *= rar
         s.splashDamage *= rar
+        s.reloadTime *= r.reload
+        s.reloadEmptyTime *= r.reload
+        s.perRoundReload *= r.reload
+        s.recoil *= r.recoil
+        s.adsTime *= r.ads
     }
 
     for (const k of INTEGER_STATS) s[k] = Math.round(s[k])

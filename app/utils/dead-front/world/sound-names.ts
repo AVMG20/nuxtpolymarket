@@ -59,7 +59,17 @@ export const DF_WORLD_SOUNDS = {
     /** The brute's heavy footfall (spatial, play per stomp). */
     bruteStep: 'df:brute-step',
     /** The bloater's gut churning (spatial, an occasional idle sound). */
-    bloaterGurgle: 'df:bloater-gurgle'
+    bloaterGurgle: 'df:bloater-gurgle',
+    /** A walking zombie's dragged step (spatial, per footfall of nearby zombies). */
+    zombieShuffle: 'df:zstep-shuffle',
+    /** A running zombie's footfall. */
+    zombieRunStep: 'df:zstep-run',
+    /** A crawler hauling itself along. */
+    zombieDrag: 'df:zstep-drag',
+    /** The Iron Warlord's roar (it arrives, it enrages). */
+    bossRoar: 'df:boss-roar',
+    /** The Iron Warlord crashing down. */
+    bossFall: 'df:boss-fall'
 } as const
 
 /** Short original jingle per perk, played at the machine on purchase. */

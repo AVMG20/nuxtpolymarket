@@ -1,4 +1,4 @@
-import { LiveGhosts, poseMessage, type LivePoseMsg } from '~/utils/nitro-rush/live'
+import { busyCounts, LiveGhosts, poseMessage, type LivePoseMsg } from '~/utils/nitro-rush/live'
 import type { CarPose, GhostSource, Phase } from '~/utils/nitro-rush/types'
 
 /** What this needs from the engine: a place to hand ghosts to, and the local car. */
@@ -16,6 +16,8 @@ interface LiveOptions {
     car: Ref<string>
     /** Whether the others are drawn; the player's own car is still sent either way. */
     show: Ref<boolean>
+    /** The track menu is open, so it wants to know who's driving where. */
+    watching: Ref<boolean>
 }
 
 /** About 10 poses a second while driving. */
@@ -29,11 +31,15 @@ const FINAL_CLOSE = new Set([4401, 4429])
  * name tag. Connects while the game is mounted on a course, joins that course's
  * room, and sends the car's pose about 10 times a second while on the clock
  * (countdown and racing; never in the menu, paused or with the tab hidden).
- * `racers` is how many others are driving the course right now.
+ * `racers` is how many others are driving the course right now; `busy` is how
+ * many players drive each public course, while the track menu is open and visible.
  */
 export function useNitroRushLive(opts: LiveOptions) {
     const ghosts = new LiveGhosts()
     const racers = ref(0)
+    const busy = ref<Record<string, number>>({})
+    const visible = ref(true)
+    const watching = computed(() => opts.watching.value && visible.value)
     const pose: CarPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
 
     let ws: WebSocket | null = null
@@ -56,7 +62,7 @@ export function useNitroRushLive(opts: LiveOptions) {
     }
 
     function onMessage(data: unknown) {
-        let msg: { t?: string, id?: unknown, track?: unknown } & Partial<LivePoseMsg>
+        let msg: { t?: string, id?: unknown, track?: unknown, tracks?: unknown } & Partial<LivePoseMsg>
         try {
             msg = JSON.parse(String(data))
         } catch {
@@ -68,6 +74,9 @@ export function useNitroRushLive(opts: LiveOptions) {
             ghosts.remove(msg.id)
         } else if (msg.t === 'full' && msg.track === opts.trackId.value) {
             full = true
+        } else if (msg.t === 'busy' && watching.value) {
+            // A frame still in flight when watching stopped is ignored.
+            busy.value = busyCounts(msg.tracks)
         }
     }
 
@@ -80,12 +89,14 @@ export function useNitroRushLive(opts: LiveOptions) {
         socket.onopen = () => {
             retries = 0
             join()
+            if (watching.value) send({ t: 'watch', on: true })
         }
         socket.onmessage = e => onMessage(e.data)
         socket.onclose = (e) => {
             if (ws !== socket) return
             ws = null
             ghosts.clear()
+            busy.value = {}
             if (unmounted || FINAL_CLOSE.has(e.code)) return
             // Back off, so a server refusing everybody isn't hammered by every open tab.
             retries++
@@ -121,13 +132,25 @@ export function useNitroRushLive(opts: LiveOptions) {
     // The engine is built in the game's onMounted, which then sets the track, so this fires once it exists.
     watch(opts.trackId, onTrack)
 
+    watch(watching, (on) => {
+        send({ t: 'watch', on })
+        if (!on) busy.value = {}
+    })
+
+    function onVisibility() {
+        visible.value = document.visibilityState === 'visible'
+    }
+
     onMounted(() => {
+        onVisibility()
+        document.addEventListener('visibilitychange', onVisibility)
         tick = setInterval(onTick, SEND_MS)
         if (opts.trackId.value) onTrack()
     })
 
     onBeforeUnmount(() => {
         unmounted = true
+        document.removeEventListener('visibilitychange', onVisibility)
         if (tick) clearInterval(tick)
         if (retryTimer) clearTimeout(retryTimer)
         unregister?.()
@@ -136,7 +159,8 @@ export function useNitroRushLive(opts: LiveOptions) {
         ws = null
         socket?.close()
         ghosts.clear()
+        busy.value = {}
     })
 
-    return { racers }
+    return { racers, busy }
 }
