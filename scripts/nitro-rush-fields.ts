@@ -8,7 +8,7 @@ import { routeFieldPaths } from '../shared/utils/nitro-rush/field-plan'
 import { buildTrack } from '../shared/utils/nitro-rush/layout'
 import { LapTimer } from '../shared/utils/nitro-rush/timing'
 import { Track } from '../shared/utils/nitro-rush/track'
-import { OPEN_FIELD } from '../shared/utils/nitro-rush/tracks'
+import { CLOVERFIELD, FIELD_OBSTACLES } from '../shared/utils/nitro-rush/tracks'
 
 const DT = 1 / PHYSICS_HZ
 const ROAD: SectionId[] = ['straight-20', 'start', 'straight-100', 'field', 'straight-100', 'finish', 'straight-200']
@@ -58,4 +58,4 @@ for (const s of SAMPLES) {
     if (def) report(s.name, new Track(def))
     else console.log(`${s.name.padEnd(17)} | ${error}`)
 }
-report(OPEN_FIELD.name, new Track(buildTrack(OPEN_FIELD)))
+for (const layout of [FIELD_OBSTACLES, CLOVERFIELD]) report(layout.name, new Track(buildTrack(layout)))

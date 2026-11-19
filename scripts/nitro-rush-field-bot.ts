@@ -27,7 +27,7 @@ import { routeFieldPaths, type FieldPath } from '../shared/utils/nitro-rush/fiel
 import { buildTrack } from '../shared/utils/nitro-rush/layout'
 import { LapTimer } from '../shared/utils/nitro-rush/timing'
 import { Track, type Route } from '../shared/utils/nitro-rush/track'
-import { OPEN_FIELD, TRACKS } from '../shared/utils/nitro-rush/tracks'
+import { FIELD_OBSTACLES, TRACKS } from '../shared/utils/nitro-rush/tracks'
 
 const DT = 1 / PHYSICS_HZ
 const ROAD: SectionId[] = ['straight-20', 'start', 'straight-100', 'field', 'straight-100', 'finish', 'straight-200']
@@ -320,9 +320,9 @@ function results(files: string[], seeds: number[]) {
         fields.push(...custom ? drive(basename(file, '.json'), custom) : [{ name: basename(file), ms: 0, lap: null, field: null, best: null, hits: 0, hardest: 0, why: 'not a course' }])
     }
     {
-        const track = new Track(buildTrack(OPEN_FIELD))
+        const track = new Track(buildTrack(FIELD_OBSTACLES))
         const r = run(track, null)
-        fields.push({ name: OPEN_FIELD.name, ms: 0, lap: num(r.lap), field: num(r.time), best: num(estimate(track, track.routes[0]!, r.entry)), hits: r.hits, hardest: r.hardest, why: r.why })
+        fields.push({ name: FIELD_OBSTACLES.name, ms: 0, lap: num(r.lap), field: num(r.time), best: num(estimate(track, track.routes[0]!, r.entry)), hits: r.hits, hardest: r.hardest, why: r.why })
     }
     const random: Row[] = []
     for (const seed of seeds) {
