@@ -1,5 +1,7 @@
 import { clearanceFault, CLOSE_TOLERANCE, layoutFault, placementFault, STEP, trackClearanceFault } from './road-checks'
 import { KICKER_GRADE, Track, TrackLine, wallFoot, type BoostLane, type BoostPadDef, type BranchDef, type BranchEnd, type LineDef, type TrackDef, type TrackGroup } from './track'
+import { fieldHub, fieldLinePoint, fieldLineTile, MOUTH_STUB, placeField, portPose, type FieldPlan, type FieldPort } from './field'
+import { fieldClearanceFault, fieldDefs, type WalkField } from './field-layout'
 
 export { MIN_CLEARANCE } from './road-checks'
 
@@ -36,6 +38,8 @@ export { MIN_CLEARANCE } from './road-checks'
  *
  * A boost pad is a short straight with a pad on the road, across all of it or one half. It's
  * plain road to everything else, so it goes on any bank or slope.
+ *
+ * A field's road crosses it through its hub only for distance; `field-port` roads start at the hub and `field-in` roads end there.
  */
 
 export type LineBlock = 'start' | 'finish' | 'checkpoint'
@@ -57,7 +61,15 @@ export type TrackPiece =
     | { type: 'boost', lane: BoostLane }
     | { type: 'split', shape: ForkShape }
     | { type: 'join', shape: ForkShape }
-    | { type: LineBlock }
+    | { type: 'start' | 'finish' }
+    /** A `required` checkpoint has to be driven on every lap. */
+    | { type: 'checkpoint', required?: true }
+    /** `id` tells a layout's fields apart, so the roads through one find it. */
+    | { type: 'field', id: number, plan: FieldPlan }
+    /** A road out of the field laid just before it, from its hub to `port`: only ever a branch's first piece. */
+    | { type: 'field-port', id: number, plan: FieldPlan, port: FieldPort }
+    /** The last stretch into a field, from the mouth the road has reached to its hub. */
+    | { type: 'field-in', id: number, hub: [number, number] }
 
 /** Where a split's second arm goes, or a join's second road comes in from: both sides of a Y, or one side of road that runs on straight. */
 export type ForkShape = 'y' | 'left' | 'right'
@@ -71,6 +83,8 @@ export interface TrackLayout {
     wallOffset: number
     /** False for a point-to-point sprint; loops are the default. */
     closed?: boolean
+    /** A loop laid only of fields, lapped round them: its road needn't close, and the fields have no mouths. */
+    arena?: true
     /** Where the first piece begins. Heading 0 runs up the screen (-z); + turns right. */
     origin: { x: number, z: number, heading: number }
     pieces: TrackPiece[]
@@ -78,10 +92,11 @@ export interface TrackLayout {
     branches?: LayoutBranch[]
 }
 
-/** A spot between pieces: line `branch` (0 the main line) after its first `at` pieces. */
+/** A spot between pieces: line `branch` (0 the main line) after its first `at` pieces; with `hub`, the hub of the field that is piece `at`. */
 export interface PieceSpot {
     branch: number
     at: number
+    hub?: true
 }
 
 /** A forked layout's branch: pieces laid from where it leaves its road. */
@@ -164,6 +179,7 @@ export const boostPad = (lane: BoostLane): TrackPiece => ({ type: 'boost', lane 
 export const start: TrackPiece = { type: 'start' }
 export const finish: TrackPiece = { type: 'finish' }
 export const checkpoint: TrackPiece = { type: 'checkpoint' }
+export const requiredCheckpoint: TrackPiece = { type: 'checkpoint', required: true }
 
 /**
  * How far up its rise a slope is `d` metres into a `length` metre piece. The grade eases in
@@ -223,8 +239,10 @@ export interface LayoutWalk {
     gaps: [number, number][]
     /** Boost pads, by point range. */
     boosts: BoostPadDef[]
-    /** Each line block and the index of the point its line crosses. */
-    lines: { type: LineBlock, at: number }[]
+    /** Fields laid or driven through. */
+    fields: WalkField[]
+    /** Each line block and the index of the point its line crosses; a `required` checkpoint has to be driven on every lap. */
+    lines: { type: LineBlock, at: number, required?: true }[]
     /** The index of each piece's first point. */
     pieceStarts: number[]
     /** The state each piece starts out in. */
@@ -255,7 +273,8 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, a
     const rails: [number, number][] = []
     const gaps: [number, number][] = []
     const boosts: BoostPadDef[] = []
-    const lines: { type: LineBlock, at: number }[] = []
+    const fields: WalkField[] = []
+    const lines: LayoutWalk['lines'] = []
     // Bends still snap to the grid round the layout's origin, so a branch lands on the same grid as its road.
     let { x, z, heading: h } = at
     // Measured from where the road sets off until the walk's done, when the lowest point goes on the ground.
@@ -428,13 +447,61 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, a
         z += dz * length
     }
 
+    /** Flat points straight to (px, pz), the field's crossing: no road is drawn or walled along it. */
+    const cross = (px: number, pz: number) => place(px, pz, y, h, 0)
+    const stub = (at: { x: number, z: number, heading: number }, d: number): [number, number] => [at.x + Math.sin(at.heading) * d, at.z - Math.cos(at.heading) * d]
+    const field = (id: number, plan: FieldPlan, piece: number) => {
+        if (!onAxis(h)) misplaced ??= 'a field can\'t go on a diagonal'
+        const placement = placeField(plan, { x, z, heading: h })
+        const from = pts.length
+        const [cx, cz] = fieldHub(placement)
+        const out = portPose(placement, plan.exit)
+        // A field with both lines is crossed from its start, the hub, to its finish beyond it.
+        const start = fieldLineTile(plan, 'start')
+        const finish = start && fieldLinePoint(placement, 'finish')
+        cross(x, z)
+        cross(...stub({ x, z, heading: h }, MOUTH_STUB))
+        cross(cx, cz)
+        if (finish) cross(...finish)
+        cross(...stub(out, -MOUTH_STUB))
+        fields.push({ id, kind: 'cross', placement, piece, from, to: pts.length, hub: from + 2, mouths: [from, pts.length] })
+        // A lone start or finish gate is the field's hub, so the lap is cut where every road through it meets.
+        if (start) lines.push({ type: 'start', at: from + 2 })
+        if (fieldLineTile(plan, 'finish')) lines.push({ type: 'finish', at: finish ? from + 3 : from + 2 })
+        x = out.x
+        z = out.z
+        h = out.heading
+    }
+    const fieldPort = (id: number, plan: FieldPlan, port: FieldPort, piece: number) => {
+        const placement = placeField(plan, { x, z, heading: h })
+        const from = pts.length
+        const [cx, cz] = fieldHub(placement)
+        const out = portPose(placement, port)
+        cross(cx, cz)
+        cross(...stub(out, -MOUTH_STUB))
+        fields.push({ id, kind: 'port', placement, piece, from, to: pts.length, hub: from, mouths: [pts.length] })
+        x = out.x
+        z = out.z
+        h = out.heading
+    }
+    const fieldIn = (id: number, [cx, cz]: [number, number], piece: number) => {
+        const from = pts.length
+        cross(x, z)
+        cross(...stub({ x, z, heading: h }, MOUTH_STUB))
+        // The hub is the road's last point, which the line's end puts down.
+        fields.push({ id, kind: 'in', placement: null, piece, from, to: pts.length + 1, hub: pts.length, mouths: [from] })
+        h = Math.atan2(cx - pts[pts.length - 1]![0], pts[pts.length - 1]![1] - cz)
+        x = cx
+        z = cz
+    }
+
     const eighthsOf = (angle: number) => {
         if (!(angle > 0) || !Number.isInteger(angle / 45)) fail('a corner or spiral turns in steps of 45°')
         return angle / 45
     }
     const pieceStarts: number[] = []
     const states: RoadState[] = []
-    for (const piece of layout.pieces) {
+    for (const [k, piece] of layout.pieces.entries()) {
         pieceStarts.push(pts.length)
         const state = { bank: roll / RADIANS, grade, halfWidth: hw, air }
         states.push(state)
@@ -498,9 +565,17 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, a
             run(BOOST_PAD_LENGTH)
             boosts.push({ range: [from, pts.length], lane: piece.lane })
             run(margin)
+        } else if (piece.type === 'field') {
+            field(piece.id, piece.plan, k)
+        } else if (piece.type === 'field-port') {
+            if (k > 0) fail('a road out of a field starts at it')
+            fieldPort(piece.id, piece.plan, piece.port, k)
+        } else if (piece.type === 'field-in') {
+            if (k !== layout.pieces.length - 1) fail('a road into a field ends at it')
+            fieldIn(piece.id, piece.hub, k)
         } else {
             run(LINE_BLOCK_LENGTH / 2)
-            lines.push({ type: piece.type, at: pts.length })
+            lines.push(piece.type === 'checkpoint' && piece.required ? { type: piece.type, at: pts.length, required: true } : { type: piece.type, at: pts.length })
             run(LINE_BLOCK_LENGTH / 2)
         }
     }
@@ -508,7 +583,7 @@ export function walkLayout(layout: TrackLayout, from: Partial<RoadState> = {}, a
     const low = Math.min(y, ...ys.map((v, i) => v - lifts[i]!))
     const rise = low < -CLOSE_TOLERANCE ? -low : 0
     return {
-        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, halfWidths, walls, rails, gaps, boosts, lines, pieceStarts, states, misplaced, rise,
+        pts, ys: rise ? ys.map(v => v + rise) : ys, lifts, ups, halfWidths, walls, rails, gaps, boosts, fields, lines, pieceStarts, states, misplaced, rise,
         end: { x, z, heading: h, y: y + rise + liftOf(roll), lift: liftOf(roll), aboveStart: y, bank: roll / RADIANS, grade, halfWidth: hw, air }
     }
 }
@@ -560,6 +635,15 @@ export function walkLines(layout: TrackLayout): LayoutWalk[] {
 
 type Fail = (why: string) => never
 
+/** A loop's field crossings, of `n` walk points, turned to begin at point `shift`: a start on a field cuts its crossing in two. */
+export function turnFieldRanges(fields: readonly Pick<WalkField, 'from' | 'to' | 'id'>[], shift: number, n: number): NonNullable<LineDef['onFields']> {
+    return fields.flatMap(({ from, to, id }) => {
+        const at = (from - shift + n) % n
+        if (from < shift && to > shift) return [{ range: [at, n] as [number, number], field: id }, { range: [0, to - shift] as [number, number], field: id }]
+        return [{ range: [at, at + to - from] as [number, number], field: id }]
+    })
+}
+
 /** A line's heights, widths and ups, rounded, each left out where it never changes. */
 function lineShape(layout: TrackLayout, w: Pick<LayoutWalk, 'ys' | 'halfWidths' | 'ups'>, order: <T>(a: T[]) => T[]) {
     const road: Pick<LineDef, 'heights' | 'halfWidths' | 'ups'> = {}
@@ -569,6 +653,9 @@ function lineShape(layout: TrackLayout, w: Pick<LayoutWalk, 'ys' | 'halfWidths' 
     if (w.ups.some(u => u !== UP)) road.ups = order(w.ups).map(u => u.map(c => Math.round(c * 1e4) / 1e4) as Vec3)
     return road
 }
+
+/** Where the line's required checkpoints sit along it, in order. */
+const requiredAt = (lines: LayoutWalk['lines'], sAt: (at: number) => number) => lines.filter(l => l.type === 'checkpoint' && l.required).map(l => sAt(l.at)).sort((a, b) => a - b)
 
 /** Runs an open line on to where its last piece ends. */
 function pushEnd(layout: TrackLayout, w: LayoutWalk) {
@@ -587,7 +674,7 @@ function mainLine(layout: TrackLayout, walk: LayoutWalk, fail: Fail) {
     const fault = layoutFault({ misplaced, lines }, closed)
     if (fault) fail(fault)
     if (closed) {
-        if (Math.hypot(x - layout.origin.x, z - layout.origin.z) > CLOSE_TOLERANCE || Math.cos(h - layout.origin.heading) < 1 - 1e-9) {
+        if (!layout.arena && (Math.hypot(x - layout.origin.x, z - layout.origin.z) > CLOSE_TOLERANCE || Math.cos(h - layout.origin.heading) < 1 - 1e-9)) {
             fail(`the pieces end at (${x.toFixed(2)}, ${z.toFixed(2)}) instead of closing the loop`)
         }
         if (Math.abs(aboveStart) > CLOSE_TOLERANCE) fail(`the loop ends ${aboveStart.toFixed(2)} m from the height it began at`)
@@ -597,14 +684,14 @@ function mainLine(layout: TrackLayout, walk: LayoutWalk, fail: Fail) {
     if (bank || grade) fail('the road has to level out before it ends')
     if (!closed) pushEnd(layout, walk)
     const startAt = lines.find(l => l.type === 'start')!.at
-    const clash = clearanceFault({ pts, ys, lifts, walls, gaps }, closed)
+    const clash = clearanceFault({ pts, ys, lifts, walls, gaps, fielded: walk.fields.map(f => [f.from, f.to]) }, closed)
     if (clash) fail(clash)
 
     // A loop is rotated to begin at the start line, where its lap clock reads zero.
     const shift = closed ? startAt : 0
     const rotate = <T>(a: T[]) => closed ? [...a.slice(shift), ...a.slice(0, shift)] : a
     const n = pts.length
-    // A range never holds the start line, so once rotated it doesn't wrap the seam.
+    // Only a field crossing can hold the start line, so these ranges never wrap the seam once rotated.
     const reindex = ([from, to]: [number, number]): [number, number] => {
         const at = (from - shift + n) % n
         return [at, at + to - from]
@@ -614,6 +701,7 @@ function mainLine(layout: TrackLayout, walk: LayoutWalk, fail: Fail) {
     if (rails.length) def.rails = rails.map(reindex)
     if (gaps.length) def.gaps = gaps.map(reindex)
     if (boosts.length) def.boosts = boosts.map(b => ({ ...b, range: reindex(b.range) }))
+    if (walk.fields.length) def.onFields = closed ? turnFieldRanges(walk.fields, shift, n) : walk.fields.map(f => ({ range: [f.from, f.to], field: f.id }))
     if (!closed) def.closed = false
     // Distances as the track measures them: along the ground, except on rails, where it's the road itself.
     const cum = new Track(def).cum
@@ -632,14 +720,17 @@ function mainLine(layout: TrackLayout, walk: LayoutWalk, fail: Fail) {
     const checkpoints = lines.filter(l => l.type === 'checkpoint').map(l => sAt(l.at)).sort((a, b) => a - b)
     if (checkpoints.some(s => s <= startS || s >= finishS)) fail('every checkpoint must lie between the start and the finish')
     if (checkpoints.length) def.checkpoints = checkpoints
+    const required = requiredAt(lines, sAt)
+    if (required.length) def.requiredCheckpoints = required
     return { def, sAt: (at: number) => closed ? sAt(at % n) : cum[Math.min(at, n - 1)]! }
 }
 
 /** A branch's road, and the distance along it of each walk point; its ends are placed once every line is laid. */
 function branchLine(layout: TrackLayout, branch: LayoutBranch, walk: LayoutWalk, fail: Fail) {
-    const { lines, misplaced, end, rails, gaps, boosts } = walk
+    const { lines, misplaced, end, rails, gaps, boosts, fields } = walk
     if (misplaced) fail(misplaced)
     if (lines.some(l => l.type === 'start')) fail('put the start line on the main road')
+    if (lines.some(l => fields.some(f => f.kind === 'cross' && f.hub === l.at))) fail('put a field\'s finish on the main road')
     const finishes = lines.filter(l => l.type === 'finish')
     if (branch.to && finishes.length) fail('a branch that joins can\'t have a finish line')
     if (!branch.to && layout.closed !== false) fail('on a loop, every branch must join back')
@@ -651,6 +742,7 @@ function branchLine(layout: TrackLayout, branch: LayoutBranch, walk: LayoutWalk,
     if (rails.length) road.rails = rails
     if (gaps.length) road.gaps = gaps
     if (boosts.length) road.boosts = boosts
+    if (fields.length) road.onFields = fields.map(f => ({ range: [f.from, f.to], field: f.id }))
     const { cum, length } = new TrackLine({ ...road, halfWidth: layout.halfWidth, wallOffset: layout.wallOffset, closed: false, runUp: 0, runOff: 0 })
     const sAt = (at: number) => cum[Math.min(at, cum.length - 1)]!
     const finishS = finishes.length ? sAt(finishes[0]!.at) : length
@@ -661,6 +753,8 @@ function branchLine(layout: TrackLayout, branch: LayoutBranch, walk: LayoutWalk,
     const checkpoints = lines.filter(l => l.type === 'checkpoint').map(l => sAt(l.at)).sort((a, b) => a - b)
     if (checkpoints.some(s => s >= finishS)) fail('checkpoints go before the finish')
     if (checkpoints.length) road.checkpoints = checkpoints
+    const required = requiredAt(lines, sAt)
+    if (required.length) road.requiredCheckpoints = required
     return { road, sAt }
 }
 
@@ -671,13 +765,21 @@ export function buildTrack(layout: TrackLayout): TrackDef {
     const walks = walkLines(layout)
     const main = mainLine(layout, walks[0]!, fail)
     const branches = layout.branches ?? []
-    if (!branches.length) return main.def
     const built = branches.map((b, i) => branchLine(layout, b, walks[i + 1]!, (why: string) => fail(`branch ${i + 1}: ${why}`)))
     const lineS = [main.sAt, ...built.map(b => b.sAt)]
-    const place = ({ branch, at }: PieceSpot): BranchEnd => {
+    const fields = fieldDefs(walks, lineS, fail, layout.arena)
+    if (fields.length) {
+        main.def.fields = fields
+        const clash = fieldClearanceFault(fields, walks.map(w => ({ ...w, fielded: w.fields.map(f => [f.from, f.to] as const) })))
+        if (clash) fail(clash)
+    }
+    if (!branches.length) return main.def
+    const place = ({ branch, at, hub }: PieceSpot): BranchEnd => {
         const w = walks[branch]
         if (!w || !Number.isInteger(at) || at < 0 || at > w.pieceStarts.length) return fail('the branch\'s fork or join is missing')
-        return { branch, at: lineS[branch]!(w.pieceStarts[at] ?? w.pts.length) }
+        const field = hub && w.fields.find(f => f.kind === 'cross' && f.piece === at)
+        if (hub && !field) return fail('the branch\'s field is missing')
+        return { branch, at: lineS[branch]!(field ? field.hub : w.pieceStarts[at] ?? w.pts.length) }
     }
     main.def.branches = branches.map((b, i) => ({ ...built[i]!.road, from: place(b.from), to: b.to ? place(b.to) : 'finish' }))
     const clash = trackClearanceFault(new Track(main.def))

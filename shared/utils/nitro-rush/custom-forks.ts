@@ -1,13 +1,21 @@
 import { inletOf, joinInlet, joinMerge, meetInlet, splitArm, type Inlet } from './fork-pieces'
-import { customLayout, draftTrackDef, forkMerges, forkShape, lineSections, sectionWalk, shapeAt, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
-import { FORK_RADIUS, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose } from './layout'
-import { Track, TrackGraphError, TrackLine, type BranchDef, type TrackDef } from './track'
+import { draftTrackDef } from './custom-draft'
+import { customLayout, fieldArrivals, forkMerges, forkShape, isFieldSection, lineSections, sectionWalk, shapeAt, startSection, walkedField, type CustomBranch, type CustomTrack, type SectionId, type SectionSpot } from './custom'
+import { fieldLocal } from './field'
+import { fieldGroup, fieldGroupIds, walkedFields } from './field-group'
+import { fieldJoin } from './field-join'
+import { draftFieldDefs, fieldApproach } from './field-layout'
+import { FORK_RADIUS, turnFieldRanges, walkLayout, walkLines, type ForkShape, type LayoutWalk, type Pose } from './layout'
+import { Track, TrackGraphError, TrackLine, wrapAngle, type BranchDef, type TrackDef } from './track'
 import { ROAD } from './tracks'
 
 /** A forked course's lines in the builder: walked with every split's arm and every join's bend in, and edited with each split and join kept to its branch. */
 
 /** How much of the diagonal a join comes in on the map and a card show before its bend. */
 const STUB_LEAD = 30
+
+/** Nearer a field's edge than this, a branch that doesn't drive in is askew rather than short of it. */
+const FIELD_NEAR = 1
 
 /** A join section and where a road coming into it has to arrive. */
 export interface JoinInlet extends Inlet {
@@ -21,8 +29,10 @@ export interface ForkedLines {
     /** Main road first, then each branch; a branch's walk starts with its split's arm and, once it comes into its join, ends with the bend onto it. */
     walks: LayoutWalk[]
     joins: JoinInlet[]
-    /** Per branch, whether it comes into its join. */
+    /** Per branch, whether it comes into its join or field. */
     merged: boolean[]
+    /** Per branch, the field section it drives into, or null. */
+    into: (SectionSpot | null)[]
 }
 
 const sameSpot = (a: SectionSpot, b: SectionSpot) => a.branch === b.branch && a.at === b.at
@@ -47,13 +57,14 @@ function inletsOf(t: CustomTrack, walks: readonly LayoutWalk[]): JoinInlet[] {
     return out
 }
 
-/** Every line laid from where it leaves its road, main road first, on one ground, with each branch on its join's diagonal bending in onto it. */
+/** Every line laid from where it leaves its road, main road first, on one ground, with each branch on its join's diagonal bending in onto it, or driving into its field. */
 export function walkForks(t: CustomTrack): ForkedLines {
     const branches = t.branches ?? []
     const merges = forkMerges(t)
-    const merged = merges.map(m => m !== null)
-    const walks = walkLines(customLayout(t, merges)).map((w, l) => l ? sectionsOnly(w, !!shapeAt(t, branches[l - 1]!.from, 'split'), branches[l - 1]!.sections.length) : w)
-    return { walks, joins: inletsOf(t, walks), merged }
+    const arrivals = fieldArrivals(t)
+    const merged = merges.map((m, i) => m !== null || arrivals[i] !== null)
+    const walks = walkLines(customLayout(t, merges, arrivals)).map((w, l) => l ? sectionsOnly(w, !!shapeAt(t, branches[l - 1]!.from, 'split') || !!branches[l - 1]!.from.port, branches[l - 1]!.sections.length) : w)
+    return { walks, joins: inletsOf(t, walks), merged, into: arrivals.map(a => a?.at ?? null) }
 }
 
 /** Every line laid from where it leaves its road, main road first, on one ground. */
@@ -71,6 +82,20 @@ export type BranchEnding =
 export function branchEnding(t: CustomTrack, forks: ForkedLines, line: number): BranchEnding {
     const branch = t.branches![line - 1]!
     if (!branch.to) return branch.sections.includes('finish') ? { kind: 'finish' } : { kind: 'open' }
+    if (isFieldSection(t, branch.to)) {
+        if (forks.merged[line - 1]) return { kind: 'joins', to: forks.into[line - 1] ?? branch.to }
+        const end = forks.walks[line]!.end
+        // Joined fields take a road on any outer edge, so it's measured to the nearest of them.
+        const near = fieldGroup(walkedFields(t, forks.walks), branch.to).map((f) => {
+            const { u, v } = fieldLocal(f, end.x, end.z)
+            return { f, metres: Math.hypot(Math.max(0, -u, u - f.plan.width), Math.max(0, -v, v - f.plan.length)) }
+        }).sort((a, b) => a.metres - b.metres)[0]
+        if (!near) return { kind: 'askew', to: branch.to, why: 'doesn\'t reach the field' }
+        // Short of the field it's still on its way there; only a road at its edge can be wrong about how it meets it.
+        if (near.metres > FIELD_NEAR) return { kind: 'short', to: branch.to, metres: near.metres }
+        const approach = fieldApproach(end, near.f)
+        return { kind: 'askew', to: branch.to, why: 'why' in approach ? approach.why : 'doesn\'t reach the field' }
+    }
     const inlet = forks.joins.find(j => j.branch === line)
     if (forks.merged[line - 1] || !inlet) return { kind: 'joins', to: branch.to }
     const miss = meetInlet(forks.walks[line]!.end, inlet)
@@ -106,10 +131,14 @@ export function withLineSections(t: CustomTrack, line: number, sections: Section
     return { ...t, branches: t.branches!.map((b, i) => i === line - 1 ? { ...b, sections } : b) }
 }
 
-/** Every spot in `t` moved by `move`, which gets each spot and gives back where it goes. */
+/** Every spot in `t` moved by `move`, which gets each spot and gives back where it goes; a port stays with its field. */
 function moveSpots(t: CustomTrack, move: (s: SectionSpot) => SectionSpot): CustomTrack {
-    if (!t.branches?.length) return t
-    return { ...t, branches: t.branches.map(b => ({ ...b, from: move(b.from), to: b.to && move(b.to) })) }
+    if (!t.branches?.length && !t.fields?.length) return t
+    const out = { ...t }
+    if (t.branches?.length) out.branches = t.branches.map(b => ({ ...b, from: { ...b.from, ...move(b.from) }, to: b.to && move(b.to) }))
+    // Kept in course order, as storage and the road key have them.
+    if (t.fields?.length) out.fields = t.fields.map(f => ({ ...f, at: move(f.at) })).sort((a, b) => a.at.branch - b.at.branch || a.at.at - b.at.at)
+    return out
 }
 
 /** Puts `id` in at `index` on line `line`; a split brings its arm, as a new empty branch that's the last line. */
@@ -134,6 +163,8 @@ function withoutLines(t: CustomTrack, gone: ReadonlySet<number>): CustomTrack {
     })
     const out: CustomTrack = { ...t, branches: kept }
     if (!kept.length) delete out.branches
+    if (t.fields) out.fields = t.fields.flatMap(f => gone.has(f.at.branch) ? [] : [{ ...f, at: { ...f.at, branch: renumber[f.at.branch]! } }])
+    if (!out.fields?.length) delete out.fields
     return out
 }
 
@@ -147,13 +178,18 @@ function lineAndOffshoots(t: CustomTrack, line: number) {
     return gone
 }
 
-/** Takes section `index` off line `line`: a split takes its branch with it, and a join leaves the branch coming into it open. */
+/** Takes section `index` off line `line`: a split or field takes its branches with it, and a join or field leaves the branches coming into it open. */
 export function removeSection(t: CustomTrack, line: number, index: number): CustomTrack {
-    const owner = t.branches?.findIndex(b => b.from.branch === line && b.from.at === index) ?? -1
+    const gone = new Set<number>()
+    t.branches?.forEach((b, i) => {
+        if (b.from.branch === line && b.from.at === index) for (const l of lineAndOffshoots(t, i + 1)) gone.add(l)
+    })
     // Only later lines go, so `line` keeps its number.
-    let next = owner >= 0 ? withoutLines(t, lineAndOffshoots(t, owner + 1)) : t
+    let next = gone.size ? withoutLines(t, gone) : t
     next = { ...next, branches: next.branches?.map(b => b.to && b.to.branch === line && b.to.at === index ? { ...b, to: null } : b) }
     if (!next.branches) delete next.branches
+    if (next.fields) next.fields = next.fields.filter(f => f.at.branch !== line || f.at.at !== index)
+    if (!next.fields?.length) delete next.fields
     const sections = lineSections(next, line).filter((_, k) => k !== index)
     return moveSpots(withLineSections(next, line, sections), s => s.branch === line && s.at > index ? { ...s, at: s.at - 1 } : s)
 }
@@ -167,10 +203,11 @@ export function moveSection(t: CustomTrack, line: number, from: number, to: numb
     return moveSpots(withLineSections(t, line, sections), s => s.branch === line ? { ...s, at: where.get(s.at)! } : s)
 }
 
-/** Takes branch `line` away, with its split and every branch off it. */
+/** Takes branch `line` away, with its split and every branch off it; a field it leaves stays. */
 export function removeBranch(t: CustomTrack, line: number): CustomTrack {
     const from = t.branches?.[line - 1]?.from
-    return from ? removeSection(t, from.branch, from.at) : t
+    if (!from) return t
+    return from.port ? withoutLines(t, lineAndOffshoots(t, line)) : removeSection(t, from.branch, from.at)
 }
 
 /** Branch `line` heading into the join at `to`, or, with null, left open. */
@@ -178,10 +215,19 @@ export function setJoin(t: CustomTrack, line: number, to: SectionSpot | null): C
     return { ...t, branches: t.branches!.map((b, i) => i === line - 1 ? { ...b, to } : b) }
 }
 
+/** Each field section's group by `branch:at`, off the lines as laid with no branch coming in: arrivals never move a field. */
+export const courseFieldGroups = (t: CustomTrack, walks = walkLines(customLayout(t, (t.branches ?? []).map(() => null), (t.branches ?? []).map(() => null)))) => fieldGroupIds(walkedFields(t, walks))
+
+/** Whether a branch leaves a field and comes back into the same joined fields: a detour over open ground, not a loop back. */
+const isDetour = (b: CustomBranch, groups: ReadonlyMap<string, number>) => {
+    const from = groups.get(`${b.from.branch}:${b.from.at}`)
+    return !!b.from.port && !!b.to && from !== undefined && from === groups.get(`${b.to.branch}:${b.to.at}`)
+}
+
 /** Whether any route through `t` comes back round to where it's been: a join it reaches before the split that led to it. */
-function loopsBack(t: CustomTrack): boolean {
+function loopsBack(t: CustomTrack, groups: ReadonlyMap<string, number>): boolean {
     const branches = t.branches ?? []
-    const start = t.closed ? t.sections.indexOf('start') : -1
+    const start = t.closed ? startSection(t) : -1
     // A loop's lap runs from its start line, so its main road is read in that order.
     const order = (s: SectionSpot) => s.branch === 0 && start >= 0 ? (s.at - start + t.sections.length) % t.sections.length : s.at
     const key = (s: SectionSpot) => `${s.branch}:${s.at}`
@@ -189,12 +235,14 @@ function loopsBack(t: CustomTrack): boolean {
     const link = (a: string, b: string) => next.set(a, [...next.get(a) ?? [], b])
     for (let line = 0; line <= branches.length; line++) {
         const spots = branches.flatMap(b => [b.from, ...b.to ? [b.to] : []]).filter(s => s.branch === line).sort((a, b) => order(a) - order(b))
-        const stops = [`${line}:head`, ...spots.map(key), `${line}:tail`]
+        // A field holds many roads at one spot, which is still one stop.
+        const stops = [`${line}:head`, ...new Set(spots.map(key)), `${line}:tail`]
         for (let k = 1; k < stops.length; k++) link(stops[k - 1]!, stops[k]!)
     }
     branches.forEach((b, i) => {
         link(key(b.from), `${i + 1}:head`)
-        if (b.to) link(`${i + 1}:tail`, key(b.to))
+        // A detour comes back onto the floor it left, and a route carries on from there as if it never went.
+        if (b.to && !isDetour(b, groups)) link(`${i + 1}:tail`, key(b.to))
     })
     // Depth first: a stop met again while it's still being followed closes a loop.
     const state = new Map<string, 'open' | 'done'>()
@@ -209,18 +257,63 @@ function loopsBack(t: CustomTrack): boolean {
     return [...next.keys()].some(visit)
 }
 
-/** Whether branch `line` may head into the join at `spot`: it has no finish of its own, the join isn't on it or one of its offshoots, and no route loops back. */
-export function canJoin(t: CustomTrack, line: number, spot: SectionSpot): boolean {
+/** Whether branch `line` may head into the join or field at `spot`: no finish of its own, not its own line or offshoot, and no loop back; `groups` as `courseFieldGroups` gives them. */
+export function canJoin(t: CustomTrack, line: number, spot: SectionSpot, groups: ReadonlyMap<string, number> = courseFieldGroups(t)): boolean {
     const branch = t.branches?.[line - 1]
     if (!branch || branch.sections.includes('finish') || lineAndOffshoots(t, line).has(spot.branch)) return false
-    // Whichever branch comes in there now gives it up.
-    const freed = { ...t, branches: t.branches!.map(b => b.to && sameSpot(b.to, spot) ? { ...b, to: null } : b) }
-    return !loopsBack(setJoin(freed, line, spot))
+    const field = isFieldSection(t, spot)
+    // Whichever branch comes into a join now gives it up; a field takes them all.
+    const freed = field ? t : { ...t, branches: t.branches!.map(b => b.to && sameSpot(b.to, spot) ? { ...b, to: null } : b) }
+    return !loopsBack(setJoin(freed, line, spot), groups)
 }
 
 /** The open branches that could head into the join at `spot`. */
-export function joinCandidates(t: CustomTrack, spot: SectionSpot): number[] {
-    return (t.branches ?? []).flatMap((b, i) => !b.to && canJoin(t, i + 1, spot) ? [i + 1] : [])
+export function joinCandidates(t: CustomTrack, spot: SectionSpot, groups: ReadonlyMap<string, number> = courseFieldGroups(t)): number[] {
+    return (t.branches ?? []).flatMap((b, i) => !b.to && canJoin(t, i + 1, spot, groups) ? [i + 1] : [])
+}
+
+/** Metres a branch's end may sit off a free slot and still be on it, as a road's mouth may sit off its field's edge. */
+const SLOT_TOLERANCE = 0.05
+/** Metres, and radians of heading, a branch's end may move by and still count as left where it was. */
+const UNMOVED = 1e-6
+
+/**
+ * `t` with every open branch that ends square on a free slot of a field it may head into sent into it, and every branch into
+ * a field pointed at the one of its joined fields it really meets, so what's stored says where each road goes.
+ * With `was`, each line's end before the edit, a branch whose end the edit didn't move stays open, as it was left.
+ */
+export function settleFieldJoins(t: CustomTrack, was?: readonly { x: number, z: number, heading: number }[]): CustomTrack {
+    const branches = t.branches ?? []
+    const open = branches.some(b => !b.to && b.sections.length && !b.sections.includes('finish'))
+    if (!open && !branches.some(b => b.to && isFieldSection(t, b.to))) return t
+    const forks = walkForks(t)
+    let out = t
+    branches.forEach((b, i) => {
+        const into = forks.into[i]
+        if (b.to && into && !sameSpot(b.to, into)) out = setJoin(out, i + 1, into)
+    })
+    if (!open) return out
+    const groups = courseFieldGroups(out, forks.walks)
+    const fields = walkedFields(out, forks.walks)
+    let walks = forks.walks
+    branches.forEach((b, i) => {
+        if (b.to || !b.sections.length || b.sections.includes('finish')) return
+        const end = forks.walks[i + 1]!.end
+        const before = was?.[i + 1]
+        if (before && Math.hypot(before.x - end.x, before.z - end.z) < UNMOVED && Math.abs(wrapAngle(before.heading - end.heading)) < UNMOVED) return
+        // Only a road already at a field's edge, square on, is meant to go in; one merely near it isn't.
+        const at = fields.find((f) => {
+            const a = fieldApproach(end, f)
+            return 'run' in a && a.run <= SLOT_TOLERANCE
+        })
+        if (!at || !canJoin(out, i + 1, at.spot, groups)) return
+        const slots = fieldJoin(out, walks, at.spot)?.slots ?? []
+        if (!slots.some(s => sameSpot(s.at, at.spot) && Math.hypot(s.x - end.x, s.z - end.z) <= SLOT_TOLERANCE)) return
+        out = setJoin(out, i + 1, at.spot)
+        // Walked again with that road in, so two never take one slot.
+        walks = walkCustomLines(out)
+    })
+    return out
 }
 
 /** A loop's draft turned to begin at walk point `shift`, its ranges moved with it. */
@@ -228,8 +321,7 @@ function turnedTo(def: TrackDef, shift: number): TrackDef {
     if (!shift) return def
     const n = def.points.length
     const turn = <T>(a: T[]) => [...a.slice(shift), ...a.slice(0, shift)]
-    // No range holds the start line's section, where it's cut, so none wraps the seam.
-    const move = ([a, b]: [number, number]): [number, number] => [(a - shift + n) % n, (a - shift + n) % n + b - a]
+    const move = turnRange(shift, n)
     const out: TrackDef = { ...def, points: turn(def.points) }
     if (def.heights) out.heights = turn(def.heights)
     if (def.halfWidths) out.halfWidths = turn(def.halfWidths)
@@ -238,6 +330,12 @@ function turnedTo(def: TrackDef, shift: number): TrackDef {
     if (def.gaps) out.gaps = def.gaps.map(move)
     if (def.boosts) out.boosts = def.boosts.map(b => ({ ...b, range: move(b.range) }))
     return out
+}
+
+/** A range of a loop's `n` walk points, moved for the loop beginning at point `shift`. */
+function turnRange(shift: number, n: number) {
+    // No range holds the start line's section, where it's cut, so none wraps the seam.
+    return ([a, b]: [number, number]): [number, number] => [(a - shift + n) % n, (a - shift + n) % n + b - a]
 }
 
 /** A forked draft to draw, and the walk point of the main road its main line begins at. */
@@ -252,24 +350,45 @@ export function draftForkedDef(t: CustomTrack, forks: ForkedLines, closes: boole
     const { walks } = forks
     if (!branches.length || branches.some((b, i) => !b.sections.length || (b.to && !forks.merged[i]))) return null
     // The graph cuts a loop where its main line begins, so that has to be the start line, as a compiled loop has it.
-    const shift = closes ? walks[0]!.pieceStarts[t.sections.indexOf('start')] ?? 0 : 0
-    const main = draftTrackDef(walks[0]!, closes)
-    const defs = walks.map((w, l) => l ? draftTrackDef(w, false) : main && turnedTo(main, shift))
+    const start = closes ? startSection(t) : -1
+    // A field's start gate cuts the loop at its hub, where the compiled loop's line is.
+    const shift = start < 0 ? 0 : t.sections[start] === 'field' ? walks[0]!.lines.find(l => l.type === 'start')?.at ?? 0 : walks[0]!.pieceStarts[start] ?? 0
+    const main = draftTrackDef(walks[0]!, closes, false)
+    const defs = walks.map((w, l) => l ? draftTrackDef(w, false, false) : main && turnedTo(main, shift))
     if (!defs.every(d => d !== null)) return null
     const cums = defs.map(d => new TrackLine(d).cum)
-    // A split forks where its section starts; a join meets where its section ends.
-    const sAt = (branch: number, at: number) => {
-        const w = walks[branch]!
+    const pointS = (branch: number, k: number) => {
         const cum = cums[branch]!
-        const k = w.pieceStarts[at] ?? w.pts.length
-        return { branch, at: branch === 0 && closes ? cum[(k - shift + w.pts.length) % w.pts.length]! : cum[Math.min(k, cum.length - 1)]! }
+        const n = walks[branch]!.pts.length
+        return branch === 0 && closes ? cum[(k - shift + n) % n]! : cum[Math.min(k, cum.length - 1)]!
+    }
+    // A split forks where its section starts; a join meets where its section ends; a field's roads meet at its hub.
+    const sAt = (branch: number, at: number) => ({ branch, at: pointS(branch, walks[branch]!.pieceStarts[at] ?? walks[branch]!.pts.length) })
+    const hubAt = (spot: SectionSpot) => {
+        const field = walkedField(walks, spot)
+        return field && { branch: spot.branch, at: pointS(spot.branch, field.hub) }
+    }
+    const ends = branches.map((b, i) => ({
+        from: b.from.port ? hubAt(b.from) : sAt(b.from.branch, b.from.at),
+        to: !b.to ? 'finish' as const : isFieldSection(t, b.to) ? hubAt(forks.into[i] ?? b.to) : sAt(b.to.branch, b.to.at + 1)
+    }))
+    if (ends.some(e => !e.from || !e.to)) return null
+    const { defs: fields, ids } = draftFieldDefs(walks, (l, k) => ({ branch: l, s: pointS(l, k) }))
+    const onFields = (l: number) => {
+        const w = walks[l]!
+        if (l === 0 && closes) return turnFieldRanges(w.fields, shift, w.pts.length).map(f => ({ ...f, field: ids.get(f.field) ?? -1 }))
+        return w.fields.map(f => ({ range: [f.from, f.to] as [number, number], field: ids.get(f.id) ?? -1 }))
     }
     const def: TrackDef = {
         ...defs[0]!,
-        branches: branches.map((b, i): BranchDef => {
+        branches: branches.map((_, i): BranchDef => {
             const { points, heights, halfWidths, ups, rails, gaps, boosts } = defs[i + 1]!
-            return { points, heights, halfWidths, ups, rails, gaps, boosts, from: sAt(b.from.branch, b.from.at), to: b.to ? sAt(b.to.branch, b.to.at + 1) : 'finish' }
+            return { points, heights, halfWidths, ups, rails, gaps, boosts, onFields: onFields(i + 1), from: ends[i]!.from!, to: ends[i]!.to! }
         })
+    }
+    if (fields.length) {
+        def.onFields = onFields(0)
+        def.fields = fields
     }
     try {
         // Built here only to see that the graph holds; the caller lays its own.

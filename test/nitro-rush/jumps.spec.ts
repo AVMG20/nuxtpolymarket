@@ -4,8 +4,10 @@ import { botLapTime } from '../../app/utils/nitro-rush/medals'
 import { createCar, crossesLines, stepCar, type CarState } from '../../app/utils/nitro-rush/physics'
 import { drive, driveFlatOut, trackOf } from './bot-lap'
 import { nextSection, type Construction } from '#shared/utils/nitro-rush/construct'
-import { compileCustomTrack, draftTrackDef, lastPieceWalk, sectionFault, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { draftTrackDef, lastPieceWalk } from '#shared/utils/nitro-rush/custom-draft'
+import { compileCustomTrack, sectionFault, walkCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
+import { GRID_BACK } from '#shared/utils/nitro-rush/field-plan'
 import { finishLoop } from '#shared/utils/nitro-rush/finish-loop'
 import { GHOST_POSE, type Ghost } from '#shared/utils/nitro-rush/ghost'
 import { clearanceFault } from '#shared/utils/nitro-rush/road-checks'
@@ -201,7 +203,7 @@ describe('mandatory checkpoints', () => {
         drive(track, timer, 0, 300)
         // Landing past the checkpoint crosses nothing.
         expect(timer.update(...spot(track, 700), 0.1, false)).toEqual([])
-        expect(drive(track, timer, 700, 1000)).toEqual([])
+        expect(drive(track, timer, 700, 1000).map(e => e.type)).toEqual(['missed'])
         expect(timer.lap).toBe(0)
         // Round again, through the checkpoint this time.
         expect(drive(track, timer, 0, 1000).map(e => e.type)).toEqual(['split', 'lap'])
@@ -220,11 +222,11 @@ describe('mandatory checkpoints', () => {
         const timer = timerAt(track, -14)
         drive(track, timer, -14, 250)
         timer.update(...spot(track, 450), 0.1, false)
-        expect(drive(track, timer, 450, 700)).toEqual([])
+        expect(drive(track, timer, 450, 700).map(e => e.type)).toEqual(['missed'])
         expect(timer.finished).toBe(false)
     })
 
-    it('takes back a checkpoint the car backs over, so a U-turn over the line is no lap', () => {
+    it('keeps a checkpoint the car backs over, but a U-turn back over the line is no lap', () => {
         const track = rectangleLoop([200])
         const timer = timerAt(track, -14)
         expect(drive(track, timer, -14, 216, 2).map(e => e.type)).toEqual(['split'])
@@ -232,7 +234,7 @@ describe('mandatory checkpoints', () => {
         for (let s = 216; s > -24; s -= 2) events.push(...timer.update(...spot(track, s), 0.05))
         events.push(...drive(track, timer, -24, 10, 2))
         expect(events).toEqual([])
-        expect(drive(track, timer, 10, 1000).map(e => e.type)).toEqual(['split', 'lap'])
+        expect(drive(track, timer, 10, 1000).map(e => e.type)).toEqual(['lap'])
     })
 
     it('takes back a checkpoint a respawn puts the car behind, and counts it again', () => {
@@ -261,7 +263,7 @@ describe('mandatory checkpoints', () => {
         const timer = timerAt(track, 0)
         drive(track, timer, 0, 300)
         expect(timer.update(...spot(track, 700), 0.1, true)).toEqual([])
-        expect(drive(track, timer, 700, 1000)).toEqual([])
+        expect(drive(track, timer, 700, 1000).map(e => e.type)).toEqual(['missed'])
     })
 
     it('owes the line again after a respawn puts the car back over it', () => {
@@ -364,8 +366,9 @@ describe('the server check on a course with jumps', () => {
         const [lip] = track.gaps[0]!
         const foot = wallFoot(track.walls[0]!)
         const hop = lip + Math.hypot(60, foot) - foot + track.length - track.project(-60, track.pointAt(lip).z + foot).s
-        expect(track.minLapSeconds * SPEED_CEILING).toBeGreaterThan(hop - 1)
-        expect(track.minLapSeconds * SPEED_CEILING).toBeLessThan(hop + 3)
+        // Less the run-up a lap driven backward off the grid skips.
+        expect(track.minLapSeconds * SPEED_CEILING).toBeGreaterThan(hop - GRID_BACK - 1)
+        expect(track.minLapSeconds * SPEED_CEILING).toBeLessThan(hop - GRID_BACK + 3)
         expect(botLapTime(track)!).toBeGreaterThan(track.minLapSeconds)
     })
 

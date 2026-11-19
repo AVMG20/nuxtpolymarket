@@ -18,7 +18,7 @@ describe('custom track sections', () => {
         loop(['start', 'straight-100', 'right-hairpin', 'straight-100', 'straight-20', 'right-hairpin']),
         loop(['start', 'straight-100', 'left-hairpin', 'straight-100', 'straight-20', 'left-hairpin']),
         sprint(['straight-20', 'start', 'straight-100', 'left-spiral-up', 'straight-100', 'left-wide', 'ramp-down', 'finish', 'straight-200']),
-        sprint(['straight-20', 'start', 'straight-100', 'right-spiral-up', 'straight-100', 'right-wide', 'ramp-down', 'checkpoint', 'left-eighth', 'straight-60', 'right-eighth', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-100', 'right-spiral-up', 'straight-100', 'right-wide', 'ramp-down', 'checkpoint', 'left-eighth', 'straight-60', 'checkpoint-required', 'right-eighth', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'ramp-up', 'straight-100', 'left-spiral-down', 'straight-100', 'left-tight', 'straight-100', 'ramp-up', 'straight-100', 'right-spiral-down', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'jump', 'straight-100', 'big-jump', 'straight-100', 'looping-left', 'straight-100', 'looping-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'right-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-up', 'straight-60', 'left-quarter-spiral-down', 'straight-60', 'right-quarter-spiral-down', 'straight-100', 'left-half-spiral-up', 'straight-200', 'right-half-spiral-down', 'finish', 'straight-200']),
@@ -31,6 +31,7 @@ describe('custom track sections', () => {
         sprint(['straight-20', 'start', 'boost-pad', 'boost-pad-left', 'boost-pad-right', 'straight-100', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-100', 'jump-ramp', 'empty-10', 'empty-20', 'landing-ramp', 'straight-100', 'jump-ramp-big', 'empty-60', 'empty-100', 'empty-200', 'landing-ramp', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'width-narrow', 'left-tight', 'width-normal', 'straight-60', 'width-wide', 'right-hairpin', 'width-very-wide', 'looping-left', 'width-normal', 'finish', 'straight-200']),
+        sprint(['straight-20', 'start', 'straight-60', 'field', 'straight-60', 'finish', 'straight-200']),
         sprint(['straight-20', 'start', 'straight-200', 'left-hairpin-medium', 'straight-200', 'right-hairpin-medium', 'straight-200', 'left-hairpin-wide', 'straight-200', 'right-hairpin-wide', 'straight-200', 'finish', 'straight-200']),
         {
             ...sprint(['straight-20', 'start', 'split-y', 'right-eighth', 'straight-200', 'join-y', 'straight-100', 'finish', 'straight-200']),

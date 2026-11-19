@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { forkShape, PALETTE_SECTIONS, SECTION_CATEGORIES, sectionFault, type SectionCategory, type SectionId } from '#shared/utils/nitro-rush/custom'
+import { defaultFieldPlan } from '#shared/utils/nitro-rush/field'
 import type { RoadState } from '#shared/utils/nitro-rush/layout'
 
 /** The pre-built sections as pictures, by category; picking one lays it after the cursor, or says what the road there lacks for it. */
@@ -10,7 +11,10 @@ const props = defineProps<{
     /** The road's state where a new section would go in. */
     state: RoadState
 }>()
-const emit = defineEmits<{ add: [id: SectionId] }>()
+const emit = defineEmits<{ add: [id: SectionId, size?: { width: number, length: number }] }>()
+
+/** The size a new field is laid at. */
+const fieldSize = ref(defaultFieldPlan())
 
 const category = ref<SectionCategory>(SECTION_CATEGORIES[0]!.id)
 const shown = computed(() => PALETTE_SECTIONS.filter(([, s]) => s.category === category.value))
@@ -25,7 +29,7 @@ const notice = computed(() => refused.value && faultOf(refused.value))
 // Not disabled when the road doesn't suit it: tapping is how a player finds out why.
 function place(id: SectionId) {
     refused.value = faultOf(id) ? id : null
-    if (!refused.value) emit('add', id)
+    if (!refused.value) emit('add', id, id === 'field' ? { width: fieldSize.value.width, length: fieldSize.value.length } : undefined)
 }
 
 watch(category, () => {
@@ -62,6 +66,7 @@ function onWheel(e: WheelEvent) {
       <p v-if="disabled" class="text-[11px] font-semibold text-white/60 [font-family:system-ui,sans-serif]">That's the most sections a track can have.</p>
       <p v-else-if="notice" class="nr-section-notice first-letter:uppercase" role="status">{{ notice }}</p>
     </div>
+    <NitroRushBuilderFieldSize v-if="category === 'fields'" :width="fieldSize.width" :length="fieldSize.length" @change="(w, l) => fieldSize = defaultFieldPlan(w, l)" />
     <div ref="strip" class="nr-section-strip" role="tabpanel" @wheel="onWheel">
       <button
         v-for="[id, s] in shown"
@@ -75,7 +80,7 @@ function onWheel(e: WheelEvent) {
       >
         <span class="nr-section-thumb">
           <img v-if="thumbs[id]" :src="thumbs[id]" alt="" draggable="false">
-          <UIcon v-else :name="s.icon" class="size-5" />
+          <UIcon v-else :name="s.icon" class="size-5" :class="{ 'nr-required-icon': id === 'checkpoint-required' }" />
         </span>
         <span class="nr-section-name">{{ s.label }}</span>
       </button>

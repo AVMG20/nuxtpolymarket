@@ -9,11 +9,12 @@ export const CLOSE_TOLERANCE = 0.01
 /** Road to road where one passes over another: the deck, the car, the chase camera and a line's arch fit between; a half spiral climbs it. */
 export const MIN_CLEARANCE = 6
 
-export type RoadPoints = Pick<LayoutWalk, 'pts' | 'ys' | 'lifts' | 'walls'> & Partial<Pick<LayoutWalk, 'gaps'>>
+/** `fielded` point ranges lie on fields, which have no deck of their own to clash; the fields are checked on their own. */
+export type RoadPoints = Pick<LayoutWalk, 'pts' | 'ys' | 'lifts' | 'walls'> & Partial<Pick<LayoutWalk, 'gaps'>> & { fielded?: readonly (readonly [number, number])[] }
 
 /** What each piece that a bank or slope can't carry is called: a level arch or a flight doesn't fit a tilted road. */
 const NEEDS_LEVEL_ROAD: Partial<Record<TrackPiece['type'], string>> = {
-    jump: 'a jump', kicker: 'a jump ramp', looping: 'a looping', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint', split: 'a split', join: 'a join'
+    jump: 'a jump', kicker: 'a jump ramp', looping: 'a looping', start: 'a start line', finish: 'a finish line', checkpoint: 'a checkpoint', split: 'a split', join: 'a join', field: 'a field'
 }
 
 /** Why `piece` can't be laid on road in this state, in the builder's words; null when it can. */
@@ -49,9 +50,9 @@ const widestSpan = (walls: readonly number[]) => clearanceSpan(Math.max(0, ...wa
 export function layoutFault({ misplaced, lines }: Pick<LayoutWalk, 'misplaced' | 'lines'>, closed: boolean): string | null {
     if (misplaced) return misplaced
     const count = (type: string) => lines.filter(l => l.type === type).length
-    if (count('start') !== 1) return 'needs exactly one start block'
-    if (closed && count('finish') > 0) return 'a loop has no finish block; the start line ends each lap'
-    if (!closed && count('finish') !== 1) return 'an open course needs exactly one finish block'
+    if (count('start') !== 1) return 'needs one start line'
+    if (closed && count('finish') > 0) return 'a loop has no finish line'
+    if (!closed && count('finish') !== 1) return 'a sprint needs one finish line'
     return null
 }
 
@@ -61,11 +62,13 @@ export function layoutFault({ misplaced, lines }: Pick<LayoutWalk, 'misplaced' |
  */
 function firstClash(lines: readonly RoadPoints[], excused: (a: number, i: number, b: number, j: number) => boolean): string | null {
     // Empty road has no deck to hit: a jump may fly over road or onto it, but needs room under road above it.
-    const empty = lines.map(({ pts, gaps = [] }) => {
+    const marked = (pts: readonly unknown[], ranges: readonly (readonly [number, number])[] = []) => {
         const e = new Uint8Array(pts.length)
-        for (const [a, b] of gaps) e.fill(1, a, b)
+        for (const [a, b] of ranges) e.fill(1, a, b)
         return e
-    })
+    }
+    const empty = lines.map(l => marked(l.pts, l.gaps))
+    const fielded = lines.map(l => marked(l.pts, l.fielded))
     const { reach, apart } = widestSpan(lines.flatMap(l => l.walls))
     // Points bucketed in cells `reach` wide, so each one is only checked against its own cell and the eight round it.
     const cellOf = (l: number, i: number) => [Math.floor(lines[l]!.pts[i]![0] / reach), Math.floor(lines[l]!.pts[i]![1] / reach)] as const
@@ -82,6 +85,7 @@ function firstClash(lines: readonly RoadPoints[], excused: (a: number, i: number
     for (let a = 0; a < lines.length; a++) {
         const A = lines[a]!
         for (let i = 0; i < A.pts.length; i++) {
+            if (fielded[a]![i]) continue
             const [cx, cz] = cellOf(a, i)
             const near: [number, number][] = []
             for (let ox = -1; ox <= 1; ox++) {
@@ -89,7 +93,7 @@ function firstClash(lines: readonly RoadPoints[], excused: (a: number, i: number
             }
             near.sort((p, q) => p[0] - q[0] || p[1] - q[1])
             for (const [b, j] of near) {
-                if (b < a || (b === a && j < i + apart)) continue
+                if (b < a || (b === a && j < i + apart) || fielded[b]![j]) continue
                 const B = lines[b]!
                 const ei = empty[a]![i]
                 const ej = empty[b]![j]
@@ -199,8 +203,10 @@ export function trackClearanceFault(track: Track): string | null {
         return j % line.n
     }
     const meets: RoadMeet[] = []
-    const { edges, vertexCount } = track.graph
+    const { edges, vertexCount, hubs } = track.graph
     for (let v = 0; v < vertexCount; v++) {
+        // Roads through a field's hub meet on open field, which has no deck to share.
+        if (hubs.has(v)) continue
         for (const [list, dir] of [[edges.filter(e => e.from === v), 1], [edges.filter(e => e.to === v), -1]] as const) {
             const [p, q] = list
             if (!p || !q) continue
@@ -226,7 +232,8 @@ export function trackClearanceFault(track: Track): string | null {
         // As a layout has it: how far a bank raises the deck's edge above its centre.
         lifts: Array.from(line.walls, (w, i) => wallFoot(w) * Math.abs(line.right[i * 3 + 1]!)),
         walls: Array.from(line.walls),
-        gaps: line.def.gaps
+        gaps: line.def.gaps,
+        fielded: line.def.onFields?.map(f => f.range)
     }))
     return courseClearanceFault(lines, track.closed, meets)
 }

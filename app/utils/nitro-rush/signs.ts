@@ -144,6 +144,32 @@ export function flagTexture(ad: TrackAd) {
     return finish(c)
 }
 
+/** A 3:4 poster for a pillar's side: mark on top, the title and tagline under it. */
+export function posterTexture(ad: TrackAd) {
+    const W = 384
+    const H = 512
+    const [c, ctx] = canvas(W, H)
+    paintBackground(ctx, ad, 0, 0, W, H)
+    const icon = showsIcon(ad)
+    if (icon) {
+        paintHalo(ctx, ad, W / 2, 170, 160)
+        paintIcon(ctx, ad, W / 2, 178, 150)
+    }
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    paintTitle(ctx, ad, W / 2, icon ? 340 : 220, 60, 26, W - 48, 20)
+    ctx.font = '700 24px system-ui, sans-serif'
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(ad.sub, W / 2, icon ? 400 : 300, W - 48)
+    ctx.font = '600 16px system-ui, sans-serif'
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'
+    ctx.fillText('NOW ON POLYNUX', W / 2, H - 40)
+    ctx.fillStyle = ad.col
+    ctx.fillRect(0, 0, W, 8)
+    ctx.fillRect(0, H - 8, W, 8)
+    return finish(c)
+}
+
 /** The rear plate: a generic panel carrying a random ad instead of a registration. */
 export function plateTexture() {
     const W = 520

@@ -2,11 +2,11 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { ROAD_TILE_LENGTH } from './textures'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
-import { newProjection, newTrackFrame, type TrackLine } from '#shared/utils/nitro-rush/track'
+import { newProjection, newTrackFrame, type CourseField, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
  * Strips, sweeps and clearance checks built from a line's centreline, offset along each point's own right and up so they follow banks and loopings.
- * Nothing is laid over a jump's gap or where a side is open, and on a shared deck each road's strips stop at the seam.
+ * Nothing is laid over a jump's gap, across a field or where a side is open, and on a shared deck each road's strips stop at the seam.
  */
 
 /** The road's width where an offset is taken: its half width and centreline to the wall's face. */
@@ -81,6 +81,9 @@ function stations(line: TrackLine, from: number, to: number): Station[] {
     })
 }
 
+/** Whether the line has road of its own at `s`: not over a jump's gap, nor across a field. */
+const laid = (line: TrackLine, s: number) => !line.gapAt(s) && !line.fieldedAt(s)
+
 /**
  * A strip along the line between two lateral offsets (+ right), lifted `y` off the road, its texture tiled every `vScale` metres.
  * Over a shared deck it stops at the seam, its texture cut off there rather than squeezed.
@@ -99,7 +102,7 @@ export function ribbon(line: TrackLine, from: number, to: number, latA: Lat, lat
         const u = (lat: number) => b === a ? 0 : (lat - a) / (b - a)
         pos.push(...offset(p, p.r, p.u, ca, y), ...offset(p, p.r, p.u, cb, y))
         uv.push(u(ca), p.s / vScale, u(cb), p.s / vScale)
-        if (i > 0 && !line.gapAt((samples[i - 1]!.s + p.s) / 2)) {
+        if (i > 0 && laid(line, (samples[i - 1]!.s + p.s) / 2)) {
             const k = (i - 1) * 2
             index.push(k, k + 1, k + 2, k + 1, k + 3, k + 2)
         }
@@ -129,7 +132,7 @@ export function sweep(line: TrackLine, side: -1 | 1, from: Lat, profile: [number
             for (const [a, y] of [[a0, y0], [a1, y1]] as const) pos.push(...offset(p, p.r, p.u, side * (foot - a), y))
             uv.push(u0, p.s / 4, u0 + edge, p.s / 4)
             const mid = i > 0 ? (samples[i - 1]!.s + p.s) / 2 : 0
-            if (i > 0 && !line.gapAt(mid) && !line.openAt(mid, side)) {
+            if (i > 0 && laid(line, mid) && !line.openAt(mid, side)) {
                 const b = start + (i - 1) * 2
                 index.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
             }
@@ -166,9 +169,9 @@ function flatRuns(track: TrackLine, hw: Lat): THREE.BufferGeometry[] {
     const L = track.length
     // A planar mirror only fits road lying flat on the ground: not a bank, a looping or a gap.
     const level = (k: number) => track.ys[k]! < 0.01 && track.plainAt(k)
-    const flat = (i: number) => level(i % track.n) && level((i + 1) % track.n) && !track.gapAt(sAtIndex(track, i) + 0.5)
+    const flat = (i: number) => level(i % track.n) && level((i + 1) % track.n) && laid(track, (sAtIndex(track, i) + sAtIndex(track, i + 1)) / 2)
     const runs: [number, number][] = []
-    let allFlat = !track.elevated && track.gaps.length === 0
+    let allFlat = !track.elevated && track.gaps.length === 0 && track.fielded.length === 0
     for (let k = 0; allFlat && k < track.n; k++) allFlat = track.plainAt(k)
     if (allFlat) {
         runs.push([0, L])
@@ -241,6 +244,16 @@ export function roadAbove(lines: readonly TrackLine[], x: number, y: number, z: 
 /** True when road within `depth` of height `y` covers ground within `pad` of its walls from (x, z): another road's deck right there. */
 export function roadLevelWith(lines: readonly TrackLine[], x: number, y: number, z: number, pad: number, depth: number) {
     return roadNear(lines, x, z, pad, ry => Math.abs(ry - y) < depth)
+}
+
+/** Metres on the ground from (x, z) to the nearest field's edge, 0 on one. */
+export function fieldClearance(fields: readonly CourseField[], x: number, z: number) {
+    let least = Infinity
+    for (const f of fields) {
+        const { u, v } = f.local(x, z)
+        least = Math.min(least, Math.hypot(Math.max(0, -u, u - f.width), Math.max(0, -v, v - f.length)))
+    }
+    return least
 }
 
 const clearanceScratch = newProjection()

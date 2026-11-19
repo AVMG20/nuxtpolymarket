@@ -6,11 +6,11 @@ import { CarMotion } from './car-motion'
 import { CarView } from './car-view'
 import { buildCityEnvironment } from './city'
 import { COUNTDOWN_SECONDS, ENGINE_TOP_SPEED, findPaint, GHOST_COLOR, KMH_PER_SPEED, NIGHT, PHYSICS_HZ, type CarId, type PaintId } from './config'
-import { botInput, createCar, crossesLines, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
+import { botInput, crossesLines, gridCar, respawnCar, slipAngle, stepCar, surging, type CarInput, type CarState } from './physics'
 import { RaceFeedback } from './race-feedback'
 import { RaceGhosts } from './race-ghosts'
 import { RaceGrade } from './race-grade'
-import { settleLap } from './record'
+import { bestSplit, settleLap } from './record'
 import { refillAtLine } from './lap-refill'
 import { medalUpgrade, nextMedal, type MedalTimes } from './medals'
 import { carInput, withPad } from './input'
@@ -19,19 +19,16 @@ import { prewarm } from './prewarm'
 import { AdaptiveResolution } from './resolution'
 import { decodeGhost } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer, type LapEvent } from '#shared/utils/nitro-rush/timing'
-import { headingOf, Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
+import { Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
 import { createSeededRandom } from '#shared/utils/random'
 import { World } from './world'
+import { WRONG_WAY_DELAY, WRONG_WAY_WARNING, wrongWayTime } from './wrong-way'
 import type { NitroAudio } from './audio'
 import { EMPTY_RECORD, type CarPose, type Control, type EngineEvents, type GhostSource, type LapEntry, type MapGhost, type Phase, type TrackRecord } from './types'
 
-/** The grid slot, this far behind the start line. */
-const GRID_OFFSET = -14
 /** How long an open course's finish holds before the next run lines up. */
 const RESTART_DELAY = 2.5
 const STEP = 1 / PHYSICS_HZ
-/** A car that drops into a jump's gap starts again this far before it, at a standstill. */
-const RESPAWN_BACK = 120
 /** Attract-mode demo laps run a touch off the limit. */
 const DEMO_PACE = 0.85
 /** Laps the HUD lists. */
@@ -124,7 +121,7 @@ export class NitroRushEngine {
 
         this.post = new RushPost(this.renderer, this.scene, this.cam.camera)
 
-        this.state = createCar(this.track, this.gridS)
+        this.state = gridCar(this.track)
         this.placeCar()
 
         this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -286,10 +283,6 @@ export class NitroRushEngine {
         return world
     }
 
-    private get gridS() {
-        return this.track.startS + GRID_OFFSET
-    }
-
     private resize() {
         const w = Math.max(1, this.host.clientWidth)
         const h = Math.max(1, this.host.clientHeight)
@@ -310,7 +303,7 @@ export class NitroRushEngine {
     }
 
     private resetRace() {
-        this.state = createCar(this.track, this.gridS)
+        this.state = gridCar(this.track)
         // Every run starts with a full tank; the meter already says so, so no NITRO READY over the GO.
         this.state.nitro = 1
         this.accumulator = 0
@@ -327,7 +320,7 @@ export class NitroRushEngine {
     /** The menu's demo car back on the grid. */
     private lineUpDemo() {
         this.demoRoute = this.track.forked ? this.demoPicks.randomPick(this.track.routes) : null
-        this.state = createCar(this.track, this.gridS)
+        this.state = gridCar(this.track)
         this.fx.clearSkids()
         this.placeCar()
     }
@@ -341,15 +334,9 @@ export class NitroRushEngine {
 
     /** Back on the road a run-up before where the car left it, stopped; the clock keeps running. */
     private respawn() {
-        const s = this.state
-        // Never far enough back to read as a lap the wrong way, nor past the start of an open course.
-        const back = Math.min(RESPAWN_BACK, this.track.closed ? this.track.length / 2 - 5 : Infinity)
-        // Back along the road it left, which it drove to get there, so a respawn never gains it ground.
-        const to = this.track.back(s.leftBranch, s.leftS, back, this.track.closed ? -Infinity : this.track.startS - 10)
-        const nitro = s.nitro
-        this.state = createCar(this.track, to.s, 0, to.branch)
-        this.state.nitro = nitro
-        this.timer?.rewind(this.tookOffAt, to.legs, this.state.x, this.state.y, this.state.z)
+        const { car, legs } = respawnCar(this.track, this.state)
+        this.state = car
+        this.timer?.rewind(this.tookOffAt, legs, car.x, car.y, car.z)
         // A lap with a jump back in it makes no ghost.
         this.ghosts.restartLap()
         this.fx.clearSkids()
@@ -418,8 +405,7 @@ export class NitroRushEngine {
 
         if (this.phase === 'racing') {
             // Going the wrong way for a while gets a warning.
-            const along = Math.cos(s.travel - headingOf(s.proj.tx, s.proj.tz)) * s.speed
-            this.wrongWayTime = along < -3 ? this.wrongWayTime + dt : 0
+            if (WRONG_WAY_WARNING) this.wrongWayTime = wrongWayTime(s, this.wrongWayTime, dt)
             // Announced once each time a drift tops the tank up to full.
             if (s.nitro < 1) this.nitroReadyAnnounced = false
             else if (!this.nitroReadyAnnounced) {
@@ -456,11 +442,10 @@ export class NitroRushEngine {
     private onLapEvent(e: LapEvent) {
         const rec = this.record
         if (e.type === 'split') {
-            // Splits saved before the course had these checkpoints mark other points on the lap.
-            const best = rec.bestSplits?.length === this.track.checkpointCount + 1 ? rec.bestSplits[e.sector] : undefined
-            // Only where the best lap touched the same checkpoint.
-            if (best === undefined || best === null) return
-            this.feedback.split(e.time - best, e.sector)
+            const best = bestSplit(rec.bestSplits, this.track.checkpointCount, e.sector, e.touched)
+            if (best !== null) this.feedback.split(e.time - best, e.sector)
+        } else if (e.type === 'missed') {
+            this.feedback.missed(e.required)
         } else {
             const label = this.track.closed ? `LAP ${e.lap + 1}` : 'FINISH'
             this.recentLaps = [{ lap: this.lapNumber(e.lap), time: e.time }, ...this.recentLaps].slice(0, RECENT_LAPS)
@@ -559,9 +544,10 @@ export class NitroRushEngine {
             nitro: s.nitro,
             nitroActive: s.nitroOn,
             drifting: s.drifting,
-            wrongWay: this.wrongWayTime > 1.2,
+            wrongWay: this.wrongWayTime > WRONG_WAY_DELAY,
             car: { x: this.motion.pos.x, z: this.motion.pos.z, heading: this.motion.drawn.heading },
-            ghosts: this.ghosts.frames.map((f): MapGhost => ({ x: f.pose.x, z: f.pose.z, color: f.color ?? GHOST_COLOR }))
+            ghosts: this.ghosts.frames.map((f): MapGhost => ({ x: f.pose.x, z: f.pose.z, color: f.color ?? GHOST_COLOR })),
+            gates: timer && this.track.fieldGateIds.some(ids => ids.length) ? { touched: timer.touched.length, k: timer.k } : null
         })
     }
 

@@ -2,7 +2,7 @@
 import type { SectionSpot } from '#shared/utils/nitro-rush/custom'
 import type { BranchEnding, JoinInlet } from '#shared/utils/nitro-rush/custom-forks'
 
-/** The course's lines, main road first, each branch with how it ends; picking one builds on it, and a branch picks the join it heads for. */
+/** The course's lines, main road first, each branch with how it ends; picking one builds on it, and a branch picks the join or field it heads for. */
 const props = defineProps<{
     /** How each branch ends, branch 1 first. */
     endings: readonly BranchEnding[]
@@ -11,6 +11,8 @@ const props = defineProps<{
     joins: readonly JoinInlet[]
     /** Per join, whether the line being built on may head into it. */
     joinable: readonly boolean[]
+    /** Every field in course order, with whether the line being built on may head into it. */
+    fields: readonly { spot: SectionSpot, joinable: boolean }[]
 }>()
 const emit = defineEmits<{ select: [line: number], remove: [line: number], join: [to: SectionSpot | null] }>()
 
@@ -21,7 +23,12 @@ const joinNames = computed(() => props.joins.map((j) => {
     const same = props.joins.filter(o => o.spot.branch === j.spot.branch)
     return `${lineName(j.spot.branch)}${same.length > 1 ? ` join ${same.indexOf(j) + 1}` : ''}`
 }))
-const nameOf = (to: SectionSpot) => joinNames.value[props.joins.findIndex(j => j.spot.branch === to.branch && j.spot.at === to.at)]?.toLowerCase() ?? 'its join'
+const same = (a: SectionSpot, b: SectionSpot) => a.branch === b.branch && a.at === b.at
+const fieldIndex = (to: SectionSpot) => props.fields.findIndex(f => same(f.spot, to))
+const nameOf = (to: SectionSpot) => {
+    const field = fieldIndex(to)
+    return field >= 0 ? `field ${field + 1}` : joinNames.value[props.joins.findIndex(j => same(j.spot, to))]?.toLowerCase() ?? 'its join'
+}
 
 function endText(e: BranchEnding) {
     if (e.kind === 'joins') return `joins ${nameOf(e.to)}`
@@ -32,13 +39,24 @@ function endText(e: BranchEnding) {
 
 const done = (e: BranchEnding) => e.kind === 'joins' || e.kind === 'finish'
 
-const chosen = computed(() => props.joins.findIndex(j => j.branch === props.line))
-/** The joins the active branch could head into, and the one it heads for now. */
-const choices = computed(() => props.joins.flatMap((j, i) => i === chosen.value || props.joinable[i] ? [{ value: i, label: `${joinNames.value[i]}${j.branch && j.branch !== props.line ? ` (taken by branch ${j.branch})` : ''}` }] : []))
+/** Where the active branch heads now, as a choice's value: `j` and a join's index, or `f` and a field's. */
+const chosen = computed(() => {
+    const to = props.endings[props.line - 1]
+    const spot = to && 'to' in to ? to.to : null
+    if (!spot) return ''
+    const field = fieldIndex(spot)
+    return field >= 0 ? `f${field}` : `j${props.joins.findIndex(j => same(j.spot, spot))}`
+})
+/** The joins and fields the active branch could head into, and the one it heads for now. */
+const choices = computed(() => [
+    ...props.joins.flatMap((j, i) => `j${i}` === chosen.value || props.joinable[i] ? [{ value: `j${i}`, label: `${joinNames.value[i]}${j.branch && j.branch !== props.line ? ` (taken by branch ${j.branch})` : ''}` }] : []),
+    ...props.fields.flatMap((f, i) => `f${i}` === chosen.value || f.joinable ? [{ value: `f${i}`, label: `Field ${i + 1}` }] : [])
+])
 
 function onChoose(e: Event) {
-    const i = Number((e.target as HTMLSelectElement).value)
-    emit('join', i >= 0 ? props.joins[i]!.spot : null)
+    const value = (e.target as HTMLSelectElement).value
+    const i = Number(value.slice(1))
+    emit('join', value.startsWith('j') ? props.joins[i]!.spot : value.startsWith('f') ? props.fields[i]!.spot : null)
 }
 </script>
 
@@ -60,7 +78,7 @@ function onChoose(e: Event) {
     <label v-if="line && choices.length" class="flex items-center gap-2 text-[11px] font-semibold text-white/60">
       <span class="shrink-0">JOINS</span>
       <select class="nr-select min-w-0 flex-1" :value="chosen" @change="onChoose">
-        <option :value="-1">None</option>
+        <option value="">None</option>
         <option v-for="c in choices" :key="c.value" :value="c.value">{{ c.label }}</option>
       </select>
     </label>

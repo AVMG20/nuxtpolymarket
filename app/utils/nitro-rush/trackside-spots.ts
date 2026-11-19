@@ -1,6 +1,6 @@
 import { ORBIT_RADIUS } from './camera'
 import { JUMP_PAINT_REACH } from './jump-marks'
-import { CLEAR_HEIGHT, DECK_DEPTH } from './road-geometry'
+import { CLEAR_HEIGHT, DECK_DEPTH, fieldClearance } from './road-geometry'
 import { headingOf, newTrackFrame, WALL_BASE_HALF, WALL_HEIGHT, wallFoot, type Track, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /**
@@ -106,6 +106,8 @@ const AD_SLOT_SPACING = LAMP_SPACING * 1.5
 
 /** The beam's top sits on the clearance line, the banner hangs under it, its bottom above the gantry banner's so the chase camera clears it. */
 export const OVERHEAD_BEAM = 0.3
+/** Metres anything beside the road keeps from a field's edge, wall and all. */
+const FIELD_CLEAR = 1.5
 export const OVERHEAD_BANNER = 1.3
 const OVERHEAD_MIN_STRAIGHT = 70
 const OVERHEADS_PER_COURSE = 3
@@ -175,13 +177,17 @@ export function clearOfRoads(lines: readonly TrackLine[], x: number, z: number, 
 /** A wall fixture's clearance check: up its own height off the wall, and clear of every other road. */
 function fixtureClear(track: Track, line: TrackLine, s: number, f: Fixture, radius: number, height: number) {
     const top = f.y + f.up[1] * height
+    if (fieldClearance(track.fields, f.x, f.z) < radius + FIELD_CLEAR) return false
     return clearOfRoads(track.branches, f.x, f.z, radius, Math.min(f.y, top) - 0.1, Math.max(f.y, top) + 0.1, { line, s, reach: 2 * (wallFoot(line.wallAt(s)) + radius) + 10 })
 }
 
 /** Lap lines on a line, by distance along it. */
-function lapLinesOn(track: Track, line: TrackLine, kinds: readonly string[] = ['start', 'finish', 'checkpoint']) {
-    return track.lapLines.filter(l => l.branch === line.branch && kinds.includes(l.kind)).map(l => l.s)
+function lapLinesOn(track: Track, line: TrackLine) {
+    return track.lapLines.filter(l => l.branch === line.branch).map(l => l.s)
 }
+
+/** The start and finish lines across a line's road; one on a field has its gantry and no flags. */
+const endLinesOn = (track: Track, line: TrackLine) => track.lapLines.filter(l => l.branch === line.branch && l.kind !== 'checkpoint' && l.field === undefined).map(l => l.s)
 
 const near = (line: TrackLine, s: number, spots: readonly number[], d: number) => spots.some(t => along(line, s, t) < d)
 
@@ -195,7 +201,7 @@ function plainWall(line: TrackLine, from: number, to: number, side: -1 | 1) {
     if (!line.closed && (from < 0 || to > line.length)) return false
     const [a, m, b] = [from, (from + to) / 2, to].map(t => line.wrapS(t)) as [number, number, number]
     for (const s of [a, m, b]) {
-        if (!line.plainRoadAt(s) || line.openAt(s, side)) return false
+        if (!line.walledRoadAt(s) || line.openAt(s, side)) return false
     }
     return Math.abs(line.wallAt(a) - line.wallAt(b)) < 0.1
 }
@@ -236,7 +242,7 @@ function chevronsOn(track: Track, line: TrackLine, out: Chevron[], keepOut: Keep
         for (let s = start; s <= to; s += CHEVRON_SPACING[grade - 1]!) {
             const at = line.closed ? line.wrapS(s) : s
             if (!line.solidRoadAt(at) || line.openAt(at, side) || near(line, at, laps, LAP_LINE_CLEAR)) continue
-            if (line.plainRoadAt(at) && nearLamp(line, at, side)) continue
+            if (line.walledRoadAt(at) && nearLamp(line, at, side)) continue
             const f = wallTop(line, at, side)
             if (!fixtureClear(track, line, at, f, CHEVRON_WIDTH, CHEVRON_LIFT + CHEVRON_HEIGHT)) continue
             out.push({ ...f, grade })
@@ -270,7 +276,7 @@ function straightsOn(line: TrackLine) {
     let from = -1
     for (let i = 0; i <= line.n; i++) {
         const s = i < line.n ? line.cum[i]! : line.length
-        const ok = i < line.n && line.curvature[i]! < KERB_MIN_CURVATURE && line.plainRoadAt(s) && !line.openAt(s, -1) && !line.openAt(s, 1)
+        const ok = i < line.n && line.curvature[i]! < KERB_MIN_CURVATURE && line.walledRoadAt(s) && !line.openAt(s, -1) && !line.openAt(s, 1)
         if (ok && from < 0) from = s
         if (!ok && from >= 0) {
             runs.push([from, s])
@@ -307,7 +313,7 @@ function flagAt(track: Track, line: TrackLine, s: number, side: -1 | 1, laps: re
 /** Feather flags along both walls round the start and any finish, a cluster to each wall. */
 function startFlagsOn(track: Track, line: TrackLine, out: Fixture[][]) {
     const laps = lapLinesOn(track, line)
-    for (const centre of lapLinesOn(track, line, ['start', 'finish'])) {
+    for (const centre of endLinesOn(track, line)) {
         for (const side of [-1, 1] as const) {
             const cluster: Fixture[] = []
             for (let d = -FLAG_REACH; d <= FLAG_REACH; d += FLAG_SPACING) {
@@ -349,7 +355,7 @@ function orbitHits(track: Track, x: number, z: number, y: number) {
 
 /** A board on legs off the plain road at `s`, if nothing else is in its way. */
 function billboardAt(track: Track, line: TrackLine, s: number, side: -1 | 1, laps: readonly number[]): Billboard | null {
-    if (s >= line.length || !line.plainRoadAt(s) || line.openAt(s, side) || near(line, s, laps, BILLBOARD_LAP_CLEAR)) return null
+    if (s >= line.length || !line.walledRoadAt(s) || line.openAt(s, side) || near(line, s, laps, BILLBOARD_LAP_CLEAR)) return null
     const p = line.pointAt(s)
     // Clear of its own road, and of the menu camera circling a car that runs along the wall where the road widens nearby.
     let wide = 0
@@ -359,6 +365,7 @@ function billboardAt(track: Track, line: TrackLine, s: number, side: -1 | 1, lap
     const z = p.z + p.tx * lat
     // Its legs run down to the ground, so nothing may pass anywhere under it either.
     if (!clearOfRoads(track.branches, x, z, BILLBOARD_RADIUS, Math.min(0, p.y), p.y + CLEAR_HEIGHT)) return null
+    if (fieldClearance(track.fields, x, z) < BILLBOARD_RADIUS + FIELD_CLEAR) return null
     if (orbitHits(track, x, z, p.y)) return null
     return { x, z, base: p.y, heading: headingOf(p.tx, p.tz) - side * BILLBOARD_TOE, branch: line.branch, s }
 }
@@ -427,6 +434,7 @@ export function tracksideLayout(track: Track): TracksideLayout {
         const f = fixtureAt(o.line, o.s, 0, 0, 1)
         const wall = o.line.wallAt(o.s)
         if (!clearOfRoads(track.branches, f.x, f.z, wallFoot(wall), f.y - 0.1, f.y + CLEAR_HEIGHT, { line: o.line, s: o.s, reach: 4 * wallFoot(wall) + 10 })) continue
+        if (fieldClearance(track.fields, f.x, f.z) < wallFoot(wall) + FIELD_CLEAR) continue
         overheads.push({ ...f, wall })
         keepOut.push({ line: o.line, s: o.s, d: 0.8 })
     }
@@ -434,7 +442,7 @@ export function tracksideLayout(track: Track): TracksideLayout {
         chevronsOn(track, line, chevrons, keepOut)
         jumpSignsOn(track, line, jumpSigns, keepOut)
         startFlagsOn(track, line, flags)
-        for (const s of lapLinesOn(track, line, ['start', 'finish'])) keepOut.push({ line, s, d: FLAG_REACH + 2 })
+        for (const s of endLinesOn(track, line)) keepOut.push({ line, s, d: FLAG_REACH + 2 })
     }
     adSlots(track, keepOut, overheads, { billboards, hoardings, flags })
     return { billboards, chevrons, jumpSigns, hoardings, flags, overheads }

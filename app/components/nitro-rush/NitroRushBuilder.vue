@@ -2,7 +2,7 @@
 import { checkpointRoles } from '~/utils/nitro-rush/builder-forks'
 import { isTyping } from '~/utils/nitro-rush/input'
 import { readStorage, STORAGE_KEYS, writeStorage } from '~/utils/nitro-rush/storage'
-import { exportCustomTrack, importCustomTrack, MAX_NAME_LENGTH, MAX_SECTIONS, raisedTo, rideTag, sectionCount, type CustomTrack } from '#shared/utils/nitro-rush/custom'
+import { exportCustomTrack, importCustomTrack, isFieldSection, MAX_NAME_LENGTH, MAX_SECTIONS, raisedTo, rideTag, sectionCount, type CustomTrack } from '#shared/utils/nitro-rush/custom'
 import { Track } from '#shared/utils/nitro-rush/track'
 
 /** The track builder: lay sections one at a time, or from the drawer, until the course is drivable. */
@@ -21,9 +21,17 @@ const emit = defineEmits<{
 }>()
 
 const {
-    draft, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
-    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo
+    draft, arena, line, cursor, forks, lines, walk, lineClosed, lineSections, compiled, gap, endings, full, canFork, joinable, length, canUndo, finishError,
+    fieldTargets, fieldSpot, fieldPlan, fieldGroup, fieldGrows, fieldArrivals, fieldError, fieldEntryLock,
+    walkUpTo, insert, removeAt, moveTo, finishLine, joinAt, removeLine, replace, setClosed, setName, select, selectLine, undo,
+    fieldTool, resizeFieldTo, moveFieldExit, moveFieldEntry, addExit, growFieldAt
 } = useNitroRushTrackDraft(toRef(props, 'track'))
+
+/** The roads leaving the highlighted field through its edges, by line. */
+const fieldPorts = computed(() => (draft.value.branches ?? []).flatMap((b, i) => {
+    const spot = fieldSpot.value
+    return spot && b.from.port && b.from.branch === spot.branch && b.from.at === spot.at ? [{ line: i + 1, port: b.from.port }] : []
+}))
 
 /** The course in 3D or the top-down map, remembered in this browser; building is seen best in 3D, so it opens there. */
 const remembered = readStorage<{ view: string }>(STORAGE_KEYS.builderView, { view: '3d' })
@@ -64,8 +72,8 @@ const { armed, tap } = useNitroRushConfirmTap()
 /** What's still wrong with a branch's end, or null when it ends somewhere. */
 function branchStatus(l: number) {
     const e = endings.value[l - 1]
-    if (e?.kind === 'open') return `Branch ${l} needs ${draft.value.closed ? 'a join' : 'a join or a finish line'}`
-    if (e?.kind === 'short') return `Branch ${l} is ${Math.round(e.metres)} m from its join`
+    if (e?.kind === 'open') return `Branch ${l} needs ${draft.value.closed ? 'a join or a field' : 'a join, a field or a finish line'}`
+    if (e?.kind === 'short') return `Branch ${l} is ${Math.round(e.metres)} m short of its ${isFieldSection(draft.value, e.to) ? 'field' : 'join'}`
     if (e?.kind === 'askew') return `Branch ${l} ${e.why}`
     return null
 }
@@ -73,7 +81,8 @@ function branchStatus(l: number) {
 const status = computed(() => {
     if (compiled.value.def) {
         const k = forked.value?.k ?? 0
-        return { ok: true, text: k ? `Ready to race: ${k} of ${forked.value!.checkpointCount} checkpoints per lap` : 'Ready to race' }
+        const required = forked.value?.requiredIds.length ?? 0
+        return { ok: true, text: k ? `Ready: ${k} of ${forked.value!.checkpointCount} checkpoints a lap${required ? `, ${required} required` : ''}` : 'Ready to race' }
     }
     if (finishError.value) return { ok: false, text: friendly(`can't finish the ${line.value ? 'branch' : 'loop'}: ${finishError.value}`) }
     const own = line.value ? branchStatus(line.value) : null
@@ -260,6 +269,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
       </div>
 
       <div class="nr-card nr-card-tight flex min-w-0 flex-col gap-2 text-left lg:col-start-1 lg:row-start-2">
+        <NitroRushBuilderField
+          v-if="fieldPlan && fieldSpot && fieldGroup.length"
+          :plan="fieldPlan"
+          :group="fieldGroup"
+          :selected="fieldSpot"
+          :ports="fieldPorts"
+          :arrivals="fieldArrivals"
+          :grows="fieldGrows"
+          :error="fieldError"
+          :closed="draft.closed"
+          :arena="arena"
+          :entry-lock="fieldEntryLock"
+          @tool="fieldTool"
+          @resize="resizeFieldTo"
+          @exit="addExit"
+          @road="moveFieldExit"
+          @entry="moveFieldEntry"
+          @grow="growFieldAt"
+        />
         <NitroRushBuilderConstruct :choice="choice" :next="next" :disabled="full" :blocked="blocked" :fault="fault" @pick="pick" @build="build">
           <button class="nr-ghost nr-small nr-drawer-toggle" :aria-expanded="drawerOpen" @click="drawerOpen = !drawerOpen">
             ALL SECTIONS
@@ -275,7 +303,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           <button role="radio" :aria-checked="!draft.closed" :class="{ 'is-active': !draft.closed }" @click="setClosed(false)">SPRINT</button>
         </div>
         <p class="text-[11px] font-semibold text-white/55 [font-family:system-ui,sans-serif]">
-          {{ line ? (draft.closed ? 'End the branch at a join.' : 'End the branch at a join or a finish line.') : draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
+          {{ line ? (draft.closed ? 'End the branch at a join or a field.' : 'End the branch at a join, a field or a finish line.') : draft.closed ? 'Bring the road back round to the start line.' : 'Lay a finish line, with room to stop after it.' }}
           New sections go in after the highlighted one; drag a section's grip to move it.
         </p>
         <NitroRushBuilderRoads
@@ -284,6 +312,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           :line="line"
           :joins="forks.joins"
           :joinable="joinable"
+          :fields="fieldTargets"
           @select="selectLine"
           @join="joinAt"
           @remove="removeLine"

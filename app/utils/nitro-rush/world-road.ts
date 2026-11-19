@@ -2,13 +2,13 @@ import * as THREE from 'three'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 import { NEON_PINK } from './config'
 import { BOOST_TILE_LENGTH, checkerTexture, chevronTexture, concreteTexture, kerbTexture, PUDDLE_TILE_LENGTH, roadTextures, ROAD_TILE_LENGTH } from './textures'
-import { DECK_DEPTH, mirrorStrip, ribbon, roadBelow, roadLeft, roadRight, sweep, wallLeft, wallRight, type RoadWidth } from './road-geometry'
+import { DECK_DEPTH, fieldClearance, mirrorStrip, ribbon, roadBelow, roadLeft, roadRight, sweep, wallLeft, wallRight, type RoadWidth } from './road-geometry'
 import { ARROW_TILE, jumpMarks } from './jump-marks'
 import { jumpArrowTexture } from './signs'
 import { KERB_MIN_CURVATURE } from './trackside-spots'
 import type { WorldKit } from './world-kit'
 import { MIN_CLEARANCE } from '#shared/utils/nitro-rush/layout'
-import { headingOf, newTrackFrame, WALL_BASE_HALF, WALL_HEIGHT, wallFoot, type Cushion, type TrackLine } from '#shared/utils/nitro-rush/track'
+import { headingOf, newTrackFrame, WALL_BASE_HALF, WALL_HEIGHT, wallFoot, type CourseField, type Cushion, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 const PILLAR_SPACING = 16
 const PILLAR_SIZE = 0.8
@@ -17,6 +17,12 @@ const CUSHION_LENGTH = 2.6
 const CUSHION_FRONT = 1.3
 const CUSHION_BACK = 1.8
 const CUSHION_HEIGHT = 1
+
+/** The jersey wall's cross-section, [toward the track, height] from its outer foot; the inner foot is the face a car hits. */
+export const JERSEY: [number, number][] = [[0, 0], [0.64, 0], [0.64, 0.08], [0.49, 0.26], [0.41, WALL_HEIGHT], [0.23, WALL_HEIGHT], [0.15, 0.26], [0, 0.08], [0, 0]]
+
+/** The walls' concrete, which blocks and decks share. */
+export const wallMaterial = (concrete: THREE.Texture) => new THREE.MeshStandardMaterial({ map: concrete, color: 0xb8b4ac, roughness: 0.92, side: THREE.DoubleSide })
 
 /** The walls' outer foot, wherever along the road it's measured. */
 const outerFoot = (w: RoadWidth) => wallFoot(w.wall)
@@ -188,15 +194,15 @@ export function buildTrackside({ track, own, add }: WorldKit) {
     checker.wrapT = THREE.RepeatWrapping
     const checkerMat = own(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }))
     for (const l of track.lapLines) {
-        if (l.kind !== 'checkpoint') add(ribbon(track.branches[l.branch]!, l.s - 1.2, l.s + 1.2, roadLeft, roadRight, 0.016, 2.4), checkerMat)
+        // A field's start or finish is painted on the field, across its gate.
+        if (l.kind !== 'checkpoint' && l.field === undefined) add(ribbon(track.branches[l.branch]!, l.s - 1.2, l.s + 1.2, roadLeft, roadRight, 0.016, 2.4), checkerMat)
     }
 }
 
 /** Concrete walls with a neon band, the raised road's deck and pillars, crash cushions where walls meet, and the barriers closing a road's ends unless left out. */
 export function buildBarriers(kit: WorldKit, concrete: THREE.Texture, { endWalls = true } = {}) {
     const { track, own, add } = kit
-    const jersey: [number, number][] = [[0, 0], [0.64, 0], [0.64, 0.08], [0.49, 0.26], [0.41, WALL_HEIGHT], [0.23, WALL_HEIGHT], [0.15, 0.26], [0, 0.08], [0, 0]]
-    const wallMat = own(new THREE.MeshStandardMaterial({ map: concrete, color: 0xb8b4ac, roughness: 0.92, side: THREE.DoubleSide }))
+    const wallMat = own(wallMaterial(concrete))
     const bandMats = new Map<number, THREE.Material>()
     const bandMat = (side: number) => {
         let m = bandMats.get(side)
@@ -206,14 +212,14 @@ export function buildBarriers(kit: WorldKit, concrete: THREE.Texture, { endWalls
     const pillarSpots: THREE.Matrix4[] = []
     for (const line of track.branches) {
         for (const side of [-1, 1] as const) {
-            add(sweep(line, side, outerFoot, jersey), wallMat)
+            add(sweep(line, side, outerFoot, JERSEY), wallMat)
             // A flat sweep stood just off the sloped face; outside is pink, inside cyan.
             add(sweep(line, side, w => w.wall + 0.16, [[0, 0.46], [-0.03, 0.72]]), bandMat(side))
         }
         if (line.elevated) {
             for (const side of [-1, 1] as const) add(sweep(line, side, outerFoot, [[0, 0], [0, -DECK_DEPTH]]), wallMat)
             add(ribbon(line, 0, line.length, w => -outerFoot(w), outerFoot, -DECK_DEPTH, 4), wallMat)
-            pillarSpots.push(...pillarsUnder(line, track.branches.filter(l => l !== line)))
+            pillarSpots.push(...pillarsUnder(line, track.branches.filter(l => l !== line), track.fields))
         }
     }
     if (pillarSpots.length) {
@@ -224,8 +230,8 @@ export function buildBarriers(kit: WorldKit, concrete: THREE.Texture, { endWalls
     if (endWalls) buildEndWalls(kit, wallMat)
 }
 
-/** Where the raised road's slab stands on pillars just outside its edges: clear of every road under it and of another road's deck beside it. */
-function pillarsUnder(line: TrackLine, others: readonly TrackLine[]) {
+/** Where the raised road's slab stands on pillars just outside its edges: clear of every road and field under it and of another road's deck beside it. */
+export function pillarsUnder(line: TrackLine, others: readonly TrackLine[], fields: readonly CourseField[] = []) {
     const spots: THREE.Matrix4[] = []
     const f = newTrackFrame()
     for (let s = PILLAR_SPACING / 2; s < line.length; s += PILLAR_SPACING) {
@@ -245,6 +251,7 @@ function pillarsUnder(line: TrackLine, others: readonly TrackLine[]) {
             // A pillar may stand beside a lower level, as in a spiral, but never on its road, nor under a deck it shares a fork with.
             if (roadBelow([line], x, z, 0.5, f.y - MIN_CLEARANCE / 2)) continue
             if (roadBelow(others, x, z, WALL_BASE_HALF * 2, f.y + 0.5)) continue
+            if (fieldClearance(fields.filter(fd => fd.y < top), x, z) < PILLAR_SIZE) continue
             spots.push(new THREE.Matrix4().compose(
                 new THREE.Vector3(x, 0, z),
                 new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), headingOf(f.tx, f.tz)),

@@ -9,6 +9,7 @@ import type { TrackDef } from '#shared/utils/nitro-rush/track'
 export function publishedCourse(p: NrPublishedTrack, id = p.id): CustomTrack {
     const track: CustomTrack = { id, name: p.name, closed: p.closed, sections: p.sections }
     if (p.branches?.length) track.branches = p.branches
+    if (p.fields?.length) track.fields = p.fields
     return track
 }
 

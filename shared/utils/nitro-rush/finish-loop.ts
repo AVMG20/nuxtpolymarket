@@ -1,7 +1,8 @@
 import { cheapestPath, type PathStep } from './cheapest-path'
 import { BENDS, SLOPE_STEPS, STRAIGHTS, STRAIGHT_LENGTHS, targetOf, type BendSize, type Curve } from './construct'
-import { compileMainRoad, mapWalkHeights, MAX_SECTIONS, SECTIONS, sectionCount, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
+import { compileMainRoad, isFieldSection, mapWalkHeights, MAX_SECTIONS, SECTIONS, sectionCount, sectionWalk, walkCustomTrack, type CustomTrack, type SectionId } from './custom'
 import { draftForkedDef, walkCustomLines, walkForks, type JoinInlet } from './custom-forks'
+import { fieldJoin, lineClearOfFields, offFields } from './field-join'
 import { mergeFrom } from './fork-pieces'
 import { BANK_LENGTH, GRID, onAxis, SLOPE_LENGTH, type LayoutWalk } from './layout'
 import { clearanceFault, clearanceReach, clearanceSpan, layoutFault, MIN_CLEARANCE, STEP, trackClearanceFault } from './road-checks'
@@ -231,13 +232,26 @@ interface Spot {
 /** A touch greedy: the road back comes out barely longer, and it's found far sooner. */
 const ROUTE_HASTE = 1.3
 
-/** Level road on the grid from where `walk` ends to `runIn` metres behind `goal`, heading its way, clear of `laid`. */
-function routeTo(walk: LayoutWalk, laid: readonly Laid[], goal: Goal, runIn: number, budget?: { left: number }) {
-    const { end } = walk
+/** Where a road ends as a spot on the grid and the quarter turn it faces; null when it ends off the grid. */
+function onGrid(end: LayoutWalk['end']): Goal | null {
     const x = Math.round(end.x / GRID) * GRID
     const z = Math.round(end.z / GRID) * GRID
     if (Math.abs(x - end.x) > 0.01 || Math.abs(z - end.z) > 0.01) return null
-    const k = ((Math.round(end.heading * 2 / Math.PI) % 4) + 4) % 4
+    return { x, z, k: ((Math.round(end.heading * 2 / Math.PI) % 4) + 4) % 4 }
+}
+
+/** The one move from `from` that lands on `goal` facing its way, if there is one. */
+const oneMove = (from: Goal, goal: Goal) => MOVES[from.k]!.find(m => from.x + m.x === goal.x && from.z + m.z === goal.z && (from.k + m.turn + 4) % 4 === goal.k)
+
+/** Metres of road each move lays. */
+const MOVE_METRES = new Map(BASE_MOVES.map(m => [m.section, m.length]))
+
+/** Level road on the grid from where `walk` ends to `runIn` metres behind `goal`, heading its way, clear of `laid`. */
+function routeTo(walk: LayoutWalk, laid: readonly Laid[], goal: Goal, runIn: number, budget?: { left: number }) {
+    const { end } = walk
+    const on = onGrid(end)
+    if (!on) return null
+    const { x, z, k } = on
     const [ax, az] = AHEAD[goal.k]!
     const px = goal.x - ax * runIn
     const pz = goal.z - az * runIn
@@ -406,6 +420,8 @@ const APPROACH_TRIES = 3
 interface Approach {
     goal: Goal
     last: SectionId | null
+    /** The straight a field's way in runs on from the goal to its edge, which the layout lays itself. */
+    runIn?: number
 }
 
 /**
@@ -454,11 +470,13 @@ export function finishJoin(t: CustomTrack, line: number): FinishedLoop {
     const { walks: lines, joins } = walkForks(t)
     const walk = lines[line]!
     if (walk.misplaced) return { sections: null, error: walk.misplaced }
-    const inlet = joins.find(j => j.branch === line)
-    if (!inlet) return { sections: null, error: 'no way into that join from here' }
+    // A field takes a road square onto any free slot of its edges, so those are the goals; a join has its one inlet.
+    const field = isFieldSection(t, to) ? fieldJoin(t, lines, to) : null
+    const inlet = field ? null : joins.find(j => j.branch === line)
+    if (!field && !inlet) return { sections: null, error: 'no way into that join from here' }
     // Heights as the main road's start has them, which every line shares.
     const ground = -lines[0]!.rise
-    const goalY = Math.round(inlet.y + ground)
+    const goalY = Math.round((field?.y ?? inlet!.y) + ground)
     const heightOf = (w: LayoutWalk): Height => ({ y: Math.round(w.end.y - w.end.lift + ground), tenths: Math.round(w.end.grade * 10), banked: Math.abs(w.end.bank) > 1e-6 })
     const arrived = (h: Height) => h.y === goalY && isLevel(h)
     const rewiden: SectionId[] = [...walk.end.air ? ['landing-ramp' as const] : [], ...walk.end.halfWidth === ROAD.halfWidth ? [] : ['width-normal' as const]]
@@ -466,28 +484,61 @@ export function finishJoin(t: CustomTrack, line: number): FinishedLoop {
     const budget = { left: JOIN_SEARCH_BUDGET }
     const closes = t.closed !== false && !!compileMainRoad(t).def
     let tooMany = false
+    // The nearest goal can need a long way round where one further off takes a single bend, so every goal is tried and the simplest wins.
+    let best: { sections: SectionId[], pieces: number, metres: number } | null = null
+    const better = (pieces: number, metres: number) => !best || pieces < best.pieces || (pieces === best.pieces && metres < best.metres)
     for (const lead of LEAD_INS) {
         if (searches <= 0 || budget.left <= 0) break
         const led = [...rewiden, ...lead]
+        // A lead-in that already has as many sections as the best can't beat it.
+        if (best && led.length >= best.pieces) continue
         const levelled = settle(ground, heightOf(walkCustomLines(extended(t, line, led))[line]!), arrived)
         if (!levelled) continue
         const settled = [...led, ...levelled.sections]
         const turns = onAxis(walkCustomLines(extended(t, line, settled))[line]!.end.heading) ? [[]] : OFF_DIAGONAL
         for (const turn of turns) {
             const laidOut = walkCustomLines(extended(t, line, [...settled, ...turn]))
-            const laid = laidOut.map((w, l): Laid => ({ walk: w, setsOff: l === line, target: l === to.branch ? inlet.point : null }))
-            for (const { goal, last } of approaches(inlet, laidOut[line]!.end)) {
-                if (searches-- <= 0 || budget.left <= 0) break
-                const route = routeTo(laidOut[line]!, laid, goal, 0, budget)
+            const laid = field
+                ? [...laidOut.map((w, l): Laid => ({ walk: offFields(w), setsOff: l === line, target: null })), ...field.edges.map((walk): Laid => ({ walk, setsOff: false, target: null }))]
+                : laidOut.map((w, l): Laid => ({ walk: w, setsOff: l === line, target: l === to.branch ? inlet!.point : null }))
+            const goals: Approach[] = field ? field.goals(laidOut[line]!.end).map(({ x, z, k, depth }) => ({ goal: { x, z, k }, last: null, runIn: depth })) : approaches(inlet!, laidOut[line]!.end)
+            const from = onGrid(laidOut[line]!.end)
+            // Goals a single move away need no search, so they go first, and once one of them does there's nothing simpler left here.
+            const direct = goals.map(a => from && oneMove(from, a.goal))
+            const order = goals.map((_, i) => i).sort((a, b) => Number(!direct[a]) - Number(!direct[b]))
+            const fewest = compact([...settled, ...turn]).length + 1
+            const before = roadLength(laidOut[line]!)
+            for (const i of order) {
+                if (best && best.pieces <= fewest) break
+                const { goal, last, runIn = 0 } = goals[i]!
+                const move = direct[i]
+                if (!move && (searches-- <= 0 || budget.left <= 0)) break
+                const route = move ? { sections: [move.section] } : routeTo(laidOut[line]!, laid, goal, 0, budget)
                 if (!route) continue
                 const sections = compact([...settled, ...turn, ...route.sections, ...last ? [last] : []])
                 if (sectionCount(t) + sections.length > MAX_SECTIONS) {
                     tooMany = true
                     continue
                 }
-                if (joinsClear(extended(t, line, sections), line, closes)) return { sections, error: null }
+                // A run in to a field's edge is one more piece of road, though the layout lays it.
+                const pieces = sections.length + (runIn > 0 ? 1 : 0)
+                const metres = before + route.sections.reduce((m, id) => m + (MOVE_METRES.get(id) ?? 0), 0) + (last ? roadLength(sectionWalk(last)) : 0) + runIn
+                if (!better(pieces, metres)) continue
+                const joined = extended(t, line, sections)
+                if (joinsClear(joined, line, closes) && (!field || lineClearOfFields(walkCustomLines(joined), line))) best = { sections, pieces, metres }
             }
         }
     }
+    if (best) return { sections: best.sections, error: null }
     return { sections: null, error: tooMany ? 'that takes more sections than a track can have' : 'no way into that join from here' }
+}
+
+/** Metres of road a walk lays, along its points to where it ends. */
+function roadLength({ pts, end }: LayoutWalk) {
+    let metres = 0
+    for (let i = 1; i <= pts.length; i++) {
+        const [x, z] = pts[i] ?? [end.x, end.z]
+        metres += Math.hypot(x - pts[i - 1]![0], z - pts[i - 1]![1])
+    }
+    return metres
 }

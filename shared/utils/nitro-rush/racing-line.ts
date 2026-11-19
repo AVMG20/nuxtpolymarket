@@ -28,6 +28,8 @@ export interface RoadPlan {
     readonly right: ArrayLike<number>
     /** 1 where the point is on rails. */
     readonly railed: ArrayLike<number>
+    /** Newton-steps a point held off its chord from the bend it has there; roads leave it off so their medal times stay put. */
+    readonly heldBend?: boolean
 }
 
 export interface RacingLine {
@@ -64,8 +66,10 @@ class Stretch {
     readonly lat: Float64Array
     readonly x: Float64Array
     readonly z: Float64Array
+    private readonly heldBend: boolean
 
     constructor(line: RoadPlan, readonly from: number, readonly m: number, readonly loop: boolean) {
+        this.heldBend = line.heldBend ?? false
         this.cx = new Float64Array(m)
         this.cz = new Float64Array(m)
         this.rx = new Float64Array(m)
@@ -100,6 +104,13 @@ class Stretch {
         this.z[j] = this.cz[j]! + this.rz[j]! * lat
     }
 
+    /** Roads keep Math.hypot so their medal times stay put; it rounds differently in V8 and JavaScriptCore, which fields can't have. */
+    private distance(a: number, b: number) {
+        const dx = this.x[a]! - this.x[b]!
+        const dz = this.z[a]! - this.z[b]!
+        return this.heldBend ? Math.sqrt(dx * dx + dz * dz) : Math.hypot(dx, dz)
+    }
+
     curvatureAt(a: number, b: number, c: number) {
         return curvatureOf(this.x[a]!, this.z[a]!, this.x[b]!, this.z[b]!, this.x[c]!, this.z[c]!)
     }
@@ -112,11 +123,13 @@ class Stretch {
         const dz = this.z[c]! - this.z[a]!
         const across = dx * this.rz[j]! - dz * this.rx[j]!
         // From the chord, where the line runs straight, a Newton step to the bend wanted.
-        let lat = Math.abs(across) > 1e-9 ? -(dx * (this.cz[j]! - this.z[a]!) - dz * (this.cx[j]! - this.x[a]!)) / across : this.lat[j]!
-        lat = Math.max(lo * 1.5, Math.min(hi * 1.5, lat))
+        const chord = Math.abs(across) > 1e-9 ? -(dx * (this.cz[j]! - this.z[a]!) - dz * (this.cx[j]! - this.x[a]!)) / across : this.lat[j]!
+        let lat = Math.max(lo * 1.5, Math.min(hi * 1.5, chord))
         this.place(j, lat)
-        const slope = curvatureOf(this.x[a]!, this.z[a]!, this.x[j]! + this.rx[j]! * NUDGE, this.z[j]! + this.rz[j]! * NUDGE, this.x[c]!, this.z[c]!) / NUDGE
-        if (Math.abs(slope) > 1e-9) lat += target / slope
+        // Held off the chord it already bends, and a slope measured from 0 there is ill-conditioned, so engines' last bits diverge.
+        const bent = this.heldBend && lat !== chord ? this.curvatureAt(a, j, c) : 0
+        const slope = (curvatureOf(this.x[a]!, this.z[a]!, this.x[j]! + this.rx[j]! * NUDGE, this.z[j]! + this.rz[j]! * NUDGE, this.x[c]!, this.z[c]!) - bent) / NUDGE
+        if (Math.abs(slope) > 1e-9) lat += (target - bent) / slope
         this.place(j, Math.max(lo, Math.min(hi, lat)))
     }
 
@@ -138,8 +151,8 @@ class Stretch {
             // Past an open stretch's end the road runs on straight.
             const before = !this.loop && q < 2 ? 0 : this.curvatureAt(at(q - 2), prev, j)
             const after = !this.loop && q > k - 3 ? 0 : this.curvatureAt(j, next, at(q + 2))
-            const lp = Math.hypot(this.x[j]! - this.x[prev]!, this.z[j]! - this.z[prev]!)
-            const ln = Math.hypot(this.x[j]! - this.x[next]!, this.z[j]! - this.z[next]!)
+            const lp = this.distance(j, prev)
+            const ln = this.distance(j, next)
             // Long spans stay clear of the edges, for the finer passes to settle.
             this.adjust(prev, j, next, (ln * before + lp * after) / (ln + lp || 1), lp * ln / 800)
         }

@@ -443,3 +443,28 @@ export function chevronTexture() {
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     return t
 }
+
+/** Pixels per metre of a field's obstacle glow: soft enough that a coarse mask still reads smooth. */
+const GLOW_PX = 3
+/** Metres the glow spreads out from a block's or pillar's foot. */
+const GLOW_REACH = 4
+
+/** A field's floor glow round its blocks and pillars, as a mask over the whole field; uv (0, 0) is its entry-left corner. */
+export function obstacleGlowTexture(plan: { width: number, length: number, tiles: readonly { col: number, row: number, kind: string }[] }, pillarRadius: number, tile = 20) {
+    const [c, ctx] = canvas(Math.ceil(plan.width * GLOW_PX), Math.ceil(plan.length * GLOW_PX))
+    const k = GLOW_PX
+    // The canvas's top row is the field's far edge, as the texture is flipped onto the floor.
+    const y = (v: number) => (plan.length - v) * k
+    ctx.fillStyle = '#fff'
+    ctx.shadowColor = '#fff'
+    ctx.shadowBlur = GLOW_REACH * k * 2
+    for (const t of plan.tiles) {
+        if (t.kind === 'block') ctx.fillRect(t.col * tile * k, y((t.row + 1) * tile), tile * k, tile * k)
+        else if (t.kind === 'pillar') {
+            ctx.beginPath()
+            ctx.arc((t.col + 0.5) * tile * k, y((t.row + 0.5) * tile), pillarRadius * k, 0, Math.PI * 2)
+            ctx.fill()
+        }
+    }
+    return finish(c, false)
+}

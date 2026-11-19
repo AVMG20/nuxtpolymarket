@@ -1,4 +1,5 @@
-import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, kicker, landing, LINE_BLOCK_LENGTH, looping, MIN_HALF_WIDTH, ramp, spiral, start, straight, widthTo, type TrackLayout, type TrackPiece } from './layout'
+import { bankTo, boostPad, buildTrack, checkpoint, corkscrew, corner, finish, gap, kicker, landing, LINE_BLOCK_LENGTH, looping, MIN_HALF_WIDTH, ramp, requiredCheckpoint, spiral, start, straight, widthTo, type LayoutBranch, type TrackLayout, type TrackPiece } from './layout'
+import type { FieldPlan, FieldPort, FieldTile } from './field'
 import type { TrackDef, TrackGroup } from './track'
 
 /** Menu categories, in menu order. */
@@ -400,6 +401,177 @@ export const SPLIT_FINISH: TrackLayout = {
     ]
 }
 
+/** A short sprint through one open field: in at its foot, through a gate on the left and one across the top, out its right side. */
+export const OPEN_FIELD: TrackLayout = {
+    id: 'open-field',
+    name: 'The Open Field',
+    group: 'sprints',
+    ...ROAD,
+    closed: false,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        straight(20),
+        start,
+        straight(100),
+        {
+            type: 'field',
+            id: 0,
+            plan: {
+                width: 100,
+                length: 100,
+                entry: 2,
+                exit: { edge: 'right', tile: 3 },
+                tiles: [
+                    { col: 0, row: 2, kind: 'checkpoint', dir: 0 },
+                    { col: 2, row: 4, kind: 'checkpoint', dir: 1 },
+                    { col: 1, row: 0, kind: 'boost', dir: 3 },
+                    { col: 2, row: 2, kind: 'block' },
+                    { col: 3, row: 2, kind: 'block' },
+                    { col: 4, row: 0, kind: 'pillar' },
+                    { col: 1, row: 3, kind: 'pillar' }
+                ]
+            }
+        },
+        straight(100),
+        finish,
+        straight(170)
+    ]
+}
+
+/** `kind` tiles at each [col, row]. */
+const placed = (kind: 'block' | 'pillar', at: readonly (readonly [number, number])[]): FieldTile[] => at.map(([col, row]) => ({ col, row, kind }))
+
+/** The hub field: the run to the finish crosses it, and the detour leaves and comes back through it. */
+const OBSTACLE_HUB: FieldPlan = {
+    width: 100,
+    length: 100,
+    entry: 2,
+    exit: { edge: 'left', tile: 2 },
+    tiles: placed('block', [[0, 0], [1, 0], [3, 0], [4, 0], [0, 1], [4, 1], [0, 3], [4, 3], [0, 4], [1, 4], [3, 4], [4, 4]])
+}
+
+/** A sprint through four fields: a block maze, an X of pillars and a boost, each between required checkpoints, then back over the start field to the finish. */
+export const FIELD_OBSTACLES: TrackLayout = {
+    id: 'field-obstacles',
+    name: 'Field Obstacles',
+    group: 'sprints',
+    ...ROAD,
+    closed: false,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        straight(20),
+        start,
+        { type: 'field', id: 0, plan: OBSTACLE_HUB },
+        finish,
+        straight(60)
+    ],
+    branches: [
+        {
+            pieces: [
+                { type: 'field-port', id: 0, plan: OBSTACLE_HUB, port: { edge: 'exit', tile: 2 } },
+                requiredCheckpoint,
+                {
+                    type: 'field',
+                    id: 1,
+                    plan: {
+                        width: 100,
+                        length: 100,
+                        entry: 2,
+                        exit: { edge: 'right', tile: 2 },
+                        tiles: [
+                            ...placed('block', [[0, 0], [3, 0], [4, 0]]),
+                            ...placed('pillar', [[3, 1]]),
+                            ...placed('block', [[4, 1], [0, 2], [0, 3], [1, 3], [0, 4], [1, 4], [2, 4], [4, 4]])
+                        ]
+                    }
+                },
+                requiredCheckpoint,
+                {
+                    type: 'field',
+                    id: 2,
+                    plan: {
+                        width: 100,
+                        length: 100,
+                        entry: 2,
+                        exit: { edge: 'right', tile: 2 },
+                        tiles: placed('pillar', [[0, 0], [4, 0], [1, 1], [3, 1], [2, 2], [1, 3], [3, 3], [0, 4], [4, 4]])
+                    }
+                },
+                requiredCheckpoint,
+                {
+                    type: 'field',
+                    id: 3,
+                    plan: { width: 100, length: 100, entry: 2, exit: { edge: 'right', tile: 2 }, tiles: [{ col: 1, row: 2, kind: 'boost', dir: 1 }] }
+                },
+                requiredCheckpoint,
+                { type: 'field-in', id: 0, hub: [0, -90] }
+            ],
+            from: { branch: 0, at: 2, hub: true },
+            to: { branch: 0, at: 2, hub: true }
+        }
+    ]
+}
+
+const pad = (col: number, row: number, dir: 0 | 1 | 2 | 3): FieldTile => ({ col, row, kind: 'boost', dir })
+const block = (col: number, row: number): FieldTile => ({ col, row, kind: 'block' })
+const pillar = (col: number, row: number): FieldTile => ({ col, row, kind: 'pillar' })
+
+/** Cloverfield's square: blocked corners, a block in the middle ringed by pillars, and pads along each edge. */
+const CLOVER_FIELD: FieldPlan = {
+    width: 200,
+    length: 200,
+    entry: 5.5,
+    exit: { edge: 'right', tile: 3.5 },
+    tiles: [
+        block(0, 0), block(1, 0), pad(5, 0, 0), pad(6, 0, 0), block(8, 0), block(9, 0),
+        block(0, 1), block(9, 1),
+        pad(0, 3, 1), pillar(3, 3), pillar(6, 3),
+        pad(0, 4, 1), block(4, 4), block(5, 4),
+        block(4, 5), block(5, 5), pad(9, 5, 3),
+        pillar(3, 6), pillar(6, 6), pad(9, 6, 3),
+        block(0, 8), block(9, 8),
+        block(0, 9), block(1, 9), pad(3, 9, 2), pad(4, 9, 2), block(8, 9), block(9, 9)
+    ]
+}
+
+/** A petal: out of the square by `port`, round three right-handers past a pad and a required checkpoint, and back in. */
+const petal = (port: FieldPort): LayoutBranch => ({
+    pieces: [
+        { type: 'field-port', id: 0, plan: CLOVER_FIELD, port },
+        corner('right', 60),
+        boostPad('left'),
+        corner('right', 60),
+        requiredCheckpoint,
+        corner('right', 60),
+        { type: 'field-in', id: 0, hub: [-20, -100] }
+    ],
+    from: { branch: 0, at: 0, hub: true },
+    to: { branch: 0, at: 0, hub: true }
+})
+
+/** A loop round one square with three petals off it: every lap drives all four, in any order. */
+export const CLOVERFIELD: TrackLayout = {
+    id: 'cloverfield',
+    name: 'Cloverfield',
+    group: 'circuits',
+    ...ROAD,
+    closed: true,
+    origin: { x: 0, z: 0, heading: 0 },
+    pieces: [
+        { type: 'field', id: 0, plan: CLOVER_FIELD },
+        corner('right', 60),
+        boostPad('left'),
+        corner('right', 60),
+        start,
+        corner('right', 60)
+    ],
+    branches: [
+        petal({ edge: 'exit', tile: 5.5 }),
+        petal({ edge: 'left', tile: 5.5 }),
+        petal({ edge: 'entry', tile: 3.5 })
+    ]
+}
+
 /** The courses players can pick, in menu order. Ids are leaderboard keys: never rename one. */
 export const TRACKS: readonly TrackDef[] = [
     buildTrack(POLYTOWN_OVAL),
@@ -410,7 +582,10 @@ export const TRACKS: readonly TrackDef[] = [
     buildTrack(ZIGZAG_SPRINT),
     buildTrack(DOUBLE_FORK),
     buildTrack(LONG_JUMP_SPRINT),
-    buildTrack(SPLIT_FINISH)
+    buildTrack(SPLIT_FINISH),
+    buildTrack(OPEN_FIELD),
+    buildTrack(FIELD_OBSTACLES),
+    buildTrack(CLOVERFIELD)
 ]
 
 export function findTrack(id: string) {

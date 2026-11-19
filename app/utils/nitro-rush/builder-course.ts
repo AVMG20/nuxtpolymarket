@@ -2,10 +2,11 @@ import * as THREE from 'three'
 import { LINE_COLORS, NEON_PINK } from './config'
 import { ribbon, roadLeft, roadRight, wallLeft, wallRight } from './road-geometry'
 import { boostPadTexture, concreteTexture, gridTexture, ROAD_TILE_LENGTH } from './textures'
+import { buildFields } from './world-field'
 import { addBoostPads, boostPadMaterial, buildBarriers } from './world-road'
 import type { WorldKit } from './world-kit'
 import type { LineBlock } from '#shared/utils/nitro-rush/layout'
-import { newTrackFrame, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
+import { headingOf, newTrackFrame, type TrackDef, type TrackLine } from '#shared/utils/nitro-rush/track'
 
 /** Where a road ends, heading as layouts give it. */
 export interface RoadEnd {
@@ -19,7 +20,7 @@ export interface RoadEnd {
 export interface PreviewCourse {
     def: TrackDef
     /** Each line block, the point its line crosses, and on a forked course the line it's on. */
-    lines: readonly { type: LineBlock, at: number, branch?: number }[]
+    lines: readonly { type: LineBlock, at: number, branch?: number, required?: true }[]
     /** Where the next section attaches on each line still open. */
     ends: readonly RoadEnd[]
     /** The height of the start a loop still open has to come back to; null when there's nothing to show. */
@@ -30,6 +31,10 @@ export interface PreviewCourse {
 
 /** How far the end marker floats above the road. */
 export const MARKER_LIFT = 4
+
+/** A field start or finish's frame in the builder, which has no arches: post height and thickness. */
+const FIELD_GATE_HEIGHT = 7
+const FIELD_GATE_POST = 0.35
 
 const GROUND_SIZE = 6000
 const GRID_CELL = 10
@@ -45,8 +50,10 @@ export class CourseMaterials {
     readonly marker = new THREE.MeshBasicMaterial({ color: NEON_PINK })
     readonly origin = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true })
     readonly empty = new THREE.LineDashedMaterial({ color: 0x3df2ff, dashSize: DASH, gapSize: DASH_GAP })
-    readonly lines = Object.fromEntries(Object.entries(LINE_COLORS).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, polygonOffset: true, polygonOffsetFactor: -1 })])) as Record<LineBlock, THREE.MeshBasicMaterial>
+    readonly lines = Object.fromEntries(Object.entries(LINE_COLORS).map(([k, c]) => [k, new THREE.MeshBasicMaterial({ color: c, polygonOffset: true, polygonOffsetFactor: -1 })])) as Record<keyof typeof LINE_COLORS, THREE.MeshBasicMaterial>
     readonly markerGeo = new THREE.ConeGeometry(3, 8, 4).rotateX(-Math.PI / 2)
+    readonly gatePostGeo = new THREE.CylinderGeometry(FIELD_GATE_POST, FIELD_GATE_POST, FIELD_GATE_HEIGHT, 8).translate(0, FIELD_GATE_HEIGHT / 2, 0)
+    readonly gateBarGeo = new THREE.BoxGeometry(1, FIELD_GATE_POST * 2, FIELD_GATE_POST * 2)
     readonly boostPads = boostPadTexture()
     readonly boostPad = boostPadMaterial(this.boostPads)
 
@@ -55,7 +62,7 @@ export class CourseMaterials {
     }
 
     dispose() {
-        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.empty, this.markerGeo, this.boostPads, this.boostPad, ...Object.values(this.lines)]) m.dispose()
+        for (const m of [this.concrete, this.deck, this.marker, this.origin, this.empty, this.markerGeo, this.gatePostGeo, this.gateBarGeo, this.boostPads, this.boostPad, ...Object.values(this.lines)]) m.dispose()
     }
 }
 
@@ -92,13 +99,19 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
     const decks = track.branches.map(line => kit.add(ribbon(line, 0, line.length, wallLeft, wallRight, 0, ROAD_TILE_LENGTH), mats.deck))
     buildBarriers(kit, mats.concrete, { endWalls })
     addBoostPads(kit, mats.boostPad)
+    buildFields(kit, mats.boostPad, mats.concrete)
     for (const line of track.branches) {
         for (const geo of emptyOutlines(line)) group.add(new THREE.LineLoop(kit.own(geo), mats.empty).computeLineDistances())
     }
     for (const block of course.lines) {
         const line = track.branches[block.branch ?? 0]!
         const s = line.cum[Math.min(block.at, line.n - 1)]!
-        kit.add(ribbon(line, s - 1.2, s + 1.2, roadLeft, roadRight, 0.02, 2.4), mats.lines[block.type])
+        // A field's start or finish is drawn with the field.
+        if (line.fieldedAt(s)) continue
+        kit.add(ribbon(line, s - 1.2, s + 1.2, roadLeft, roadRight, 0.02, 2.4), mats.lines[block.required ? 'required' : block.type])
+    }
+    for (const l of track.lapLines) {
+        if (l.field !== undefined && l.kind !== 'checkpoint') group.add(fieldGate(l.x, l.y, l.z, headingOf(l.tx, l.tz), l.reach, mats, mats.lines[l.kind]))
     }
     for (const end of course.ends) group.add(endMarker(end, mats.markerGeo, mats.marker))
     if (course.originY !== null) {
@@ -107,6 +120,23 @@ export function layCourse(kit: WorldKit, course: Pick<PreviewCourse, 'lines' | '
         group.add(origin)
     }
     return decks
+}
+
+/** Posts and a bar in the line's colour over a field start or finish, which the floor markings alone don't show from the builder's height. */
+function fieldGate(x: number, y: number, z: number, heading: number, reach: number, mats: CourseMaterials, mat: THREE.Material) {
+    const g = new THREE.Group()
+    g.position.set(x, y, z)
+    g.rotation.y = heading
+    for (const side of [-1, 1]) {
+        const post = new THREE.Mesh(mats.gatePostGeo, mat)
+        post.position.x = side * reach
+        g.add(post)
+    }
+    const bar = new THREE.Mesh(mats.gateBarGeo, mat)
+    bar.scale.x = reach * 2 + FIELD_GATE_POST * 2
+    bar.position.y = FIELD_GATE_HEIGHT
+    g.add(bar)
+    return g
 }
 
 /** The backdrop every builder view shares: night sky colour, lights and the grid ground. */

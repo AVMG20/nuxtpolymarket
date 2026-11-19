@@ -1,5 +1,5 @@
 import { PHYSICS_HZ } from './config'
-import { botInput, createCar, crossesLines, stepCar } from './physics'
+import { botInput, crossesLines, gridCar, stepCar } from './physics'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { Track, type Route, type TrackDef } from '#shared/utils/nitro-rush/track'
 
@@ -26,8 +26,6 @@ export interface MedalTarget {
 }
 
 const DT = 1 / PHYSICS_HZ
-/** The engine's grid, behind the start line. */
-const GRID_OFFSET = -14
 /** Slower than this on average, the bot is stuck and its lap will never close. */
 const STUCK_SPEED = 8
 /** On a forked course the bot drives this many of the shortest routes, and the one with the fewest tight bends. */
@@ -80,7 +78,7 @@ export function medalRoutes(track: Track): readonly Route[] {
  * null if it falls or never finishes. Yields every so many steps, so it can run in idle slots.
  */
 export function* botLapSteps(track: Track, route: Route | null = null): Generator<void, number | null> {
-    const car = createCar(track, track.startS + GRID_OFFSET)
+    const car = gridCar(track)
     const timer = new LapTimer(track, car.x, car.y, car.z)
     const lap = track.closed ? 1 : 0
     const length = route?.length ?? track.lapLength

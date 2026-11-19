@@ -102,7 +102,7 @@ const dropAfterLast = (i: number) => !!drag.value && i === props.sections.length
       </span>
       <button class="nr-piece min-w-0 flex-1" :class="{ 'is-active': cursor === i }" @click="$emit('select', i)">
         <span class="nr-piece-index tabular-nums">{{ i + 1 }}</span>
-        <UIcon :name="SECTIONS[id].icon" class="size-4 shrink-0" />
+        <UIcon :name="SECTIONS[id].icon" class="size-4 shrink-0" :class="{ 'nr-required-icon': id === 'checkpoint-required' }" />
         <span class="truncate">{{ SECTIONS[id].label }}</span>
         <span v-if="tags[i] && cursor !== i" class="nr-piece-tag">{{ tags[i] }}</span>
       </button>

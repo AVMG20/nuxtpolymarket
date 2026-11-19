@@ -54,6 +54,8 @@ export interface LineDef {
     runOff?: number
     /** Distance along the line of each checkpoint, in driving order; each one closes a sector. */
     checkpoints?: number[]
+    /** Distance along the line of each checkpoint that every lap has to drive; each is one of `checkpoints`. */
+    requiredCheckpoints?: number[]
     /** The road's up at each point, where any of it isn't straight up: banks, loopings, corkscrews. */
     ups?: [number, number, number][]
     /** Point ranges, [from, to), driven on rails. */
@@ -61,6 +63,8 @@ export interface LineDef {
     /** Point ranges, [from, to), with no road: a jump's gap runs from its first point to the first point after. */
     gaps?: [number, number][]
     boosts?: BoostPadDef[]
+    /** Point ranges, [from, to), that cross a field, and which of the course's fields. */
+    onFields?: { range: [number, number], field: number }[]
 }
 
 /** Which part of the road's width a boost pad covers. */
@@ -96,6 +100,8 @@ export interface Projection {
     y: number
     /** Rise per metre in the driving direction. */
     grade: number
+    /** The course's field the car is on, -1 on road; on one, `branch` and `s` are the nearest spot on a road across it. */
+    field: number
 }
 
 /** The road at a distance: its centre, and the unit tangent, right and up of its surface. */
@@ -150,7 +156,7 @@ export const wrapAngle = (a: number) => a - TAU * Math.floor((a + Math.PI) / TAU
 /** The heading that faces along (dx, dz); heading 0 faces -z. */
 export const headingOf = (dx: number, dz: number) => Math.atan2(-dx, -dz)
 
-export const newProjection = (): Projection => ({ branch: 0, seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0 })
+export const newProjection = (): Projection => ({ branch: 0, seg: 0, s: 0, lateral: 0, tx: 0, tz: 1, y: 0, grade: 0, field: -1 })
 export const newTrackPoint = (): TrackPoint => ({ x: 0, z: 0, tx: 0, tz: 1, y: 0, grade: 0 })
 export const newTrackFrame = (): TrackFrame => ({ x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: -1, rx: 1, ry: 0, rz: 0, ux: 0, uy: 1, uz: 0 })
 
@@ -193,6 +199,8 @@ export class TrackLine {
     readonly curvature: Float64Array
     /** Where each checkpoint line sits along the line, in driving order. */
     readonly checkpoints: readonly number[]
+    /** Per checkpoint, whether every lap has to drive it. */
+    readonly required: readonly boolean[]
     /** Per point: the road's unit tangent in 3D, and the right and up of its surface. */
     readonly t3: Float64Array
     readonly right: Float64Array
@@ -200,6 +208,8 @@ export class TrackLine {
     /** Distance ranges driven on rails, and with no road. */
     readonly rails: readonly (readonly [number, number])[]
     readonly gaps: readonly (readonly [number, number])[]
+    /** Distance ranges across a field, which draws its own ground and walls. */
+    readonly fielded: readonly (readonly [number, number])[]
     readonly boostPads: readonly BoostPad[]
     /** Per point: true on rails. */
     readonly railed: Uint8Array
@@ -251,6 +261,7 @@ export class TrackLine {
         }
         this.rails = toDistance(this.cum, def.rails)
         this.gaps = toDistance(this.cum, def.gaps)
+        this.fielded = (def.onFields ?? []).map(({ range: [a, b] }) => [this.cum[a]!, this.cum[Math.min(b, n)]!] as const)
         this.boostPads = (def.boosts ?? []).map(({ range: [a, b], lane }) => ({
             from: this.cum[a]!,
             to: this.cum[b]!,
@@ -259,6 +270,7 @@ export class TrackLine {
         }))
         this.length = this.cum[n]!
         this.checkpoints = [...def.checkpoints ?? []].sort((a, b) => a - b)
+        this.required = this.checkpoints.map(s => (def.requiredCheckpoints ?? []).some(r => Math.abs(r - s) < 1e-6))
         this.txs = new Float64Array(n)
         this.tzs = new Float64Array(n)
         this.curvature = new Float64Array(n)
@@ -374,10 +386,20 @@ export class TrackLine {
         return this.plainAt(i) && this.plainAt((i + 1) % this.n) && !this.gapAt(s)
     }
 
-    /** Road at `s` that stands on pillars when raised: no rails or gap, though it may bank. */
+    /** Plain road with walls of its own at `s`, not across a field: where scenery can stand beside it. */
+    walledRoadAt(s: number) {
+        return this.plainRoadAt(s) && !this.fieldedAt(s)
+    }
+
+    /** Road at `s` that stands on pillars when raised: no rails, gap or field, though it may bank. */
     solidRoadAt(s: number) {
         const i = this.segmentAt(s)
-        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s)
+        return !this.railed[i] && !this.railed[(i + 1) % this.n] && !this.gapAt(s) && !this.fieldedAt(s)
+    }
+
+    /** True across a field, where the road has no surface or walls of its own. */
+    fieldedAt(s: number) {
+        return this.fielded.length > 0 && within(this.fielded, this.wrapS(s))
     }
 
     /** Whether a car `lateral` across the road at `s` is on a boost pad. */
@@ -539,6 +561,7 @@ export class TrackLine {
         const s = this.cum[i]! + len * t
         if (this.gapAt(s)) return top
         out.branch = this.branch
+        out.field = -1
         out.seg = i
         out.s = s
         out.tx = tx
@@ -664,6 +687,7 @@ export class TrackLine {
         if (!(d2 < best)) return best
         const len = Math.sqrt(len2)
         out.branch = this.branch
+        out.field = -1
         out.seg = i
         out.s = this.cum[i]! + len * t
         out.tx = dx / len
