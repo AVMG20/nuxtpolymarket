@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { compileCustomTrack, sanitizeCustomTrack, type CustomTrack, type SectionId } from '#shared/utils/nitro-rush/custom'
 import { ghostDrivesTrack } from '#shared/utils/nitro-rush/drive-check'
-import { defaultFieldPlan, FIELD_TILE, GATE_POST_RADIUS, gatePosts, isGate, type FieldTile } from '#shared/utils/nitro-rush/field'
+import { defaultFieldPlan, FIELD_TILE, GATE_POST_RADIUS, gatePosts, isGate, PILLAR_RADIUS, type FieldTile } from '#shared/utils/nitro-rush/field'
 import { routeCrossings, routeFieldPaths, type FieldPath } from '#shared/utils/nitro-rush/field-plan'
+import { GHOST_POSE } from '#shared/utils/nitro-rush/ghost'
 import { LapTimer } from '#shared/utils/nitro-rush/timing'
 import { headingOf, Track } from '#shared/utils/nitro-rush/track'
 import { findTrack } from '#shared/utils/nitro-rush/tracks'
@@ -342,5 +343,76 @@ describe('the field planner', () => {
             slowest = Math.min(slowest, car.speed)
         }
         expect(slowest).toBeLessThan(-1)
+    })
+
+    it('squeezes between pillars where they wall off every tile path, and the bot laps Field Obstacles clean', () => {
+        // Its X of pillars leaves no tile path across, only the room between them.
+        const t = new Track(findTrack('field-obstacles')!)
+        const crossed = new Set(routeFieldPaths(t.fields, t.routes[0]!).flatMap(p => p.fields ?? [p.field]))
+        expect(crossed.size).toBe(t.fields.length)
+        const car = gridCar(t)
+        const timer = new LapTimer(t, car.x, car.y, car.z)
+        let rolling = false
+        let lap: number | null = null
+        for (let i = 0; i < PHYSICS_HZ * 60 && lap === null; i++) {
+            const ev = stepCar(car, botInput(car, t), t, 1 / PHYSICS_HZ)
+            expect(ev.fell).toBe(false)
+            // A graze is no crash; running into a pillar at speed is.
+            expect(ev.wallImpact).toBeLessThan(2)
+            rolling ||= car.speed > 10
+            // Once under way it never stops dead against anything.
+            if (rolling) expect(car.speed).toBeGreaterThan(5)
+            const events = timer.update(car.x, car.y, car.z, 1 / PHYSICS_HZ, crossesLines(car, t))
+            expect(events.some(e => e.type === 'missed')).toBe(false)
+            lap = events.find(e => e.type === 'lap')?.time ?? null
+        }
+        expect(lap).not.toBeNull()
+    })
+
+    it('passes the bot\'s ghost on Field Obstacles on every route, but not one that skips the road between its fields', () => {
+        const t = new Track(findTrack('field-obstacles')!)
+        for (const route of t.routes) expect(ghostDrivesTrack(t, drive(t, 0, route))).toBe(true)
+        const ghost = drive(t, 0, t.routes[0]!)
+        const n = ghost.data.length / GHOST_POSE
+        const onField = (k: number) => t.fields.some((f) => {
+            const { u, v } = f.local(ghost.data[k * GHOST_POSE]!, ghost.data[k * GHOST_POSE + 2]!)
+            return f.contains(u, v)
+        })
+        let from = 0
+        while (!onField(from)) from++
+        while (onField(from)) from++
+        const data = ghost.data.slice()
+        for (let k = from; k < n; k++) data.set(ghost.data.subarray(Math.min(n - 1, k + 60) * GHOST_POSE, (Math.min(n - 1, k + 60) + 1) * GHOST_POSE), k * GHOST_POSE)
+        expect(ghostDrivesTrack(t, { ...ghost, data })).toBe(false)
+    })
+
+    it('drives between the pillars of a row that spans the field', () => {
+        const t = fieldTrack([0, 1, 2, 3, 4].map(c => pillar(c, 2)))
+        const path = pathOf(t)
+        const field = t.fields[0]!
+        for (const p of samples(t, path).filter(p => field.contains(p.u, p.v))) {
+            for (let c = 0; c < 5; c++) expect(Math.hypot(p.u - (c + 0.5) * FIELD_TILE, p.v - 2.5 * FIELD_TILE)).toBeGreaterThan(PILLAR_RADIUS + 1)
+        }
+        const run = botRun(t, 30)
+        expect(run.lap).not.toBeNull()
+        expect(run.longest).toBeLessThan(PHYSICS_HZ)
+    })
+
+    it('goes round pillars rather than squeeze past one into a run back toward the entry', () => {
+        // Squeezing here meant overshooting the exit to line up square, or taking the gate the far way and turning back.
+        const fields = [
+            [pillar(1, 2), pillar(1, 3), block(2, 1), pillar(3, 0), pillar(3, 1), block(3, 2), pillar(3, 4)],
+            [pillar(0, 0), pillar(0, 1), pillar(0, 2), block(1, 1), pillar(1, 2), pillar(1, 3), pillar(1, 4), pillar(2, 1), gate(3, 3, 1), pillar(4, 1)]
+        ]
+        for (const tiles of fields) {
+            const t = fieldTrack(tiles)
+            const field = t.fields[0]!
+            let furthest = -Infinity
+            for (const [x, z] of pathOf(t).points) {
+                const { v } = field.local(x, z)
+                furthest = Math.max(furthest, v)
+                expect(v).toBeGreaterThan(furthest - 1)
+            }
+        }
     })
 })
