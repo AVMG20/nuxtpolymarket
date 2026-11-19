@@ -238,6 +238,8 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
     }
     /** The vertex just after hub `v` on its line, where a route that went off on a detour from it carries on. */
     const twins = new Map<number, number>()
+    /** Each twin's hub and the lines of the detours that come back onto it. */
+    const detourLines = new Map<number, { hub: number, branches: number[] }>()
     for (const c of comebacks) {
         // On to a field further along it's just another road in; back to one already crossed, it's a detour off the floor.
         if (c.to !== c.from && !reaches(edgesOf().outs, c.to, c.from)) {
@@ -251,7 +253,9 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
             link(home.branch, home.at, twin)
             twins.set(c.from, twin)
             hubVertices.set(twin, [...hubVertices.get(c.from)!])
+            detourLines.set(twin, { hub: c.from, branches: [] })
         }
+        detourLines.get(twin)!.branches.push(c.b)
         hubVertices.get(twin)!.push(...hubVertices.get(c.to)!.filter(m => !hubVertices.get(twin)!.includes(m)))
         returns.push({ branch: c.b, s: lines[c.b]!.length, v: twin })
     }
@@ -292,7 +296,8 @@ export function compileGraph(lines: readonly TrackLine[], links: readonly (Branc
         const out = hubVertices.get(b.from)?.filter(m => m.branch === b.branch && m.s >= b.s0 - 1e-6 && m.s <= b.s1 + 1e-6).sort((p, q) => p.s - q.s)[0]
         return into && out ? a.s1 - into.s + out.s - b.s0 - Math.hypot(into.x - out.x, into.z - out.z) : 0
     }
-    const routes = findRoutes(lines, start, isEnd, outs, checkpointIds, { shortcut, gatesAt: v => hubGates.get(v) ?? [] }, required, fail)
+    const detours = new Map([...detourLines].map(([twin, d]) => [twin, { hub: d.hub, edges: d.branches.map(b => lineEdges[b]![0]!) }]))
+    const routes = findRoutes(lines, start, isEnd, outs, checkpointIds, { shortcut, gatesAt: v => hubGates.get(v) ?? [], detours }, required, fail)
     const k = Math.min(...routes.map(r => r.checkpoints.length))
 
     const open: OpenSide[][] = lines.map(() => [])
@@ -334,7 +339,10 @@ function meets(a: { x: number, y: number, z: number, tx: number, tz: number }, b
     return Math.hypot(a.x - b.x, a.z - b.z) <= ATTACH_TOLERANCE && Math.abs(a.y - b.y) <= ATTACH_TOLERANCE && (anyWay || a.tx * b.tx + a.tz * b.tz >= Math.cos(ATTACH_ANGLE))
 }
 
-/** Every route from the start to an end that drives every `required` checkpoint, keeping to the line it's on first so the main line's route comes first. */
+/**
+ * Every route from the start to an end that drives every `required` checkpoint, keeping to the line it's on first so the main line's route comes first.
+ * Back on a field from a detour, a route may set off on another of its detours in any order, as long as each drives a required checkpoint the route hadn't.
+ */
 function findRoutes(
     lines: readonly TrackLine[],
     start: number,
@@ -348,8 +356,26 @@ function findRoutes(
     const routes: Route[] = []
     const path: GraphEdge[] = []
     let paths = 0
-    const walk = (v: number, branch: number) => {
-        if (isEnd(v)) {
+    const need = new Set(required)
+    const driven = (e: GraphEdge) => [
+        ...lines[e.branch]!.checkpoints.flatMap((s, i) => s >= e.s0 && s <= e.s1 ? [checkpointIds[e.branch]![i]!] : []),
+        ...hubs.gatesAt(e.to)
+    ]
+    /** Whether the path from edge `from` on drives a required checkpoint the path before it didn't. */
+    const gains = (from: number) => {
+        if (!need.size) return false
+        const before = new Set(hubs.gatesAt(start))
+        for (const e of path.slice(0, from)) for (const id of driven(e)) before.add(id)
+        return path.slice(from).some(e => driven(e).some(id => need.has(id) && !before.has(id)))
+    }
+    const reach = new Map<number, boolean>()
+    const reaches = (a: number, b: number): boolean => {
+        const key = a * outs.length + b
+        if (!reach.has(key)) reach.set(key, a === b || outs[a]!.some(e => reaches(e.to, b)))
+        return reach.get(key)!
+    }
+    const onward = (v: number, branch: number, back: Back | null) => {
+        if (!back && isEnd(v)) {
             if (++paths > MAX_PATHS) fail('Too many ways round; remove a branch')
             const route = routeOf(lines, path, checkpointIds, hubs)
             if (!required.every(id => route.checkpoints.includes(id))) return
@@ -357,16 +383,47 @@ function findRoutes(
             routes.push(route)
             return
         }
-        const next = [...outs[v]!].sort((a, b) => Number(b.branch === branch) - Number(a.branch === branch))
+        const next = outs[v]!.filter(e => !back || reaches(e.to, back.twin)).sort((a, b) => Number(b.branch === branch) - Number(a.branch === branch))
         for (const e of next) {
             path.push(e)
-            walk(e.to, e.branch)
+            walk(e.to, e.branch, back)
             path.pop()
         }
     }
-    walk(start, 0)
+    const onTwin = (v: number, branch: number, back: Back | null, again: boolean) => {
+        onward(v, branch, back)
+        if (!again) return
+        for (const e of hubs.detours.get(v)!.edges) {
+            if (path.includes(e)) continue
+            path.push(e)
+            walk(e.to, e.branch, { twin: v, from: path.length - 1, outer: back })
+            path.pop()
+        }
+    }
+    const walk = (v: number, branch: number, back: Back | null) => {
+        if (back?.twin === v) {
+            // Only a detour that drives a required checkpoint is worth crossing back onto the field for.
+            if (gains(back.from)) onTwin(v, branch, back.outer, true)
+            return
+        }
+        const detour = hubs.detours.get(v)
+        if (!detour) {
+            onward(v, branch, back)
+            return
+        }
+        const left = path.findLastIndex(e => e.from === detour.hub)
+        onTwin(v, branch, back, left >= 0 && gains(left))
+    }
+    walk(start, 0, null)
     if (!routes.length) fail('No route passes every required checkpoint')
     return routes
+}
+
+/** A detour set off on again from its hub: the twin it has to come back to, its first edge's place on the path, and the one it's inside. */
+interface Back {
+    twin: number
+    from: number
+    outer: Back | null
 }
 
 /** What a route owes and saves through the fields it crosses. */
@@ -375,6 +432,8 @@ interface Hubs {
     shortcut: (a: GraphEdge, b: GraphEdge) => number
     /** The field gates at vertex `v`. */
     gatesAt: (v: number) => readonly number[]
+    /** By twin, its hub and the first edge of each detour off that hub that comes back onto the twin. */
+    detours: ReadonlyMap<number, { hub: number, edges: readonly GraphEdge[] }>
 }
 
 function routeOf(lines: readonly TrackLine[], path: readonly GraphEdge[], checkpointIds: readonly (readonly number[])[], hubs: Hubs): Route {
