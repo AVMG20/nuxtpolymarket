@@ -131,20 +131,6 @@ describe('the field planner', () => {
         expect(ghostDrivesTrack(t, ghost)).toBe(true)
     })
 
-    it('drives The Open Field to the finish without touching a wall', () => {
-        const t = new Track(findTrack('open-field')!)
-        expect(t.fields).toHaveLength(1)
-        expect(t.checkpointCount).toBe(2)
-        const car = createCar(t, t.startS - 14)
-        for (let i = 0; i < PHYSICS_HZ * 20; i++) {
-            const ev = stepCar(car, botInput(car, t), t, 1 / PHYSICS_HZ)
-            expect(ev.fell).toBe(false)
-            expect(ev.wallImpact).toBe(0)
-        }
-        expect(botLapTime(t)).not.toBeNull()
-        expect(ghostDrivesTrack(t, drive(t))).toBe(true)
-    })
-
     it('drives straight through a gate that faces back down the road', () => {
         const t = fieldTrack([{ col: 2, row: 3, kind: 'checkpoint', dir: 2 }])
         expect(ghostDrivesTrack(t, drive(t))).toBe(true)

@@ -401,43 +401,6 @@ export const SPLIT_FINISH: TrackLayout = {
     ]
 }
 
-/** A short sprint through one open field: in at its foot, through a gate on the left and one across the top, out its right side. */
-export const OPEN_FIELD: TrackLayout = {
-    id: 'open-field',
-    name: 'The Open Field',
-    group: 'sprints',
-    ...ROAD,
-    closed: false,
-    origin: { x: 0, z: 0, heading: 0 },
-    pieces: [
-        straight(20),
-        start,
-        straight(100),
-        {
-            type: 'field',
-            id: 0,
-            plan: {
-                width: 100,
-                length: 100,
-                entry: 2,
-                exit: { edge: 'right', tile: 3 },
-                tiles: [
-                    { col: 0, row: 2, kind: 'checkpoint', dir: 0 },
-                    { col: 2, row: 4, kind: 'checkpoint', dir: 1 },
-                    { col: 1, row: 0, kind: 'boost', dir: 3 },
-                    { col: 2, row: 2, kind: 'block' },
-                    { col: 3, row: 2, kind: 'block' },
-                    { col: 4, row: 0, kind: 'pillar' },
-                    { col: 1, row: 3, kind: 'pillar' }
-                ]
-            }
-        },
-        straight(100),
-        finish,
-        straight(170)
-    ]
-}
-
 /** `kind` tiles at each [col, row]. */
 const placed = (kind: 'block' | 'pillar', at: readonly (readonly [number, number])[]): FieldTile[] => at.map(([col, row]) => ({ col, row, kind }))
 
@@ -583,7 +546,6 @@ export const TRACKS: readonly TrackDef[] = [
     buildTrack(DOUBLE_FORK),
     buildTrack(LONG_JUMP_SPRINT),
     buildTrack(SPLIT_FINISH),
-    buildTrack(OPEN_FIELD),
     buildTrack(FIELD_OBSTACLES),
     buildTrack(CLOVERFIELD)
 ]
