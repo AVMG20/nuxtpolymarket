@@ -1,6 +1,6 @@
 import { cheapestPath } from './cheapest-path'
 import { edgeAt, edgePoint, FIELD_TILE, GATE_POST_RADIUS, GATE_SPAN, gatePosts, isBlocking, isGate, mouthTiles, sharedEdges, type FieldDir } from './field'
-import { LINE_MARGIN, LineObstacles, raceLine, span, type LineBox, type PathPoint, type RaceLine } from './field-line'
+import { LINE_MARGIN, LineObstacles, lineSeconds, raceLine, span, type LineBox, type PathPoint, type RaceLine } from './field-line'
 import { joinedFields, type CourseField, type FieldMark, type MouthSpot } from './track-fields'
 import type { Route } from './track-graph'
 
@@ -26,6 +26,8 @@ export interface FieldPath extends RaceLine {
 const STEPS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]] as const
 /** Tiles of distance a 45° turn costs, so the plan keeps to straight runs. */
 const TURN_COST = 0.35
+/** Tiles of distance each pillar squeezed past costs, so the plan only squeezes by one where going round is far longer. */
+const PILLAR_COST = 2
 /** Tiles of distance turning back out of a gate's tile costs, so only a gate walled in behind is left that way. */
 const BACK_COST = 8
 /** What a tile costs driven over a pad pointing its way: pads are worth a detour. */
@@ -71,18 +73,30 @@ const turnOf = (a: number, b: number) => Math.min(Math.abs(a - b), 8 - Math.abs(
 /** How far `d` is off a gate's way across, driven either way. */
 const offAxis = (gate: number, d: number) => Math.min(turnOf(gate, d), turnOf((gate + 4) % 8, d))
 
-/** The field's tiles: whether one is open to drive, the step direction a pad or gate on it points, and its gate posts. */
-function tilesOf(field: CourseField) {
+/** The field's tiles: whether one is open to drive, the step direction a pad or gate on it points, and its gate posts; pillars are squeezed past only if `squeeze`. */
+function tilesOf(field: CourseField, squeeze = false) {
     const open = new Uint8Array(field.cols * field.rows).fill(1)
+    const pillar = new Uint8Array(field.cols * field.rows)
     const pad = new Int8Array(field.cols * field.rows).fill(-1)
     const gate = new Int8Array(field.cols * field.rows).fill(-1)
     for (const t of field.def.plan.tiles) {
         const i = t.col + t.row * field.cols
+        if (t.kind === 'pillar' && squeeze) pillar[i] = 1
         if (isBlocking(t.kind)) open[i] = 0
         else if (t.kind === 'boost') pad[i] = t.dir * 2
         else if ('dir' in t && isGate(t.kind)) gate[i] = t.dir * 2
     }
-    const at = (col: number, row: number) => col >= 0 && row >= 0 && col < field.cols && row < field.rows && open[col + row * field.cols] === 1
+    const on = (col: number, row: number) => col >= 0 && row >= 0 && col < field.cols && row < field.rows
+    const at = (col: number, row: number) => on(col, row) && open[col + row * field.cols] === 1
+    const pillarAt = (col: number, row: number) => on(col, row) && pillar[col + row * field.cols] === 1
+    const block = (col: number, row: number) => !at(col, row) && !pillarAt(col, row)
+    // A diagonal step passes the corner its two side tiles share, which a block fills but a pillar leaves room by.
+    const cut = (col: number, row: number, du: number, dv: number) => block(col + du, row) || block(col, row + dv) ? -1 : ((pillarAt(col + du, row) ? 1 : 0) + (pillarAt(col, row + dv) ? 1 : 0)) * PILLAR_COST
+    // The sides of a pillar's tile driven along way `d` (-1 or 1 along the way a quarter turn clockwise) with no block or wall to squeeze it against.
+    const beside = (col: number, row: number, d: number) => {
+        const [ru, rv] = STEPS[(d + 2) % 8]!
+        return [-1, 1].filter(k => !block(col + ru * k, row + rv * k))
+    }
     const gateAt = (col: number, row: number) => col >= 0 && row >= 0 && col < field.cols && row < field.rows ? gate[col + row * field.cols]! : -1
     // Its posts stand either side, so a tile step in or out of a gate's tile goes within 45° of straight through, either way.
     const past = (col: number, row: number, dir: number) => gateAt(col, row) >= 0 && offAxis(gateAt(col, row), dir) > 1
@@ -94,18 +108,58 @@ function tilesOf(field: CourseField) {
         return (STEPS[from]![0] * gu + STEPS[from]![1] * gv) * (STEPS[to]![0] * gu + STEPS[to]![1] * gv) < 0
     }
     const posts = field.def.plan.tiles.flatMap(t => isGate(t.kind) && 'dir' in t ? gatePosts(t) : [])
-    return { at, past, back, posts, pad: (col: number, row: number) => pad[col + row * field.cols]! }
+    return { at, pillar: pillarAt, cut, beside, past, back, posts, pad: (col: number, row: number) => pad[col + row * field.cols]! }
+}
+
+type Tiles = ReturnType<typeof tilesOf>
+
+/** What a tile step from `s` on `a` way `d` onto `to` on `b` costs beyond its length; -1 if it can't be driven. */
+function stepCost(a: Tiles, s: State, d: number, b: Tiles, to: State) {
+    const toPillar = b.pillar(to.col, to.row)
+    if (!toPillar && !b.at(to.col, to.row)) return -1
+    const [du, dv] = STEPS[d]!
+    // A pillar's tile is driven straight through, beside the pillar.
+    if (toPillar || a.pillar(s.col, s.row)) {
+        if (d !== s.dir || (du && dv)) return -1
+        if (!toPillar) return 0
+        return b.beside(to.col, to.row, to.dir).length ? PILLAR_COST : -1
+    }
+    return du && dv ? a.cut(s.col, s.row, du, dv) : 0
+}
+
+/** Where the path passes the pillar on `states[j]`'s tile: half a tile aside, toward where it heads either side of the pillars there. */
+function besidePillar<S extends State>(states: readonly S[], j: number, fieldOf: (s: S) => CourseField, tilesFor: (s: S) => Tiles): [number, number] {
+    const s = states[j]!
+    const field = fieldOf(s)
+    const centre = (t: S) => fieldOf(t).world((t.col + 0.5) * FIELD_TILE, (t.row + 0.5) * FIELD_TILE)
+    const [cx, cz] = centre(s)
+    const [rx, rz] = stepWorld(field, (s.dir + 2) % 8)
+    const pillared = (t: S) => tilesFor(t).pillar(t.col, t.row)
+    let before = j - 1
+    while (before > 0 && pillared(states[before]!)) before--
+    let after = j + 1
+    while (after < states.length - 1 && pillared(states[after]!)) after++
+    let lean = 0
+    for (const t of [states[before], states[after]]) {
+        if (!t) continue
+        const [x, z] = centre(t)
+        lean += (x - cx) * rx + (z - cz) * rz
+    }
+    const sides = tilesFor(s).beside(s.col, s.row, s.dir)
+    // Square on it leans neither way, and the margin keeps rounding noise from picking a side.
+    const side = sides.length > 1 ? (lean < -1e-6 ? -1 : 1) : sides[0]!
+    return [cx + rx * side * FIELD_TILE / 2, cz + rz * side * FIELD_TILE / 2]
 }
 
 /** A mouth's open tiles, both on the line between two, each with the step direction pointing out of the field there, or `into` it. */
-function mouthStates(field: CourseField, tiles: ReturnType<typeof tilesOf>, m: MouthSpot, into: boolean): State[] {
+function mouthStates(field: CourseField, tiles: Tiles, m: MouthSpot, into: boolean): State[] {
     const out: Record<MouthSpot['edge'], FieldDir> = { entry: 2, exit: 0, left: 3, right: 1 }
     const dir = (out[m.edge] * 2 + (into ? 4 : 0)) % 8
     return mouthTiles(field.def.plan, m.edge, m.at).filter(t => tiles.at(t.col, t.row)).map(t => ({ ...t, dir }))
 }
 
 /** The cheapest drive across the tiles from `from` to `goal`: arriving square on `goal.dir` if it can, else up to 45° off, else any way. */
-function leg(field: CourseField, tiles: ReturnType<typeof tilesOf>, from: State, goal: Goal) {
+function leg(field: CourseField, tiles: Tiles, from: State, goal: Goal) {
     const search = (slack: number) => cheapestPath<State, State>(from, {
         key: s => (s.col + s.row * field.cols) * 8 + s.dir,
         steps: (s) => {
@@ -116,10 +170,11 @@ function leg(field: CourseField, tiles: ReturnType<typeof tilesOf>, from: State,
                 const [du, dv] = STEPS[d]!
                 const col = s.col + du
                 const row = s.row + dv
-                if (!tiles.at(col, row) || tiles.past(col, row, d) || tiles.past(s.col, s.row, d) || (du && dv && (!tiles.at(s.col + du, s.row) || !tiles.at(s.col, s.row + dv)))) continue
-                const length = du && dv ? Math.SQRT2 : 1
                 const to = { col, row, dir: d }
-                out.push({ to, cost: length * (tiles.pad(col, row) === d ? PAD_SHARE : 1) + turn * TURN_COST + (tiles.back(s.col, s.row, s.dir, d) ? BACK_COST : 0), label: to })
+                const extra = stepCost(tiles, s, d, tiles, to)
+                if (extra < 0 || tiles.past(col, row, d) || tiles.past(s.col, s.row, d)) continue
+                const length = du && dv ? Math.SQRT2 : 1
+                out.push({ to, cost: length * (tiles.pad(col, row) === d ? PAD_SHARE : 1) + turn * TURN_COST + (tiles.back(s.col, s.row, s.dir, d) ? BACK_COST : 0) + extra, label: to })
             }
             return out
         },
@@ -166,16 +221,16 @@ function* gateOrders(n: number, nearest: () => number[]): Generator<number[]> {
  * A start gate is driven through first, from the grid behind it with no `into`; a finish gate last, with no `out`.
  * `again` is a later crossing of a field the route has already driven, which leaves its gates and start alone.
  */
-export function planField(field: CourseField, into: MouthSpot | null, out: MouthSpot | null, again = false): FieldPath | null {
-    const route = fieldRoute(field, into, out, again)
+function planField(field: CourseField, into: MouthSpot | null, out: MouthSpot | null, again: boolean, squeeze: boolean): FieldPath | null {
+    const route = fieldRoute(field, into, out, again, squeeze)
     if (!route) return null
     const line = raceLine(route.points, new LineObstacles([field]), false, !into)
     return { field: field.index, ...line, pads: padsAlong([field], line.points), open: route.open }
 }
 
-/** The tile path across `field` as planField lays it, before the line is bent round it; null if there's none. */
-function fieldRoute(field: CourseField, into: MouthSpot | null, out: MouthSpot | null, again: boolean) {
-    const tiles = tilesOf(field)
+/** The tile path across `field` as planField lays it, before the line is bent round it, squeezing past pillars if `squeeze`; null if there's none. */
+function fieldRoute(field: CourseField, into: MouthSpot | null, out: MouthSpot | null, again: boolean, squeeze: boolean) {
+    const tiles = tilesOf(field, squeeze)
     const goalOf = (g: FieldMark | null) => g && { col: g.col, row: g.row, dir: dirOfMark(field, g) }
     const startLine = goalOf(field.start)
     const finishLine = goalOf(field.finish)
@@ -232,7 +287,7 @@ function fieldRoute(field: CourseField, into: MouthSpot | null, out: MouthSpot |
 }
 
 /** One line over a run of joined fields, bent as a whole, so the bot never lines up square for the slot between them. */
-function planChain(joined: readonly RouteCrossing[]): FieldPath | null {
+function planChain(joined: readonly RouteCrossing[], squeeze: boolean): FieldPath | null {
     // Fields a road joins that also share an edge are driven straight over it, as the physics lets the car cross anywhere along it.
     const crossings = joined.map(c => ({ ...c }))
     let moved = false
@@ -240,21 +295,21 @@ function planChain(joined: readonly RouteCrossing[]): FieldPath | null {
         const prev = crossings[k - 1]!
         const c = crossings[k]!
         if (c.into!.branch < 0 || !sharedEdges(prev.field.def, [prev.field.def, c.field.def]).length) continue
-        const across = crossOver(prev.field, c.field, prev.into, lineUp(c.field, c.out, c.field.finish))
+        const across = crossOver(prev.field, c.field, prev.into, lineUp(c.field, c.out, c.field.finish), squeeze)
         if (!across) continue
         prev.out = across.out
         c.into = across.into
         moved = true
     }
     // A slot off the road the tiles can't reach both sides of leaves the road's mouth.
-    return (moved ? chainLine(crossings) : null) ?? chainLine(joined)
+    return (moved ? chainLine(crossings, squeeze) : null) ?? chainLine(joined, squeeze)
 }
 
 /** The line over `crossings`, each in and out where it says; null if a field has no way across. */
-function chainLine(crossings: readonly RouteCrossing[]): FieldPath | null {
+function chainLine(crossings: readonly RouteCrossing[], squeeze: boolean): FieldPath | null {
     const points: PathPoint[] = []
     for (const [k, c] of crossings.entries()) {
-        const route = fieldRoute(c.field, c.into, c.out, c.again)
+        const route = fieldRoute(c.field, c.into, c.out, c.again, squeeze)
         if (!route) return null
         // Where fields meet, drop the road each side and keep one point on the edge, free to slide along it.
         let part = route.points
@@ -266,7 +321,7 @@ function chainLine(crossings: readonly RouteCrossing[]): FieldPath | null {
         points.push(...part)
     }
     const group = crossings.map(c => c.field)
-    const tiles = group.map(tilesOf)
+    const tiles = group.map(f => tilesOf(f))
     const posts = group.flatMap((f, i) => tiles[i]!.posts.map(([u, v]) => f.world(u, v)))
     // Off a road's mouth the physics puts the car on the road, so a road join is crossed only there; an edge-to-edge seam anywhere.
     const defs = group.map(f => f.def)
@@ -322,7 +377,7 @@ function gateSides(field: CourseField, g: State, dir: number): [LineBox, LineBox
 }
 
 /** The tile path for the racing line: through its turns, gates and pads only, straight wherever the ground between is open. */
-function smooth(field: CourseField, tiles: ReturnType<typeof tilesOf>, states: readonly State[], gates: readonly State[], into: MouthSpot | null, out: MouthSpot | null): PathPoint[] {
+function smooth(field: CourseField, tiles: Tiles, states: readonly State[], gates: readonly State[], into: MouthSpot | null, out: MouthSpot | null): PathPoint[] {
     type Local = { u: number, v: number, pin: boolean, fixed?: boolean, box?: LineBox, dir?: number }
     const centre = (s: State) => ({ u: (s.col + 0.5) * FIELD_TILE, v: (s.row + 0.5) * FIELD_TILE })
     // Each gate is driven through: in from the middle of its tile's back half, across its span, out through the front half.
@@ -343,9 +398,11 @@ function smooth(field: CourseField, tiles: ReturnType<typeof tilesOf>, states: r
     const gateOf = (s: State) => gates.find(g => g.col === s.col && g.row === s.row && offAxis(g.dir, s.dir) <= 1)
     // From the grid, the path sets off behind the start gate and runs through it.
     const local: Local[] = into ? inside(into) : through(states[0]!, gateOf(states[0]!) ?? states[0]!, -GRID_BACK)
-    for (const s of states.slice(1)) {
+    for (let j = 1; j < states.length; j++) {
+        const s = states[j]!
         const gate = gateOf(s)
         if (gate) local.push(...through(s, gate, -FIELD_TILE * 0.3))
+        else if (tiles.pillar(s.col, s.row)) local.push({ ...field.local(...besidePillar(states, j, () => field, () => tiles)), pin: true })
         else if (tiles.pad(s.col, s.row) === s.dir) {
             local.push({ ...centre(s), pin: true, box: padBox(field, s) })
         } else local.push({ ...centre(s), pin: false, dir: s.dir })
@@ -395,7 +452,7 @@ function roadRun(field: CourseField, m: MouthSpot, into: boolean): PathPoint[] {
 }
 
 /** Whether a straight run from `a` to `b` stays on open tiles and off gate posts, `half` metres either side. */
-function clear(field: CourseField, tiles: ReturnType<typeof tilesOf>, a: { u: number, v: number }, b: { u: number, v: number }, half = SIGHT_HALF) {
+function clear(field: CourseField, tiles: Tiles, a: { u: number, v: number }, b: { u: number, v: number }, half = SIGHT_HALF) {
     const length = span(b.u - a.u, b.v - a.v)
     for (const [pu, pv] of tiles.posts) {
         const t = length < 1e-6 ? 0 : Math.max(0, Math.min(1, ((pu - a.u) * (b.u - a.u) + (pv - a.v) * (b.v - a.v)) / (length * length)))
@@ -476,7 +533,7 @@ export function routeCrossings(fields: readonly CourseField[], route: Route): Ro
         let into = p.into
         const toward = lineUp(to, p.out, to.finish)
         for (let k = 0; k + 1 < chain.length; k++) {
-            const across = crossOver(chain[k]!, chain[k + 1]!, into, toward)
+            const across = crossOver(chain[k]!, chain[k + 1]!, into, toward, false) ?? crossOver(chain[k]!, chain[k + 1]!, into, toward, true)
             if (!across) break
             add(chain[k]!, into, across.out)
             into = across.into
@@ -507,7 +564,7 @@ function fieldChain(fields: readonly CourseField[], a: CourseField, b: CourseFie
 }
 
 /** Where the bot drives over the edge from field `a` onto `b`: the slot of the stretch they share it can reach on the straightest way from where it came in (or its start gate) on `toward`. */
-function crossOver(a: CourseField, b: CourseField, into: MouthSpot | null, toward: { x: number, z: number } | null) {
+function crossOver(a: CourseField, b: CourseField, into: MouthSpot | null, toward: { x: number, z: number } | null, squeeze: boolean) {
     const shared = sharedEdges(a.def, [a.def, b.def])[0]
     if (!shared) return null
     const from = into ?? (a.start ? lineUp(a, null, a.start, -1) : null) ?? (() => {
@@ -534,7 +591,7 @@ function crossOver(a: CourseField, b: CourseField, into: MouthSpot | null, towar
         const onB = edgeAt(b.def.plan, p.u, p.v, 0.05)
         // Beside a block either side, the car would cross the seam against its wall.
         if (!onB || !mouthTiles(a.def.plan, shared.edge, at).every(t => tilesA.at(t.col, t.row))) continue
-        if (!mouthTiles(b.def.plan, onB.edge, onB.at).every(t => tilesB.at(t.col, t.row)) || !fieldRoute(a, into, out, true)) continue
+        if (!mouthTiles(b.def.plan, onB.edge, onB.at).every(t => tilesB.at(t.col, t.row)) || !fieldRoute(a, into, out, true, squeeze)) continue
         return { out, into: { ...out, edge: onB.edge, at: onB.at } }
     }
     return null
@@ -573,10 +630,22 @@ export function routeFieldPaths(fields: readonly CourseField[], route: Route): r
     let cached = plans.get(route)
     if (!cached) {
         const arena = fields.length && fields.every(f => !f.mouths.length) && fields.some(f => f.start)
-        cached = arena ? [planArena(fields)].filter(p => p !== null) : chainsOf(routeCrossings(fields, route)).flatMap(chain => (chain.length > 1 ? planChain(chain) : planField(chain[0]!.field, chain[0]!.into, chain[0]!.out, chain[0]!.again)) ?? [])
+        cached = arena
+            ? [quicker(fields, true, squeeze => planArena(fields, squeeze))].filter(p => p !== null)
+            : chainsOf(routeCrossings(fields, route)).flatMap(chain => quicker(chain.map(c => c.field), !chain[0]!.into, squeeze => chain.length > 1 ? planChain(chain, squeeze) : planField(chain[0]!.field, chain[0]!.into, chain[0]!.out, chain[0]!.again, squeeze)) ?? [])
         plans.set(route, cached)
     }
     return cached
+}
+
+/** `plan` going round pillars, or squeezing past them where that drives quicker, which tile costs can't tell. */
+function quicker(fields: readonly CourseField[], fromRest: boolean, plan: (squeeze: boolean) => FieldPath | null) {
+    const round = plan(false)
+    if (!fields.some(f => f.def.plan.tiles.some(t => t.kind === 'pillar'))) return round
+    const squeezed = plan(true)
+    if (!round || !squeezed) return round ?? squeezed
+    // Within the margin it goes round, so rounding noise never picks the squeeze.
+    return lineSeconds(squeezed, fromRest) < lineSeconds(round, fromRest) - 1e-6 ? squeezed : round
 }
 
 /** A tile on one of an arena's fields, by its index among them. */
@@ -588,11 +657,11 @@ interface GroupState extends State {
  * The bot's lap round an arena, a loop of joined fields no road meets: from the start gate through every
  * checkpoint in the cheapest order and back through the start, in world points; null if there's none.
  */
-export function planArena(fields: readonly CourseField[]): FieldPath | null {
+function planArena(fields: readonly CourseField[], squeeze: boolean): FieldPath | null {
     const home = fields.find(f => f.start)
     if (!home) return null
     const group = joinedFields(fields, home.index)
-    const tiles = group.map(tilesOf)
+    const tiles = group.map(f => tilesOf(f, squeeze))
     const centre = (s: GroupState) => group[s.f]!.world((s.col + 0.5) * FIELD_TILE, (s.row + 0.5) * FIELD_TILE)
     const gateOf = (f: number, g: FieldMark, either: boolean) => ({ f, col: g.col, row: g.row, dir: dirOfMark(group[f]!, g), either })
     const start = gateOf(group.indexOf(home), home.start!, false)
@@ -613,7 +682,6 @@ export function planArena(fields: readonly CourseField[]): FieldPath | null {
         }
         return null
     }
-    const openAt = (s: GroupState) => tiles[s.f]!.at(s.col, s.row)
     const legOf = (from: GroupState, goal: GroupState & Goal) => {
         const [gx, gz] = centre(goal)
         const search = (slack: number) => cheapestPath<GroupState, GroupState>(from, {
@@ -624,11 +692,12 @@ export function planArena(fields: readonly CourseField[]): FieldPath | null {
                     const turn = turnOf(s.dir, d)
                     if (turn > 2) continue
                     const to = across(s.f, s.col, s.row, d)
-                    if (!to || !openAt(to) || tiles[to.f]!.past(to.col, to.row, to.dir) || tiles[s.f]!.past(s.col, s.row, d)) continue
+                    if (!to || tiles[to.f]!.past(to.col, to.row, to.dir) || tiles[s.f]!.past(s.col, s.row, d)) continue
+                    const extra = stepCost(tiles[s.f]!, s, d, tiles[to.f]!, to)
+                    if (extra < 0) continue
                     const [du, dv] = STEPS[d]!
-                    if (du && dv && (!tiles[s.f]!.at(s.col + du, s.row) || !tiles[s.f]!.at(s.col, s.row + dv))) continue
                     const length = du && dv ? Math.SQRT2 : 1
-                    out.push({ to, cost: length * (tiles[to.f]!.pad(to.col, to.row) === to.dir ? PAD_SHARE : 1) + turn * TURN_COST, label: to })
+                    out.push({ to, cost: length * (tiles[to.f]!.pad(to.col, to.row) === to.dir ? PAD_SHARE : 1) + turn * TURN_COST + extra, label: to })
                 }
                 return out
             },
@@ -693,10 +762,14 @@ export function planArena(fields: readonly CourseField[]): FieldPath | null {
     // The lap from the start gate's middle round to just short of it again; the last state is the start, which the first stands for.
     const [behind, ...onward] = through(start, start)
     const lap: Point[] = onward
-    for (const s of best.states.slice(1, -1)) {
+    for (let j = 1; j < best.states.length - 1; j++) {
+        const s = best.states[j]!
         const gate = marks.find(g => g.f === s.f && g.col === s.col && g.row === s.row && offAxis(g.dir, s.dir) <= 1)
         if (gate) lap.push(...through(s, gate))
-        else {
+        else if (tiles[s.f]!.pillar(s.col, s.row)) {
+            const [x, z] = besidePillar(best.states, j, t => group[t.f]!, t => tiles[t.f]!)
+            lap.push({ x, z, pin: true })
+        } else {
             const [x, z] = centre(s)
             const [wx, wz] = stepWorld(group[s.f]!, s.dir)
             const pad = tiles[s.f]!.pad(s.col, s.row) === s.dir
@@ -769,7 +842,7 @@ function stepWorld(field: CourseField, d: number): [number, number] {
 }
 
 /** Whether a straight run between two world points stays on open tiles of `group` and off its gate posts, `half` metres either side. */
-function groupClear(group: readonly CourseField[], tiles: readonly ReturnType<typeof tilesOf>[], posts: readonly [number, number][], ax: number, az: number, bx: number, bz: number, half: number) {
+function groupClear(group: readonly CourseField[], tiles: readonly Tiles[], posts: readonly [number, number][], ax: number, az: number, bx: number, bz: number, half: number) {
     const length = span(bx - ax, bz - az)
     for (const [px, pz] of posts) {
         const t = length < 1e-6 ? 0 : Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (pz - az) * (bz - az)) / (length * length)))

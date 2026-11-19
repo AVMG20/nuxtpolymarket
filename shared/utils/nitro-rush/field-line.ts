@@ -358,6 +358,14 @@ function lineTime(xs: Float64Array, zs: Float64Array, from: number, to: number, 
     return time
 }
 
+/** Seconds `line` takes to drive as fast as its shape allows, setting off `fromRest` or at speed. */
+export function lineSeconds(line: RaceLine, fromRest: boolean) {
+    const n = line.points.length
+    const xs = Float64Array.from(line.points, p => p[0])
+    const zs = Float64Array.from(line.points, p => p[1])
+    return n < 2 ? 0 : lineTime(xs, zs, 0, n - 1, fromRest ? 0 : TOP_SPEED, Infinity, new Float64Array(n), new Float64Array(n))
+}
+
 /** Nudges an open line across in smooth bumps wherever that drives it quicker, which smoothing its bends alone can't weigh. */
 function quicken(pts: readonly PathPoint[], xs: Float64Array, zs: Float64Array, obstacles: LineObstacles, fromRest: boolean) {
     const n = pts.length

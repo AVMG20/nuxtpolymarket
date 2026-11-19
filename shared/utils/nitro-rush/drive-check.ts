@@ -208,17 +208,21 @@ function fieldAt(track: Track, x: number, y: number, z: number): RoadHit | null 
     return { branch: p.branch, s: p.s, on: true, over: true, field: true }
 }
 
-/** The road a pose is on or over anywhere on the course. */
-function roadAt(track: Track, x: number, y: number, z: number): RoadHit {
-    const onField = fieldAt(track, x, y, z)
-    if (onField) return onField
+/** The road a pose is on or over anywhere on the course, off every field. */
+function anyRoad(track: Track, x: number, y: number, z: number): RoadHit {
     const found = newSearch()
     for (const line of track.branches) searchLine(line, x, y, z, found)
     return found.overHit ?? found.hit
 }
 
+/** The road a pose is on or over anywhere on the course. */
+const roadAt = (track: Track, x: number, y: number, z: number): RoadHit => fieldAt(track, x, y, z) ?? anyRoad(track, x, y, z)
+
 /** The road a pose is on, searched `span` metres either side of the road the pose before was on; the whole course after a flight, or when it left that road. */
 function roadNear(track: Track, x: number, y: number, z: number, before: RoadHit, span: number): RoadHit {
+    // Driven onto a field off the road, it's on the field, not the road across it, whose legs can lie close together there.
+    const onField = fieldAt(track, x, y, z)
+    if (onField) return onField
     const line = track.branches[before.branch]!
     if (before.on && !before.field && (!line.closed || 2 * span < line.length)) {
         const from = line.segmentAt(before.s - span)
@@ -228,7 +232,7 @@ function roadNear(track: Track, x: number, y: number, z: number, before: RoadHit
         const hit = found.overHit ?? found.hit
         if (hit.on) return hit
     }
-    return roadAt(track, x, y, z)
+    return anyRoad(track, x, y, z)
 }
 
 /** Metres a pose may climb or drop from the one before as it moves from one road onto another, both on the road. */
