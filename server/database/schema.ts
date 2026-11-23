@@ -19,9 +19,6 @@ import type {
   TcgCondition
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
-import type { StoredGhost } from '#shared/utils/nitro-rush/ghost'
-import type { CustomBranch, SectionId } from '#shared/utils/nitro-rush/custom'
-import type { CustomField } from '#shared/utils/nitro-rush/custom-fields'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
@@ -2764,12 +2761,14 @@ export const railTycoonMembers = pgTable('rail_tycoon_members', {
   uniqueIndex('rail_tycoon_members_world_company_idx').on(t.worldId, t.companyId)
 ])
 
+// Nitro Rush now runs as its own hub app; these tables stay until their data is imported there.
+
 // Nitro Rush: each player's best single lap per course. The unique key is the
 // one-entry-per-player rule, so a lap is an upsert that only ever lowers it.
 export const nitroRushLaps = pgTable('nitro_rush_laps', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  /** A `TRACKS` id from `shared/utils/nitro-rush/track.ts`. */
+  /** A built-in course id. */
   trackId: text('track_id').notNull(),
   lapMs: integer('lap_ms').notNull(),
   /** When the current best was set: an equal time ranks behind whoever got there first. */
@@ -2788,11 +2787,11 @@ export const nitroRushTracks = pgTable('nitro_rush_tracks', {
   sourceId: text('source_id').notNull(),
   name: text('name').notNull(),
   closed: boolean('closed').notNull(),
-  sections: jsonb('sections').$type<SectionId[]>().notNull(),
+  sections: jsonb('sections').$type<string[]>().notNull(),
   // Null on a course that never forks, which is every course published before forks.
-  branches: jsonb('branches').$type<CustomBranch[]>(),
+  branches: jsonb('branches').$type<unknown[]>(),
   // Null on a course without fields.
-  fields: jsonb('fields').$type<CustomField[]>(),
+  fields: jsonb('fields').$type<unknown[]>(),
   publishedAt: timestamp('published_at').defaultNow().notNull(),
   /** Set while the author has it unpublished. */
   unpublishedAt: timestamp('unpublished_at'),
@@ -2840,7 +2839,7 @@ export const nitroRushGhosts = pgTable('nitro_rush_ghosts', {
   lapMs: integer('lap_ms').notNull(),
   /** A loop's first lap from the grid, kept only until a flying lap is driven. */
   standing: boolean('standing').notNull().default(false),
-  ghost: jsonb('ghost').$type<StoredGhost>().notNull(),
+  ghost: jsonb('ghost').$type<unknown>().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, t => [
   uniqueIndex('nitro_rush_ghosts_user_track_idx').on(t.userId, t.trackId)
