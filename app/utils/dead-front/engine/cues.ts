@@ -15,6 +15,9 @@ export const DF_POWERUP_TICKS = 5
 /** Below this share of health (standing) the heart pounds. */
 export const DF_LOW_HEALTH = 0.3
 
+/** The timed power-ups whose last seconds tick (a constant: the loop runs every frame). */
+const TIMED_POWERUPS = ['double', 'insta'] as const
+
 /**
  * The whole-second mark a countdown crossed going from `prev` to `next`
  * seconds left (counting down), if it is one of 1..`top`; else null.
@@ -65,7 +68,7 @@ export function createDfCues(audio: DfAudio): DfCues {
             primed = true
 
             // double points / insta-kill running out: a tick a second, then the end chime
-            for (const kind of ['double', 'insta'] as const) {
+            for (const kind of TIMED_POWERUPS) {
                 const left = s.world[kind]
                 const prev = powerLeft[kind]
                 powerLeft[kind] = left

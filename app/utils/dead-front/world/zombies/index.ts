@@ -143,6 +143,12 @@ interface RigLook {
     mask?: boolean
 }
 
+/** The per-frame look passed to `writeRig`: one object, refilled for every instance (no per-zombie garbage). */
+type RigOpts = RigLook & { eyeScale?: number, scale?: number }
+const ARMS_UPPER = [P.armUL, P.armUR] as const
+const ARMS_LOWER = [P.armLL, P.armLR] as const
+const LEGS_LOWER = [P.legLL, P.legLR] as const
+
 function partHidden(p: number, o: RigLook): boolean {
     if (o.headGone && (p === P.head || p === P.eyes || p === P.helmet || p === P.mask)) return true
     if (p === P.helmet) return !o.helmet && !o.helmetMatrix
@@ -279,6 +285,20 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
     const v3 = new THREE.Vector3()
     const one = new THREE.Vector3(1, 1, 1)
     const tint = new THREE.Color()
+    const look: Required<RigOpts> = { headGone: false, helmet: false, helmetMatrix: null, crawl: false, mask: false, eyeScale: 1, scale: 1 }
+    const helmetM = new THREE.Matrix4()
+    const soundPos = { x: 0, y: 0, z: 0 }
+    const soundOpts: { pos: Vec3, volume: number, rate: number } = { pos: soundPos, volume: 1, rate: 1 }
+    function setLook(headGone: boolean, helmet: boolean, helmetMatrix: THREE.Matrix4 | null, crawl: boolean, mask: boolean, eyeScale: number, scale: number): Required<RigOpts> {
+        look.headGone = headGone
+        look.helmet = helmet
+        look.helmetMatrix = helmetMatrix
+        look.crawl = crawl
+        look.mask = mask
+        look.eyeScale = eyeScale
+        look.scale = scale
+        return look
+    }
 
     const debris = createDfDebris(scene, debrisMat, (x, y, z) => {
         if (time - decalAt > 0.25 && Math.random() < 0.3) {
@@ -289,7 +309,13 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
     const gas = createDfGasClouds(scene, fx)
 
     function sound(name: string, x: number, y: number, z: number, volume = 1, rate = 1): void {
-        audio.play(name, { pos: { x, y, z }, volume, rate })
+        // one options object, reused: the engine reads it synchronously
+        soundPos.x = x
+        soundPos.y = y
+        soundPos.z = z
+        soundOpts.volume = volume
+        soundOpts.rate = rate
+        audio.play(name, soundOpts)
     }
 
     function distTo(x: number, y: number, z: number): number {
@@ -310,7 +336,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
      * Writes all part matrices of one instance. `tilt` pitches the whole body
      * about the feet (corpses), `eyeScale` grows the eyes at range.
      */
-    function writeRig(b: DfZombieBatch, slot: number, joints: THREE.Vector3[], dims: DfZombieDims, pose: DfPose, x: number, y: number, z: number, yaw: number, opts: RigLook & { eyeScale?: number, scale?: number }): void {
+    function writeRig(b: DfZombieBatch, slot: number, joints: THREE.Vector3[], dims: DfZombieDims, pose: DfPose, x: number, y: number, z: number, yaw: number, opts: RigOpts): void {
         // root = T(feet) * Ry(yaw) * T(offset) * Rx(pitch) * Rz(roll): offsets stay level when the body tips over.
         const r = DF_POSE_ROOT
         q.setFromAxisAngle(v3.set(0, 1, 0), yaw + pose[r + 5]!)
@@ -610,9 +636,9 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         let helmetMatrix: THREE.Matrix4 | null = null
         if (L.helmet) {
             const h = L.helmet
-            helmetMatrix = m4b.compose(h.pos, h.quat, one.set(1, 1, 1)).clone()
+            helmetMatrix = helmetM.compose(h.pos, h.quat, one.set(1, 1, 1))
         }
-        writeRig(L.batch, L.slot, L.joints, L.dims, L.pose, L.x, L.y, L.z, L.yaw, { helmet: L.type === 'brute' && !L.helmetGone, helmetMatrix, crawl: L.crawl, mask: L.masked, eyeScale: eyeScale(L, pxPerUnit) })
+        writeRig(L.batch, L.slot, L.joints, L.dims, L.pose, L.x, L.y, L.z, L.yaw, setLook(false, L.type === 'brute' && !L.helmetGone, helmetMatrix, L.crawl, L.masked, eyeScale(L, pxPerUnit), 1))
     }
 
     /** The legs come off below the knee: the shins burst into gore and it starts toppling onto its front. */
@@ -937,7 +963,6 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const fall = c.fast ? 0.35 : c.crumple ? 0.75 : 0.55
         const p = c.pose
         const r = DF_POSE_ROOT
-        const look: RigLook = { headGone: c.headGone, helmet: c.helmet, crawl: c.crawl, mask: c.mask }
         if (c.t < LIE && c.crawl) {
             // A crawler slumps flat: chest and head drop, the head rolls onto a cheek, the arms go limp.
             const slack = smooth(c.t / 0.45)
@@ -946,14 +971,14 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             p[P.torso * 3 + 1] = c.start[P.torso * 3 + 1]! * (1 - slack)
             p[P.head * 3] = c.start[P.head * 3]! * (1 - slack) - 0.25 * slack
             p[P.head * 3 + 2] = c.start[P.head * 3 + 2]! * (1 - slack) + 0.9 * slack
-            for (const part of [P.armUL, P.armUR]) p[part * 3] = p[part * 3]! * (1 - slack) - 2.9 * slack
-            for (const part of [P.armLL, P.armLR]) p[part * 3] = p[part * 3]! * (1 - slack) + 0.2 * slack
+            for (const part of ARMS_UPPER) p[part * 3] = p[part * 3]! * (1 - slack) - 2.9 * slack
+            for (const part of ARMS_LOWER) p[part * 3] = p[part * 3]! * (1 - slack) + 0.2 * slack
             p[r + 1] = c.start[r + 1]! - slack * c.dims.v * 0.4
             if (c.twitch > 0 && c.t < 2.5 && Math.random() < dt * 8 * c.twitch) {
                 p[P.armLL * 3] = p[P.armLL * 3]! - rnd(0, 0.6)
                 fx.burst('electric', { x: c.x + rnd(-0.3, 0.3), y: c.y + 0.2, z: c.z + rnd(-0.3, 0.3) }, { count: 5 })
             }
-            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1 })
+            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, setLook(c.headGone, c.helmet, null, c.crawl, c.mask, 1, 1))
             return true
         }
         if (c.t < LIE) {
@@ -968,8 +993,8 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             p[r + 1] = Math.sin(ang) * c.dims.v * 2.2 - pre * c.dims.v * 3
             // Limbs go slack.
             const slack = smooth(c.t / 0.5)
-            for (const part of [P.armUL, P.armUR]) p[part * 3] = p[part * 3]! * (1 - slack) + (c.dir > 0 ? -2.6 : 0.4) * slack
-            for (const part of [P.legLL, P.legLR]) p[part * 3] = p[part * 3]! * (1 - slack) + (pre * 1.2 + 0.2) * slack
+            for (const part of ARMS_UPPER) p[part * 3] = p[part * 3]! * (1 - slack) + (c.dir > 0 ? -2.6 : 0.4) * slack
+            for (const part of LEGS_LOWER) p[part * 3] = p[part * 3]! * (1 - slack) + (pre * 1.2 + 0.2) * slack
             p[P.torso * 3] = p[P.torso * 3]! * (1 - slack)
             p[P.head * 3 + 2] = (p[P.head * 3 + 2] ?? 0) + slack * 0.4
             if (c.twitch > 0 && c.t < 2.5 && Math.random() < dt * 8 * c.twitch) {
@@ -992,7 +1017,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                     fx.decal({ x: fx2, y: c.y + 0.01, z: fz2 }, { x: 0, y: 1, z: 0 }, 'blood')
                 }
             }
-            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1 })
+            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, setLook(c.headGone, c.helmet, null, c.crawl, c.mask, 1, 1))
             void pxPerUnit
             return true
         }
@@ -1009,7 +1034,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                 debris.spawn(c.x + Math.sin(c.yaw) * c.dir * rnd(0.2, 1.4) + Math.cos(a) * 0.2, c.y + 0.15, c.z + Math.cos(c.yaw) * c.dir * rnd(0.2, 1.4) + Math.sin(a) * 0.2, Math.cos(a) * 0.5, rnd(0.8, 1.6), Math.sin(a) * 0.5, c.dims.v * 0.8, 0x4a4436, c.y, 0.8)
             }
         }
-        writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1, scale: 1 - sink * 0.35 })
+        writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, setLook(c.headGone, c.helmet, null, c.crawl, c.mask, 1, 1 - sink * 0.35))
         return true
     }
 

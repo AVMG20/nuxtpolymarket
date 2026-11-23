@@ -241,10 +241,10 @@ export function createDfAtmosphere(kit: DfWorldKit): DfWorldPart {
                 const k = (e.size / s) * (e.size / s) * flick * Math.max(0, 1 - dist / (R * 1.1))
                 embers.setColorAt(i, col.setRGB(2.4 * k, 0.75 * k, 0.18 * k))
             }
-            for (const m of [ash, embers]) {
-                m.instanceMatrix.needsUpdate = true
-                if (m.instanceColor) m.instanceColor.needsUpdate = true
-            }
+            ash.instanceMatrix.needsUpdate = true
+            if (ash.instanceColor) ash.instanceColor.needsUpdate = true
+            embers.instanceMatrix.needsUpdate = true
+            if (embers.instanceColor) embers.instanceColor.needsUpdate = true
         },
         dispose() {
             for (const m of mists) m.removeFromParent()
