@@ -337,6 +337,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let damageId = 0
     let chatId = 0
     let hudTimer = 0
+    /** The container's CSS size, kept by the ResizeObserver (never read per frame: that forces a layout). */
+    let viewW = container.clientWidth || 1
+    let viewH = container.clientHeight || 1
     let time = 0
     let last = performance.now()
     let acc = 0
@@ -2436,8 +2439,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updateHudFast(): void {
         const root = opts.hudRoot()
         if (!root) return
-        const cssH = container.clientHeight || 1
-        const cssW = container.clientWidth || 1
+        // the cached size: reading clientWidth here forced a synchronous layout of the
+        // whole HUD (Vue's 20 Hz updates had just dirtied it) inside every frame
+        const cssH = viewH
+        const cssW = viewW
         // crosshair gap from the live spread
         if (stats) {
             const spread = dfSpread({
@@ -2571,6 +2576,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
     const ro = new ResizeObserver(() => {
         rr.resize()
+        viewW = container.clientWidth || 1
+        viewH = container.clientHeight || 1
         camera.aspect = Math.max(0.2, container.clientWidth / Math.max(1, container.clientHeight))
         vmCamera.aspect = camera.aspect
         vmCamera.updateProjectionMatrix()
