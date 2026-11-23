@@ -57,6 +57,9 @@ function setup() {
     ]
     hud.objective = { visible: true, step: 'fuses', text: 'Recover the Tesla fuses', fuses: '1/3', charge: null, rods: null, rodTimer: null, label: 'Tesla fuse', distance: 23, hasTarget: true }
     hud.ping = 24
+    hud.fps = 60
+    hud.frameP95 = 18
+    hud.frameP99 = 21
     hud.chat = [{ id: 1, name: 'Pvt. Hale', text: 'door by the chapel, need 750', born: 0 }]
     hud.ammo.rarity = 2
     // salvage, gear, the bench list, held support and the round challenge

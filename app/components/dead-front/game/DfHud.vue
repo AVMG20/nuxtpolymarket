@@ -25,9 +25,17 @@
             </div>
         </Transition>
 
-        <!-- top-right: ping over the squad feed -->
+        <!-- top-right: ping and frame rate over the squad feed -->
         <div class="df-corner-tr absolute flex flex-col items-end gap-2">
-            <div class="df-ping" :class="{ bad: hud.ping > 150 }">{{ hud.ping }} ms</div>
+            <div class="df-ping">
+                <span :class="{ bad: hud.ping > 150 }">{{ hud.ping }} ms</span>
+                <span class="df-ping-sep">·</span>
+                <span :class="{ bad: hud.fps > 0 && hud.fps < 30 }">{{ hud.fps }} fps</span>
+                <span class="df-ping-sep">·</span>
+                <span :class="{ bad: hud.frameP95 > 25 }" title="95th-percentile frame time">p95 {{ hud.frameP95 }}</span>
+                <span class="df-ping-sep">·</span>
+                <span :class="{ bad: hud.frameP99 > 34 }" title="99th-percentile frame time">p99 {{ hud.frameP99 }} ms</span>
+            </div>
             <DfHudFeed :feed="hud.feed" />
         </div>
 
@@ -1144,8 +1152,13 @@ function iconFor(kind: DfPowerupKind): string {
     font-variant-numeric: tabular-nums;
 }
 
-.df-ping.bad {
+.df-ping .bad {
     color: #ff7a5c;
+}
+
+.df-ping-sep {
+    margin: 0 0.35em;
+    opacity: 0.6;
 }
 
 .df-ledger-enter-active,

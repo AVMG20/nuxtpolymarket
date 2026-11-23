@@ -53,6 +53,7 @@ import { dfAmbienceIntensity, dfSetAmbienceIntensity } from '~/utils/dead-front/
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
 import { createDfArsenalClient } from './arsenal'
 import { dfEscapePauses, dfLockLossPlaysOn } from './bench-exit'
+import { dfFrameSummary, dfNewFrameStats, dfPushFrame } from './frame-stats'
 import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_STREAK_TITLES, DF_WARLORD, dfGasDepth } from '#shared/utils/dead-front/specials'
 
@@ -340,6 +341,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     /** The container's CSS size, kept by the ResizeObserver (never read per frame: that forces a layout). */
     let viewW = container.clientWidth || 1
     let viewH = container.clientHeight || 1
+    /** The HUD's frame-rate readout: every frame interval, summarised twice a second. */
+    const frameStats = dfNewFrameStats()
+    const frameSummary = { fps: 0, p95: 0, p99: 0 }
+    let frameStatsTimer = 0
     let time = 0
     let last = performance.now()
     let acc = 0
@@ -1825,6 +1830,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             prof.gap.push(nowMs - last)
             prof.at = workStart
         }
+        dfPushFrame(frameStats, nowMs - last)
         last = nowMs
         time += dt
         const now = time
@@ -2187,6 +2193,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updateHud(nowMs: number): void {
         const s = latest
         hud.ping = Math.round(net.rtt)
+        frameStatsTimer += 1
+        if (frameStatsTimer >= 10) {
+            frameStatsTimer = 0
+            dfFrameSummary(frameStats, frameSummary)
+            hud.fps = frameSummary.fps
+            hud.frameP95 = frameSummary.p95
+            hud.frameP99 = frameSummary.p99
+        }
         hud.connection = net.status !== 'open' ? 'reconnecting' : nowMs - lastSnapAt > 2500 && spawned && !pausedByMe ? 'lost' : 'ok'
         if (!s) return
         if (hud.round !== s.round && s.round > 0 && hud.round === 0) hud.round = s.round
@@ -2804,9 +2818,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 return {
                     frames: prof.frames,
                     fps: +(prof.frames / secs).toFixed(1),
-                    workMs: { avg: +(sorted.reduce((a, b) => a + b, 0) / n).toFixed(2), p50: q(sorted, 0.5), p95: q(sorted, 0.95), max: q(sorted, 1) },
+                    workMs: { avg: +(sorted.reduce((a, b) => a + b, 0) / n).toFixed(2), p50: q(sorted, 0.5), p95: q(sorted, 0.95), p99: q(sorted, 0.99), max: q(sorted, 1) },
                     gpuMs: prof.gpu.length ? { p50: q([...prof.gpu].sort((a, b) => a - b), 0.5), p95: q([...prof.gpu].sort((a, b) => a - b), 0.95), max: q([...prof.gpu].sort((a, b) => a - b), 1) } : null,
-                    gapMs: { p50: q(gaps, 0.5), p95: q(gaps, 0.95), max: q(gaps, 1), over25: gaps.filter(g => g > 25).length },
+                    gapMs: { p50: q(gaps, 0.5), p95: q(gaps, 0.95), p99: q(gaps, 0.99), max: q(gaps, 1), over25: gaps.filter(g => g > 25).length },
+                    // a frame that took longer than one and a half refresh intervals missed a vsync
+                    missed: gaps.filter(g => g > q(gaps, 0.5) * 1.5).length,
                     split,
                     worst,
                     calls: renderer.info.render.calls,

@@ -132,6 +132,10 @@ export interface DfHudState {
     damage: DfHudDamage[]
     scoreboard: boolean
     ping: number
+    /** Frames per second, and the 95th / 99th-percentile frame times (ms) over the last two seconds: the spikes the average hides. */
+    fps: number
+    frameP95: number
+    frameP99: number
     connection: 'ok' | 'reconnecting' | 'lost'
     locked: boolean
     /** Escape closed the workbench: the browser dropped the pointer lock, but that is no pause (a click plays on). */
@@ -330,6 +334,9 @@ export function dfCreateHudState(): DfHudState {
         damage: [],
         scoreboard: false,
         ping: 0,
+        fps: 0,
+        frameP95: 0,
+        frameP99: 0,
         connection: 'ok',
         locked: false,
         benchEscaped: false,
