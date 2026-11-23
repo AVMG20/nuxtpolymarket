@@ -1994,6 +1994,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // included): refresh it every other frame. 30 Hz shadows are indistinguishable here.
         shadowTick = (shadowTick + 1) % 2
         renderer.shadowMap.needsUpdate = shadowTick === 0
+        // a resolution step up (a ~100 ms reallocation) waits for a lull: between rounds,
+        // paused, dead, or nothing left on the field
+        rr.setQuiet(!spawned || life === 'dead' || pausedByMe || !input.locked || latest?.phase === 'intermission' || zList.length === 0)
         if (import.meta.dev && !renderer.info.autoReset) renderer.info.reset()
         if (prof.on) gpuTimer?.begin()
         rr.render(dt, now, {

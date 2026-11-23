@@ -4,7 +4,7 @@ import { Pass } from 'three/examples/jsm/postprocessing/Pass.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from './resolution'
+import { dfNewPrGovernor, dfPixelRatioBounds, dfPrMemoryKey, dfStepPrGovernor } from './resolution'
 import { DfInkPass } from './toon-ink'
 
 // Renderer + post chain:
@@ -228,6 +228,8 @@ export interface DfRenderer {
     readonly bufferHeight: number
     setScenes(scene: THREE.Scene, camera: THREE.PerspectiveCamera, vmScene: THREE.Scene, vmCamera: THREE.PerspectiveCamera): void
     resize(): void
+    /** Whether a resolution step's hitch would go unnoticed now (between rounds, paused): step-ups wait for it. */
+    setQuiet(on: boolean): void
     render(dtSec: number, time: number, grade: DfGradeInput): void
     dispose(): void
 }
@@ -287,6 +289,26 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     const governor = dfNewPrGovernor(pr)
     let prBounds = { min: 1, max: 1 }
     let boundsAt = 0
+    /** A hitch would go unnoticed right now (see `setQuiet`). */
+    let quiet = true
+    let lastDpr = 0
+
+    /** The ratio this screen settled at last time (a match starts there, not at the ceiling). */
+    function recall(): number | null {
+        try {
+            const v = Number(localStorage.getItem(dfPrMemoryKey(window.devicePixelRatio || 1, width, height, quality)))
+            return v > 0 ? v : null
+        } catch {
+            return null
+        }
+    }
+    function remember(): void {
+        try {
+            localStorage.setItem(dfPrMemoryKey(window.devicePixelRatio || 1, width, height, quality), String(pr))
+        } catch {
+            // private mode: start from the ceiling next time
+        }
+    }
 
     function bounds() {
         return dfPixelRatioBounds(window.devicePixelRatio || 1, width, height, quality)
@@ -305,11 +327,14 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     function resize(): void {
         const w = Math.max(1, container.clientWidth)
         const h = Math.max(1, container.clientHeight)
+        // the observer's first callback repeats the setup size: reallocating the post chain for nothing is a hitch
+        if (sized && w === width && h === height && window.devicePixelRatio === lastDpr) return
+        lastDpr = window.devicePixelRatio
         width = w
         height = h
         const b = bounds()
         prBounds = b
-        pr = Math.min(b.max, Math.max(b.min, sized ? pr : b.max))
+        pr = Math.min(b.max, Math.max(b.min, sized ? pr : (recall() ?? b.max)))
         sized = true
         governor.pr = pr
         apply()
@@ -348,6 +373,9 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             resize()
         },
         resize,
+        setQuiet(on) {
+            quiet = on
+        },
         render(dt, time, g) {
             clock += dt
             // adaptive resolution: back off when frames run long, creep back when they don't
@@ -356,10 +384,11 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
                 boundsAt = clock + 0.5
                 prBounds = bounds()
             }
-            const next = dfStepPrGovernor(governor, dt, clock, prBounds)
+            const next = dfStepPrGovernor(governor, dt, clock, prBounds, quiet)
             if (next !== pr) {
                 pr = next
                 apply()
+                remember()
             }
             if (import.meta.dev) {
                 // dev: window.__dfGrade = { lowHealth, damage, down, flash } pins the grade inputs
