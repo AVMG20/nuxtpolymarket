@@ -463,16 +463,32 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 // optional
             }
             renderer.setRenderTarget(rt)
+            const pending: Promise<unknown>[] = []
             const compile = (obj: THREE.Object3D, cam: THREE.Camera, target: THREE.Scene) => {
                 const r = renderer as THREE.WebGLRenderer & { compileAsync?: (o: THREE.Object3D, c: THREE.Camera, t: THREE.Scene) => Promise<unknown> }
                 // the async variant links in parallel (KHR_parallel_shader_compile) when the driver can
-                if (r.compileAsync) r.compileAsync(obj, cam, target).catch(noop)
+                if (r.compileAsync) pending.push(r.compileAsync(obj, cam, target).catch(noop))
                 else renderer.compile(obj, cam, target)
             }
             compile(scene, camera, scene)
             compile(vmScene, vmCamera, vmScene)
             compile(models, camera, scene)
             compile(models, vmCamera, vmScene)
+            // three checks a program (getProgramInfoLog) on its first draw, and that call waits
+            // for the driver to finish it: a program first drawn by an explosion stalled it
+            // 60-80 ms. Finish them all now, while the intro still covers the screen.
+            void Promise.all(pending).then(() => {
+                if (disposed) return
+                const f0 = performance.now()
+                for (const p of renderer.info.programs ?? []) {
+                    try {
+                        p.getUniforms()
+                    } catch {
+                        // a broken program reports itself when drawn
+                    }
+                }
+                if (import.meta.dev) console.info(`[dead-front] shaders finished in ${(performance.now() - f0).toFixed(0)} ms`)
+            })
         } catch (e) {
             console.error('[dead-front] shader warm-up', e)
         } finally {

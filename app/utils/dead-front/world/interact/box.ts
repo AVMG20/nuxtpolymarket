@@ -7,7 +7,7 @@ import { dfVoxMaterial } from '../../voxel/material'
 import { DfVoxModel } from '../../voxel/model'
 import type { DfWorldKit, DfWorldPart } from '../kit'
 import { DF_WORLD_SOUNDS } from '../sound-names'
-import { DfSpring, clamp01, damp, dfShowModel, easeOutBack, easeOutCubic } from '../util'
+import { DfSpring, clamp01, damp, dfInstanceColors, dfShowModel, easeOutBack, easeOutCubic } from '../util'
 import type { DfWeaponCache } from './weapon-cache'
 import { dfRarity } from '#shared/utils/dead-front/rarity'
 import { dfBuildKitModel } from '../kits'
@@ -177,7 +177,7 @@ export function createDfMysteryBox(kit: DfWorldKit, weapons: DfWeaponCache): DfW
     geos.push(moteGeo)
     const moteMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
     mats.push(moteMat)
-    const motes = new THREE.InstancedMesh(moteGeo, moteMat, MOTES)
+    const motes = dfInstanceColors(new THREE.InstancedMesh(moteGeo, moteMat, MOTES))
     motes.frustumCulled = false
     motes.renderOrder = 4
     motes.instanceMatrix.setUsage(THREE.DynamicDrawUsage)

@@ -4,7 +4,7 @@ import type { DfSalvageDropSnap } from '#shared/utils/dead-front/salvage'
 import { DF_ARSENAL_SND, registerDfArsenalSounds } from '../engine/arsenal-sounds'
 import { DfVoxModel } from '../voxel/model'
 import type { DfWorldKit, DfWorldPart } from './kit'
-import { dfRadialTexture, easeOutBack } from './util'
+import { dfInstanceColors, dfRadialTexture, easeOutBack } from './util'
 
 // Salvage on the ground (world.arsenal.drops): a little heap of rusty plates,
 // nuts and a cog. They pop out of the body, bob and turn, glint, and blink before they
@@ -83,7 +83,7 @@ export function createDfSalvageDrops(kit: DfWorldKit): DfWorldPart {
         polygonOffsetUnits: -2
     })
     glowMat.name = 'df-scrap-glow'
-    const glow = glowTex ? new THREE.InstancedMesh(glowGeo, glowMat, GLOW_CAP * 2) : null
+    const glow = glowTex ? dfInstanceColors(new THREE.InstancedMesh(glowGeo, glowMat, GLOW_CAP * 2)) : null
     const m4 = new THREE.Matrix4()
     const zero = new THREE.Matrix4().makeScale(0, 0, 0)
     const gq = new THREE.Quaternion()
