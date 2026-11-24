@@ -41,6 +41,10 @@ export interface DfFx {
     decal(pos: Vec3 | THREE.Vector3, normal: Vec3 | THREE.Vector3, kind: 'bullet' | 'scorch' | 'blood', scale?: number): void
     /** Short-lived point light from a pool (muzzle flashes, explosions). */
     flash(pos: Vec3 | THREE.Vector3, color: THREE.ColorRepresentation, intensity: number, seconds: number): void
+    /** Borrows a light from the same pool to carry (a glowing projectile); null when all are taken. */
+    holdLight(distance: number): THREE.PointLight | null
+    /** Returns a light from `holdLight`, dark. */
+    releaseLight(light: THREE.PointLight): void
     /** Camera shake, 0..1 trauma added. */
     shake(amount: number): void
 }

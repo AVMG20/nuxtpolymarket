@@ -12,8 +12,8 @@ import { DF_WSND } from './sounds'
 import { dfXrayScheme } from './xray'
 
 // Voxel projectiles (grenades, PaP grenades, X-Ray bolts, bloater spit) and the
-// `explode` / `arc` events. Meshes are pooled per kind; bolt lights come from
-// a fixed pool added once.
+// `explode` / `arc` events. Meshes are pooled per kind; bolt lights are
+// borrowed from the fx flash pool.
 //
 // The X-Ray bolt is a white-hot core in a glowing shell with a spinning ring,
 // a tapered two-layer trail, sparks and its own light, all in its PaP tier's
@@ -201,13 +201,6 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
     /** HDR tint for the fx bursts of a tier (bright enough to bloom). */
     const rayColor = [0, 1, 2, 3].map(t => new THREE.Color(dfXrayScheme(t).core).multiplyScalar(4))
 
-    const lights: THREE.PointLight[] = []
-    for (let i = 0; i < 3; i++) {
-        const l = new THREE.PointLight(0x5dff7a, 0, 7, 2)
-        group.add(l)
-        lights.push(l)
-    }
-
     // Impact flares: a glowing voxel ball that pops and fades and a ring rushing out along the surface.
     const flareBallM = glowCube(0xffffff, 5)
     const flareBallG = g(flareBallM.mesh(0.12, [2.5, 2.5, 2.5])!)
@@ -348,9 +341,8 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
         group.add(mesh)
         let light: THREE.PointLight | null = null
         if (p.kind === 'xray-bolt' || p.kind === 'pap-grenade') {
-            light = lights.find(l => !(l.userData.used as boolean)) ?? null
+            light = ctx.fx.holdLight(7)
             if (light) {
-                light.userData.used = true
                 light.color.set(p.kind === 'xray-bolt' ? dfXrayScheme(tier).core : DF_PAP_COLORS[Math.max(0, Math.min(2, p.tier - 1))]!)
             }
         }
@@ -360,10 +352,7 @@ export function createDfProjectileViewImpl(ctx: DfRenderContext): DfProjectileVi
 
     function release(id: number, l: Live): void {
         group.remove(l.mesh)
-        if (l.light) {
-            l.light.intensity = 0
-            l.light.userData.used = false
-        }
+        if (l.light) ctx.fx.releaseLight(l.light)
         // a launcher shell bursts as a 'grenade' blast: file it as one so its scorch finds the heading
         if (l.kind === 'pap-grenade' || l.kind === 'xray-bolt' || l.kind === 'grenade' || l.kind === 'mortar') recent.push({ pos: l.pos.clone(), vel: l.vel.clone(), tier: l.tier, kind: l.kind === 'mortar' ? 'grenade' : l.kind, at: time })
         live.delete(id)

@@ -326,8 +326,9 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         plane.dispose()
     }
 
-    // Pool of real lights. Each costs every lit fragment, so keep it small.
-    const poolSize = high ? 8 : 4
+    // Pool of real lights. Each costs every lit fragment, so keep it small: with the fx pool's
+    // three the scene holds 9, past which every light costs far more (see fx.ts)
+    const poolSize = high ? 6 : 4
     const slots: Slot[] = []
     for (let i = 0; i < poolSize; i++) {
         const pl = new THREE.PointLight(0xffffff, 0, 10, DECAY)
