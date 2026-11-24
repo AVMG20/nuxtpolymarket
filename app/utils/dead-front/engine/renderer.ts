@@ -1,20 +1,24 @@
 import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { Pass } from 'three/examples/jsm/postprocessing/Pass.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { dfNewPrGovernor, dfPixelRatioBounds, dfPrMemoryKey, dfStepPrGovernor } from './resolution'
 import { DfInkPass } from './toon-ink'
 
 // Renderer + post chain:
-//   world RenderPass -> world ink -> viewmodel pass (same buffer, depth cleared)
-//   -> viewmodel ink -> bloom -> grade pass (a hue-keeping tone map, sRGB, comic
-//   colour, halftone in the deepest shadows, paper grain, vignette, damage, downed).
+//   world pass (its own MSAA target) -> world ink (resolves it into the chain)
+//   -> viewmodel pass (depth cleared) -> viewmodel ink -> bloom -> grade pass (a
+//   hue-keeping tone map, sRGB, comic colour, halftone in the deepest shadows,
+//   paper grain, vignette, damage, downed).
 // The ink passes (toon-ink.ts) draw outlines from the depth buffer; the world's
 // has to run before the viewmodel clears that depth. The viewmodel is drawn into
 // the HDR buffer before bloom and grading, so it gets the same look and its
 // muzzle flashes bloom over the ink.
+// Only the world is multisampled: every pass that draws into a multisampled
+// target pays to load, store and resolve all of it (colour and depth), which at
+// 1440p cost ~2 ms per pass on an M2 Pro. The chain's own buffers are single
+// sampled; the inked viewmodel's edges don't need it.
 
 // NaN and Inf have every exponent bit set. A single such pixel (one bad
 // fragment on one GPU) is blurred by every bloom mip into a NaN block that
@@ -194,6 +198,20 @@ const GRADE_SHADER = {
     `
 }
 
+/** Renders the world into its own (multisampled) target, which the world ink reads. */
+class WorldPass extends Pass {
+    constructor(private scene: THREE.Scene, private camera: THREE.Camera, private target: THREE.WebGLRenderTarget) {
+        super()
+        this.needsSwap = false
+    }
+
+    override render(renderer: THREE.WebGLRenderer): void {
+        renderer.setRenderTarget(this.target)
+        renderer.clear()
+        renderer.render(this.scene, this.camera)
+    }
+}
+
 /** Renders a second scene into the same buffer after clearing depth only. */
 class LayerPass extends Pass {
     constructor(private scene: THREE.Scene, private camera: THREE.Camera) {
@@ -262,14 +280,19 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     container.appendChild(canvas)
 
     const quality = opts.quality === 'low' || opts.quality === 'high' ? opts.quality : detectQuality(renderer.getContext())
-    // the depth texture feeds the ink passes (with MSAA it is the resolved copy)
-    const target = new THREE.WebGLRenderTarget(1, 1, {
+    // the depth textures feed the ink passes (with MSAA the world's is the resolved copy)
+    const worldTarget = new THREE.WebGLRenderTarget(1, 1, {
         type: THREE.HalfFloatType,
         samples: quality === 'high' ? 4 : 0,
         depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType)
     })
+    // the chain's two buffers (the composer clones this one): the viewmodel draws into them
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+        type: THREE.HalfFloatType,
+        depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType)
+    })
     const composer = new EffectComposer(renderer, target)
-    let worldPass: RenderPass | null = null
+    let worldPass: WorldPass | null = null
     let vmPass: LayerPass | null = null
     let inks: DfInkPass[] = []
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.38, 0.92)
@@ -319,6 +342,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         renderer.setSize(width, height, false)
         composer.setPixelRatio(pr)
         composer.setSize(width, height)
+        worldTarget.setSize(width * pr, height * pr)
         gu.uRes.value.set(width * pr, height * pr)
         gu.uPr.value = pr
         for (const ink of inks) ink.setPixelRatio(pr)
@@ -355,14 +379,13 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         },
         setScenes(scene, camera, vmScene, vmCamera) {
             composer.passes.length = 0
-            worldPass = new RenderPass(scene, camera)
+            worldPass = new WorldPass(scene, camera, worldTarget)
             vmPass = new LayerPass(vmScene, vmCamera)
             for (const ink of inks) ink.dispose()
-            // without MSAA the depth texture is the attachment itself: copy instead of blending in place
-            const copy = quality !== 'high'
+            const lineWidth = quality === 'high' ? 1.9 : 1.3
             inks = [
-                new DfInkPass(camera, { copy, width: copy ? 1.3 : 1.9, fade: 1, strength: 0.92 }),
-                new DfInkPass(vmCamera, { copy, width: copy ? 1.3 : 1.9, fade: 0, strength: 0.95 })
+                new DfInkPass(camera, { source: worldTarget, width: lineWidth, fade: 1, strength: 0.92 }),
+                new DfInkPass(vmCamera, { width: lineWidth, fade: 0, strength: 0.95 })
             ]
             composer.addPass(worldPass)
             composer.addPass(inks[0]!)
@@ -410,6 +433,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             grade.dispose()
             composer.dispose()
             target.dispose()
+            worldTarget.dispose()
             renderer.dispose()
             canvas.remove()
         }
