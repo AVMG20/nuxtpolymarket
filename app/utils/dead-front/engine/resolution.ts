@@ -77,6 +77,8 @@ export interface DfPrGovernor {
     /** Frames and misses of the last `MISS_WINDOW` evaluations (half a second each). */
     winFrames: number[]
     winMisses: number[]
+    /** Seconds over budget at the lowest ratio (decays while on budget): see `dfPrStrained`. */
+    strain: number
 }
 
 /** Longest frame (ms) the average sees: two vsyncs at 60 Hz, so a single hitch doesn't read as load. */
@@ -103,7 +105,7 @@ const UP_HOLD_S = 10
 const BACKOFF_WINDOW_S = 15
 
 export function dfNewPrGovernor(pr: number): DfPrGovernor {
-    return { pr, avg: 16.7, evalTimer: 0, goodTime: 0, badEvals: 0, settle: 0, lockUntil: 0, lastUpAt: -100, climbed: false, backoffs: 0, frames: 0, misses: 0, winFrames: [], winMisses: [] }
+    return { pr, avg: 16.7, evalTimer: 0, goodTime: 0, badEvals: 0, settle: 0, lockUntil: 0, lastUpAt: -100, climbed: false, backoffs: 0, frames: 0, misses: 0, winFrames: [], winMisses: [], strain: 0 }
 }
 
 /**
@@ -141,6 +143,9 @@ export function dfStepPrGovernor(g: DfPrGovernor, dt: number, clock: number, b: 
     else g.goodTime = 0
     const judder = missed > MISS_BAD
     g.badEvals = g.avg > 19.5 || judder ? g.badEvals + 1 : 0
+    // nothing left to give: a burst of effects passes, a scene the GPU can't carry doesn't
+    if (g.pr <= b.min && g.badEvals >= 2) g.strain += 0.5
+    else g.strain = Math.max(0, g.strain - 0.25)
     // judder under a fine-looking average still steps down: read it as the load it costs
     const load = judder ? Math.max(g.avg, 19.6, 16.7 * (1 + missed)) : g.avg
     // a step up that held for a minute was fine: forget the earlier backoffs
@@ -175,6 +180,20 @@ export function dfStepPrGovernor(g: DfPrGovernor, dt: number, clock: number, b: 
     g.winMisses.length = 0
     g.settle = SETTLE_FRAMES
     return next
+}
+
+/** Seconds over budget at the lowest ratio before the tier itself is too heavy for this screen. */
+const STRAIN_S = 10
+
+/** The lowest ratio still misses 60 fps: only a lighter tier helps (on dpr 1 the floor is native). */
+export function dfPrStrained(g: DfPrGovernor): boolean {
+    return g.strain >= STRAIN_S
+}
+
+/** Storage key for the tier 'auto' fell back to on this screen (density and size bucket). */
+export function dfTierMemoryKey(dpr: number, width: number, height: number): string {
+    const area = Math.round((width * height) / 250000)
+    return `df-tier-v1:${Math.round(dpr * 100)}:${area}`
 }
 
 /** Storage key for the settled ratio: one per screen density, size bucket and quality tier. */

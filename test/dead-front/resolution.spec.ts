@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dfAdaptivePixelRatio, dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from '../../app/utils/dead-front/engine/resolution'
+import { dfAdaptivePixelRatio, dfNewPrGovernor, dfPixelRatioBounds, dfPrStrained, dfStepPrGovernor } from '../../app/utils/dead-front/engine/resolution'
 
 // CLAUDE.md: never render below native resolution on a dpr 1 screen.
 
@@ -88,6 +88,19 @@ describe('pixel ratio policy', () => {
             // one 50 ms frame every ~4 s: under 1% of frames
             expect(run(g, clock, 30, () => (++n % 240 === 0 ? 50 : 16.7))).toEqual([])
             expect(g.pr).toBe(b.max)
+        })
+
+        it('reads a scene the floor still can\'t carry as strain, not a burst of effects', () => {
+            const g = dfNewPrGovernor(b.min)
+            const clock = { t: 0 }
+            // a few seconds of explosions, then back on budget
+            run(g, clock, 4, 30)
+            run(g, clock, 20, 16.7)
+            expect(dfPrStrained(g)).toBe(false)
+            // 30 fps for good at native resolution
+            run(g, clock, 15, 30)
+            expect(g.pr).toBe(b.min)
+            expect(dfPrStrained(g)).toBe(true)
         })
 
         it('does not climb into a level that keeps missing frames', () => {
