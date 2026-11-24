@@ -219,6 +219,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         meshes.push(inst)
     }
     const kindMeshes: Partial<Record<FixtureKind, THREE.InstancedMesh>> = {}
+    const kindMeshList: THREE.InstancedMesh[] = []
     for (const kind of Object.keys(byKind) as FixtureKind[]) {
         const list = byKind[kind]
         if (!list.length) continue
@@ -230,6 +231,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         inst.name = `df-fixtures-${kind}`
         add(inst)
         kindMeshes[kind] = inst
+        kindMeshList.push(inst)
     }
     if (bars.length) {
         const inst = new THREE.InstancedMesh(barGeo, kit.mat, bars.length)
@@ -324,8 +326,9 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         plane.dispose()
     }
 
-    // Pool of real lights. Each costs every lit fragment, so keep it small.
-    const poolSize = high ? 8 : 4
+    // Pool of real lights. Each costs every lit fragment, so keep it small: with the fx pool's
+    // three the scene holds 9, past which every light costs far more (see fx.ts)
+    const poolSize = high ? 6 : 4
     const slots: Slot[] = []
     for (let i = 0; i < poolSize; i++) {
         const pl = new THREE.PointLight(0xffffff, 0, 10, DECAY)
@@ -411,7 +414,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
                 haloAttr.needsUpdate = true
                 haloMat.uniforms.uTime!.value = time % 1000
             }
-            for (const inst of Object.values(kindMeshes)) if (inst.instanceColor) inst.instanceColor.needsUpdate = true
+            for (const inst of kindMeshList) if (inst.instanceColor) inst.instanceColor.needsUpdate = true
             if (flames) {
                 flames.instanceMatrix.needsUpdate = true
                 if (flames.instanceColor) flames.instanceColor.needsUpdate = true

@@ -53,6 +53,7 @@ import { dfAmbienceIntensity, dfSetAmbienceIntensity } from '~/utils/dead-front/
 import { DF_SPECIAL_SND, registerDfSpecialSounds } from './specials-sounds'
 import { createDfArsenalClient } from './arsenal'
 import { dfEscapePauses, dfLockLossPlaysOn } from './bench-exit'
+import { dfFrameSummary, dfNewFrameStats, dfPushFrame } from './frame-stats'
 import { dfMergeArsenalMine } from '#shared/utils/dead-front/salvage'
 import { DF_STREAK_TITLES, DF_WARLORD, dfGasDepth } from '#shared/utils/dead-front/specials'
 
@@ -337,6 +338,13 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     let damageId = 0
     let chatId = 0
     let hudTimer = 0
+    /** The container's CSS size, kept by the ResizeObserver (never read per frame: that forces a layout). */
+    let viewW = container.clientWidth || 1
+    let viewH = container.clientHeight || 1
+    /** The HUD's frame-rate readout: every frame interval, summarised twice a second. */
+    const frameStats = dfNewFrameStats()
+    const frameSummary = { fps: 0, p95: 0, p99: 0 }
+    let frameStatsTimer = 0
     let time = 0
     let last = performance.now()
     let acc = 0
@@ -460,16 +468,32 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 // optional
             }
             renderer.setRenderTarget(rt)
+            const pending: Promise<unknown>[] = []
             const compile = (obj: THREE.Object3D, cam: THREE.Camera, target: THREE.Scene) => {
                 const r = renderer as THREE.WebGLRenderer & { compileAsync?: (o: THREE.Object3D, c: THREE.Camera, t: THREE.Scene) => Promise<unknown> }
                 // the async variant links in parallel (KHR_parallel_shader_compile) when the driver can
-                if (r.compileAsync) r.compileAsync(obj, cam, target).catch(noop)
+                if (r.compileAsync) pending.push(r.compileAsync(obj, cam, target).catch(noop))
                 else renderer.compile(obj, cam, target)
             }
             compile(scene, camera, scene)
             compile(vmScene, vmCamera, vmScene)
             compile(models, camera, scene)
             compile(models, vmCamera, vmScene)
+            // three checks a program (getProgramInfoLog) on its first draw, and that call waits
+            // for the driver to finish it: a program first drawn by an explosion stalled it
+            // 60-80 ms. Finish them all now, while the intro still covers the screen.
+            void Promise.all(pending).then(() => {
+                if (disposed) return
+                const f0 = performance.now()
+                for (const p of renderer.info.programs ?? []) {
+                    try {
+                        p.getUniforms()
+                    } catch {
+                        // a broken program reports itself when drawn
+                    }
+                }
+                if (import.meta.dev) console.info(`[dead-front] shaders finished in ${(performance.now() - f0).toFixed(0)} ms`)
+            })
         } catch (e) {
             console.error('[dead-front] shader warm-up', e)
         } finally {
@@ -1084,6 +1108,13 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     // ---------------------------------------------------------------- shooting
+    /** Per-shot scratch: candidates are pooled (only real hits become payload objects), the maps are cleared per shot. */
+    const candPool: DfShotHit[] = []
+    const cands: DfShotHit[] = []
+    const byDist = (a: DfShotHit, b: DfShotHit) => a.dist - b.dist
+    const fireSpreadIn: Parameters<typeof dfSpread>[0] = { hipSpread: 0, adsSpread: 0, adsBlend: 0, spreadMult: 1, move: 0, airborne: false, crouched: false, bloom: 0 }
+    const pelletOn = new Map<number, { n: number, dist: number }>()
+    const pops = new Map<number, { at: Vec3, amount: number, kind: 'hit' | 'kill' | 'head' }>()
     function fire(now: number): void {
         const s = stats
         if (!s || !mine) return
@@ -1092,16 +1123,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         eye.y = camera.position.y
         eye.z = camera.position.z
         const moveFrac = Math.min(1, player.speed / Math.max(0.1, DF_PLAYER.sprintSpeed))
-        const spread = dfSpread({
-            hipSpread: s.hipSpread,
-            adsSpread: s.adsSpread,
-            adsBlend: viewmodel.adsBlend,
-            spreadMult: effects.spreadMult,
-            move: moveFrac,
-            airborne: !player.grounded,
-            crouched: player.crouched,
-            bloom: gun.bloom
-        })
+        const si = fireSpreadIn
+        si.hipSpread = s.hipSpread
+        si.adsSpread = s.adsSpread
+        si.adsBlend = viewmodel.adsBlend
+        si.spreadMult = effects.spreadMult
+        si.move = moveFrac
+        si.airborne = !player.grounded
+        si.crouched = player.crouched
+        si.bloom = gun.bloom
+        const spread = dfSpread(si)
         const pellets = Math.max(1, Math.round(s.pellets))
         const dirs: Vec3[] = []
         const hits: DfShotHit[] = []
@@ -1120,17 +1151,25 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             const wh = dfRaycast(collision, eye, dir, maxRange)
             const limit = wh ? wh.dist : maxRange
             // every zombie along the ray before the wall, nearest first
-            const cands: DfShotHit[] = []
+            cands.length = 0
             for (const z of zList) {
                 if (predictedDead.has(z.id)) continue
                 const h = dfZombieHitTest(z, eye, dir, limit)
-                if (h) cands.push({ z: z.id, zone: h.zone, dist: h.dist })
+                if (!h) continue
+                let c = candPool[cands.length]
+                if (!c) candPool[cands.length] = c = { z: 0, zone: 'body', dist: 0 }
+                c.z = z.id
+                c.zone = h.zone
+                c.dist = h.dist
+                cands.push(c)
             }
-            cands.sort((a, b) => a.dist - b.dist)
+            cands.sort(byDist)
             const through = 1 + Math.max(0, Math.floor(s.penetration))
             const n = Math.min(through, cands.length)
             for (let k = 0; k < n; k++) {
-                const c: DfShotHit = cands[k]!
+                const cand = cands[k]!
+                // a fresh object: hits go out in the fire message and are marked as kills below
+                const c: DfShotHit = { z: cand.z, zone: cand.zone, dist: cand.dist }
                 hits.push(c)
                 localHits.push({ z: c.z, zone: c.zone, pos: { x: eye.x + dir.x * c.dist, y: eye.y + dir.y * c.dist, z: eye.z + dir.z * c.dist } })
             }
@@ -1155,7 +1194,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         let killed = false
         // pellets per zombie and the nearest: a shotgun up close blows a zombie apart (gunplay.ts, as the server)
         const cls = DF_WEAPONS[gun.id]?.class
-        const pelletOn = new Map<number, { n: number, dist: number }>()
+        pelletOn.clear()
         for (const h of hits) {
             const e = pelletOn.get(h.z)
             if (e) {
@@ -1166,10 +1205,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             }
         }
         // one number per zombie per shot (a shotgun's pellets add up), at its first hit
-        const pops = new Map<number, { at: Vec3, amount: number, kind: 'hit' | 'kill' | 'head' }>()
+        pops.clear()
         for (let i = 0; i < hits.length; i++) {
             const h = hits[i]!
-            const z = zList.find(q => q.id === h.z)
+            let z: DfZombieSnap | undefined
+            for (let j = 0; j < zList.length; j++) {
+                if (zList[j]!.id === h.z) {
+                    z = zList[j]
+                    break
+                }
+            }
             if (!z) continue
             const on = pelletOn.get(h.z)
             const gib = !!on && dfShotgunBlast(cls, on.n, pellets, on.dist, true) === 'gib'
@@ -1785,6 +1830,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
             prof.gap.push(nowMs - last)
             prof.at = workStart
         }
+        dfPushFrame(frameStats, nowMs - last)
         last = nowMs
         time += dt
         const now = time
@@ -1975,14 +2021,16 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         // included): refresh it every other frame. 30 Hz shadows are indistinguishable here.
         shadowTick = (shadowTick + 1) % 2
         renderer.shadowMap.needsUpdate = shadowTick === 0
+        // a resolution step up (a ~100 ms reallocation) waits for a lull: between rounds,
+        // paused, dead, or nothing left on the field
+        rr.setQuiet(!spawned || life === 'dead' || pausedByMe || !input.locked || latest?.phase === 'intermission' || zList.length === 0)
         if (import.meta.dev && !renderer.info.autoReset) renderer.info.reset()
         if (prof.on) gpuTimer?.begin()
-        rr.render(dt, now, {
-            lowHealth: life === 'alive' ? Math.max(0, Math.min(1, (0.5 - health) / 0.38)) : 0,
-            damage: damagePulse,
-            down: downBlend,
-            flash: gradeFlash
-        })
+        gradeIn.lowHealth = life === 'alive' ? Math.max(0, Math.min(1, (0.5 - health) / 0.38)) : 0
+        gradeIn.damage = damagePulse
+        gradeIn.down = downBlend
+        gradeIn.flash = gradeFlash
+        rr.render(dt, now, gradeIn)
         input.endFrame()
         pressHandled = false
         frameLook.x = frameLook.y = 0
@@ -2145,6 +2193,14 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updateHud(nowMs: number): void {
         const s = latest
         hud.ping = Math.round(net.rtt)
+        frameStatsTimer += 1
+        if (frameStatsTimer >= 10) {
+            frameStatsTimer = 0
+            dfFrameSummary(frameStats, frameSummary)
+            hud.fps = frameSummary.fps
+            hud.frameP95 = frameSummary.p95
+            hud.frameP99 = frameSummary.p99
+        }
         hud.connection = net.status !== 'open' ? 'reconnecting' : nowMs - lastSnapAt > 2500 && spawned && !pausedByMe ? 'lost' : 'ok'
         if (!s) return
         if (hud.round !== s.round && s.round > 0 && hud.round === 0) hud.round = s.round
@@ -2427,6 +2483,9 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     let lastSpread = -1
+    /** Per-frame inputs, refilled in place (no garbage per frame). */
+    const hudSpreadIn: Parameters<typeof dfSpread>[0] = { hipSpread: 0, adsSpread: 0, adsBlend: 0, spreadMult: 1, move: 0, airborne: false, crouched: false, bloom: 0 }
+    const gradeIn = { lowHealth: 0, damage: 0, down: 0, flash: 0 }
     let lastScope = 0
     let lastWp = -1
     /** One number per on-screen state (whole pixels, edge flag, angle in centiradians): no per-frame strings. */
@@ -2436,20 +2495,22 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     function updateHudFast(): void {
         const root = opts.hudRoot()
         if (!root) return
-        const cssH = container.clientHeight || 1
-        const cssW = container.clientWidth || 1
+        // the cached size: reading clientWidth here forced a synchronous layout of the
+        // whole HUD (Vue's 20 Hz updates had just dirtied it) inside every frame
+        const cssH = viewH
+        const cssW = viewW
         // crosshair gap from the live spread
         if (stats) {
-            const spread = dfSpread({
-                hipSpread: stats.hipSpread,
-                adsSpread: stats.adsSpread,
-                adsBlend: viewmodel.adsBlend,
-                spreadMult: effects.spreadMult,
-                move: Math.min(1, player.speed / DF_PLAYER.sprintSpeed),
-                airborne: !player.grounded,
-                crouched: player.crouched,
-                bloom: gun.bloom
-            })
+            const si = hudSpreadIn
+            si.hipSpread = stats.hipSpread
+            si.adsSpread = stats.adsSpread
+            si.adsBlend = viewmodel.adsBlend
+            si.spreadMult = effects.spreadMult
+            si.move = Math.min(1, player.speed / DF_PLAYER.sprintSpeed)
+            si.airborne = !player.grounded
+            si.crouched = player.crouched
+            si.bloom = gun.bloom
+            const spread = dfSpread(si)
             const px = Math.round((Math.tan(spread) / Math.tan((camera.fov * Math.PI) / 360)) * (cssH / 2) * 10) / 10
             const vis = Math.max(0, 1 - viewmodel.adsBlend * 1.6) * (player.sprinting ? 0.25 : 1)
             const key = px * 1000 + Math.round(vis * 100)
@@ -2571,6 +2632,8 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
 
     const ro = new ResizeObserver(() => {
         rr.resize()
+        viewW = container.clientWidth || 1
+        viewH = container.clientHeight || 1
         camera.aspect = Math.max(0.2, container.clientWidth / Math.max(1, container.clientHeight))
         vmCamera.aspect = camera.aspect
         vmCamera.updateProjectionMatrix()
@@ -2755,9 +2818,11 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
                 return {
                     frames: prof.frames,
                     fps: +(prof.frames / secs).toFixed(1),
-                    workMs: { avg: +(sorted.reduce((a, b) => a + b, 0) / n).toFixed(2), p50: q(sorted, 0.5), p95: q(sorted, 0.95), max: q(sorted, 1) },
+                    workMs: { avg: +(sorted.reduce((a, b) => a + b, 0) / n).toFixed(2), p50: q(sorted, 0.5), p95: q(sorted, 0.95), p99: q(sorted, 0.99), max: q(sorted, 1) },
                     gpuMs: prof.gpu.length ? { p50: q([...prof.gpu].sort((a, b) => a - b), 0.5), p95: q([...prof.gpu].sort((a, b) => a - b), 0.95), max: q([...prof.gpu].sort((a, b) => a - b), 1) } : null,
-                    gapMs: { p50: q(gaps, 0.5), p95: q(gaps, 0.95), max: q(gaps, 1), over25: gaps.filter(g => g > 25).length },
+                    gapMs: { p50: q(gaps, 0.5), p95: q(gaps, 0.95), p99: q(gaps, 0.99), max: q(gaps, 1), over25: gaps.filter(g => g > 25).length },
+                    // a frame that took longer than one and a half refresh intervals missed a vsync
+                    missed: gaps.filter(g => g > q(gaps, 0.5) * 1.5).length,
                     split,
                     worst,
                     calls: renderer.info.render.calls,

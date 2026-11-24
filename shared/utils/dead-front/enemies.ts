@@ -193,7 +193,7 @@ function crawlHitTest(target: DfHitTestTarget, origin: Vec3, dir: Vec3, maxDist:
     const fz = Math.cos(target.yaw)
     const at = (ahead: number, y: number): Vec3 => ({ x: p.x + fx * ahead, y: p.y + y, z: p.z + fz * ahead })
     let best: { zone: DfHitZone, dist: number } | null = null
-    const th = raySphere(origin, dir, at(g.headAhead, g.headY), g.headR)
+    const th = raySphere(origin, dir, p.x + fx * g.headAhead, p.y + g.headY, p.z + fz * g.headAhead, g.headR)
     if (th !== null && th <= maxDist) best = { zone: 'head', dist: th }
     const tb = rayCapsule(origin, dir, at(g.bodyFrom, g.bodyY), at(g.bodyTo, g.bodyY), g.bodyR)
     if (tb !== null && tb <= maxDist && (!best || tb + 0.04 < best.dist)) best = { zone: 'body', dist: tb }
@@ -227,10 +227,10 @@ function rayCapsule(o: Vec3, d: Vec3, a: Vec3, b: Vec3, r: number): number | nul
             if (t >= 0 && y > 0 && y < baba) best = t
         }
     }
-    for (const c of [a, b]) {
-        const t = raySphere(o, d, c, r)
-        if (t !== null && (best === null || t < best)) best = t
-    }
+    const ta = raySphere(o, d, a.x, a.y, a.z, r)
+    if (ta !== null && (best === null || ta < best)) best = ta
+    const tb = raySphere(o, d, b.x, b.y, b.z, r)
+    if (tb !== null && (best === null || tb < best)) best = tb
     return best
 }
 
@@ -243,23 +243,34 @@ export function dfZombieHitTest(target: DfHitTestTarget, origin: Vec3, dir: Vec3
     if (target.crawl || target.anim === 'crawl') return crawlHitTest(target, origin, dir, maxDist)
     const def = DF_ENEMIES[target.type]
     const p = target.pos
-    let best: { zone: DfHitZone, dist: number } | null = null
-    const head = { x: p.x, y: p.y + def.headY, z: p.z }
-    const th = raySphere(origin, dir, head, def.headR)
-    if (th !== null && th <= maxDist) best = { zone: 'head', dist: th }
+    // the best hit in locals: the client tests every zombie for every pellet, and a miss
+    // (almost every call) allocates nothing
+    let zone: DfHitZone | null = null
+    let dist = 0
+    const th = raySphere(origin, dir, p.x, p.y + def.headY, p.z, def.headR)
+    if (th !== null && th <= maxDist) {
+        zone = 'head'
+        dist = th
+    }
     const hip = def.height * 0.47
     const torsoTop = def.headY - def.headR - def.radius * 0.35
     const tt = rayVerticalCapsule(origin, dir, p.x, p.z, p.y + hip, p.y + torsoTop, def.radius)
-    if (tt !== null && tt <= maxDist && (!best || tt + 0.04 < best.dist)) best = { zone: 'body', dist: tt }
+    if (tt !== null && tt <= maxDist && (zone === null || tt + 0.04 < dist)) {
+        zone = 'body'
+        dist = tt
+    }
     const tl = rayVerticalCapsule(origin, dir, p.x, p.z, p.y + 0.12, p.y + hip, def.radius * 0.8)
-    if (tl !== null && tl <= maxDist && (!best || tl + 0.04 < best.dist)) best = { zone: 'limb', dist: tl }
-    return best
+    if (tl !== null && tl <= maxDist && (zone === null || tl + 0.04 < dist)) {
+        zone = 'limb'
+        dist = tl
+    }
+    return zone === null ? null : { zone, dist }
 }
 
-function raySphere(o: Vec3, d: Vec3, c: Vec3, r: number): number | null {
-    const ox = o.x - c.x
-    const oy = o.y - c.y
-    const oz = o.z - c.z
+function raySphere(o: Vec3, d: Vec3, cx: number, cy: number, cz: number, r: number): number | null {
+    const ox = o.x - cx
+    const oy = o.y - cy
+    const oz = o.z - cz
     const b = ox * d.x + oy * d.y + oz * d.z
     const cc = ox * ox + oy * oy + oz * oz - r * r
     const disc = b * b - cc
@@ -289,7 +300,9 @@ function rayVerticalCapsule(o: Vec3, d: Vec3, x: number, z: number, y0: number, 
             }
         }
     }
-    const caps = [raySphere(o, d, { x, y: y0, z }, r), raySphere(o, d, { x, y: y1, z }, r)]
-    for (const t of caps) if (t !== null && (best === null || t < best)) best = t
+    const t0 = raySphere(o, d, x, y0, z, r)
+    if (t0 !== null && (best === null || t0 < best)) best = t0
+    const t1 = raySphere(o, d, x, y1, z, r)
+    if (t1 !== null && (best === null || t1 < best)) best = t1
     return best
 }

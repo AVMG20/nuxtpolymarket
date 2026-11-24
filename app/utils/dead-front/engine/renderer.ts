@@ -1,20 +1,24 @@
 import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { Pass } from 'three/examples/jsm/postprocessing/Pass.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from './resolution'
+import { dfNewPrGovernor, dfPixelRatioBounds, dfPrMemoryKey, dfPrStrained, dfStepPrGovernor, dfTierMemoryKey } from './resolution'
 import { DfInkPass } from './toon-ink'
 
 // Renderer + post chain:
-//   world RenderPass -> world ink -> viewmodel pass (same buffer, depth cleared)
-//   -> viewmodel ink -> bloom -> grade pass (a hue-keeping tone map, sRGB, comic
-//   colour, halftone in the deepest shadows, paper grain, vignette, damage, downed).
+//   world pass (its own MSAA target) -> world ink (resolves it into the chain)
+//   -> viewmodel pass (depth cleared) -> viewmodel ink -> bloom -> grade pass (a
+//   hue-keeping tone map, sRGB, comic colour, halftone in the deepest shadows,
+//   paper grain, vignette, damage, downed).
 // The ink passes (toon-ink.ts) draw outlines from the depth buffer; the world's
 // has to run before the viewmodel clears that depth. The viewmodel is drawn into
 // the HDR buffer before bloom and grading, so it gets the same look and its
 // muzzle flashes bloom over the ink.
+// Only the world is multisampled: every pass that draws into a multisampled
+// target pays to load, store and resolve all of it (colour and depth), which at
+// 1440p cost ~2 ms per pass on an M2 Pro. The chain's own buffers are single
+// sampled; the inked viewmodel's edges don't need it.
 
 // NaN and Inf have every exponent bit set. A single such pixel (one bad
 // fragment on one GPU) is blurred by every bloom mip into a NaN block that
@@ -194,6 +198,20 @@ const GRADE_SHADER = {
     `
 }
 
+/** Renders the world into its own (multisampled) target, which the world ink reads. */
+class WorldPass extends Pass {
+    constructor(private scene: THREE.Scene, private camera: THREE.Camera, private target: THREE.WebGLRenderTarget) {
+        super()
+        this.needsSwap = false
+    }
+
+    override render(renderer: THREE.WebGLRenderer): void {
+        renderer.setRenderTarget(this.target)
+        renderer.clear()
+        renderer.render(this.scene, this.camera)
+    }
+}
+
 /** Renders a second scene into the same buffer after clearing depth only. */
 class LayerPass extends Pass {
     constructor(private scene: THREE.Scene, private camera: THREE.Camera) {
@@ -228,6 +246,8 @@ export interface DfRenderer {
     readonly bufferHeight: number
     setScenes(scene: THREE.Scene, camera: THREE.PerspectiveCamera, vmScene: THREE.Scene, vmCamera: THREE.PerspectiveCamera): void
     resize(): void
+    /** Whether a resolution step's hitch would go unnoticed now (between rounds, paused): step-ups wait for it. */
+    setQuiet(on: boolean): void
     render(dtSec: number, time: number, grade: DfGradeInput): void
     dispose(): void
 }
@@ -242,6 +262,27 @@ function detectQuality(gl: WebGLRenderingContext | WebGL2RenderingContext): 'low
     }
     if (navigator.hardwareConcurrency !== undefined && navigator.hardwareConcurrency <= 2) return 'low'
     return 'high'
+}
+
+/** How long 'auto' stays on the lighter tier for a screen before giving the full one another try. */
+const TIER_MEMORY_MS = 14 * 24 * 3600 * 1000
+
+/** 'auto' had to fall back to the lighter tier on this screen recently. */
+function recallLowTier(width: number, height: number): boolean {
+    try {
+        const at = Number(localStorage.getItem(dfTierMemoryKey(window.devicePixelRatio || 1, width, height)))
+        return at > 0 && Date.now() - at < TIER_MEMORY_MS
+    } catch {
+        return false
+    }
+}
+
+function rememberLowTier(width: number, height: number): void {
+    try {
+        localStorage.setItem(dfTierMemoryKey(window.devicePixelRatio || 1, width, height), String(Date.now()))
+    } catch {
+        // private mode: the next match finds out again
+    }
 }
 
 /** `quality` forces a tier ('auto' or omitted detects it from the GPU). */
@@ -259,15 +300,23 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     canvas.style.height = '100%'
     container.appendChild(canvas)
 
-    const quality = opts.quality === 'low' || opts.quality === 'high' ? opts.quality : detectQuality(renderer.getContext())
-    // the depth texture feeds the ink passes (with MSAA it is the resolved copy)
-    const target = new THREE.WebGLRenderTarget(1, 1, {
+    const auto = opts.quality !== 'low' && opts.quality !== 'high'
+    let quality = opts.quality === 'low' || opts.quality === 'high' ? opts.quality : detectQuality(renderer.getContext())
+    // the full tier couldn't hold 60 fps at native resolution on this screen last time
+    if (auto && quality === 'high' && recallLowTier(container.clientWidth, container.clientHeight)) quality = 'low'
+    // the depth textures feed the ink passes (with MSAA the world's is the resolved copy)
+    const worldTarget = new THREE.WebGLRenderTarget(1, 1, {
         type: THREE.HalfFloatType,
         samples: quality === 'high' ? 4 : 0,
         depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType)
     })
+    // the chain's two buffers (the composer clones this one): the viewmodel draws into them
+    const target = new THREE.WebGLRenderTarget(1, 1, {
+        type: THREE.HalfFloatType,
+        depthTexture: new THREE.DepthTexture(1, 1, THREE.FloatType)
+    })
     const composer = new EffectComposer(renderer, target)
-    let worldPass: RenderPass | null = null
+    let worldPass: WorldPass | null = null
     let vmPass: LayerPass | null = null
     let inks: DfInkPass[] = []
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.38, 0.92)
@@ -287,6 +336,28 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     const governor = dfNewPrGovernor(pr)
     let prBounds = { min: 1, max: 1 }
     let boundsAt = 0
+    /** A hitch would go unnoticed right now (see `setQuiet`). */
+    let quiet = true
+    let lastDpr = 0
+    /** The lowest ratio still ran long: the next match starts on the lighter tier. */
+    let strained = false
+
+    /** The ratio this screen settled at last time (a match starts there, not at the ceiling). */
+    function recall(): number | null {
+        try {
+            const v = Number(localStorage.getItem(dfPrMemoryKey(window.devicePixelRatio || 1, width, height, quality)))
+            return v > 0 ? v : null
+        } catch {
+            return null
+        }
+    }
+    function remember(): void {
+        try {
+            localStorage.setItem(dfPrMemoryKey(window.devicePixelRatio || 1, width, height, quality), String(pr))
+        } catch {
+            // private mode: start from the ceiling next time
+        }
+    }
 
     function bounds() {
         return dfPixelRatioBounds(window.devicePixelRatio || 1, width, height, quality)
@@ -297,6 +368,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         renderer.setSize(width, height, false)
         composer.setPixelRatio(pr)
         composer.setSize(width, height)
+        worldTarget.setSize(width * pr, height * pr)
         gu.uRes.value.set(width * pr, height * pr)
         gu.uPr.value = pr
         for (const ink of inks) ink.setPixelRatio(pr)
@@ -305,11 +377,14 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
     function resize(): void {
         const w = Math.max(1, container.clientWidth)
         const h = Math.max(1, container.clientHeight)
+        // the observer's first callback repeats the setup size: reallocating the post chain for nothing is a hitch
+        if (sized && w === width && h === height && window.devicePixelRatio === lastDpr) return
+        lastDpr = window.devicePixelRatio
         width = w
         height = h
         const b = bounds()
         prBounds = b
-        pr = Math.min(b.max, Math.max(b.min, sized ? pr : b.max))
+        pr = Math.min(b.max, Math.max(b.min, sized ? pr : (recall() ?? b.max)))
         sized = true
         governor.pr = pr
         apply()
@@ -330,14 +405,13 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
         },
         setScenes(scene, camera, vmScene, vmCamera) {
             composer.passes.length = 0
-            worldPass = new RenderPass(scene, camera)
+            worldPass = new WorldPass(scene, camera, worldTarget)
             vmPass = new LayerPass(vmScene, vmCamera)
             for (const ink of inks) ink.dispose()
-            // without MSAA the depth texture is the attachment itself: copy instead of blending in place
-            const copy = quality !== 'high'
+            const lineWidth = quality === 'high' ? 1.9 : 1.3
             inks = [
-                new DfInkPass(camera, { copy, width: copy ? 1.3 : 1.9, fade: 1, strength: 0.92 }),
-                new DfInkPass(vmCamera, { copy, width: copy ? 1.3 : 1.9, fade: 0, strength: 0.95 })
+                new DfInkPass(camera, { source: worldTarget, width: lineWidth, fade: 1, strength: 0.92 }),
+                new DfInkPass(vmCamera, { width: lineWidth, fade: 0, strength: 0.95 })
             ]
             composer.addPass(worldPass)
             composer.addPass(inks[0]!)
@@ -348,6 +422,9 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             resize()
         },
         resize,
+        setQuiet(on) {
+            quiet = on
+        },
         render(dt, time, g) {
             clock += dt
             // adaptive resolution: back off when frames run long, creep back when they don't
@@ -356,10 +433,18 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
                 boundsAt = clock + 0.5
                 prBounds = bounds()
             }
-            const next = dfStepPrGovernor(governor, dt, clock, prBounds)
+            const next = dfStepPrGovernor(governor, dt, clock, prBounds, quiet)
             if (next !== pr) {
                 pr = next
                 apply()
+                remember()
+            }
+            if (auto && quality === 'high' && !strained && dfPrStrained(governor)) {
+                // the world's lights and shadows are built for the tier, so the switch waits for the
+                // next match; bloom can go now
+                strained = true
+                bloom.enabled = false
+                rememberLowTier(width, height)
             }
             if (import.meta.dev) {
                 // dev: window.__dfGrade = { lowHealth, damage, down, flash } pins the grade inputs
@@ -381,6 +466,7 @@ export function createDfRenderer(container: HTMLElement, opts: { quality?: 'auto
             grade.dispose()
             composer.dispose()
             target.dispose()
+            worldTarget.dispose()
             renderer.dispose()
             canvas.remove()
         }

@@ -67,7 +67,7 @@ export function dfViewmodelBench(width = 1920, height = 1080): DfViewmodelBench 
     studio.visible = false
     vmScene.add(studio)
     const noop = () => {}
-    const fx: DfFx = { burst: noop, tracer: noop, lightning: noop, decal: noop, flash: noop, shake: noop }
+    const fx: DfFx = { burst: noop, tracer: noop, lightning: noop, decal: noop, flash: noop, holdLight: () => null, releaseLight: noop, shake: noop }
     const audio: DfAudio = { ctx: null, register: noop, play: noop, loop: noop, stopLoop: noop }
     const ctx: DfRenderContext = { renderer, scene, camera, vmScene, vmCamera, fx, audio, quality: 'high' }
     const vm = createDfViewmodelImpl(ctx)

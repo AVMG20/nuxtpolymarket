@@ -969,15 +969,17 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         }
     }
 
-    // light flashes from a fixed pool
-    // every point light costs every lit fragment (even at zero intensity), so keep the pool small
-    const LIGHTS = high ? 4 : 3
-    const lights: { light: THREE.PointLight, age: number, life: number, peak: number }[] = []
+    // light flashes from a fixed pool, shared with the projectiles that carry a light (`holdLight`).
+    // Every point light costs every lit fragment, even at zero intensity, and past about nine in
+    // the scene each one costs far more (~1 ms at 1440p): with the lamps' pool this keeps it at 9
+    const LIGHTS = 3
+    const FLASH_REACH = 14
+    const lights: { light: THREE.PointLight, age: number, life: number, peak: number, held: boolean }[] = []
     for (let i = 0; i < LIGHTS; i++) {
-        const light = new THREE.PointLight(0xffffff, 0, 14, 2)
+        const light = new THREE.PointLight(0xffffff, 0, FLASH_REACH, 2)
         light.castShadow = false
         scene.add(light)
-        lights.push({ light, age: 1, life: 0, peak: 0 })
+        lights.push({ light, age: 1, life: 0, peak: 0, held: false })
     }
 
     let ground: (x: number, z: number, y: number) => number = (_x, _z, y) => y - 50
@@ -1046,26 +1048,51 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         S.vz = dir.z * speed
     }
 
-    function flash(pos: V3, color: THREE.ColorRepresentation, intensity: number, seconds: number): void {
-        let best = lights[0]!
+    /** The free light, else the flash closest to done (null when every light is held). */
+    function freeLight(): (typeof lights)[number] | null {
+        let best: (typeof lights)[number] | null = null
         let bestLeft = Infinity
         for (const l of lights) {
+            if (l.held) continue
             const left = l.life - l.age
-            if (left <= 0) {
-                best = l
-                break
-            }
+            if (left <= 0) return l
             if (left < bestLeft) {
                 bestLeft = left
                 best = l
             }
         }
+        return best
+    }
+
+    function flash(pos: V3, color: THREE.ColorRepresentation, intensity: number, seconds: number): void {
+        const best = freeLight()
+        if (!best) return
         best.light.position.set(pos.x, pos.y, pos.z)
+        best.light.distance = FLASH_REACH
         best.light.color.set(color)
         best.peak = intensity
         best.age = 0
         best.life = Math.max(0.02, seconds)
         best.light.intensity = intensity
+    }
+
+    function holdLight(distance: number): THREE.PointLight | null {
+        const l = freeLight()
+        if (!l) return null
+        l.held = true
+        l.age = 1
+        l.life = 0
+        l.light.distance = distance
+        l.light.intensity = 0
+        return l.light
+    }
+
+    function releaseLight(light: THREE.PointLight): void {
+        for (const l of lights) {
+            if (l.light !== light) continue
+            l.held = false
+            l.light.intensity = 0
+        }
     }
 
     function burst(preset: DfFxPreset, pos: V3, opts: DfFxOpts = {}): void {
@@ -1924,6 +1951,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         }
 
         for (const l of lights) {
+            if (l.held) continue
             if (l.age >= l.life) {
                 if (l.light.intensity !== 0) l.light.intensity = 0
                 continue
@@ -1948,6 +1976,8 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         lightning,
         decal,
         flash,
+        holdLight,
+        releaseLight,
         shake(amount: number) {
             trauma = Math.min(1, trauma + Math.max(0, amount))
         },

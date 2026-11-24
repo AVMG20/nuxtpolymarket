@@ -251,7 +251,7 @@ function crawlPose(p: DfPose, inp: DfPoseInput, rear: number): number {
     const sy = hy + 5.5 * Math.sin(chest)
     shoulderY = sy
     const lean = SHOULDER_X * Math.sin(roll)
-    for (const side of [0, 1]) {
+    for (let side = 0; side < 2; side++) {
         const u = (inp.phase + side * 0.5 + inp.seed) % 1
         let fwd: number
         let y: number
@@ -352,7 +352,11 @@ export function dfEvalPose(inp: DfPoseInput, out: DfPose): DfPose {
                 roar(out, t, inp.seed)
                 break
             }
-            gait(out, { ...inp, move: inp.move * 0.4 }, 'walk')
+            // the legs shuffle at 40% while the arms swing (scaled in place: a spread copy per attacker per frame was garbage)
+            const move = inp.move
+            inp.move = move * 0.4
+            gait(out, inp, 'walk')
+            inp.move = move
             const w = Math.max(0.15, inp.windup)
             const u = inp.swing >= 0 ? inp.swing / w : 2
             // Wind up overhead, slash down across the body, recover.

@@ -12,11 +12,11 @@ import { FullScreenQuad, Pass } from 'three/examples/jsm/postprocessing/Pass.js'
 // draws the heavy silhouette line, a tight one the thin crease line; both are
 // swell, thin and break up with low-frequency noise for a hand-inked stroke.
 //
-// The pass runs twice: once after the world, once after the viewmodel (whose
-// depth replaced the world's). With MSAA it blends a quad straight into the
-// buffer it reads depth from (the depth texture is the resolve copy, not the
-// attachment being drawn); without MSAA that would be a feedback loop, so it
-// copies colour to the other buffer instead.
+// The pass runs twice: once on the world (reading the world's own, possibly
+// multisampled, target: this pass is its resolve into the post chain), once
+// after the viewmodel (whose depth replaced the world's). It always copies
+// colour to the other buffer: blending into the buffer whose depth it reads
+// would be a feedback loop.
 
 const INK_VERT = /* glsl */`
     varying vec2 vUv;
@@ -28,9 +28,7 @@ const INK_VERT = /* glsl */`
 
 const INK_FRAG = /* glsl */`
     uniform sampler2D tDepth;
-    #ifdef DF_INK_COPY
     uniform sampler2D tDiffuse;
-    #endif
     uniform vec2 uTexel;
     uniform float uPr;
     uniform float uNear;
@@ -104,11 +102,7 @@ const INK_FRAG = /* glsl */`
         }
         // nothing but sky (or nothing of the viewmodel) around: no line
         if (qNear <= qMin * 1.0001) {
-            #ifdef DF_INK_COPY
             gl_FragColor = texture2D(tDiffuse, vUv);
-            #else
-            gl_FragColor = vec4(0.0);
-            #endif
             return;
         }
 
@@ -130,18 +124,14 @@ const INK_FRAG = /* glsl */`
         float ink = max(heavy * farK, fine * fineK) * uStrength;
         // a dry-brush break in the stroke now and then
         ink *= 0.82 + 0.18 * smoothstep(0.2, 0.5, dfInkNoise(css * 0.11 + 5.0));
-        #ifdef DF_INK_COPY
         vec4 c = texture2D(tDiffuse, vUv);
         gl_FragColor = vec4(mix(c.rgb, uInk, ink), c.a);
-        #else
-        gl_FragColor = vec4(uInk, ink);
-        #endif
     }
 `
 
 export interface DfInkOpts {
-    /** Copy colour to the other buffer instead of blending in place (targets without MSAA). */
-    copy: boolean
+    /** Reads colour and depth from this target instead of the chain's read buffer. */
+    source?: THREE.WebGLRenderTarget
     /** Line half width in CSS pixels. */
     width: number
     /** Scales distances for the fade (the viewmodel never fades: 0). */
@@ -149,7 +139,7 @@ export interface DfInkOpts {
     strength: number
 }
 
-/** Inks the depth edges of whatever was last drawn into the read buffer. */
+/** Inks the depth edges of whatever was last drawn into the read buffer (or `source`), into the write buffer. */
 export class DfInkPass extends Pass {
     private readonly quad: FullScreenQuad
     readonly material: THREE.ShaderMaterial
@@ -157,9 +147,7 @@ export class DfInkPass extends Pass {
 
     constructor(private camera: THREE.PerspectiveCamera, private opts: DfInkOpts) {
         super()
-        this.needsSwap = opts.copy
         this.material = new THREE.ShaderMaterial({
-            defines: opts.copy ? { DF_INK_COPY: 1 } : {},
             uniforms: {
                 tDepth: { value: null },
                 tDiffuse: { value: null },
@@ -177,7 +165,6 @@ export class DfInkPass extends Pass {
             fragmentShader: INK_FRAG,
             depthTest: false,
             depthWrite: false,
-            transparent: !opts.copy,
             toneMapped: false
         })
         this.quad = new FullScreenQuad(this.material)
@@ -188,21 +175,19 @@ export class DfInkPass extends Pass {
     }
 
     override render(renderer: THREE.WebGLRenderer, write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
-        const depth = read.depthTexture
+        const src = this.opts.source ?? read
+        const depth = src.depthTexture
         if (!depth) return
         const u = this.material.uniforms
         u.tDepth!.value = depth
-        u.tDiffuse!.value = read.texture
-        u.uTexel!.value.set(1 / read.width, 1 / read.height)
+        u.tDiffuse!.value = src.texture
+        u.uTexel!.value.set(1 / src.width, 1 / src.height)
         u.uPr!.value = this.pr
         u.uNear!.value = this.camera.near
         u.uFar!.value = this.camera.far
-        u.uPixAngle!.value = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) * 0.5) / Math.max(1, read.height)
-        const auto = renderer.autoClear
-        renderer.autoClear = false
-        renderer.setRenderTarget(this.opts.copy ? write : read)
+        u.uPixAngle!.value = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) * 0.5) / Math.max(1, src.height)
+        renderer.setRenderTarget(write)
         this.quad.render(renderer)
-        renderer.autoClear = auto
     }
 
     override dispose(): void {

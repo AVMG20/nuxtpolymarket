@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dfAdaptivePixelRatio, dfNewPrGovernor, dfPixelRatioBounds, dfStepPrGovernor } from '../../app/utils/dead-front/engine/resolution'
+import { dfAdaptivePixelRatio, dfNewPrGovernor, dfPixelRatioBounds, dfPrStrained, dfStepPrGovernor } from '../../app/utils/dead-front/engine/resolution'
 
 // CLAUDE.md: never render below native resolution on a dpr 1 screen.
 
@@ -60,6 +60,56 @@ describe('pixel ratio policy', () => {
             expect(changes.length).toBeGreaterThan(0)
             expect(g.pr).toBe(b.min)
             expect(g.pr).toBe(1)
+        })
+
+        it('steps down on judder that the average hides', () => {
+            const g = dfNewPrGovernor(b.max)
+            const clock = { t: 0 }
+            // one frame in six misses vsync: averages ~19.4 ms, under the plain average's line
+            let n = 0
+            const changes = run(g, clock, 5, () => (++n % 6 === 0 ? 33.3 : 16.7))
+            expect(changes.length).toBeGreaterThan(0)
+            expect(g.pr).toBeLessThan(b.max)
+        })
+
+        it('steps down when one frame in twenty misses vsync (p95 under 60)', () => {
+            const g = dfNewPrGovernor(b.max)
+            const clock = { t: 0 }
+            let n = 0
+            const changes = run(g, clock, 5, () => (++n % 20 === 0 ? 33.3 : 16.7))
+            expect(changes.length).toBeGreaterThan(0)
+            expect(g.pr).toBeLessThan(b.max)
+        })
+
+        it('shrugs off a stray hitch every few seconds', () => {
+            const g = dfNewPrGovernor(b.max)
+            const clock = { t: 0 }
+            let n = 0
+            // one 50 ms frame every ~4 s: under 1% of frames
+            expect(run(g, clock, 30, () => (++n % 240 === 0 ? 50 : 16.7))).toEqual([])
+            expect(g.pr).toBe(b.max)
+        })
+
+        it('reads a scene the floor still can\'t carry as strain, not a burst of effects', () => {
+            const g = dfNewPrGovernor(b.min)
+            const clock = { t: 0 }
+            // a few seconds of explosions, then back on budget
+            run(g, clock, 4, 30)
+            run(g, clock, 20, 16.7)
+            expect(dfPrStrained(g)).toBe(false)
+            // 30 fps for good at native resolution
+            run(g, clock, 15, 30)
+            expect(g.pr).toBe(b.min)
+            expect(dfPrStrained(g)).toBe(true)
+        })
+
+        it('does not climb into a level that keeps missing frames', () => {
+            const g = dfNewPrGovernor(b.min)
+            const clock = { t: 0 }
+            // fine on average, but one frame in twenty misses vsync
+            let n = 0
+            expect(run(g, clock, 30, () => (++n % 20 === 0 ? 33.3 : 16.2))).toEqual([])
+            expect(g.pr).toBe(b.min)
         })
 
         it('locks out a step up that had to be taken back, longer each time', () => {

@@ -5,6 +5,17 @@ import type { Vec3 } from '#shared/utils/dead-front/types'
 // placement (so every client sees the same village), easing curves, damped
 // springs and disposal tracking.
 
+/**
+ * Gives an instanced mesh its per-instance colours now. `setColorAt` creates them on its
+ * first call, which switches the material to another shader variant: a mesh that is only
+ * tinted in play (a drop's glow, motes) then compiles that variant mid-match (a 30+ ms
+ * hitch on the first kill) instead of in the spawn warm-up.
+ */
+export function dfInstanceColors(mesh: THREE.InstancedMesh, value = 1): THREE.InstancedMesh {
+    if (!mesh.instanceColor) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.count * 3).fill(value), 3)
+    return mesh
+}
+
 /** Deterministic PRNG (mulberry32). Cosmetic layout only. */
 export function dfRng(seed: number): () => number {
     let a = seed >>> 0

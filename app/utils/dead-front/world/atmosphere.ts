@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { DF_VOX_CELL, DF_VOX_ORIGIN } from '#shared/utils/dead-front/map-world'
 import type { DfWorldKit, DfWorldPart } from './kit'
+import { dfInstanceColors } from './util'
 
 // Night air over Sainte-Croix: a low ground mist that pools in the open (never
 // indoors: it is masked by the roofs in the voxel grid), drifting ash and the
@@ -161,8 +162,8 @@ export function createDfAtmosphere(kit: DfWorldKit): DfWorldPart {
     const emberMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide })
     disposables.push(ashMat, emberMat)
     const ashN = high ? ASH : Math.round(ASH * 0.5)
-    const ash = new THREE.InstancedMesh(cube, ashMat, ashN)
-    const embers = new THREE.InstancedMesh(cube, emberMat, EMBERS)
+    const ash = dfInstanceColors(new THREE.InstancedMesh(cube, ashMat, ashN))
+    const embers = dfInstanceColors(new THREE.InstancedMesh(cube, emberMat, EMBERS))
     for (const m of [ash, embers]) {
         m.frustumCulled = false
         m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -240,10 +241,10 @@ export function createDfAtmosphere(kit: DfWorldKit): DfWorldPart {
                 const k = (e.size / s) * (e.size / s) * flick * Math.max(0, 1 - dist / (R * 1.1))
                 embers.setColorAt(i, col.setRGB(2.4 * k, 0.75 * k, 0.18 * k))
             }
-            for (const m of [ash, embers]) {
-                m.instanceMatrix.needsUpdate = true
-                if (m.instanceColor) m.instanceColor.needsUpdate = true
-            }
+            ash.instanceMatrix.needsUpdate = true
+            if (ash.instanceColor) ash.instanceColor.needsUpdate = true
+            embers.instanceMatrix.needsUpdate = true
+            if (embers.instanceColor) embers.instanceColor.needsUpdate = true
         },
         dispose() {
             for (const m of mists) m.removeFromParent()
